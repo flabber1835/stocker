@@ -16,6 +16,7 @@ from sentinel import supervisor_io
 
 HEARTBEAT = Path('/tmp/sentinel-execution-collector-heartbeat')
 DEADLINE_SECONDS = 30
+ACCOUNT_SETUP_AND_RECOVERY_SECONDS = 12
 CollectionKind = Literal['ACCOUNT', 'FILL', 'ISSUER']
 DiagnosticStage = Literal['COLLECT_JOB', 'FAILURE_RECORD']
 
@@ -64,20 +65,23 @@ class _FailureDiagnostics:
 
 
 def record_stall(kind, reason):
+    from sentinel import account_collection_incidents
     from sentinel.feed import store
     from sentinel.automation import outbox
     conn = store.connect(os.environ['SENTINEL_DATABASE_URL'],connect_timeout=3,statement_timeout_ms=2000)
     try:
-        prefix = 'account-status' if kind == 'ACCOUNT' else 'fill-notification'
-        outbox.enqueue(conn,idempotency_key=prefix+'-collection:'+reason,
-            event_type='ACCOUNT_STATUS_COLLECTION_FAILED' if kind == 'ACCOUNT' else 'FILL_NOTIFICATION_COLLECTION_FAILED',
-            severity='WARN',payload={'reason':reason})
+        if kind == 'ACCOUNT':
+            account_collection_incidents.record_failure(conn, reason=reason, stage='COLLECT_JOB')
+        else:
+            outbox.enqueue(conn,idempotency_key='fill-notification-collection:'+reason,
+                event_type='FILL_NOTIFICATION_COLLECTION_FAILED',severity='WARN',payload={'reason':reason})
     finally:
         conn.rollback();conn.close()
 
 
 def collect_once(kind, fill_rotation=0, *, reader=None, config=None, connection_factory=None):
     """Existing execution collectors keep their binding and native receipt rules."""
+    from sentinel import account_collection_incidents
     from sentinel.config import SentinelConfig
     from sentinel.feed import store
     from sentinel.automation import outbox
@@ -96,16 +100,30 @@ def collect_once(kind, fill_rotation=0, *, reader=None, config=None, connection_
             options = ({'report_reservation_recheck': True} if kind == 'ACCOUNT'
                        else {'rotation': fill_rotation})
             result = asyncio.run(module.collect(conn,config=config,reader=reader, **options))
+            if kind == 'ACCOUNT' and result is False:
+                return 'NOT_BOUND'
+            if kind == 'ACCOUNT' and result == account_status.SAMPLE_SUPERSEDED:
+                return result
             return (account_status.RESERVATION_RECHECK
                     if kind == 'ACCOUNT' and result == account_status.RESERVATION_RECHECK
                     else 'COLLECTED')
         except Exception as exc:
             conn.rollback()
-            typed = kind == 'FILL' and isinstance(exc,fill_notifications.FillNotificationRefused)
+            if kind == 'ACCOUNT':
+                if isinstance(exc, account_status.AccountEvidenceBusy):
+                    reason = ('ACCOUNT_EVIDENCE_LOCK_TIMEOUT' if str(exc) == 'ACCOUNT_EVIDENCE_LOCK_TIMEOUT'
+                              else 'ACCOUNT_EVIDENCE_PUBLICATION_EXPIRED')
+                    account_collection_incidents.record_failure(conn, reason=reason, stage='PERSIST_ACCOUNT',
+                        sqlstate='55P03' if reason == 'ACCOUNT_EVIDENCE_LOCK_TIMEOUT' else None,
+                        dependency=exc.dependency,lock_timeouts=exc.lock_timeouts, blocker=exc.blocker)
+                else:
+                    account_collection_incidents.record_failure(conn, reason=type(exc).__name__, stage='COLLECT_ACCOUNT',
+                        sqlstate=supervisor_io.error_diagnostic(exc)['sqlstate'])
+                return 'REFUSED'
+            typed = isinstance(exc,fill_notifications.FillNotificationRefused)
             reason = str(exc) if typed else type(exc).__name__
-            prefix = 'account-status' if kind == 'ACCOUNT' else 'fill-notification'
-            outbox.enqueue(conn,idempotency_key=prefix+'-collection:'+reason,
-                event_type='ACCOUNT_STATUS_COLLECTION_FAILED' if kind == 'ACCOUNT' else 'FILL_NOTIFICATION_COLLECTION_FAILED',
+            outbox.enqueue(conn,idempotency_key='fill-notification-collection:'+reason,
+                event_type='FILL_NOTIFICATION_COLLECTION_FAILED',
                 severity='CRITICAL' if typed else 'WARN',payload={'reason':reason})
             return 'REFUSED'
     finally:
@@ -114,8 +132,7 @@ def collect_once(kind, fill_rotation=0, *, reader=None, config=None, connection_
 
 def run(*, stopped=None, runner=supervisor_io.run, clock=time.monotonic):
     from sentinel import local_paper
-    from sentinel.execution import account_status, fill_notifications
-    from sentinel.execution import issuer_refresh
+    from sentinel.execution import account_status, fill_notifications, issuer_refresh, opening_display
     from sentinel.feed.issuer_refresh import CONTACT_ENV
     from sentinel.config import trading_endpoint, DEFAULT_BASE_URL
     from sentinel.trading_environment import TradingEnvironment
@@ -128,13 +145,18 @@ def run(*, stopped=None, runner=supervisor_io.run, clock=time.monotonic):
     diagnostics = _FailureDiagnostics()
     reservation_retry = False
     fill_rotation = 0
+    paper_account_deadline = (ACCOUNT_SETUP_AND_RECOVERY_SECONDS + opening_display.TIMEOUT_SECONDS
+                              + account_status.DEADLINE_SECONDS + account_status.PUBLICATION_SECONDS)
     try:
         while not stopped.is_set():
             live = trading_endpoint(os.environ.get('ALPACA_BASE_URL', DEFAULT_BASE_URL)).environment is TradingEnvironment.LIVE
-            for kind, enabled, interval in (
-                    ('ACCOUNT',live or local_paper.enabled(),account_status.POLL_SECONDS),
-                    ('FILL',bool(os.environ.get(fill_notifications.SINCE_ENV)),fill_notifications.POLL_SECONDS),
-                    ('ISSUER',(live or local_paper.enabled()) and bool(os.environ.get(CONTACT_ENV)),3600)):
+            for kind, enabled, interval, timeout in (
+                    ('ACCOUNT',live or local_paper.enabled(),account_status.POLL_SECONDS,
+                     DEADLINE_SECONDS if live else paper_account_deadline),
+                    ('FILL',bool(os.environ.get(fill_notifications.SINCE_ENV)),fill_notifications.POLL_SECONDS,
+                     DEADLINE_SECONDS),
+                    ('ISSUER',(live or local_paper.enabled()) and bool(os.environ.get(CONTACT_ENV)),3600,
+                     issuer_refresh.DEADLINE_SECONDS)):
                 if not enabled or stopped.is_set() or clock() < due[kind]:
                     continue
                 due[kind] = clock()+interval
@@ -143,9 +165,7 @@ def run(*, stopped=None, runner=supervisor_io.run, clock=time.monotonic):
                     args += (fill_rotation,)
                     fill_rotation += 1
                 try:
-                    result = runner(collect_once,*args,
-                        timeout=issuer_refresh.DEADLINE_SECONDS if kind == 'ISSUER' else DEADLINE_SECONDS,
-                        start_method='spawn')
+                    result = runner(collect_once,*args,timeout=timeout,start_method='spawn')
                     if kind == 'ACCOUNT':
                         recheck = result == account_status.RESERVATION_RECHECK
                         if recheck and not reservation_retry:

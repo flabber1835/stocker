@@ -12,7 +12,9 @@ const listeners = {};
 const reads = [];
 const writes = [];
 const installed = [];
-const badge = { className: ['known-failure','resume-known-failure','hidden-initial-known-failure'].includes(input.wake) || input.case?.knownNegative ? 'state fail' : 'state ok', textContent: 'current' };
+let currentRegions = input.case?.currentRegions === true;
+const badge = { className: input.wake.startsWith('partial-short-') ? 'state neutral' :
+  ['known-failure','resume-known-failure','hidden-initial-known-failure'].includes(input.wake) || input.case?.knownNegative ? 'state fail' : 'state ok', textContent: 'current' };
 const heartbeat = { textContent: 'current' };
 const preparation = { textContent: 'Downloading closing data' };
 const planReadiness = { textContent: 'Next trading plan: not ready yet.' };
@@ -25,13 +27,14 @@ const document = {
   body: { dataset: { generatedAt: input.wake === 'invalid-date' ? 'invalid' :
       input.wake === 'future-date' ? new Date(stamp + 10000).toISOString() : input.generated,
       maxAgeSeconds: input.budget,
-      refreshPending: ['initial-pending','resume-initial-pending'].includes(input.wake) ? 'true' : 'false',
-      observationCurrent: 'true' } },
+      refreshPending: ['initial-pending','resume-initial-pending','partial-short-pending'].includes(input.wake) ? 'true' : 'false',
+      observationCurrent: input.wake === 'transport-unowned-focus' || input.wake.startsWith('partial-short-') ? 'false' : 'true' } },
   documentElement: { classList: { add: value => classes.add(value), remove: (...values) => values.forEach(value=>classes.delete(value)) } },
   visibilityState: input.wake === 'initial-hidden' || input.wake.startsWith('hidden-initial-') ? 'hidden' : 'visible',
   getElementById: id => ({'operational-state': badge, 'preparation-stage': preparation,
     'plan-readiness': planReadiness, 'dashboard-heartbeat': heartbeat})[id] ?? null,
   addEventListener: (name, fn) => { listeners[name] = fn; },
+  querySelector: selector => selector === '.row[data-current="true"]' && currentRegions ? {} : null,
   querySelectorAll: selector => selector.includes('[open]') ?
     [expandedDetail].filter(item => item.open) : [expandedDetail],
   open() { writes.push('open'); },
@@ -40,19 +43,22 @@ const document = {
   acceptSnapshot(next) {
     writes.push(next.fixtureValue);
     Object.assign(this.body.dataset, next.body.dataset);
-    badge.className = next.fixtureValue === 'partial' ? 'state neutral' : 'state ok';
+    currentRegions = next.currentRegions;
+    badge.className = next.fixtureValue.startsWith('partial') ? 'state neutral' : 'state ok';
   },
 };
 class Clock extends Date { static now() { return now; } }
 class Parser {
   parseFromString(html) {
-    return { fixtureValue:html, getElementById: () => html === 'incomplete' ? null : {},
+    return { fixtureValue:html, currentRegions: ['partial','partial-same','partial-new'].includes(html),
+      getElementById: () => html === 'incomplete' ? null : {},
       body: { dataset: { generatedAt: html === 'invalid-date' ? 'invalid' :
-        new Date(html === 'stale' ? now - 120000 : html === 'future' ? now + 10000 : now).toISOString(),
+        new Date(html === 'stale' ? now - 120000 : html === 'future' ? now + 10000 :
+          html === 'partial-same' ? stamp : now).toISOString(),
         maxAgeSeconds: ({'invalid-budget': 'invalid', 'zero-budget': '0',
           'infinite-budget': 'Infinity', 'oversized-budget': '99999'})[html] ?? input.budget,
         refreshPending: html === 'pending' ? 'true' : 'false',
-        observationCurrent: ['partial','wrong-current-marker'].includes(html)?'false':html==='missing-marker'?undefined:'true' } } };
+        observationCurrent: ['partial','partial-same','partial-new','wrong-current-marker'].includes(html)?'false':html==='missing-marker'?undefined:'true' } } };
   }
 }
 function assertFreshness(phase, message) {
@@ -108,6 +114,86 @@ function failRead(read) {
       assert.equal(timers.size,2,'partial refresh retains one age timer and one refresh timer');
     } else {
       assert.equal(writes.length,0,'header/body currentness mismatch installed authority');
+    }
+    process.stdout.write('PASS\n'); return;
+  }
+  if (input.wake.startsWith('partial-short-')) {
+    const budget = Number(input.budget) * 1000;
+    const early = Math.max(1, Math.floor(budget / 2));
+    const original = document.body.dataset.generatedAt;
+    async function advanceTo(target) {
+      assert(target >= now);
+      for (let guard=0;guard<100;guard++) {
+        const entry=[...timers.entries()].filter(([,t])=>t.due<=target)
+          .sort((a,b)=>a[1].due-b[1].due || a[0]-b[0])[0];
+        if (!entry) { now=target; await settled(); return; }
+        now=entry[1].due;
+        if (entry[1].interval) entry[1].due += entry[1].delay;
+        else timers.delete(entry[0]);
+        entry[1].fn(); await settled();
+      }
+      throw new Error('partial refresh timer loop is unbounded');
+    }
+    function reply(index, html) {
+      reads[index].resolve({ok:true,status:200,headers:{get:()=> 'PARTIAL'},text:async()=>html});
+    }
+    if (input.wake === 'partial-short-empty') {
+      await advanceTo(stamp+budget);
+      assert.equal(reads.length,0,'a partial document without current regions keeps the ordinary floor');
+      assert(classes.has('not-current'),'an unowned expired partial cannot retain current styling');
+      await advanceTo(stamp+5000);
+      assert.equal(reads.length,1,'ordinary read remains due at five seconds');
+    } else if (input.wake === 'partial-short-pending') {
+      assert.equal(reads.length,1,'refresh-pending starts its owned foreground read immediately');
+      assert([...timers.values()].some(timer=>timer.due===stamp+5000),
+        'refresh-pending retains the ordinary cadence instead of an early timer');
+      await advanceTo(stamp+5000);
+      assert.equal(reads.length,1,'refresh-pending does not launch an early or overlapping read');
+      assert.equal(document.body.dataset.generatedAt,original,'pending transport cannot renew the receipt');
+    } else if (input.wake === 'partial-short-hidden') {
+      await advanceTo(stamp+100);
+      document.visibilityState='hidden'; listeners.visibilitychange();
+      await advanceTo(stamp+early);
+      assert.equal(reads.length,0,'hidden partial cannot start an early read');
+      await advanceTo(stamp+budget-100);
+      document.visibilityState='visible'; listeners.visibilitychange();
+      assert.equal(reads.length,1,'foreground return starts one owned read');
+      await advanceTo(stamp+budget);
+      assert.equal(reads.length,1,'expiry cannot overlap the foreground read');
+      assert(!classes.has('not-current'),'owned read uses bounded last-known styling');
+      await advanceTo(stamp+budget+20);
+      reply(0,'partial-new'); await settled();
+      assert.deepEqual(writes,['partial-new'],'fresh partial can restore current regions');
+      assert.equal(timers.size,2,'hidden return retains one age and one refresh timer');
+    } else {
+      await advanceTo(stamp+early);
+      assert.equal(reads.length,1,'a current region in PARTIAL requires an early read');
+      assert.equal(reads[0].started,stamp+early);
+      assert.equal(document.body.dataset.generatedAt,original,'early read cannot renew the receipt');
+      await advanceTo(stamp+early+20);
+      reply(0,'partial-same'); await settled();
+      assert.deepEqual(writes,['partial-same'],'same-boundary PARTIAL is accepted as partial');
+      assert.equal(Date.parse(document.body.dataset.generatedAt),Date.parse(original),
+        'same boundary keeps its original proof');
+      await advanceTo(stamp+budget);
+      assert.equal(reads.length,2,'one expiry follow-up checks the next partial receipt');
+      assert.equal(reads[1].started,stamp+budget);
+      assert(!classes.has('not-current'),'owned expiry refresh is bounded last-known');
+      await advanceTo(stamp+budget+20);
+      reply(1,'partial-new'); await settled();
+      assert.deepEqual(writes,['partial-same','partial-new']);
+      assert(currentRegions && !classes.has('not-current'),
+        'new partial keeps independently current regions while its receipt lives');
+      const nextBoundary=Date.parse(document.body.dataset.generatedAt)+budget;
+      await advanceTo(nextBoundary-1);
+      assert(!classes.has('not-current'),'the new region retains only its own finite proof');
+      await advanceTo(nextBoundary);
+      assert(classes.has('not-current'),'expired regions cannot borrow later ordinary polling');
+      assert.equal(reads.length,2,'recurring short partials cannot bypass the five-second floor');
+      await advanceTo(stamp+budget+20+5000);
+      assert.equal(reads.length,3,'ordinary refresh eventually rechecks after bounded follow-up');
+      assert(reads.every((read,index)=>index===0 || read.started>reads[index-1].started),
+        'partial refresh requests remain serialized');
     }
     process.stdout.write('PASS\n'); return;
   }
@@ -178,12 +264,13 @@ function failRead(read) {
         await advanceTo(stamp+cycles*(poll+config.latencyMs+2000));
         assert.equal(installed.length,cycles,'bounded healthy responses replace the document');
         assert.equal(reads.length,cycles);
-        assert(reads[0].started>=stamp+poll,'proof expiry cannot advance the first ordinary read');
+        const expectedFirst = budget <= poll ? Math.max(1,Math.floor(budget/2)) : poll;
+        assert.equal(reads[0].started,stamp+expectedFirst,'short current proof must start its read before expiry');
         assert(reads.every((r,i)=>!i || r.started-reads[i-1].started>=5000),'ordinary polling keeps its five-second floor');
-        if (budget>=poll) assert(observations.every(o=>!o.withdrawn),'healthy in-flight refresh cannot flash red');
+        assert(observations.every(o=>!o.withdrawn),'healthy in-flight refresh cannot flash red');
         if (config.requireAmber) assert(observations.some(o=>o.refreshing && !o.withdrawn),'expired healthy transport must withdraw green');
         for (const view of observations) {
-          const firstExpiredTick=view.generated+(Math.floor(budget/1000)+1)*1000;
+          const firstExpiredTick=view.generated+budget;
           if (view.at>=firstExpiredTick && !installed.includes(view.at)) {
             assert.notEqual(view.state,'state ok','the original proof boundary cannot retain green');
           }
@@ -196,7 +283,7 @@ function failRead(read) {
     } else if (input.wake === 'transport-unowned-focus') {
       await advanceTo(stamp+2000);
       assertFreshness('expired','unowned expired proof withdraws at its age tick');
-      assert.equal(reads.length,0);
+      assert.equal(reads.length,0,'proof expiry cannot advance the ordinary read for a partial observation');
       listeners.focus();listeners.focus();
       assert.equal(reads.length,0,'unowned focus cannot buy a resume or bring the ordinary read forward');
       assertFreshness('expired');
@@ -337,20 +424,15 @@ function failRead(read) {
   if (input.wake === 'proof-expiry') {
     assert.equal(badge.className,'state ok');
     const original=document.body.dataset.generatedAt;
-    const poll=Number(input.budget)<45 ? Math.min(30000,Math.max(5000,Math.floor(Number(input.budget)/2)*1000)) : 30000;
     now=stamp+(Math.floor(Number(input.budget))+1)*1000;
     fireDelay(1000);
     assertFreshness('expired','original proof expiry withdraws green');
     assert.equal(planReadiness.textContent,'Plan readiness not current · refreshing status');
     assert.equal(document.body.dataset.generatedAt,original,'proof expiry cannot renew the observation');
-    if (now<stamp+poll) {
-      assert.equal(reads.length,0,'short-proof expiry cannot cause a one-second poll');
-      now=stamp+poll;fireDelay(poll);await settled();
-    }
     assert.equal(reads.length,1);
     listeners.pageshow({persisted:true});
     assert.equal(reads.length,1,'expired proof cannot start competing reads');
-    now=stamp+1000;fireDelay(1000);
+    now=stamp;fireDelay(1000);
     assertFreshness('expired','clock rollback cannot restore the historical exception');
     process.stdout.write('PASS\n');return;
   }

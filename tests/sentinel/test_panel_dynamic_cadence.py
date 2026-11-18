@@ -52,6 +52,15 @@ def run(scenario, *, mutation=None, html=None, expected_poll=None):
         guard = 'visualAge + Math.max(0, performance.now() - visualAnchor)'
         assert script.count(guard) == 1
         script = script.replace(guard, 'Math.max(0, Date.now() - generated)')
+    elif mutation in {'ignore-transit', 'repeat-early', 'skip-boundary'}:
+        guard, replacement = {
+            'ignore-transit': ('var remaining = boundary - Date.now();', 'var remaining = value;'),
+            'repeat-early': ('if (performance.now() - earlyStarted < 5000)', 'if (false)'),
+            'skip-boundary': ('scheduledBoundary = "expiry";\n      return Math.ceil(remaining);',
+                              'return regular;'),
+        }[mutation]
+        assert script.count(guard) == 1
+        script = script.replace(guard, replacement)
     payload = dict(
         script=script, scenario=scenario, expectedPoll=expected_poll, initial=metadata(html),
         incoming=metadata(render(fixture(NOW + timedelta(seconds=13), 8))))
@@ -66,7 +75,8 @@ def assert_initial_cadence(html, milliseconds):
 
 
 @pytest.mark.parametrize('scenario', [
-    'cadence', 'late-visual', 'monotonic-visual', 'owned-heartbeat', 'resume'])
+    'cadence', 'late-visual', 'monotonic-visual', 'owned-heartbeat', 'resume',
+    'short-boundary', 'moving-boundary'])
 def test_current_clock_handoff_uses_actual_controller_and_reconciler(scenario):
     result = run(scenario)
     assert result.returncode == 0, result.stderr
@@ -76,7 +86,10 @@ def test_current_clock_handoff_uses_actual_controller_and_reconciler(scenario):
 @pytest.mark.parametrize('scenario,mutation,reason', [
     ('cadence', 'frozen-cadence', 'accepted short publication must replace'),
     ('owned-heartbeat', 'copied-heartbeat', 'server DOM must not reset'),
-    ('monotonic-visual', 'wall-clock-visual', 'visual elapsed progression must use monotonic')])
+    ('monotonic-visual', 'wall-clock-visual', 'visual elapsed progression must use monotonic'),
+    ('short-boundary', 'ignore-transit', 'short receipt must account for time in transit'),
+    ('short-boundary', 'skip-boundary', 'same evidence deadline receives one follow-up'),
+    ('moving-boundary', 'repeat-early', 'moving deadlines cannot cause a rapid polling loop')])
 def test_original_scheduler_and_visual_regressions_are_detected(scenario, mutation, reason):
     result = run(scenario, mutation=mutation)
     assert result.returncode != 0 and reason in result.stderr
@@ -84,5 +97,5 @@ def test_original_scheduler_and_visual_regressions_are_detected(scenario, mutati
 
 def test_controller_version_distinguishes_offered_html_from_running_code():
     html = render(fixture(NOW, 26))
-    assert 'data-controller-version="2"' in html
-    assert 'window.sentinelDashboardControllerVersion = "2";' in html
+    assert 'data-controller-version="3"' in html
+    assert 'window.sentinelDashboardControllerVersion = "3";' in html

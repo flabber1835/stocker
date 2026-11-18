@@ -13,7 +13,7 @@ from html import escape
 from zoneinfo import ZoneInfo
 
 from sentinel.panel.model import FAIL, MARKET_BUY_OBSERVATION, OK, UNKNOWN, Panel, PaperOrderOutcome, ShadowSlot
-from sentinel.panel.presentation import describe, dashboard_health, preparation_stage, visible_preparation
+from sentinel.panel.presentation import describe, dashboard_health, opening_wait_label, preparation_stage, visible_preparation
 
 
 def _esc(value) -> str:
@@ -220,7 +220,7 @@ def _preparation_html(panel: Panel, *, refresh_pending: bool = False) -> str:
 
 def _plan_readiness_html(panel: Panel, *, refresh_pending: bool = False) -> str:
     readiness = dashboard_health(panel)['plan_readiness']
-    value = {'ready': 'Next trading plan: saved for its scheduled market open.',
+    value = {'ready': 'Next trading plan: saved for scheduled execution.',
              'pending': 'Next trading plan: not ready yet.',
              'unavailable': 'Next trading plan: unavailable; see System details.'}[readiness]
     if refresh_pending:
@@ -246,7 +246,8 @@ def _run_html(panel: Panel) -> str:
     stage = {'EXECUTING':'Trading in progress','RECONCILING':'Reconciling fills',
              'RETRY_WAIT':'Waiting for the next check','SUCCEEDED':'Run completed',
              'FAILED':'Run failed','ABANDONED':'Run abandoned','SUPERSEDED':'Run superseded',
-             'PLAN_READY':'Plan ready','WAITING_OPEN':'Waiting for market open'}[run.state]
+             'PLAN_READY':'Plan ready','WAITING_OPEN':opening_wait_label(
+                 panel.now if not historical else None, run.intent.execution_open_at, run.intent.execute_at)}[run.state]
     if run.unsent_at_cutoff:
         stage = 'Opening window closed'
     rows = []

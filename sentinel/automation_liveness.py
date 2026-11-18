@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from sentinel.automation.health import read_health
-from sentinel.automation_runtime import config_from_env
+from sentinel.automation.env_config import config_from_env
 from sentinel.config import SentinelConfig
 from sentinel.feed import store as feed_store
 

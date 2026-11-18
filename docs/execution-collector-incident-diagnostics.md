@@ -1,5 +1,69 @@
 # Preserve execution collector dependency causes before coalescing
 
+## November 18 account publication contention
+
+The opening collector's account INSERT timed out updating the shared PAPER
+revision at 14:33:28 UTC. The trace establishes the blocked statement. It does
+not identify the transaction holding that row. The account result had already
+passed the native identity checks. Its successor was collected about a minute
+later. The original per-exception outbox key also reused an older incident.
+
+Keep the account evidence and its operational invalidation atomic. A periodic
+sample keeps the database time acquired at the completed native read. If its
+INSERT encounters a PostgreSQL lock timeout, roll back the failed transaction
+and try publication in a fresh transaction within one bounded publication
+interval. Recheck the binding, any proved working orders, and the original
+opening observation. An expired or changed context cannot acquire a positive
+proof through a retry. Never retry a commit with an uncertain outcome. A
+newer account observation retains its later timestamp. Current operators must
+still see adverse account states, and every material change keeps the existing
+strict PAPER revision trigger and rollback semantics.
+
+The PAPER account collector can spend 18 seconds fetching the optional opening
+observation before the 8-second native account read and the 10-second
+publication window. Give its spawned job the sum of those three budgets plus
+12 seconds for imports, connection, binding checks and recovery. This yields a
+48-second outer deadline within the 60-second account polling interval. A
+stalled job still has a separate five-second failure recorder. The other
+collectors retain their own deadlines, and the 75-second heartbeat limit
+continues to bound worker liveness.
+
+Give each account collection incident a durable occurrence in independent
+operational metadata. Its first failure enqueues one warning. Repeated matching
+failures update its count and last-seen time. A later successful periodic
+observation closes earlier open occurrences in a separate transaction after
+the sample commits. A diagnostic failure is reported independently and cannot
+roll back or redate the sample. A concurrent, newer account observation supersedes a delayed
+sample before the latter can commit. This preserves sequence and time ordering
+for existing readers. No source flag is added to the account economics.
+Use a separate collector-owned `COLLECTOR:ACCOUNT:<context>` row in the existing
+backed operational receipts table. It has its own HMAC purpose and schema,
+`sentinel.account-collection-incidents/1`. The context binds the physical
+database and account/deployment/takeover identity. Keep sixteen recent episodes,
+with the original warning retained in the outbox for older occurrences. No
+financial reader selects this scope. Read the `episodes` array for first and
+last observation, recurrence count, lock timeout count, and last recovery time.
+Record the observed SQLSTATE and distinguish the account
+revision trigger when PostgreSQL supplies its name. A timeout by itself cannot
+identify the transaction holding the lock.
+
+After the first evidenced lock timeout, a single independent read-only
+PostgreSQL probe may sample the same backend during its retry. Use
+`pg_blocking_pids` to identify actual concurrent blockers and constrain the
+waiter to the same database, login, original backend lifetime and known account
+publication statement. Record the observed blocker count, its server state and
+the recognized last statement only for a single blocker. The last statement
+cannot establish which earlier operation originally acquired the lock.
+Multiple, unrecognized or inaccessible stages remain unattributed. The query
+returns finite stage labels. No SQL, backend IDs, identities or arguments
+leave PostgreSQL. A probe that loses the race or fails cannot delay publication
+or change a retry, recovery or trading decision. Recovery bookkeeping runs
+only after a committed observation and has a short independent lock timeout.
+If the account collection itself fails while the signed episode store is
+unavailable, roll back the incomplete episode, report the recording fault
+separately and use the pre-existing immutable warning for the original cause.
+An unknown outcome from committing a warning is never retried under a new key.
+
 Decision before implementation, November8. A current fill-collection warning
 retained only `DependencyError`. The parent already received the safe original
 exception class, errno and SQLSTATE in that wrapper, but replaced them with its

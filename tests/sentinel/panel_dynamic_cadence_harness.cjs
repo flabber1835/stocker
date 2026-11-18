@@ -91,6 +91,31 @@ function ageTick(){const entry=[...timers.entries()].find(([,t])=>t.age);assert(
    assert(detail.open&&document.querySelector('.wrap').childNodes[2]===detail,'reconciliation preserves open inspection identity');
   }
   assert.equal(reads[1].started-first,5000);assert.equal(scrollCalls,0);assert.equal(context.window.scrollY,42);
+ }else if(input.scenario==='short-boundary' || input.scenario==='moving-boundary'){
+  await advance(13000);
+  await accept(6.76,3400); // 3.36 seconds remain when the document actually arrives.
+  assert.deepEqual(activePoll(),[1680],'short receipt must account for time in transit');
+  await advance(14680);
+  assert.equal(reads.length,2);
+  if(input.scenario==='moving-boundary'){
+   await accept(.8);
+   await advance(19679);
+   assert.equal(reads.length,2,'moving deadlines cannot cause a rapid polling loop');
+   assert(classes.has('not-current'),'rate limiting cannot extend genuine proof');
+   await advance(19680);
+   assert.equal(reads.length,3);
+  }else{
+   await advance(15000);
+   await accept(1.36); // A later verification of the same absolute deadline.
+   await advance(16359);assert.equal(reads.length,2);assert(!classes.has('not-current'));
+   await advance(16360);
+   assert.equal(reads.length,3,'same evidence deadline receives one follow-up');
+   assert(classes.has('refreshing-status')&&!classes.has('not-current'),'an owned boundary check is visibly last known');
+   await advance(17000);await accept(22);
+   assert(!classes.has('refreshing-status')&&!classes.has('not-current'));
+   assert.equal(document.getElementById('operational-state').className,'state ok');
+   assert.equal(timers.size,2);
+  }
  }else if(input.scenario==='late-visual'){
   heartbeatWrites.length=0;setClock(5200);ageTick();
   assert.equal(heartbeatWrites.length,1,'late callback writes current visual age once');

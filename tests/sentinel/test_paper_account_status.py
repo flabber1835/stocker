@@ -81,6 +81,200 @@ def test_real_gets_refresh_only_append_only_panel_evidence(db, monkeypatch):
     assert len(f.calls) == 4
 
 
+def test_account_insert_waits_across_transactions_without_redating_native_read(db, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    from time import sleep
+    import psycopg
+    from sentinel import account_lock_observation
+
+    f = fixture(db, monkeypatch)
+    db.execute("SET statement_timeout='2s'")
+    db.commit()
+    attempted = Event()
+    probe_attempted = Event()
+    attempts = []
+    original = module.operational_evidence.record_account_snapshot
+
+    def record(conn, account, **kwargs):
+        attempts.append((conn.execute('SELECT txid_current()').fetchone()[0], kwargs['collector_observed_at']))
+        attempted.set()
+        original(conn, account, **kwargs)
+
+    def unavailable_probe(*args, **kwargs):
+        probe_attempted.set()
+        raise RuntimeError('optional probe unavailable')
+
+    monkeypatch.setattr(account_lock_observation, 'start', unavailable_probe)
+    monkeypatch.setattr(module.operational_evidence, 'record_account_snapshot', record)
+    with psycopg.connect(db.info.dsn) as holder, ThreadPoolExecutor(1) as pool:
+        holder.execute("SELECT revision FROM sentinel_operational_read_revisions WHERE scope='PAPER' FOR UPDATE")
+        pending = pool.submit(asyncio.run, module.collect(db, config=f.config, reader=f.reader,
+                                                          report_reservation_recheck=True))
+        try:
+            assert attempted.wait(5)
+            sleep(2.3)  # longer than the installed statement timeout
+        finally:
+            holder.rollback()
+        assert pending.result(timeout=6) is True
+    assert len({tx for tx, _ in attempts}) >= 2
+    assert probe_attempted.is_set()
+    assert len(f.calls) == 2
+    assert db.execute('SELECT observed_at FROM sentinel_broker_account_evidence').fetchall() == [(attempts[0][1],)]
+    assert {stamp for _, stamp in attempts} == {attempts[0][1]}
+    assert db.execute('SELECT count(*) FROM sentinel_commands').fetchone() == (0,)
+
+
+def test_account_failure_occurrences_require_successful_periodic_publication(db, issue369_pg, monkeypatch):
+    import psycopg
+    from sentinel import account_collection_incidents as incidents, execution_collector as collector
+    f = fixture(db, monkeypatch)
+    monkeypatch.setenv('SENTINEL_PUBLICATION_RECEIPT_KEY', 'collector-test-key-only-'*3)
+    monkeypatch.setattr(module, 'PUBLICATION_SECONDS', .3)
+    db.commit()
+
+    def poll():
+        return collector.collect_once('ACCOUNT', reader=f.reader, config=f.config,
+            connection_factory=lambda *a, **k: psycopg.connect(db.info.dsn, options='-c statement_timeout=2000'))
+
+    with psycopg.connect(db.info.dsn) as holder:
+        holder.execute("SELECT 1 FROM sentinel_operational_read_revisions WHERE scope='PAPER' FOR UPDATE /*private_canary*/")
+        monkeypatch.setattr(module, 'PUBLICATION_SECONDS', 3)
+        assert poll() == 'REFUSED'
+        monkeypatch.setattr(module, 'PUBLICATION_SECONDS', .3)
+        assert poll() == 'REFUSED'
+        holder.rollback()
+        assert poll() == 'COLLECTED'
+        f.account['cash'] = f.account['buying_power'] = '9999.99'
+        holder.execute("SELECT 1 FROM sentinel_operational_read_revisions WHERE scope='PAPER' FOR UPDATE")
+        assert poll() == poll() == 'REFUSED'
+        holder.rollback()
+    rows = db.execute("SELECT payload FROM sentinel_alert_outbox WHERE event_type='ACCOUNT_STATUS_COLLECTION_FAILED'"
+                      " ORDER BY created_at").fetchall()
+    assert len(rows) == 2 and rows[0][0]['occurrence'] != rows[1][0]['occurrence']
+    assert all(row[0]['stage'] == 'PERSIST_ACCOUNT' and row[0]['sqlstate'] == '55P03'
+               and row[0]['reason'] == 'ACCOUNT_EVIDENCE_LOCK_TIMEOUT' for row in rows)
+    assert db.execute('SELECT cash FROM sentinel_broker_account_evidence').fetchall() == [(D('10000'),)]
+    episodes = incidents.read_history(db)
+    assert [e.occurrences for e in episodes] == [2, 2]
+    assert episodes[0].recovered_at is not None and episodes[1].recovered_at is None
+    assert all(e.dependency == 'PAPER_REVISION' and e.lock_timeouts >= 2 for e in episodes)
+    blocker = episodes[0].blocker
+    assert blocker and blocker.blocker_count == 1 and blocker.waiter == 'ACCOUNT_EVIDENCE_INSERT'
+    assert blocker.blocker_state == 'IDLE_IN_TRANSACTION' and blocker.blocker_last_statement == 'REVISION_ROW_LOCK'
+    assert 'private_canary' not in episodes[0].model_dump_json()
+    assert episodes[1].blocker is None  # No second in-flight sample existed to observe.
+    assert db.execute("SELECT count(*) FROM sentinel_operational_verification_receipts WHERE scope NOT LIKE 'COLLECTOR:ACCOUNT:%'").fetchone() == (0,)
+    db.rollback()
+    from tests.support.postgres import paused_physical_restore
+    with paused_physical_restore(issue369_pg, db.info.dbname) as restored:
+        assert incidents.read_history(restored) == episodes
+        assert restored.execute('SELECT count(*) FROM sentinel_commands').fetchone() == (0,)
+    db.execute("UPDATE sentinel_operational_verification_receipts SET signature='changed' WHERE scope LIKE 'COLLECTOR:ACCOUNT:%'")
+    with pytest.raises(ValueError, match='authentication'):
+        incidents.read_history(db)
+    db.rollback()
+
+
+def test_rebound_during_account_publication_rolls_back_evidence_and_revision(db, monkeypatch):
+    f = fixture(db, monkeypatch)
+    original = module.operational_evidence.record_account_snapshot
+    before = db.execute("SELECT revision FROM sentinel_operational_read_revisions WHERE scope='PAPER'").fetchone()
+    db.commit()
+
+    def insert_then_rebind(conn, account, **kwargs):
+        original(conn, account, **kwargs)
+        monkeypatch.setattr(module, '_bound', lambda conn: None)
+
+    monkeypatch.setattr(module.operational_evidence, 'record_account_snapshot', insert_then_rebind)
+    with pytest.raises(module.AccountStatusRefused, match='DURABLE_BINDING_CHANGED'):
+        collect(db, f)
+    assert db.execute('SELECT count(*) FROM sentinel_broker_account_evidence').fetchone() == (0,)
+    assert db.execute("SELECT revision FROM sentinel_operational_read_revisions WHERE scope='PAPER'").fetchone() == before
+
+
+def test_late_periodic_publication_cannot_overtake_newer_account_evidence(db, monkeypatch):
+    from dataclasses import replace
+    import psycopg
+    f = fixture(db, monkeypatch)
+    original = module.operational_evidence.record_account_snapshot
+
+    def publish_newer_first(conn, account, **kwargs):
+        with psycopg.connect(db.info.dsn) as other:
+            original(other, replace(account, account_blocked=True))
+        original(conn, account, **kwargs)
+
+    monkeypatch.setattr(module.operational_evidence, 'record_account_snapshot', publish_newer_first)
+    assert collect(db, f) is False
+    assert db.execute('SELECT flags FROM sentinel_broker_account_evidence ORDER BY seq').fetchall() == [(
+        {'trading_blocked':False,'account_blocked':True,'trade_suspended_by_user':False},)]
+    assert sources._latest_account_evidence(db)['flags']['account_blocked'] is True
+
+
+def test_unavailable_recovery_diagnostics_cannot_reverse_successful_publication(db, monkeypatch):
+    from sentinel import account_collection_incidents
+    f = fixture(db, monkeypatch)
+
+    def broken(conn, **kwargs):
+        assert conn.info.transaction_status.name == 'IDLE'
+        conn.execute('SELECT 1/0')
+
+    monkeypatch.setattr(account_collection_incidents, 'recover', broken)
+    assert asyncio.run(module.collect(db,config=f.config,reader=f.reader,report_reservation_recheck=True)) is True
+    assert db.execute('SELECT count(*) FROM sentinel_broker_account_evidence').fetchone() == (1,)
+
+
+@pytest.mark.parametrize('receipt', ['none', 'locked', 'tampered'])
+def test_unavailable_optional_incident_history_never_retries_the_account(db, monkeypatch, receipt):
+    import psycopg
+    from sentinel import account_collection_incidents as incidents, supervisor_io
+
+    f = fixture(db, monkeypatch)
+    monkeypatch.setenv('SENTINEL_PUBLICATION_RECEIPT_KEY', 'collector-test-key-only-'*3)
+    warnings = []
+    monkeypatch.setattr(supervisor_io, '_pipe_report', warnings.append)
+    if receipt != 'none':
+        incidents.record_failure(db, stage='PERSIST_ACCOUNT', reason='fixture')
+    if receipt == 'tampered':
+        db.execute("UPDATE sentinel_operational_verification_receipts SET signature='broken' WHERE scope LIKE 'COLLECTOR:ACCOUNT:%'")
+    db.commit()
+    with psycopg.connect(db.info.dsn) as holder:
+        if receipt == 'locked':
+            holder.execute("SELECT 1 FROM sentinel_operational_verification_receipts WHERE scope LIKE 'COLLECTOR:ACCOUNT:%' FOR UPDATE")
+        elif receipt == 'none':
+            holder.execute('SELECT pg_advisory_xact_lock(%s,%s)', incidents._LOCK)
+        assert asyncio.run(module.collect(db, config=f.config, reader=f.reader, report_reservation_recheck=True)) is True
+    assert len(f.calls) == 2
+    assert db.execute('SELECT count(*) FROM sentinel_broker_account_evidence').fetchone() == (1,)
+    assert bool(warnings) == (receipt != 'none')
+
+
+def test_failed_account_collection_retains_its_original_warning_when_diagnostics_are_unavailable(db, monkeypatch):
+    import psycopg
+    from sentinel import execution_collector as collector, supervisor_io
+
+    f = fixture(db, monkeypatch)
+    db.commit()
+    monkeypatch.delenv('SENTINEL_PUBLICATION_RECEIPT_KEY', raising=False)
+    diagnostics = []
+    monkeypatch.setattr(supervisor_io, '_pipe_report', diagnostics.append)
+
+    class OriginalAccountFailure(Exception):
+        pass
+
+    async def unavailable():
+        raise OriginalAccountFailure('private_canary')
+
+    monkeypatch.setattr(f.reader, 'account_snapshot', unavailable)
+    for _ in range(2):
+        assert collector.collect_once('ACCOUNT', reader=f.reader, config=f.config,
+            connection_factory=lambda *a, **k: psycopg.connect(db.info.dsn)) == 'REFUSED'
+    assert db.execute("SELECT idempotency_key,payload FROM sentinel_alert_outbox").fetchall() == [
+        ('account-status-collection:OriginalAccountFailure', {'reason':'OriginalAccountFailure'})]
+    assert db.execute('SELECT count(*) FROM sentinel_broker_account_evidence').fetchone() == (0,)
+    assert len(diagnostics) == 2 and 'private_canary' not in str(diagnostics)
+
+
 @pytest.mark.parametrize("field,value", [
     ("account_number", "PAforeign"), ("id", "not-a-uuid"),
     ("currency", "EUR"), ("currency", None), ("cash", "NaN"),

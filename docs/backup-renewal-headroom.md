@@ -23,3 +23,22 @@ installed `a81a9e406` predecessor. A changed implementation must establish a
 fresh proof under the existing owner. Verify the saved opening plan, then
 observe a scheduled native renewal and its margin. Rebind the armed opening
 trace to the installed image and use the same renewal lead for its timing.
+
+## Opening verification work
+
+The November 18 opening had two successful renewals of the same 68 segments.
+Their elapsed times were 41.6 and 42.9 seconds. Each renewal required two
+complete byte reads. The earlier 141.6-second renewal still determines how
+much headroom to reserve. Keep the 180-second lead and 300-second byte lifetime.
+
+During market-hours heavy-work deferral the backed PAPER coordinator can use
+the existing read-only selection worker. The common proof rechecks the exact
+selected base and frontier before publication. Group the final directory,
+manifest, marker and modification-time reads into one invocation in the
+PostgreSQL container. Record elapsed time for the complete status check and
+for the subsequent evidence validation and publication. Report the final
+receipt’s hash count and read passes as `receipt_hash_operations` and
+`receipt_read_passes`. When a small WAL tail arrives at renewal, the worker
+can provisionally verify it before the full scrub so concurrent readers have
+current coverage. The status interval includes that extra work. The final
+receipt counts only the last proof.

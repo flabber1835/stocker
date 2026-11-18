@@ -191,6 +191,86 @@ def test_plan_preparation_rechecks_cash_around_complete_book(conn, incident, mon
     assert [call[1] for call in http.calls] == ["/v2/account", "/v2/account"]
 
 
+@pytest.mark.parametrize('already_observed', [True, False])
+def test_opening_cash_confirmation_holds_no_provisional_cursor_lock(conn, incident, monkeypatch, already_observed):
+    import psycopg
+    import sentinel.paper.reconciliation_evidence as evidence
+
+    plan, state, observe = incident
+    if already_observed:
+        assert observe(plan, '7064.26') == Decimal('.01')
+    conn.commit()
+    bound = binding.require(conn)
+    cash_cursor = broker_cash._activity_cursor_name('alpaca', ACCOUNT_NUMBER)
+    scans = []
+
+    async def initial(conn, **kwargs):
+        scans.append('initial')
+        conn.execute('UPDATE sentinel_processed_sessions SET state=state WHERE cursor_name=%s', (cash_cursor,))
+        return state
+
+    monkeypatch.setattr(cash, '_broker_cash_state_or_refuse', initial)
+    account = BrokerAccountSnapshot(BrokerAccountIdentity('alpaca', ACCOUNT_NUMBER), cash=Decimal('7070.50'),
+        buying_power=Decimal('7070.50'), equity=Decimal('50000'), multiplier=Decimal(1), status='ACTIVE')
+    rec = SimpleNamespace(clean=True, runtime_state=RuntimeState.RUNNING,
+                          observation=BrokerObservation(NOW, account_identity=account.identity))
+
+    async def confirm(**kwargs):
+        scans.append('confirmed')
+        # A second transaction must acquire the same cursor while the broker
+        # GET is running, even when an initially unseen event required a scan.
+        with psycopg.connect(conn.info.dsn) as other:
+            assert other.execute('SELECT 1 FROM sentinel_processed_sessions WHERE cursor_name=%s FOR UPDATE NOWAIT',
+                                 (cash_cursor,)).fetchone() == (1,)
+        return rec, account, state, NOW, NOW
+
+    monkeypatch.setattr(evidence, '_settled_account_evidence_bracket', confirm)
+    _, _, current, reserve = asyncio.run(cash_postings.opening_cash_evidence(conn, broker=object(),
+        binding=bound, plan=plan, rec=rec, account=account, through=NOW, actions=None, clock=lambda: NOW))
+    assert scans == (['confirmed'] if already_observed else ['initial', 'confirmed'])
+    assert current == state and reserve == Decimal('0')
+    status = cash_postings.read_posting_status(conn, plan_id=plan.plan_id, account_id=ACCOUNT_NUMBER)
+    assert status['events'] == {} and len(status['reflected']) == 2
+
+
+@pytest.mark.parametrize('contradiction', ['lost_member', 'reclassified_member', 'regressed_stream'])
+def test_opening_cash_confirmation_preserves_the_provisional_traversal(conn, incident, monkeypatch, contradiction):
+    import sentinel.paper.reconciliation_evidence as evidence
+    from psycopg.types.json import Jsonb
+
+    plan, state, _ = incident
+    bound = binding.require(conn)
+    cursor = broker_cash._activity_cursor_name(state.broker, state.account_id)
+    account = BrokerAccountSnapshot(BrokerAccountIdentity('alpaca', ACCOUNT_NUMBER), cash=Decimal('7070.50'),
+        buying_power=Decimal('7070.50'), equity=Decimal('50000'), multiplier=Decimal(1), status='ACTIVE')
+    rec = SimpleNamespace(clean=True, runtime_state=RuntimeState.RUNNING,
+                          observation=BrokerObservation(NOW, account_identity=account.identity))
+
+    async def initial(*args, **kwargs):
+        return state
+
+    async def changed(**kwargs):
+        body = conn.execute('SELECT state FROM sentinel_processed_sessions WHERE cursor_name=%s',
+                            (cursor,)).fetchone()[0]
+        if contradiction == 'lost_member':
+            conn.execute('DELETE FROM sentinel_cash_flows')
+            body.update(posting_kinds={}, last_activity_id=None, balance_total='0')
+        elif contradiction == 'reclassified_member':
+            body['posting_kinds'].pop('fee-1')
+        else:
+            body['last_event_id'] = None
+        conn.execute('UPDATE sentinel_processed_sessions SET state=%s WHERE cursor_name=%s', (Jsonb(body), cursor))
+        current = broker_cash.load_activity_state(conn, broker=state.broker, account_id=state.account_id)
+        return rec, account, current, NOW, NOW
+
+    monkeypatch.setattr(cash, '_broker_cash_state_or_refuse', initial)
+    monkeypatch.setattr(evidence, '_settled_account_evidence_bracket', changed)
+    with pytest.raises(PaperActivationRefused, match='confirmed native cash traversal'):
+        asyncio.run(cash_postings.opening_cash_evidence(conn, broker=object(), binding=bound, plan=plan,
+            rec=rec, account=account, through=NOW, actions=None, clock=lambda: NOW))
+    assert cash_postings.read_posting_status(conn, plan_id=plan.plan_id, account_id=state.account_id) is None
+
+
 def test_ambiguous_attribution_is_fenced_and_removed_debit_reservation_is_caught(conn, incident, monkeypatch):
     with pytest.raises(PaperActivationRefused, match="ambiguous"):
         cash_postings._remaining({"A": Fraction(5), "B": Fraction(5)}, Fraction(5))

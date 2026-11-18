@@ -38,7 +38,7 @@ def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None, pan
     elif mutation == 'failed-withdrawal':
         script = script.replace('invalidate(false, !transportDelay);\n        heartbeat.textContent', 'heartbeat.textContent')
     elif mutation == 'age-withdrawal':
-        script = script.replace('age > budget', 'false')
+        script = script.replace('age >= budget', 'false')
     elif mutation == 'known-negative':
         script = script.replace('var hardFailure = false;', 'var hardFailure = badge.className === "state fail";')
     elif mutation == 'resume-red':
@@ -137,6 +137,10 @@ def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None, pan
         guard = 'next.body.dataset.observationCurrent !== (status === "CURRENT" ? "true" : "false")'
         assert script.count(guard) == 1
         script = script.replace(guard, 'false')
+    elif mutation in {'partial-region-required', 'partial-region-ignored'}:
+        guard = 'document.querySelector(\'.row[data-current="true"]\') !== null'
+        assert script.count(guard) == 1
+        script = script.replace(guard, 'false' if mutation == 'partial-region-required' else 'true')
     return subprocess.run([node, str(Path(__file__).with_name('panel_refresh_harness.cjs'))],
         input=json.dumps({'script':script,'generated':generated.isoformat(),'failure':failure,
                           'wake':wake,'budget':budget,'case':case}),
@@ -307,7 +311,7 @@ def transport_panel(seconds=9):
     return Panel(rows=[worker], now=at)
 
 
-@pytest.mark.parametrize('ttl', [.5, 4, 8, 12, 45])
+@pytest.mark.parametrize('ttl', [.5, 4, 5, 8, 12, 45])
 @pytest.mark.parametrize('latency_ms', [0, 2000, 6000, 14900, 15000, 20000])
 def test_original_proof_and_owned_transport_use_independent_due_time_clocks(ttl, latency_ms):
     result = run_refresh('fresh', wake='transport-matrix', panel=transport_panel(ttl),
@@ -319,6 +323,28 @@ def test_observed_nine_second_proof_and_six_second_response_do_not_flash_red():
     result = run_refresh('fresh', wake='transport-matrix', panel=transport_panel(),
                          case={'latencyMs':6400,'cycles':4,'requireAmber':True})
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize('wake,current_regions', [
+    ('partial-short-current', True),
+    ('partial-short-empty', False),
+    ('partial-short-hidden', True),
+    ('partial-short-pending', True),
+])
+def test_short_partial_refresh_keeps_current_regions_and_network_bounds(wake, current_regions):
+    result = run_refresh('busy', wake=wake, panel=transport_panel(.67),
+                         case={'currentRegions': current_regions})
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize('wake,current_regions,mutation,expected', [
+    ('partial-short-current', True, 'partial-region-required', 'requires an early read'),
+    ('partial-short-empty', False, 'partial-region-ignored', 'keeps the ordinary floor'),
+])
+def test_partial_region_eligibility_falsifiers(wake, current_regions, mutation, expected):
+    result = run_refresh('busy', wake=wake, panel=transport_panel(.67),
+                         case={'currentRegions': current_regions}, mutation=mutation)
+    assert result.returncode != 0 and expected in result.stderr
 
 
 @pytest.mark.parametrize('wake,case', [
@@ -348,7 +374,7 @@ def test_foreground_resume_cannot_soften_a_hard_negative(kind):
 
 @pytest.mark.parametrize('mutation,wake,case,expected', [
     ('ordinary-continuity','transport-matrix',{'latencyMs':6400},'healthy in-flight refresh cannot flash red'),
-    ('ordinary-floor','transport-matrix',{'latencyMs':0,'ttl':.5},'proof expiry cannot advance'),
+    ('ordinary-floor','transport-unowned-focus',{'ttl':.5},'proof expiry cannot advance'),
     ('ordinary-deadline','transport-deadline',{'ignoreAbort':True},'ordinary transport deadline is absolute'),
     ('ordinary-renewal','transport-retry',{},'owned refresh keeps expired proof'),
     ('ordinary-resume-interaction','transport-hidden',{'order':'before-timeout'},'owned refresh keeps expired proof'),

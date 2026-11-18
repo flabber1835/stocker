@@ -133,11 +133,50 @@ def test_future_steps_and_open_wait_distinguish_start_from_lifecycle_close():
     assert wait.value == 'WAITING_OPEN' and wait.status == model.WARN
     assert f'scheduled execution start {EXECUTE}' in wait.detail
     assert f'lifecycle recovery deadline (regular-session close) {CLOSE}' in wait.detail
-    assert 'original execution window' in wait.detail
+    assert 'new-order cutoff unavailable' in wait.detail
     assert wait.recovery.next_attempt_at == EXECUTE and wait.recovery.deadline == CLOSE
     assert all(row.status == model.OK for row in rows[:3])
     assert all(row.value == 'NOT REACHED' and row.status == model.PENDING for row in rows[4:])
     assert all('pending completion of' in row.detail for row in rows[4:])
+
+
+@pytest.mark.parametrize(('state', 'index'), [('WAITING_OPEN', 3), ('EXECUTING', 4), ('RECONCILING', 5)])
+def test_opening_clocks_show_the_original_cutoffs_on_visible_and_machine_surfaces(state, index):
+    from sentinel.panel.presentation import describe
+    cycle = dict(cycle_id='cycle', state=state, execute_at=EXECUTE, next_wake_at=EXECUTE,
+                 execution_open_at=OPEN, execution_close_at=CLOSE, updated_at=NOW)
+    end = OPEN + timedelta(minutes=12)
+    buy = OPEN + timedelta(minutes=10)
+    event = dict(from_state='PLAN_READY', to_state='WAITING_OPEN', detail=dict(
+        next_wake_at=EXECUTE.isoformat(), opening_cutoffs=dict(new_orders=end.isoformat(), buys=buy.isoformat())))
+    row = model.automation_step_rows(installed=True, enabled=True, cycle=cycle, events=[event])[index]
+    assert row.recovery.deadline == CLOSE
+    assert row.operational_fact.schedule.new_order_cutoff == end
+    assert row.operational_fact.schedule.buy_cutoff == buy
+    explanation = describe(row, model.WARN, now=EXECUTE)[2]
+    assert 'New-order cutoff: 2026-10-23 at 06:42 AM Pacific' in explanation
+    assert 'Opening BUY cutoff: 2026-10-23 at 06:40 AM Pacific' in explanation
+    assert '01:00 PM Pacific' in explanation
+    assert 'current automatic step · deadline' not in row.detail
+    assert model.opening_schedule(cycle, [event, event]).new_order_cutoff is None
+    for changes in (dict(next_wake_at=CLOSE.isoformat()), dict(opening_cutoffs={}),
+                    dict(opening_cutoffs=dict(new_orders='bad', buys=buy.isoformat())),
+                    dict(opening_cutoffs=dict(new_orders=end.timestamp(), buys=buy.timestamp())),
+                    dict(opening_cutoffs=dict(new_orders=buy.isoformat(), buys=end.isoformat()))):
+        wrong = {**event, 'detail': {**event['detail'], **changes}}
+        assert model.opening_schedule(cycle, [wrong]).new_order_cutoff is None
+
+
+def test_accepting_a_cutoff_from_another_execution_wake_is_detected(monkeypatch):
+    import inspect
+    source = inspect.getsource(model.opening_schedule)
+    guard = "_historical_wake(detail.get('next_wake_at')) == saved.execution_start"
+    assert source.count(guard) == 1
+    local = {}
+    exec(compile(source.replace(guard, 'True'), '<unbound-schedule>', 'exec'), vars(model), local)
+    monkeypatch.setattr(model, 'opening_schedule', local['opening_schedule'])
+    with pytest.raises(AssertionError):
+        test_opening_clocks_show_the_original_cutoffs_on_visible_and_machine_surfaces('EXECUTING', 4)
 
 
 def authority(**kwargs):

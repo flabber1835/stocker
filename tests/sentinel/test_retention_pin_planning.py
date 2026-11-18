@@ -236,3 +236,197 @@ def test_acquisition_hint_is_scoped_and_restored(pin_sql,monkeypatch):
             conn.rollback()
     assert retention._possible_work(Actual()) and observed
     assert conn.execute('SHOW jit').fetchone()==('on',)
+
+def test_pinned_prefix_has_bounded_discovery_and_resumes_after_restart(pin_sql):
+    conn, _ = pin_sql
+    count = 733
+    last = f'{count:04}'
+    job = uuid.uuid4()
+    conn.execute("INSERT INTO sentinel_snapshot_jobs(job_id,state) VALUES(%s,'ACQUIRING')", (job,))
+    conn.execute("INSERT INTO sentinel_acquisition_parts(part_id,manifest) "
+                 "SELECT lpad(n::text,4,'0'),'{}' FROM generate_series(1,%s) n", (count,))
+    conn.execute("INSERT INTO sentinel_acquisition_bindings SELECT %s,'SEP',part_id "
+                 "FROM sentinel_acquisition_parts WHERE part_id<>%s", (job,last))
+    conn.execute("INSERT INTO sentinel_acquisition_prices VALUES(%s,'2026-09-14','AAA','{}')", (last,))
+    for key in (1579621904,1579663541):
+        conn.execute('SELECT pg_advisory_lock(%s)', (key,))
+    conn.commit()
+    progress = retention.RetentionProgress(known_retirement_count=0)
+    calls = 0
+    class Measured:
+        def execute(self, query, params=None):
+            nonlocal calls
+            if 'WHERE part_id=%s AND NOT sentinel_acquisition_part_pinned' in query:
+                calls += 1
+            return conn.execute(query, params)
+    for step in range(count // retention.ACQUISITION_PAGE + 2):
+        calls = 0
+        progress, result = retention._run_class(Measured(), 5, progress, batch_rows=1)
+        assert 0 < calls <= retention.ACQUISITION_PAGE
+        if step == 0:
+            # Merely visiting a live part must not block its real writer.
+            import psycopg
+            with psycopg.connect(conn.info.dsn) as writer:
+                schema = conn.execute('SELECT current_schema()').fetchone()[0]
+                writer.execute("SELECT set_config('search_path',%s,true)", (schema,))
+                assert writer.execute("SELECT part_id FROM sentinel_acquisition_parts "
+                                      "WHERE part_id='0001' FOR UPDATE NOWAIT").fetchone() == ('0001',)
+        conn.commit()
+        progress = retention.RetentionProgress.model_validate_json(progress.model_dump_json(by_alias=True))
+        if result['deleted_acquisition_parts']:
+            break
+    assert result['deleted_acquisition_parts'] == result['deleted_acquisition_rows'] == 1
+    assert conn.execute('SELECT count(*) FROM sentinel_acquisition_parts').fetchone() == (count-1,)
+    with retention._pin_planning(conn):
+        assert conn.execute('SELECT '+retention._HINTS[5]).fetchone() == (False,)
+    progress, result = retention._run_class(conn, 5, progress, batch_rows=1)
+    assert progress.acquisition_after is None and not result['progress_made']
+    # A part that loses its pin behind the old cursor is reachable on the next sweep.
+    conn.execute("DELETE FROM sentinel_acquisition_bindings WHERE part_id='0001'")
+    _, result = retention._run_class(conn, 5, progress, batch_rows=1)
+    assert result['deleted_acquisition_parts'] == 1
+
+@pytest.mark.parametrize('interruption', ['planner_restore', 'final_class_check'])
+def test_post_delete_interruption_yields_the_key_but_rolls_back_data(pin_sql, monkeypatch, interruption):
+    conn, _ = pin_sql
+    conn.execute('SET jit=on')
+    conn.execute('CREATE TABLE sentinel_snapshot_retirements(candidate_id uuid)')
+    conn.execute('CREATE TABLE sentinel_snapshot_maintenance(id boolean PRIMARY KEY, '
+                 'updated_at timestamptz DEFAULT clock_timestamp(), diagnostic jsonb)')
+    conn.execute("INSERT INTO sentinel_acquisition_parts(part_id,manifest) VALUES('first','{}'),('second','{}')")
+    conn.execute("INSERT INTO sentinel_acquisition_prices VALUES('first','2026-09-14','A','{}'),"
+                 "('first','2026-09-14','B','{}')")
+    for key in (1579621904,1579663541):
+        conn.execute('SELECT pg_advisory_lock(%s)', (key,))
+    retained = retention.RetentionProgress(known_retirement_count=0, next_class=5,
+        acquisition_after='first', acquisition_batches_left=4)
+    retention._write_result(conn, {}, retained)
+    conn.commit()
+
+    run = retention._run_class
+    monkeypatch.setattr(retention, '_run_class', lambda port, cls, progress, **kw:
+        run(port, cls, progress, **kw) if cls == 5 else (progress, retention._stats()))
+    execute = retention._Budget.execute
+    deleted = []
+
+    def interrupt_once(port, sql, params=None):
+        if sql.startswith("SELECT set_config('jit'") and len(deleted) == 1:
+            assert conn.execute('SELECT count(*) FROM sentinel_acquisition_prices').fetchone() == (1,)
+            if interruption == 'planner_restore':
+                conn.execute("SET LOCAL statement_timeout='20ms'")
+                conn.execute('SELECT pg_sleep(1)')  # Real cancellation during planner restoration.
+            result = execute(port, sql, params)
+            port.deadline = time.monotonic() - 1  # Actual post-return class budget check.
+            return result
+        result = execute(port, sql, params)
+        if sql.startswith('DELETE FROM sentinel_acquisition_prices'):
+            deleted.append(result.rowcount)
+        return result
+
+    monkeypatch.setattr(retention._Budget, 'execute', interrupt_once)
+    failed = retention._pass(conn, batch_rows=1)
+    conn.commit()
+    assert deleted == [1] and failed['status'] == 'RETRY'
+    assert not failed['more_work'] and not failed['progress_made']
+    assert failed['deleted_acquisition_rows'] == failed['deleted_acquisition_parts'] == 0
+    assert conn.execute('SELECT count(*) FROM sentinel_acquisition_prices').fetchone() == (2,)
+    saved = retention._read_progress(conn)
+    assert saved.acquisition_after == 'first' and saved.acquisition_batches_left == 0
+    assert conn.execute('SHOW jit').fetchone() == ('on',)
+
+    monkeypatch.setattr(retention._Budget, 'execute', execute)
+    next_pass = retention._pass(conn, batch_rows=1)
+    conn.commit()
+    assert next_pass['deleted_acquisition_parts'] == 1 and next_pass['deleted_acquisition_rows'] == 0
+    assert conn.execute('SELECT part_id FROM sentinel_acquisition_parts').fetchall() == [('first',)]
+
+
+def test_cancelled_part_yields_to_the_next_key_and_is_revisited(pin_sql):
+    import psycopg
+
+    conn, _ = pin_sql
+    conn.execute("INSERT INTO sentinel_acquisition_parts(part_id,manifest) "
+                 "VALUES('first','{}'),('second','{}')")
+    for key in (1579621904,1579663541):
+        conn.execute('SELECT pg_advisory_lock(%s)', (key,))
+    conn.commit()
+    class SlowPin:
+        def execute(self, query, params=None):
+            if 'WHERE part_id=%s AND NOT sentinel_acquisition_part_pinned' in query and params == ('first',):
+                return conn.execute('SELECT pg_sleep(1)')
+            return conn.execute(query, params)
+    conn.execute("SET LOCAL statement_timeout='60ms'")
+    progress = retention.RetentionProgress(known_retirement_count=0)
+    with pytest.raises(retention._CandidateRetry) as failure:
+        retention._run_class(SlowPin(), 5, progress, batch_rows=1)
+    assert isinstance(failure.value.cause, psycopg.errors.QueryCanceled)
+    assert failure.value.progress.acquisition_after == 'first'
+    assert conn.execute("SELECT count(*) FROM sentinel_acquisition_parts").fetchone() == (2,)
+    conn.commit()
+    progress, result = retention._run_class(conn, 5, failure.value.progress, batch_rows=1)
+    assert result['deleted_acquisition_parts'] == 1 and progress.acquisition_after == 'second'
+    progress, _ = retention._run_class(conn, 5, progress, batch_rows=1)
+    assert progress.acquisition_after is None
+    _, result = retention._run_class(conn, 5, progress, batch_rows=1)
+    assert result['deleted_acquisition_parts'] == 1
+
+def test_part_burst_drains_consecutively_then_yields_under_the_original_pin_guard(pin_sql):
+    conn, _ = pin_sql
+    conn.execute("INSERT INTO sentinel_acquisition_parts(part_id,manifest) VALUES('first','{}'),('next','{}')")
+    conn.execute("INSERT INTO sentinel_acquisition_prices "
+                 "SELECT 'first',DATE '2026-01-01',n::text,'{}' FROM generate_series(1,%s) n",
+                 (retention.ACQUISITION_BATCH_ROWS*retention.ACQUISITION_BURST+1,))
+    for key in (1579621904,1579663541):
+        conn.execute('SELECT pg_advisory_lock(%s)', (key,))
+    conn.commit()
+    progress = retention.RetentionProgress(known_retirement_count=0)
+    for _ in range(retention.ACQUISITION_BURST):
+        progress, result = retention._run_class(conn, 5, progress, batch_rows=retention.ACQUISITION_BATCH_ROWS)
+        assert result['deleted_acquisition_rows'] == retention.ACQUISITION_BATCH_ROWS
+        assert not result['deleted_acquisition_parts'] and progress.acquisition_after == 'first'
+        conn.commit()
+        progress = retention.RetentionProgress.model_validate_json(progress.model_dump_json(by_alias=True))
+    progress, result = retention._run_class(conn, 5, progress, batch_rows=1)
+    assert result['deleted_acquisition_parts'] == 1 and progress.acquisition_after == 'next'
+    job = uuid.uuid4()
+    conn.execute("INSERT INTO sentinel_snapshot_jobs(job_id,state) VALUES(%s,'ACQUIRING')", (job,))
+    conn.execute("INSERT INTO sentinel_acquisition_bindings VALUES(%s,'SEP','first')", (job,))
+    # Previously committed continuation data cannot authorize a newly pinned part.
+    saved = progress.model_copy(update={'acquisition_after':'first','acquisition_batches_left':3})
+    _, result = retention._run_class(conn, 5, saved, batch_rows=1)
+    assert not result['deleted_acquisition_rows']
+    assert conn.execute("SELECT count(*) FROM sentinel_acquisition_prices WHERE part_id='first'").fetchone() == (1,)
+
+@pytest.mark.parametrize('kind, pinned', [
+    ('active',True), ('ancestor',True), ('pending_successor',True), ('expired_successor',False),
+    ('current_publication',True), ('old_publication',False), ('other_component',False),
+    ('other_provider',False), ('unreferenced',False),
+])
+def test_acquisition_admission_hint_matches_canonical_pin_for_parent_and_linked_payload(pin_sql,kind,pinned):
+    conn, _ = pin_sql
+    parent, child = uuid.uuid4(), uuid.uuid4()
+    provider = 'OTHER' if kind == 'other_provider' else 'ALPACA_OPENFIGI'
+    conn.execute("INSERT INTO sentinel_acquisition_parts(part_id,manifest) VALUES "
+                 "('binding',jsonb_build_object('generation',jsonb_build_object('provider',%s::text))),"
+                 "('payload','{}')", (provider,))
+    conn.execute("INSERT INTO sentinel_acquisition_price_links VALUES('binding','payload')")
+    state = 'ACQUIRING' if kind == 'active' else 'REFUSED'
+    reason = 'SOURCE_GENERATION_CHANGED' if kind in ('pending_successor','expired_successor') else ''
+    conn.execute('INSERT INTO sentinel_snapshot_jobs(job_id,state,reason,deadline) '
+                 "VALUES(%s,%s,%s,clock_timestamp()+%s::interval)",
+                 (parent,state,reason,'1 hour' if kind=='pending_successor' else '-1 hour'))
+    if kind == 'ancestor':
+        conn.execute("INSERT INTO sentinel_snapshot_jobs(job_id,state) VALUES(%s,'ACQUIRING')",(child,))
+        conn.execute("INSERT INTO sentinel_acquisition_successors VALUES(%s,%s)",(parent,child))
+    if kind != 'unreferenced':
+        component = 'unrelated' if kind == 'other_component' else 'SEP.first'
+        conn.execute("INSERT INTO sentinel_acquisition_bindings VALUES(%s,%s,'binding')", (parent,component))
+    if kind in ('current_publication','old_publication','other_component','other_provider'):
+        conn.execute("INSERT INTO sentinel_corpus_publications VALUES(2)")
+        conn.execute("INSERT INTO sentinel_operational_snapshots VALUES(%s,%s)",
+                     (parent,1 if kind=='old_publication' else 2))
+    with retention._pin_planning(conn):
+        actual = conn.execute("SELECT sentinel_acquisition_part_pinned(part_id) "
+                              "FROM sentinel_acquisition_parts ORDER BY part_id").fetchall()
+        assert actual == [(pinned,),(pinned,)]
+        assert conn.execute('SELECT '+retention._HINTS[5]).fetchone() == (not pinned,)

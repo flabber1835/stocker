@@ -343,3 +343,34 @@ and acquisition-ancestor cases. The implementation source was identical across
 all final processes. Full commands, hashes, default-settings causal A/B,
 executed falsifiers and the remaining acquisition-discovery boundary are in
 `.codex-tmp/retention-final-qualification-20261108.md`.
+
+## Acquisition traversal
+
+Class 5 walks the acquisition part primary key in bounded pages. The saved
+part key is a scheduling cursor. Every deletion still requires the writer
+locks, a current pin check, the backup guard and the database delete triggers.
+A pass can visit pinned parts without releasing data. The next sweep starts at
+the beginning so newly inserted, previously locked and newly unpinned parts
+are considered again. Finishing an all-pinned sweep yields to the ordinary
+maintenance interval. A failed candidate cannot starve later keys.
+
+If the class times out after its last part statement, including during
+restoration of planner settings or the final budget check, roll back the whole
+class. The pass may retain only the last visited part key for scheduling and
+must reset its remaining burst. Keep deletion counts at zero for that class.
+The interrupted visit alone does not request an immediate wake. A full pass
+rollback also rolls back the scheduling key.
+
+A partially drained part may consume up to 32 consecutive price batches. Each
+batch uses a new pin and row-lock check. After the burst, the cursor advances
+to other parts. Losing eligibility, lock contention or a failed candidate
+also yields. This prevents a long pinned prefix from being rescanned between
+every 128-row batch while bounding the time other disposable parts must wait.
+
+Before taking either writer lock, the read-only acquisition hint resolves the
+live job lineage and current-publication references once and checks membership
+in that set. When every part is pinned, maintenance can stay idle even with a
+long inventory. A timed-out hint still admits a bounded pass. Qualification compares the hint
+with the canonical pin function for live
+ancestors, linked payloads, current publications and retired parts. The
+certified acquisition schema and its deletion guards remain authoritative.

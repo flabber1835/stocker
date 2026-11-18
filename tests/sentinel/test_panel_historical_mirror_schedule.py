@@ -102,6 +102,7 @@ def healthy_history_panel(*, now=LIVE_NOW, execute_at=LIVE_OPEN):
     decision, effective = date(2026,10,30), date(2026,11,2)
     plan = PlanPreview(cycle_id='current-generation-86-cycle',plan_id='current-november-2-plan',
         decision_session=decision,effective_session=effective,execute_at=execute_at,
+        execution_open_at=execute_at-timedelta(minutes=1),
         created_at=now-timedelta(minutes=2),observation_at=now-timedelta(minutes=3),legs=[])
     current = now+timedelta(minutes=10)
     account = model.alpaca_account_row(available=True,broker='alpaca',
@@ -147,7 +148,9 @@ def healthy_history_panel(*, now=LIVE_NOW, execute_at=LIVE_OPEN):
         as_of=now-timedelta(minutes=2),required_current=True,
         recovery=model.RecoveryEvidence(phase=phase,automatic=True,
             next_attempt_at=execute_at,deadline=execute_at+timedelta(hours=6)),
-        operational_fact=model.OperationalFact(kind='AUTOMATION_CYCLE',state='WAITING_OPEN'))
+        operational_fact=model.OperationalFact(kind='AUTOMATION_CYCLE',state='WAITING_OPEN',
+            schedule=model.OpeningSchedule(market_open=plan.execution_open_at, execution_start=execute_at,
+                                          recovery_deadline=execute_at+timedelta(hours=6))))
         for key,phase in (('automation_cycle','AUTOMATION_WAITING_OPEN'),
                           ('automation_step_open','AUTOMATION_OPEN'))]
     rows.append(model.Row('automation_step_transport','Transport','NOT REACHED',model.PENDING))
@@ -156,6 +159,38 @@ def healthy_history_panel(*, now=LIVE_NOW, execute_at=LIVE_OPEN):
 
 def changed_history_panel(panel,key,**changes):
     return replace(panel,rows=[replace(row,**changes) if row.key==key else row for row in panel.rows])
+
+
+@pytest.mark.parametrize(('seconds', 'expected'), [
+    (-1, 'Waiting for market open'), (0, 'Market open · waiting for scheduled execution'),
+    (35, 'Market open · waiting for scheduled execution')])
+@pytest.mark.parametrize('checking', [False, True])
+def test_open_clock_labels_and_next_refresh_on_healthy_html_and_json(seconds, expected, checking):
+    from sentinel.panel.render import render
+    from sentinel.panel.serialization import public_payload
+    opened = LIVE_OPEN - timedelta(minutes=1)
+    now = opened+timedelta(seconds=seconds)
+    panel = checking_schedule_panel(now=now, check_seconds=4) if checking else healthy_history_panel(now=now)
+    payload = public_payload(panel)
+    health = payload['dashboard_health']
+    assert health['label'] == 'Healthy · '+expected
+    next_boundary = opened if seconds < 0 else LIVE_OPEN
+    assert panel.now < datetime.fromisoformat(health['valid_until']) <= next_boundary
+    if checking:
+        paper = next(row for row in payload['rows'] if row['key'] == 'paper_reconciliation')
+        assert paper['value'] == 'CHECK IN PROGRESS' and paper['status'] == model.WARN
+        assert datetime.fromisoformat(health['valid_until']) <= now + timedelta(seconds=4)
+        assert presentation.dashboard_health(replace(panel, now=now+timedelta(seconds=4)))['color'] != 'green'
+    html = render(panel)
+    assert health['label'] in html
+    for key in ('automation_cycle', 'automation_step_open'):
+        row = next(row for row in payload['rows'] if row['key'] == key)
+        assert row['value'] == 'WAITING_OPEN' and row['display_value'] == expected
+        assert row['operational_fact']['schedule']['market_open'] == opened.isoformat().replace('+00:00','Z')
+    assert html.count(expected) >= 3
+    due = replace(panel, now=LIVE_OPEN)
+    row = due.row('automation_step_open')
+    assert presentation.describe(row, row.effective_status(due.now), now=due.now)[1] == 'Scheduled execution due'
 
 
 def checking_schedule_panel(*, now=LIVE_NOW, check_seconds=120):
@@ -187,7 +222,7 @@ def test_complete_current_schedule_is_human_green_while_the_historical_audit_sta
     assert 'Historical paper audit' in html and 'Earlier-plan discrepancy retained' in html
     assert 'Historical Oct 20 informational corporate-action discrepancy remains recorded.' in html
     assert 'class="row warn" id="status-paper_reconciliation"' in html
-    assert 'Next trading plan: saved for its scheduled market open.' not in front
+    assert 'Next trading plan: saved for scheduled execution.' not in front
     assert 'data-health="green"' in html
     assert page==before
 
@@ -309,7 +344,7 @@ def test_periodic_owned_paper_check_keeps_healthy_scheduling_green_without_claim
     page = checking_schedule_panel()
     before = deepcopy(page)
     health = presentation.dashboard_health(page)
-    assert health['label']=='Healthy · Checking paper account'
+    assert health['label']=='Healthy · Waiting for market open'
     assert health['color']=='green' and health['plan_readiness']=='ready'
     assert page.overall==page.operational==model.WARN
     assert page.row('paper_reconciliation').paper_alignment is None
@@ -322,7 +357,7 @@ def test_periodic_owned_paper_check_keeps_healthy_scheduling_green_without_claim
     assert page==before
 
 
-def test_periodic_check_label_precedes_a_retained_published_job():
+def test_scheduled_cycle_label_precedes_periodic_check_and_a_retained_published_job():
     page = checking_schedule_panel()
     now = page.now
     work = model.PreparationWork(job_id='published-october-30',decision_session=date(2026,10,30),
@@ -332,8 +367,8 @@ def test_periodic_check_label_precedes_a_retained_published_job():
         owner_registered=False,fence=4)
     page = replace(page,rows=[*page.rows,model.Row('ingest','Acquisition','PUBLISHED',model.OK,
         as_of=work.updated_at,preparation=work)])
-    assert presentation.preparation_stage(page)=='Checking paper account'
-    assert presentation.dashboard_health(page)['label']=='Healthy · Checking paper account'
+    assert presentation.preparation_stage(page)=='Waiting for market open'
+    assert presentation.dashboard_health(page)['label']=='Healthy · Waiting for market open'
 
 
 @pytest.mark.parametrize('fault',['wrong_phase','dead_owner','operator_required','missing_owner',

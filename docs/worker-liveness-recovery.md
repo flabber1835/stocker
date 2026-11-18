@@ -91,3 +91,12 @@ monitor, broker action, backtest change or runtime patch belongs to this task.
 
 Delivery is a protected feature PR from verified current main. This document
 records intent; an opened PR does not claim the installed release contains it.
+
+## Five-second automation probe
+
+The supervisor reads the same typed automation configuration as the worker.
+The probe loads that parser independently of the callback composition root.
+Each invocation still measures the current database health, supervised holder
+and heartbeat against the configured lease. A fresh interpreter must be able
+to finish this check without loading the planning and execution callback
+implementation.

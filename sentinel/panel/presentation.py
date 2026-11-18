@@ -26,7 +26,7 @@ _CLOSING_DATA_ROWS = frozenset({
 })
 
 _COPY = {
-    'paper_plan': ('Next paper plan', 'Saved targets for the next market open. Proposed trades are estimates, not submitted orders or fills.'),
+    'paper_plan': ('Next paper plan', 'Saved targets for scheduled execution. Proposed trades are estimates, not submitted orders or fills.'),
     'shadow_worker': ('Strategy worker', 'Checks that the worker updating the simulated portfolio is running. A verified saved portfolio can still be displayed while its worker is halted.'),
     'shadow_verification': ('Simulated portfolio check', 'Checks that the strategy portfolio was built correctly from the available market data. This is separate from your Alpaca account.'),
     'shadow_nav': ('Simulated strategy value', 'The controller’s simulated value combines the Core allocation and Treasury-bill sleeve, including costs. This differs from the unscaled Wealth Core book and the recorded Alpaca PAPER account.'),
@@ -59,7 +59,7 @@ _COPY = {
 _STEPS = {
     'discovery': ('Start the daily run', 'Finds the next scheduled trading day and any unfinished work.'),
     'data': ('Update market data', 'Downloads and prepares the prices needed for the next decision.'),
-    'open': ('Wait for market open', 'Waits for the trading session before sending the plan to Alpaca.'),
+    'open': ('Wait for scheduled execution', 'Waits for the saved execution time before starting the plan.'),
     'transport': ('Place paper orders', 'Sends the approved plan to the Alpaca paper account.'),
     'complete': ('Finish the daily run', 'Records the completed run after its checks finish.'),
     'refresh': ('Update market data', 'Downloads and accepts the prices needed for the next decision.'),
@@ -797,6 +797,17 @@ def visible_preparation(panel):
     return work
 
 
+def opening_wait_label(now, opened, scheduled):
+    if not (_aware(now) and _aware(scheduled)):
+        return 'Waiting for scheduled execution'
+    if now >= scheduled:
+        return 'Scheduled execution due'
+    if _aware(opened) and opened <= scheduled:
+        return ('Waiting for market open' if now < opened else
+                'Market open · waiting for scheduled execution')
+    return 'Waiting for scheduled execution'
+
+
 def preparation_stage(panel) -> str | None:
     if _retired_check_work_normal(panel):
         return 'Checking paper account · recorded plan skipped'
@@ -807,8 +818,8 @@ def preparation_stage(panel) -> str | None:
                 else 'Refreshing recorded broker evidence')
     """Describe admitted work, never infer a live stage from a retry string."""
     if _scheduled_work_normal(panel):
-        return ('Checking paper account' if _paper_check_normal(panel, panel.row('paper_reconciliation'))
-                else 'Waiting for market open')
+        plan = panel.row('paper_plan').paper_plan
+        return opening_wait_label(panel.now, plan.execution_open_at, plan.execute_at)
     if _completed_work_normal(panel):
         return ('Today’s trading complete' if panel.row('trading_run').trading_run.orders
                 else 'Run complete · No orders placed')
@@ -958,6 +969,19 @@ def dashboard_health(panel) -> dict:
                       and plan.effective_status(panel.now) in {'fail', 'unknown'} else 'pending')
     classifications = list(_classify_health_rows(panel, include_inactive_warnings=True))
     boundaries = []
+    # A fresh page can change its clock label even before any durable row
+    # changes. Expire that rendering at each original future boundary.
+    for row in panel.rows:
+        clocks = ()
+        if row.value == 'WAITING_OPEN' and row.operational_fact and row.operational_fact.schedule:
+            schedule = row.operational_fact.schedule
+            clocks = (schedule.market_open, schedule.execution_start)
+        elif row.trading_run and row.trading_run.state == 'WAITING_OPEN' and row.can_show_trading_run(panel.now):
+            clocks = (row.trading_run.intent.execution_open_at, row.trading_run.intent.execute_at)
+        elif row.key == 'paper_plan' and row.can_show_paper_plan(panel.now):
+            clocks = (row.paper_plan.execution_open_at, row.paper_plan.execute_at)
+        if clocks and row_current(panel, row):
+            boundaries.extend(t for t in clocks if _aware(t) and panel.now < t)
     facts = _health_facts(panel, classifications, boundaries=boundaries)
     negative = bool(facts['active'])
     normal = (activation_wait is None and not negative and not facts['warnings']
@@ -1063,7 +1087,7 @@ def dashboard_health(panel) -> dict:
                 review_conditions=facts['warnings'])
 
 
-def describe(row: Row, status: str) -> tuple[str, str, str]:
+def describe(row: Row, status: str, *, now: datetime | None = None) -> tuple[str, str, str]:
     """Return display copy; caller retains row keys, raw evidence and status."""
     key = row.key
     copy = _COPY.get(key)
@@ -1149,13 +1173,23 @@ def describe(row: Row, status: str) -> tuple[str, str, str]:
                       and row.value == 'WAITING_OPEN' and row.recovery is not None
                       and row.recovery.phase in {'AUTOMATION_WAITING_OPEN', 'AUTOMATION_OPEN'})
     if scheduled_wait:
-        start = _pacific(row.recovery.next_attempt_at)
+        schedule = row.operational_fact.schedule if row.operational_fact else None
+        start = _pacific(schedule.execution_start if schedule else row.recovery.next_attempt_at)
         deadline = _pacific(row.recovery.deadline)
         if start is not None:
             explanation += ' Saved execution start: '+start+'.'
         if deadline is not None:
             explanation += (' Saved recovery deadline (market close): '+deadline+'. '
                             'This is separate from the execution start and the new-order submission cutoff.')
+    if (row.operational_fact is not None and (schedule := row.operational_fact.schedule) is not None
+            and key in {'automation_cycle', 'automation_step_open', 'automation_step_transport',
+                        'automation_step_reconcile'}):
+        cutoff = _pacific(schedule.new_order_cutoff)
+        explanation += ' New-order cutoff: '+(cutoff or 'unavailable')+'.'
+        if schedule.buy_cutoff != schedule.new_order_cutoff:
+            explanation += ' Opening BUY cutoff: '+_pacific(schedule.buy_cutoff)+'.'
+        if not scheduled_wait:
+            explanation += ' Lifecycle recovery deadline: '+_pacific(schedule.recovery_deadline)+'.'
     if source_wait:
         # Keep retained numbers and holdings visible with their historical label.
         # Current verification/publication waits have a plain-language value.
@@ -1191,8 +1225,15 @@ def describe(row: Row, status: str) -> tuple[str, str, str]:
         explanation += (' Some planned buys were not submitted before the original cutoff. '
                         'Existing broker orders still require reconciliation; '
                         'target completion is not confirmed.')
+    if value == 'WAITING_OPEN':
+        schedule = row.operational_fact.schedule if row.operational_fact else None
+        plan = row.trading_run.intent if row.trading_run is not None else None
+        current = (now is not None and status in {'ok', 'warn'} and not row.is_future(now)
+                   and not row.is_stale(now))
+        value = opening_wait_label(now if current else None,
+            schedule.market_open if schedule else plan.execution_open_at if plan else None,
+            schedule.execution_start if schedule else plan.execute_at if plan else None)
     value = {
-        'WAITING_OPEN': 'Waiting for market open',
         'UNKNOWN': 'Status unavailable',
         'DAY ORDERS WORKING': 'DAY orders recorded as working',
         'MISSED UNSENT BUYs': 'Buy submission window expired',
@@ -1209,7 +1250,7 @@ def describe(row: Row, status: str) -> tuple[str, str, str]:
         if status in {'fail', 'unknown'}:
             explanation += ' Attention needed: this check is failing or cannot be confirmed. Open the technical details for the recorded reason.'
         elif status == 'warn' and row.value == 'WAITING_OPEN':
-            explanation += ' The plan is ready and waiting for its scheduled execution time.'
+            explanation += ' The recorded cycle is awaiting execution.'
         elif status == 'warn' and not (source_wait or availability_wait or working_orders):
             explanation += ' This is waiting or needs review; it is not a completed check.'
         elif status == 'pending' and key.startswith('automation_step_'):

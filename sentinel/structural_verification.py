@@ -3,6 +3,7 @@
 No readiness, time, certificate, lease or broker authorization verdict lives here.
 Outside the guarded callback all callers execute their complete verifier.
 """
+from collections.abc import Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from copy import deepcopy
@@ -41,7 +42,42 @@ def has_material(slot):
     return scope is not None and slot in scope.values
 
 
-def _inventory(conn, slot):
+def _unprojected_command_started(conn, slot, key):
+    """Version the command predicate read by a cold retained-target proof.
+
+    These rows are deliberately outside the processed-session inventory. The
+    enclosing dual-sizing memo must carry the predicate too, because a warm
+    dual-sizing hit never calls its nested retained-target verifier.
+    """
+    if slot == 'held-share-targets':
+        basis = key[1] if isinstance(key, tuple) and len(key) > 1 else None
+        if not isinstance(basis, Mapping):
+            return None
+        previous_id = basis.get('previous_plan_id')
+        if (not isinstance(previous_id, str) or not previous_id
+                or basis.get('previous_projection_fingerprint') is not None):
+            return None
+        return conn.execute(
+            "SELECT EXISTS (SELECT 1 FROM sentinel_commands WHERE plan_id=%s "
+            "AND state NOT IN ('PLANNED','SUPERSEDED'))",
+            (previous_id,)).fetchone()[0]
+    if slot == 'dual-sizing':
+        plan = key[0] if isinstance(key, tuple) and key else None
+        if not isinstance(plan, Mapping) or not isinstance(plan.get('plan_id'), str):
+            return None
+        from sentinel import dual_plan_authority
+        return conn.execute(
+            "SELECT EXISTS (SELECT 1 FROM sentinel_processed_sessions a "
+            "JOIN sentinel_commands c ON c.plan_id=("
+            "a.state->'held_share_targets'->>'previous_plan_id') "
+            "WHERE a.cursor_name=%s AND "
+            "a.state->'held_share_targets'->>'previous_projection_fingerprint' IS NULL "
+            "AND c.state NOT IN ('PLANNED','SUPERSEDED'))",
+            (dual_plan_authority.CURSOR_PREFIX + plan['plan_id'],)).fetchone()[0]
+    return None
+
+
+def _inventory(conn, slot, key=None):
     # Do not detoast multi-megabyte state just to discover whether it changed.
     relation = conn.execute(
         "SELECT 'sentinel_processed_sessions'::regclass::oid, "
@@ -56,6 +92,8 @@ def _inventory(conn, slot):
         (slot not in _ECONOMIC_INPUT_SLOTS, list(PAPER_CURSOR_NAMES),
          [prefix + '%' for prefix in (*PAPER_CURSOR_PREFIXES, LEGACY_FILL_CASH_PREFIX)]),
     ).fetchall()
+    if slot in {'held-share-targets', 'dual-sizing'}:
+        return relation, rows, _unprojected_command_started(conn, slot, key)
     return relation, rows
 
 
@@ -89,6 +127,19 @@ class Scope:
         finally:
             _current.reset(token)
 
+    @contextmanager
+    def resume(self, owner):
+        """Reenter one callback's material after a fresh writer-lock admission.
+
+        The caller must still own the original rolling publication pin.  A
+        missing outer pin cannot turn an expired scope into a reusable proof.
+        Each material lookup repeats its row-version and context checks.
+        """
+        if owner is not self.owner or self.pin is None:
+            raise VerificationScopeRefused('STRUCTURAL_RESUME_OWNER_OR_PIN_CHANGED')
+        with self.guard(owner):
+            yield
+
 
 @contextmanager
 def callback(owner):
@@ -109,14 +160,14 @@ def owned(owner):
 
 def _record(conn, scope, *, slot, key, load, cached_only=False):
     scope.require(conn)
-    before = _inventory(conn, slot)
+    before = _inventory(conn, slot, key)
     retained = scope.values.get(slot)
     if retained is None or retained[:2] != (key, before):
         if cached_only:
             raise MaterialNotCached('STRUCTURAL_MATERIAL_NOT_CACHED')
         value = load()
         scope.require(conn)
-        if _inventory(conn, slot) != before:
+        if _inventory(conn, slot, key) != before:
             raise VerificationScopeRefused('STRUCTURAL_INPUTS_CHANGED_DURING_VERIFICATION')
         # This byte string is produced only from the just-authenticated private
         # value. It never crosses a process or storage boundary. Restoring it
@@ -149,7 +200,7 @@ def projected_material(conn, *, slot, key, load, projection_slot, project, cache
     if retained is None or retained[0] is not record or retained[1] is not project:
         value = project(pickle.loads(record[2]))
         scope.require(conn)
-        if _inventory(conn, slot) != record[1]:
+        if _inventory(conn, slot, key) != record[1]:
             raise VerificationScopeRefused('STRUCTURAL_INPUTS_CHANGED_DURING_PROJECTION')
         scope.projections[name] = (record, project, pickle.dumps(value, protocol=5))
     result = pickle.loads(scope.projections[name][2])

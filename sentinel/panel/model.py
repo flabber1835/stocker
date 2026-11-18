@@ -81,6 +81,59 @@ class OpeningEvidence(BaseModel):
         return self
 
 
+class OpeningSchedule(BaseModel):
+    """Clocks from one cycle and its original scheduled-plan event."""
+    model_config = ConfigDict(extra='forbid', frozen=True)
+    market_open: datetime
+    execution_start: datetime
+    recovery_deadline: datetime
+    new_order_cutoff: datetime | None = None
+    buy_cutoff: datetime | None = None
+
+    @model_validator(mode='after')
+    def ordered(self):
+        if (any(t.utcoffset() != timedelta(0) for t in
+                (self.market_open, self.execution_start, self.recovery_deadline,
+                 self.new_order_cutoff, self.buy_cutoff) if t is not None)
+                or not self.market_open <= self.execution_start < self.recovery_deadline
+                or (self.new_order_cutoff is None) != (self.buy_cutoff is None)
+                or self.new_order_cutoff is not None and not (
+                    self.execution_start <= self.new_order_cutoff <= self.recovery_deadline
+                    and self.market_open <= self.buy_cutoff <= self.new_order_cutoff)):
+            raise ValueError("opening schedule is inconsistent")
+        return self
+
+    def deadlines(self):
+        cutoff = str(self.new_order_cutoff or 'unavailable')
+        buy = (f" · opening BUY cutoff {self.buy_cutoff}" if self.buy_cutoff != self.new_order_cutoff else "")
+        return (f"new-order cutoff {cutoff}{buy} · "
+                f"lifecycle recovery deadline (regular-session close) {self.recovery_deadline}")
+
+
+def opening_schedule(cycle, events=()):
+    if cycle.get('state') not in {'PLAN_READY', 'WAITING_OPEN', 'EXECUTING', 'RECONCILING', 'RETRY_WAIT'}:
+        return None
+    clocks = dict(market_open=cycle.get('execution_open_at'), execution_start=cycle.get('execute_at'),
+                  recovery_deadline=cycle.get('execution_close_at'))
+    try:
+        saved = OpeningSchedule(**clocks)
+    except (ValueError, TypeError):
+        return None
+    scheduled = [e for e in events if isinstance(e, Mapping) and e.get('from_state') == 'PLAN_READY'
+                 and e.get('to_state') == 'WAITING_OPEN']
+    if len(scheduled) == 1 and isinstance(detail := scheduled[0].get('detail'), Mapping):
+        cutoffs = detail.get('opening_cutoffs')
+        if (isinstance(cutoffs, Mapping) and set(cutoffs) == {'new_orders', 'buys'}
+                and all(isinstance(value, str) and _historical_wake(value) is not None
+                        for value in cutoffs.values())
+                and _historical_wake(detail.get('next_wake_at')) == saved.execution_start):
+            try:
+                return OpeningSchedule(**clocks, new_order_cutoff=cutoffs['new_orders'], buy_cutoff=cutoffs['buys'])
+            except (ValueError, TypeError):
+                pass
+    return saved
+
+
 class OperationalFact(BaseModel):
     """Closed producer facts for human workflow health, independent of copy."""
     model_config = ConfigDict(extra='forbid', frozen=True, revalidate_instances='always')
@@ -101,6 +154,7 @@ class OperationalFact(BaseModel):
     sessions_behind: int | None = Field(default=None, ge=0, le=2**31-1, strict=True)
     exposure: Decimal | None = Field(default=None, ge=0, le=1, allow_inf_nan=False)
     opening: OpeningEvidence | None = None
+    schedule: OpeningSchedule | None = None
 
     @model_validator(mode='after')
     def coherent_fact(self):
@@ -122,6 +176,8 @@ class OperationalFact(BaseModel):
         }
         if self.state not in states[self.kind]:
             raise ValueError('operational state belongs to another producer')
+        if self.schedule is not None and self.kind != 'AUTOMATION_CYCLE':
+            raise ValueError('opening schedule belongs to its cycle')
         cutoff = (self.kind, self.state) == ('PAPER_VERIFICATION', 'SUPERSEDED')
         historical = self.kind == 'EXECUTION_HISTORY' or cutoff
         if ((self.kind == 'EXECUTION_PROGRESS' or historical or self.state == 'AWAITING_NEXT_DECISION')
@@ -1638,6 +1694,7 @@ def automation_leader_row(*, installed: Optional[bool],
 
 def automation_cycle_row(*, installed: Optional[bool],
                          enabled: Optional[bool] = None,
+                         schedule: OpeningSchedule | None = None,
                          discovery_recovery: Optional[RecoveryEvidence] = None,
                          preflight_recovery: Optional[RecoveryEvidence] = None,
                          cycle_id: Optional[str] = None,
@@ -1777,6 +1834,8 @@ def automation_cycle_row(*, installed: Optional[bool],
                 phase=f"AUTOMATION_{normalized or 'UNKNOWN'}",
                 automatic=True, next_attempt_at=next_wake_at,
                 deadline=deadlines.get(normalized))
+    if schedule is not None:
+        detail += " · " + schedule.deadlines()
     return Row("automation_cycle", "Automation cycle",
                (availability_label(availability_cycle, availability) if availability is not None
                 else "AWAITING CONFIRMED CASH" if funding_deadline is not None
@@ -1784,7 +1843,7 @@ def automation_cycle_row(*, installed: Optional[bool],
                required_current=bool(enabled), recovery=recovery,
                valid_until=(recovery.deadline if recovery is not None
                             and recovery.phase == 'AUTOMATION_CLOSING_DATA' else funding_deadline),
-               operational_fact=(OperationalFact(kind='AUTOMATION_CYCLE', state=normalized)
+               operational_fact=(OperationalFact(kind='AUTOMATION_CYCLE', state=normalized, schedule=schedule)
                    if normalized in {'DISCOVERED', 'REFRESHING_DATA', 'PREPARING', 'PLAN_READY',
                        'WAITING_OPEN', 'EXECUTING', 'RECONCILING', 'RETRY_WAIT', 'SUCCEEDED',
                        'BLOCKED', 'MISSED_STATE_ONLY', 'SUPERSEDED'} else None))
@@ -1794,7 +1853,7 @@ _AUTOMATION_STEP_DEFINITIONS = (
     ("discovery", "1 · Cycle discovery"),
     ("data", "2 · Data refresh"),
     ("prepare", "3 · Plan preparation"),
-    ("open", "4 · Market-open wait"),
+    ("open", "4 · Scheduled execution wait"),
     ("transport", "5 · Order transport"),
     ("reconcile", "6 · Broker reconciliation"),
     ("complete", "7 · Cycle completion"),
@@ -1890,6 +1949,7 @@ def automation_step_rows(
     ).upper()
     terminal = state in {"SUCCEEDED", "MISSED_STATE_ONLY", "SUPERSEDED", "BLOCKED"}
 
+    schedule = cycle.get('schedule') or opening_schedule(cycle, events)
     normalized_events = []
     for event in events or ():
         if not isinstance(event, Mapping):
@@ -2042,11 +2102,13 @@ def automation_step_rows(
                 recovery = cycle["preflight_recovery"]
             else:
                 value = state
-                if index == 3:
+                if index in (3, 4, 5):
+                    boundaries = (schedule.deadlines() if schedule is not None else
+                                  f"new-order cutoff unavailable · lifecycle recovery deadline "
+                                  f"(regular-session close) {deadlines.get(index) or 'unknown'}")
                     detail = (
                         f"scheduled execution start {cycle.get('execute_at') or 'unknown'} · "
-                        f"lifecycle recovery deadline (regular-session close) {deadlines.get(index) or 'unknown'}; "
-                        "new submissions remain subject to the original execution window")
+                        + boundaries)
                 else:
                     detail = (
                         f"current automatic step · deadline "
@@ -2069,7 +2131,8 @@ def automation_step_rows(
     if state in {'DISCOVERED', 'REFRESHING_DATA', 'PREPARING', 'PLAN_READY',
                  'WAITING_OPEN', 'EXECUTING', 'RECONCILING', 'RETRY_WAIT', 'SUCCEEDED',
                  'BLOCKED', 'MISSED_STATE_ONLY', 'SUPERSEDED'}:
-        rows = [replace(row, operational_fact=OperationalFact(kind='AUTOMATION_CYCLE', state=state))
+        rows = [replace(row, operational_fact=OperationalFact(kind='AUTOMATION_CYCLE', state=state,
+                    schedule=schedule if row.required_current else None))
                 for row in rows]
     return rows
 

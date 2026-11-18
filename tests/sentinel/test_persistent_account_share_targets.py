@@ -10,15 +10,16 @@ from types import SimpleNamespace
 import psycopg
 import pytest
 
-from sentinel import dual_plan_authority as authority, schema
+from sentinel import dual_plan_authority as authority, schema, structural_verification
 from sentinel.core import decision
 from sentinel.execution import held_targets, journal, protected_limits as limits
 from sentinel.execution import target_reprojection as projections
 from sentinel.execution.commands import Command, compute_delta, DeltaClass
 from sentinel.execution.contract import BrokerInstrument, Side
 from sentinel.execution.identity import CommandIdentity
+from sentinel.execution.states import CommandState
 from sentinel.execution.reconcile import CorporateActionEvent
-from sentinel.feed import calendar
+from sentinel.feed import calendar, publication, readiness_scope
 from stock_strategy_shared.wealth_core.adapter import PendingOrder
 from stock_strategy_shared.wealth_core.engine import Operation
 from stock_strategy_shared.wealth_core.state import PortfolioState
@@ -180,7 +181,7 @@ def test_pending_entry_to_held_episode_keeps_protected_account_quantity():
     assert carry(previous, before, after, projected)["SEC-AAA"] == projected.target_basket["SEC-AAA"] == 27
 
 
-def save(conn, value, plan, *, basis=None):
+def save(conn, value, plan, *, basis=None, project=True):
     journal.adopt_current_plan(conn, plan)
     shadow = SimpleNamespace(state=value, record_sha256="b"*64, runtime_authority_sha256="c"*64)
     proof = authority.build_authority(plan=plan, shadow_result=shadow,
@@ -189,7 +190,8 @@ def save(conn, value, plan, *, basis=None):
         marks={SID: D("22.96"), "SENTINEL:BIL": D("91.61")},
         tickers={SID: "PBR.A", "SENTINEL:BIL": "BIL"}, held_share_targets=basis)
     authority.record_authority(conn, proof)
-    projections.record_projection(conn, base(value, plan))
+    if project:
+        projections.record_projection(conn, base(value, plan))
     return shadow, proof
 
 
@@ -329,6 +331,115 @@ def test_scope_reuses_small_basis_but_rechecks_changed_parent_projection(conn, m
             (projections.CURSOR_PREFIX + previous.plan_id,))
         conn.commit()
         assert read()["retained_targets"][SID] == "72" and len(calls) == 2
+
+
+def test_unprojected_predecessor_unknown_in_writer_gap_refuses_warm_completion(conn):
+    before, after = state(), state(session='2026-08-12', exposure='0.65')
+    previous = build(before, defensive='SENTINEL:BIL').plan
+    save(conn, before, previous, project=False)
+    basis = held_targets.build_basis(conn, previous=previous, state=after,
+        binding=_binding(), rollout=_controller_rollout())
+    assert basis['schema'] == held_targets.SCHEMA
+    assert basis['previous_projection_fingerprint'] is None
+    current = build(after, targets={sid: D(qty) for sid, qty in basis['targets'].items()},
+        defensive='SENTINEL:BIL').plan
+    shadow, _ = save(conn, after, current, basis=basis)
+    command = Command(CommandIdentity(_binding().identity, previous.plan_id, SID),
+                      BrokerInstrument(SID, 'PBR.A'), Side.BUY, D(1))
+    journal.save_command(conn, command)
+
+    def verify():
+        return authority.rederive_plan(conn, plan=current, binding=_binding(),
+            rollout_state=_controller_rollout(), expected_shadow_result=shadow)
+
+    publication_lock = publication.CORPUS_LOCK_KEY
+    writer_lock = journal.WRITER_LOCK_KEY
+    pin = SimpleNamespace(evidence={'rolling_snapshot': {}},
+                          to_dict=lambda: {'version': 2})
+    conn.execute('SELECT pg_advisory_lock_shared(%s)', (publication_lock,))
+    try:
+        with readiness_scope.pinned(conn, pin):
+            conn.execute('SELECT pg_advisory_lock(%s)', (writer_lock,))
+            try:
+                with structural_verification.callback(conn) as scope:
+                    assert verify()['verdict'] == 'MATCH'
+                assert 'dual-sizing' in scope.values
+                assert 'held-share-targets' in scope.values
+            finally:
+                assert conn.execute('SELECT pg_advisory_unlock(%s)',
+                                    (writer_lock,)).fetchone() == (True,)
+                conn.commit()
+
+            # A different writer changes the predecessor after the gateway
+            # releases its lock and before completion reacquires it.
+            with psycopg.connect(conn.info.dsn) as other:
+                other.execute('SELECT pg_advisory_lock(%s)', (writer_lock,))
+                try:
+                    pending = command.transition(CommandState.SEND_PENDING)
+                    journal.save_command(other, pending, previous=CommandState.PLANNED)
+                    uncertain = pending.transition(CommandState.UNKNOWN)
+                    journal.save_command(other, uncertain, previous=CommandState.SEND_PENDING)
+                finally:
+                    assert other.execute('SELECT pg_advisory_unlock(%s)',
+                                         (writer_lock,)).fetchone() == (True,)
+
+            conn.execute('SELECT pg_advisory_lock(%s)', (writer_lock,))
+            try:
+                with pytest.raises(authority.DualPlanAuthorityRefused,
+                                   match='executed predecessor is missing its immutable share projection'):
+                    with scope.resume(conn):
+                        verify()
+                with pytest.raises(authority.DualPlanAuthorityRefused,
+                                   match='executed predecessor is missing its immutable share projection'):
+                    verify()  # Fresh cold-equivalent refusal outside the memo.
+            finally:
+                assert conn.execute('SELECT pg_advisory_unlock(%s)',
+                                    (writer_lock,)).fetchone() == (True,)
+                conn.commit()
+    finally:
+        assert conn.execute('SELECT pg_advisory_unlock_shared(%s)',
+                            (publication_lock,)).fetchone() == (True,)
+        conn.commit()
+
+
+def test_unprojected_command_dependency_covers_ordinary_fractional_and_retry(conn):
+    previous = build(state()).plan
+    journal.save_plan(conn, previous)
+    command = Command(CommandIdentity(_binding().identity, previous.plan_id, SID),
+                      BrokerInstrument(SID, 'PBR.A'), Side.BUY, D(1))
+    journal.save_command(conn, command)
+    variants = (held_targets.SCHEMA, held_targets.FRACTIONAL_SCHEMA,
+                held_targets.RETRY_SCHEMA)
+    for schema_name in variants:
+        basis = {'schema': schema_name, 'previous_plan_id': previous.plan_id,
+                 'previous_projection_fingerprint': None}
+        assert structural_verification._unprojected_command_started(
+            conn, 'held-share-targets', ('plan', basis)) is False
+    superseded = Command(CommandIdentity(_binding().identity, previous.plan_id, SID,
+                                         revision=1),
+                         BrokerInstrument(SID, 'PBR.A'), Side.BUY, D(1))
+    journal.save_command(conn, superseded)
+    journal.save_command(conn, superseded.transition(CommandState.SUPERSEDED),
+                         previous=CommandState.PLANNED)
+    for schema_name in variants:
+        basis = {'schema': schema_name, 'previous_plan_id': previous.plan_id,
+                 'previous_projection_fingerprint': None}
+        assert structural_verification._unprojected_command_started(
+            conn, 'held-share-targets', ('plan', basis)) is False
+    pending = command.transition(CommandState.SEND_PENDING)
+    journal.save_command(conn, pending, previous=CommandState.PLANNED)
+    for schema_name in variants:
+        basis = {'schema': schema_name, 'previous_plan_id': previous.plan_id,
+                 'previous_projection_fingerprint': None}
+        assert structural_verification._unprojected_command_started(
+            conn, 'held-share-targets', ('plan', basis)) is True
+
+
+def test_unprojected_predecessor_command_dependency_has_a_falsifier(conn, monkeypatch):
+    monkeypatch.setattr(structural_verification, '_unprojected_command_started',
+                        lambda *_args: None)
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_unprojected_predecessor_unknown_in_writer_gap_refuses_warm_completion(conn)
 
 
 def test_unsized_missing_reference_does_not_freeze_an_unbound_zero():

@@ -20,7 +20,7 @@ def execute(target, kind, *, broken=False, mutation=None):
         source = source.replace('url.pathname === "/"', 'url.pathname === "/wrong"')
     if mutation:
         guard, replacement = {
-            'expiry': ('nextAge > nextBudget', 'false'),
+            'expiry': ('nextAge >= nextBudget', 'false'),
             'origin': ('new URL(response.url || location.href, location.href).origin !== location.origin', 'false'),
             'late': ('active.signal.aborted || !visible()', 'false'),
             'single': ('if (busy) { again = true; return; }', 'if (false) { again = true; return; }'),
@@ -48,7 +48,7 @@ def test_removed_worker_launch_guard_reproduces_network_gated_first_paint():
 
 @pytest.mark.parametrize('kind', ['fresh', 'partial', 'wrong-current-marker',
                                  'wrong-partial-marker', 'missing-marker', 'busy', 'cached', 'incomplete', 'pending',
-                                 'stale', 'future', 'invalid-date', 'budget', 'foreign',
+                                 'stale', 'exact-expiry', 'future', 'invalid-date', 'budget', 'foreign',
                                  'hidden', 'deadline', 'offline'])
 def test_launch_installs_only_complete_fresh_same_origin_visible_responses(kind):
     result=execute('launch',kind)

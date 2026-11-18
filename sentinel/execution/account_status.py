@@ -16,7 +16,9 @@ from sentinel.paper.inspection import _inspection_account_or_refuse
 
 POLL_SECONDS = 60
 DEADLINE_SECONDS = 8
+PUBLICATION_SECONDS = 10
 RESERVATION_RECHECK = 'RESERVATION_RECHECK'
+SAMPLE_SUPERSEDED = 'SAMPLE_SUPERSEDED'
 RESERVATION_RECHECK_SECONDS = 2
 RESERVATION_SCHEMA = "sentinel.operator-account-reservation/1"
 MARKET_WORKING_SCHEMA = "sentinel.operator-market-order/1"
@@ -25,6 +27,16 @@ RESERVATION_FLAG = "operator_order_reservation"
 
 class AccountStatusRefused(ValueError):
     pass
+
+
+class AccountEvidenceBusy(AccountStatusRefused):
+    """A bounded evidence INSERT could not acquire its database lock."""
+
+    def __init__(self, reason, *, dependency, lock_timeouts, lock_probe=None):
+        super().__init__(reason)
+        self.dependency = dependency
+        self.lock_timeouts = lock_timeouts
+        self.blocker = lock_probe.result() if lock_probe is not None and lock_probe.done() else None
 
 
 def _bound(conn, *, config=None):
@@ -181,6 +193,7 @@ async def _observation(conn, *, reader, bound, commands, config):
             or commands and not market and snapshot.cash > snapshot.buying_power):
         native_orders = await _native_orders(reader, commands)
     last = await reader.account_snapshot()
+    observed_at = conn.execute('SELECT clock_timestamp()').fetchone()[0]
     _inspection_account_or_refuse(last, bound[2])
     if ((last.identity.broker, last.identity.account_id, last.identity.raw.get("id"))
             != (first.broker, first.account_id, native)
@@ -206,31 +219,94 @@ async def _observation(conn, *, reader, bound, commands, config):
         and last.equity > 0 and last.buying_power >= 0
         and 1 < last.cash - last.buying_power <= _reserved(current_commands) + 1
     )
-    return last, proof, unsettled, current_commands
+    return last, proof, unsettled, current_commands, observed_at
 
 
-async def _collect(conn, *, reader, bound, commands, config=None, opening=None):
+async def _collect(conn, *, reader, bound, commands, config=None):
     clock = asyncio.get_running_loop().time
     started = clock()
-    last, proof, unsettled, current = await _observation(
+    last, proof, unsettled, current, observed_at = await _observation(
         conn, reader=reader, bound=bound, commands=commands, config=config)
     remaining = min(3, DEADLINE_SECONDS - (clock() - started) - 0.5)
     if unsettled and remaining > 0:
         try:
             async with asyncio.timeout(remaining):
-                last, proof, unsettled, _ = await _observation(
+                last, proof, unsettled, current, observed_at = await _observation(
                     conn, reader=reader, bound=bound, commands=current, config=config)
         except TimeoutError:
             conn.rollback()
             if (_bound(conn) if config is None else _bound(conn, config=config)) != bound:
                 raise AccountStatusRefused("DURABLE_BINDING_CHANGED")
-    if opening is not None:
-        from sentinel.execution import opening_display
-        opening = opening_display.confirm(conn, bound, opening)
-    operational_evidence.record_account_snapshot(conn, last, display_reservation=proof,
-                                                opening_observation=opening)
-    conn.commit()
-    return RESERVATION_RECHECK if unsettled else True
+    return last, proof, unsettled, current, observed_at
+
+
+async def _publish(conn, *, bound, config, sample, opening, report):
+    from psycopg.errors import LockNotAvailable
+    from sentinel import account_lock_observation
+    from sentinel.execution import opening_display
+
+    last, proof, unsettled, commands, observed_at = sample
+    clock = asyncio.get_running_loop().time
+    deadline = clock() + PUBLICATION_SECONDS
+    lock_timeouts = 0
+    lock_probe = None
+    dependency = 'ACCOUNT_EVIDENCE'
+    while True:
+        remaining = deadline - clock()
+        if remaining <= 0:
+            raise AccountEvidenceBusy('ACCOUNT_EVIDENCE_LOCK_TIMEOUT', dependency=dependency,
+                                      lock_timeouts=lock_timeouts, lock_probe=lock_probe)
+        lock_ms = max(1, min(1000, int(remaining * 1000)))
+        conn.execute("SELECT set_config('lock_timeout', least(coalesce(nullif(setting::int,0),%s),%s)::text,true)"
+                     " FROM pg_settings WHERE name='lock_timeout'", (lock_ms, lock_ms))
+        current_opening = opening_display.confirm(conn, bound, opening) if opening is not None else None
+        try:
+            operational_evidence.record_account_snapshot(conn, last, display_reservation=proof,
+                opening_observation=current_opening, collector_observed_at=observed_at)
+            # Never wait with a financial invalidation lock while upgrading
+            # our relation lock. A simultaneous evidence writer can finish.
+            conn.execute('LOCK TABLE sentinel_broker_account_evidence IN SHARE MODE NOWAIT')
+        except LockNotAvailable as exc:
+            # PostgreSQL guarantees this statement was cancelled. Retry only
+            # after rollback. A commit with an unknown outcome is never replayed.
+            conn.rollback()
+            lock_timeouts += 1
+            if 'sentinel_operational_account_insert_bump()' in (exc.diag.context or ''):
+                dependency = 'PAPER_REVISION'
+            if report and lock_timeouts == 1 and deadline-clock() > .25:
+                try:
+                    lock_probe = account_lock_observation.start(conn, observed_at=observed_at)
+                except Exception:
+                    pass  # The next financial transaction never waits for or depends on this probe.
+            await asyncio.sleep(min(.05, max(0,deadline-clock())))
+            continue
+        if conn.execute('SELECT 1 FROM sentinel_broker_account_evidence WHERE observed_at>%s LIMIT 1',
+                        (observed_at,)).fetchone():
+            conn.rollback()
+            return SAMPLE_SUPERSEDED
+        current_bound = _bound(conn) if config is None else _bound(conn, config=config)
+        if current_bound != bound:
+            conn.rollback()
+            raise AccountStatusRefused('DURABLE_BINDING_CHANGED')
+        if ((proof and _commands(conn, bound) != commands)
+                or (current_opening and opening_display.confirm(conn, bound, opening) != current_opening)):
+            conn.rollback()
+            raise AccountStatusRefused('ACCOUNT_EVIDENCE_ORDER_CONTEXT_CHANGED')
+        now = conn.execute('SELECT clock_timestamp()').fetchone()[0]
+        if not 0 <= (now-observed_at).total_seconds() <= PUBLICATION_SECONDS:
+            conn.rollback()
+            raise AccountEvidenceBusy('ACCOUNT_EVIDENCE_PUBLICATION_EXPIRED', dependency=dependency,
+                                      lock_timeouts=lock_timeouts, lock_probe=lock_probe)
+        conn.commit()
+        if report:
+            from sentinel import account_collection_incidents, supervisor_io
+            try:
+                account_collection_incidents.recover(conn, observed_at=observed_at)
+                conn.commit()
+            except Exception as exc:
+                conn.rollback()
+                supervisor_io._pipe_report('account collector recovery diagnostic unavailable: '+type(exc).__name__)
+        return RESERVATION_RECHECK if unsettled else True
 
 
 async def collect(conn, *, config, reader=None, report_reservation_recheck=False):
@@ -254,7 +330,9 @@ async def collect(conn, *, config, reader=None, report_reservation_recheck=False
     if not live and commands == [] and hasattr(reader, 'observe'):
         from sentinel.execution import opening_display
         opening = await opening_display.collect(conn, reader=reader, bound=bound)
-    result = await asyncio.wait_for(
+    sample = await asyncio.wait_for(
         _collect(conn, reader=reader, bound=bound, commands=commands,
-                 config=config if live else None, opening=opening), DEADLINE_SECONDS)
-    return result if report_reservation_recheck else bool(result)
+                 config=config if live else None), DEADLINE_SECONDS)
+    result = await _publish(conn, bound=bound, config=config if live else None, sample=sample, opening=opening,
+                            report=report_reservation_recheck)
+    return result if report_reservation_recheck else result != SAMPLE_SUPERSEDED

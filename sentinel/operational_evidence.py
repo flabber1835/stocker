@@ -18,7 +18,7 @@ def _json(value: Mapping[str, Any]) -> str:
 
 
 def record_account_snapshot(conn, snapshot, *, display_reservation=None,
-                            opening_observation=None) -> None:
+                            opening_observation=None, collector_observed_at=None) -> None:
     """Append one already-authorized typed broker account result."""
     flags = {
         "trading_blocked": bool(snapshot.trading_blocked),
@@ -36,15 +36,15 @@ def record_account_snapshot(conn, snapshot, *, display_reservation=None,
         cur.execute(
             "INSERT INTO sentinel_broker_account_evidence"
             " (broker,broker_account_id,status,flags,equity,cash,"
-            " buying_power,multiplier)"
-            " VALUES (%s,%s,%s,%s::jsonb,%s,%s,%s,%s)",
+            " buying_power,multiplier,observed_at)"
+            " VALUES (%s,%s,%s,%s::jsonb,%s,%s,%s,%s,COALESCE(%s,clock_timestamp()))",
             (snapshot.identity.broker, snapshot.identity.account_id,
              str(snapshot.status or "UNKNOWN"), _json(flags),
              Decimal(snapshot.equity), Decimal(snapshot.cash),
              (None if snapshot.buying_power is None
               else Decimal(snapshot.buying_power)),
              (None if snapshot.multiplier is None
-              else Decimal(snapshot.multiplier))))
+              else Decimal(snapshot.multiplier)), collector_observed_at))
 
 
 def record_backup_proof(conn, *, kind: str, proof: Mapping[str, Any]) -> str:

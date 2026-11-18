@@ -131,6 +131,7 @@ from .reconciliation_evidence import (
 )
 
 from .preparation import _default_paper_strategy
+from . import opening_diagnostics
 
 
 _V5_OPENING_FRESHNESS = timedelta(seconds=600)
@@ -227,6 +228,7 @@ def _execution_writer(conn, grant):
         yield
 
 
+@opening_diagnostics.timed_execution
 async def _execute_current_paper_plan(
         *, conn, broker: ExecutionBroker, base_url: str,
         grant: ManualExecutionGrant | AutomationExecutionGrant,
@@ -271,6 +273,7 @@ async def _execute_current_paper_plan(
         journal.require_observation_integrity(conn)
     except journal.ObservationEvidenceUncertifiable as exc:
         raise PaperActivationRefused(str(exc)) from exc
+    opening_diagnostics.mark("entry")
 
     with _execution_writer(conn, grant):
         from sentinel.handover import assert_no_legacy_path
@@ -278,7 +281,7 @@ async def _execute_current_paper_plan(
         rollout = load_rollout_state(conn)
         _controller_config, strategy_identity = _default_paper_strategy()
         from sentinel import structural_verification
-        with feed_inputs.pinned(conn, commit=False) as pinned, structural_verification.callback(conn):
+        with feed_inputs.pinned(conn, commit=False) as pinned, structural_verification.callback(conn) as proof_scope:
             feed_inputs.require_shadow_mode(pinned, dual_mode)
             _readiness_or_refuse(conn, now_et=now_et)
             frontier = feed_inputs.frontier(conn)
@@ -302,6 +305,7 @@ async def _execute_current_paper_plan(
                 state = SessionState.from_dict(
                     dual_result.state.to_dict())
                 _cursor = plan.decision_session
+                opening_diagnostics.mark("shadow")
             else:
                 state, plan, _cursor = _state_and_plan_or_refuse(conn)
             if isinstance(grant, ManualExecutionGrant):
@@ -340,6 +344,7 @@ async def _execute_current_paper_plan(
                 except dual_plan_authority.DualPlanAuthorityRefused as exc:
                     raise PaperActivationRefused(
                         f"dual sizing authority refused execution: {exc}") from exc
+                opening_diagnostics.mark("sizing")
                 try:
                     informational_paper_mirror.require_transport_permitted(
                         conn, current_frontier=str(frontier),
@@ -388,6 +393,7 @@ async def _execute_current_paper_plan(
             _execution_window_or_refuse(plan.effective_session, now_et)
             opening_prices = _opening_resolution_freshness_or_refuse(
                 conn, plan=plan, deployment=binding.identity, now_et=now_et)
+            opening_diagnostics.mark("authority")
 
             if real_clock:
                 clock = lambda: datetime.now(ZoneInfo(calendar.EXCHANGE_TZ))
@@ -486,6 +492,7 @@ async def _execute_current_paper_plan(
             except ValueError as exc:
                 raise PaperActivationRefused(
                     f"corporate-action authority is ambiguous or invalid: {exc}") from exc
+            opening_diagnostics.mark("account_actions")
             commands = journal.load_commands(conn, binding.identity)
             active_security_ids = _preopen_active_security_ids(
                 plan=plan, commands=commands, actions=actions, conn=conn)
@@ -508,6 +515,7 @@ async def _execute_current_paper_plan(
                 target_actions=target_actions,
                 persist_projection=False, opening_prices=opening_prices,
                 allow_restrictions=True)
+            opening_diagnostics.mark("initial_projection")
             preflight = await reconciliation.reconcile(
                 broker=broker, conn=conn, binding=None,
                 deployment=binding.identity, actions=actions,
@@ -526,22 +534,23 @@ async def _execute_current_paper_plan(
                 account = await broker.account_snapshot()
                 cash_evidence_at = clock()
                 _account_or_refuse(account, binding, confirmed_account)
-                activity_state = await _broker_cash_state_or_refuse(
-                    conn, broker=broker, binding=binding,
-                    through=cash_evidence_at)
                 reserve = None
                 if fractional_postings and preflight.clean:
                     from . import cash_postings
-                    preflight, account, activity_state, reserve = await cash_postings.prepare(
+                    preflight, account, activity_state, reserve = await cash_postings.opening_cash_evidence(
                         conn, broker=broker, binding=binding, plan=plan, rec=preflight,
-                        account=account, activity=activity_state, actions=actions, clock=clock)
+                        account=account, through=cash_evidence_at, actions=actions, clock=clock)
                     observation = preflight.observation
+                else:
+                    activity_state = await _broker_cash_state_or_refuse(
+                        conn, broker=broker, binding=binding, through=cash_evidence_at)
                 if reserve is None:
                     _cash_authority_or_refuse(
                         conn, plan=plan, deployment=binding.identity, account=account,
                         observation=observation, activity_state=activity_state,
                         endpoint_lag_observed_at=cash_evidence_at, allow_native_fee_wait=preflight.clean)
             current_commands = journal.load_commands(conn, binding.identity)
+            opening_diagnostics.mark("broker_reconciliation")
             _revalidate_preopen_authority_or_refuse(
                 authority=authority, plan=plan, commands=current_commands,
                 actions=actions, required_cutoff_at=official_open,
@@ -603,6 +612,7 @@ async def _execute_current_paper_plan(
                 conn=conn, deployment=binding.identity, projection=target_projection,
                 restricted_security_ids=restrictions,
                 fulfillment=fulfillment)
+            opening_diagnostics.mark("final_projection")
             if issuer_admission is not None and any(
                     delta.is_increase and delta.classification is not execution_commands.DeltaClass.NONE
                     and delta.security_id != DEFENSIVE_SECURITY_ID for delta in projected_deltas):
@@ -730,6 +740,7 @@ async def _execute_current_paper_plan(
                     market_buy_window_open=(market_buy_window_open if dual_mode
                                             and market_policy is not None
                                             and market_policy.fractional else None))
+            opening_diagnostics.mark("executor")
             final_reconciliation = session.reconciliation
             if (final_reconciliation is not None
                     and not session.restricted_securities
@@ -765,8 +776,9 @@ async def _execute_current_paper_plan(
                     observation_post_projection_actions=(
                         _post_projection_action_multipliers(
                             target_projection, target_actions)))
+            opening_diagnostics.mark("final_evidence")
             return ExecutionResult(plan=plan, preflight=preflight,
-                                   session=session)
+                                   session=session, structural_scope=proof_scope)
 
 async def execute_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                              confirm_account: str, confirm_plan_id: str,

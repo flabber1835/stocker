@@ -20,7 +20,7 @@ function currentDocument(html, status) {
       next.body.dataset.refreshPending !== "false" ||
       !Number.isFinite(nextAge) || !Number.isFinite(nextBudget) ||
       nextBudget <= 0 || nextBudget > __MAX_AGE_MS__ ||
-      nextAge < -5000 || nextAge > nextBudget) {
+      nextAge < -5000 || nextAge >= nextBudget) {
     throw new Error("Dashboard response is incomplete or expired");
   }
   return next;

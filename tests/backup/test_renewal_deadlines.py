@@ -196,6 +196,8 @@ def test_runner_preserves_only_authenticated_host_failure_classification(monkeyp
 
 
 class FreshBoundary(Boundary):
+    receipt_counts = (0, False)
+
     def __call__(self,command,**kwargs):
         if command[:2] in (['docker','rm'],['docker','ps']):
             self.calls.append(command); return ''
@@ -204,7 +206,7 @@ class FreshBoundary(Boundary):
             assert '--shared-integrity' in command
             if '--timeout-seconds' in command:
                 assert command.index('--timeout-seconds') < command.index('--backup')
-            return status(proof(0,False))
+            return status(proof(*self.receipt_counts))
         return super().__call__(command,**kwargs)
 
 
@@ -227,6 +229,31 @@ def test_read_only_freshness_uses_same_chain_guards_and_no_writer(monkeypatch,tm
     assert name.startswith('sentinel-maintenance-observe-')
     assert ['docker','rm','-f',name] in boundary.calls
     assert '/media/base:/backup/base:ro' in created and '/media/wal:/backup/wal:ro' in created
+
+
+@pytest.mark.parametrize('hash_operations,full_scrub,read_passes', [
+    (0, False, 0), (2, False, 2), (6, True, 2),
+])
+def test_market_deferred_shared_renewal_uses_read_only_selection_and_reports_work(
+        monkeypatch,tmp_path,capsys,hash_operations,full_scrub,read_passes):
+    prepare_tick(monkeypatch,tmp_path)
+    monkeypatch.setattr(coordinator, 'heavy_work_allowed', lambda observation: False)
+    boundary = FreshBoundary()
+    boundary.receipt_counts = (hash_operations, full_scrub)
+    result = coordinator.tick('/media', boundary)
+    output = capsys.readouterr().out.splitlines()
+    assert result['maintenance_deferred'] and result['runtime_chain_current']
+    (selected,) = [cmd for cmd in boundary.calls if 'observe-current' in cmd]
+    assert '/media/base:/backup/base:ro' in selected and '/media/wal:/backup/wal:ro' in selected
+    assert not any('observe' in cmd or 'retain' in cmd for cmd in boundary.calls)
+    (diagnostic,) = [json.loads(line[len('backup_chain_work:'):]) for line in output
+                     if line.startswith('backup_chain_work:')]
+    assert diagnostic['receipt_hash_operations'] == hash_operations
+    assert diagnostic['receipt_read_passes'] == read_passes
+    assert diagnostic['full_scrub'] is full_scrub
+    assert 'hash_operations' not in diagnostic and 'read_passes' not in diagnostic
+    assert diagnostic['status_seconds'] >= 0 and diagnostic['evidence_seconds'] >= 0
+    assert sum('scripts/sentinel-backup-status.sh' in cmd for cmd in boundary.calls) == 1
 
 
 def test_actual_publication_carries_native_byte_clock_through_pass_result(monkeypatch,tmp_path,capsys):

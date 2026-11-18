@@ -1573,6 +1573,143 @@ async def test_split_projected_book_is_converged_after_execute(
 
 
 @async_test
+@pytest.mark.parametrize('change', [
+    'unchanged', 'actionable', 'control', 'writer', 'scope', 'cancel', 'plan'])
+async def test_operational_completion_reenters_owned_proof_with_fresh_fences(
+        monkeypatch, change) -> None:
+    from contextlib import contextmanager
+    from sentinel import structural_verification
+
+    cfg = config()
+    current_plan = plan(target="1")
+    ctx = context(cfg, plan=current_plan)
+    conn = FakeConnection()
+    broker = SimulatedBroker()
+    broker.seed_position(INSTRUMENT, "1")
+    runtime = production(cfg)
+    install_runtime_seams(monkeypatch, runtime, conn, ctx, broker)
+    runtime._dual_run_enabled = True
+    runtime._operational_source_only = True
+    monkeypatch.setattr(runtime, '_require_operational_inputs', lambda _conn: None)
+    monkeypatch.setattr(automation_runtime, 'require_observation_integrity',
+                        lambda _conn: None)
+    plan_reads = []
+
+    def latest(_conn):
+        assert _conn is conn
+        plan_reads.append(len(plan_reads) + 1)
+        return (plan(target="2") if change == 'plan' and len(plan_reads) > 1
+                else current_plan)
+
+    monkeypatch.setattr(journal, 'latest_plan', latest)
+    monkeypatch.setattr(journal, 'in_flight_commands', lambda *_args: ())
+    trace = []
+    held = {'pin': False, 'writer': False, 'scope': False}
+
+    @contextmanager
+    def pinned(_conn, *, commit):
+        assert _conn is conn and commit is False
+        held['pin'] = True
+        trace.append('pin')
+        try:
+            yield object()
+        finally:
+            held['pin'] = False
+
+    @contextmanager
+    def writer(_conn):
+        assert _conn is conn and held['pin']
+        trace.append('writer')
+        if change == 'writer':
+            raise journal.WriterLockUnavailable('simulated busy writer')
+        held['writer'] = True
+        try:
+            yield
+        finally:
+            held['writer'] = False
+
+    class Scope:
+        @contextmanager
+        def resume(self, owner):
+            assert owner is conn and held['pin'] and held['writer']
+            trace.append('scope')
+            if change == 'scope':
+                raise structural_verification.VerificationScopeRefused(
+                    'STRUCTURAL_RESUME_OWNER_OR_PIN_CHANGED')
+            held['scope'] = True
+            try:
+                yield
+            finally:
+                held['scope'] = False
+
+    monkeypatch.setattr(automation_runtime.feed_inputs, 'pinned', pinned)
+    monkeypatch.setattr(journal, 'writer_lock', writer)
+    authority_calls = []
+
+    def authorize(_conn, _context, *, operation_scope, record_verdict=True):
+        assert _conn is conn and operation_scope == 'EXECUTE'
+        authority_calls.append(record_verdict)
+        if not record_verdict:
+            assert held['writer'] and held['pin']
+            if change == 'control':
+                raise NonRetryableCallbackRefused('control changed after gateway')
+        return ctx.cycle, control(cfg)
+
+    monkeypatch.setattr(runtime, '_assert_cycle_authority', authorize)
+
+    async def no_submit(**kwargs):
+        assert held['pin']
+        rec = reconciliation(await kwargs['broker'].observe())
+        return paper.ExecutionResult(
+            plan=current_plan, preflight=DictEvidence(),
+            session=SessionResult(runtime_state=RuntimeState.RUNNING,
+                                  reconciliation=rec, detail='already held'),
+            structural_scope=Scope())
+
+    monkeypatch.setattr(paper, 'execute_automated_paper_plan', no_submit)
+
+    def deltas(*_args, **_kwargs):
+        assert held['pin'] and held['writer'] and held['scope']
+        trace.append('deltas')
+        if change == 'cancel':
+            ctx.cancellation.cancel('leader revoked during completion')
+        return (object(),) if change == 'actionable' else ()
+
+    monkeypatch.setattr(runtime, '_actionable_current_plan_deltas', deltas)
+    if change == 'control':
+        with pytest.raises(NonRetryableCallbackRefused,
+                           match='control changed after gateway'):
+            await runtime.execute(ctx)
+    elif change == 'writer':
+        with pytest.raises(TransientInfrastructureFailure,
+                           match='simulated busy writer'):
+            await runtime.execute(ctx)
+    elif change == 'scope':
+        with pytest.raises(structural_verification.VerificationScopeRefused):
+            await runtime.execute(ctx)
+    elif change == 'plan':
+        with pytest.raises(NonRetryableCallbackRefused,
+                           match='lost the current durable PAPER plan'):
+            await runtime.execute(ctx)
+    elif change == 'cancel':
+        with pytest.raises(StaleLeaderRefused,
+                           match='leader revoked during completion'):
+            await runtime.execute(ctx)
+    else:
+        result = await runtime.execute(ctx)
+        assert result.disposition is (
+            ExecuteDisposition.RECONCILE if change == 'actionable'
+            else ExecuteDisposition.SUCCEEDED)
+        assert set(result.diagnostic['opening_callback_stages_ms']) == {
+            'paper_gateway', 'completion_proof'}
+    assert not held['pin'] and not held['writer'] and not held['scope']
+    assert authority_calls == ([True] if change == 'writer'
+                               else [True, False])
+    assert ('deltas' in trace) == (change in {'unchanged', 'actionable', 'cancel'})
+    assert len(plan_reads) == (1 if change in {'writer', 'control'} else 2)
+
+
+@async_test
 async def test_execute_refuses_clean_success_without_durable_projection(
         monkeypatch) -> None:
     cfg = config()

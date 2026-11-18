@@ -19,14 +19,14 @@ import uuid
 from contextlib import ExitStack
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from types import MappingProxyType
 from typing import Mapping, NoReturn
 from zoneinfo import ZoneInfo
 
-from sentinel import identity as system_identity, paper, schema, trial
+from sentinel import identity as system_identity, opening_stage_log, paper, schema, trial
 from sentinel.authority import (
     AuthorityRefused, load_active_signed_certificate, load_rollout_state)
 from sentinel.automation import outbox, schedule, store
+from sentinel.automation.env_config import AUTOMATION_CONFIG_ENV_BY_FIELD, config_from_env
 from sentinel.automation.model import (
     AutomationConfig,
     AutomationRefused,
@@ -166,32 +166,6 @@ def _enqueue_fenced_recovery_alert(
                 "for current feed and readiness evidence"),
         },
         max_attempts=max_attempts)
-
-AUTOMATION_CONFIG_ENV_BY_FIELD = MappingProxyType({
-    "publication_timing_policy":
-        "SENTINEL_AUTOMATION_PUBLICATION_TIMING_POLICY",
-    "publication_delay_seconds":
-        "SENTINEL_AUTOMATION_PUBLICATION_DELAY_SECONDS",
-    "execution_delay_seconds":
-        "SENTINEL_AUTOMATION_EXECUTION_DELAY_SECONDS",
-    "paper_debug_window": "SENTINEL_PAPER_DEBUG_WINDOW",
-    "lease_seconds": "SENTINEL_AUTOMATION_LEASE_SECONDS",
-    "heartbeat_seconds": "SENTINEL_AUTOMATION_HEARTBEAT_SECONDS",
-    "callback_deadline_seconds":
-        "SENTINEL_AUTOMATION_CALLBACK_DEADLINE_SECONDS",
-    "control_poll_seconds": "SENTINEL_AUTOMATION_CONTROL_POLL_SECONDS",
-    "retry_base_seconds": "SENTINEL_AUTOMATION_RETRY_BASE_SECONDS",
-    "retry_max_seconds": "SENTINEL_AUTOMATION_RETRY_MAX_SECONDS",
-    "refresh_max_attempts": "SENTINEL_AUTOMATION_REFRESH_MAX_ATTEMPTS",
-    "preflight_recover_max_attempts":
-        "SENTINEL_AUTOMATION_PREFLIGHT_RECOVER_MAX_ATTEMPTS",
-    "prepare_max_attempts": "SENTINEL_AUTOMATION_PREPARE_MAX_ATTEMPTS",
-    "execute_max_attempts": "SENTINEL_AUTOMATION_EXECUTE_MAX_ATTEMPTS",
-    "recover_max_attempts": "SENTINEL_AUTOMATION_RECOVER_MAX_ATTEMPTS",
-    "alert_claim_seconds": "SENTINEL_AUTOMATION_ALERT_CLAIM_SECONDS",
-    "alert_max_attempts": "SENTINEL_AUTOMATION_ALERT_MAX_ATTEMPTS",
-})
-
 
 def transient_refresh_failure(exc: BaseException
                               ) -> TransientInfrastructureFailure:
@@ -501,26 +475,6 @@ def shadow_config_from_env(
         raise ValueError(
             "shadow observation id and positive finite starting cash are required")
     return enabled, observation_id, starting_cash
-
-
-def config_from_env(env: Mapping[str, str] | None = None) -> AutomationConfig:
-    from sentinel.execution.market_buy_policy import MarketBuyPolicy
-
-    source = os.environ if env is None else env
-    values = {}
-    market_policy = MarketBuyPolicy.from_env(source)
-    if market_policy is not None:
-        values["market_buy_policy_sha256"] = market_policy.fingerprint()
-    for field, name in AUTOMATION_CONFIG_ENV_BY_FIELD.items():
-        raw = str(source.get(name, "")).strip()
-        if not raw:
-            continue
-        if field == "paper_debug_window":
-            from sentinel.automation.model import PaperDebugWindow
-            values[field] = PaperDebugWindow.from_env(source)
-        else:
-            values[field] = raw if field == "publication_timing_policy" else int(raw)
-    return AutomationConfig(**values)
 
 
 def _grant(context: CycleContext, operation_scope: str, *, binding=None
@@ -1782,6 +1736,7 @@ class ProductionAutomation:
             if getattr(self, '_operational_source_only', False):
                 input_scope.enter_context(feed_inputs.pinned(conn, commit=False))
             broker = self._broker(conn, cycle.effective_session.isoformat())
+            gateway_started_ns = time.perf_counter_ns()
             try:
                 context.require_active()
                 from sentinel import trading
@@ -1831,6 +1786,13 @@ class ProductionAutomation:
                     raise mapped from exc
                 raise NonRetryableCallbackRefused(
                     f"automation execution refused: {exc}") from exc
+            finally:
+                gateway_ms = min(
+                    max(0, (time.perf_counter_ns() - gateway_started_ns) // 1_000_000),
+                    86_400_000)
+                opening_stage_log.info(
+                    "automation_execution_stage stage=paper_gateway elapsed_ms=%d",
+                    gateway_ms)
             final_reconciliation = result.session.reconciliation
             reconciliation_id = (
                 str(final_reconciliation.observation_id)
@@ -1853,6 +1815,7 @@ class ProductionAutomation:
                     CommandState.REJECTED, CommandState.CANCELLED})
             actionable = ()
             posting_deadline = None
+            completion_proof_ms = None
             # An executor result carries the last reconciliation it needed to
             # authorize transport; for a pure BUY that observation predates
             # the newly ACKNOWLEDGED order.  Submission is therefore never a
@@ -1876,19 +1839,60 @@ class ProductionAutomation:
                 disposition = ExecuteDisposition.BLOCKED
             else:
                 if reconciliation_id is not None:
+                    proof_started_ns = time.perf_counter_ns()
                     try:
-                        actionable = self._actionable_current_plan_deltas(
-                            conn, plan=result.plan,
-                            effective_session=cycle.effective_session,
-                            observation=final_reconciliation.observation,
-                            reconciliation=final_reconciliation,
-                            minimum_quantity_increment=(
-                                broker.capabilities
-                                .minimum_quantity_increment))
+                        def current_deltas():
+                            return self._actionable_current_plan_deltas(
+                                conn, plan=result.plan,
+                                effective_session=cycle.effective_session,
+                                observation=final_reconciliation.observation,
+                                reconciliation=final_reconciliation,
+                                minimum_quantity_increment=(
+                                    broker.capabilities
+                                    .minimum_quantity_increment))
+
+                        proof_scope = getattr(result, "structural_scope", None)
+                        if (proof_scope is not None
+                                and self._dual_run_enabled
+                                and self._operational_source_only
+                                and not getattr(self, "_live_run_enabled", False)):
+                            # The PAPER gateway released its writer lock.  A
+                            # second owned admission allows the same callback
+                            # to reuse only unchanged structural material;
+                            # the canonical verifier and projection still run.
+                            with journal.writer_lock(conn):
+                                context.require_active()
+                                current_cycle, _current_control = self._assert_cycle_authority(
+                                    conn, context, operation_scope="EXECUTE",
+                                    record_verdict=False)
+                                if (current_cycle.plan_id != result.plan.plan_id
+                                        or current_cycle.plan_fingerprint
+                                        != result.plan.fingerprint()):
+                                    raise NonRetryableCallbackRefused(
+                                        "completion proof no longer names the current PAPER plan")
+                                current_plan = journal.latest_plan(conn)
+                                if (current_plan is None
+                                        or current_plan.plan_id != result.plan.plan_id
+                                        or current_plan.fingerprint()
+                                        != result.plan.fingerprint()):
+                                    raise NonRetryableCallbackRefused(
+                                        "completion proof lost the current durable PAPER plan")
+                                with proof_scope.resume(conn):
+                                    actionable = current_deltas()
+                                context.require_active()
+                        else:
+                            actionable = current_deltas()
                     except target_reprojection.TargetProjectionRefused as exc:
                         return _projection_refusal_result(
                             result=result,
                             observation_id=reconciliation_id, exc=exc)
+                    finally:
+                        completion_proof_ms = min(
+                            max(0, (time.perf_counter_ns() - proof_started_ns) // 1_000_000),
+                            86_400_000)
+                        opening_stage_log.info(
+                            "automation_execution_stage stage=completion_proof elapsed_ms=%d",
+                            completion_proof_ms)
                 disposition = (
                     ExecuteDisposition.SUCCEEDED
                     if (not result.needs_attention
@@ -1922,8 +1926,13 @@ class ProductionAutomation:
                 failure_detail=(None if disposition is ExecuteDisposition.SUCCEEDED
                                 else result.session.detail
                                 or "paper execution requires re-observation"),
-                diagnostic={**result.to_dict(), **(
-                    {"original_execution_deadline_at": posting_deadline} if posting_deadline else {})})
+                diagnostic={**result.to_dict(),
+                    "opening_callback_stages_ms": {
+                        "paper_gateway": int(gateway_ms),
+                        **({"completion_proof": int(completion_proof_ms)}
+                           if completion_proof_ms is not None else {})},
+                    **({"original_execution_deadline_at": posting_deadline}
+                       if posting_deadline else {})})
         except BaseException as exc:                          # noqa: BLE001
             mapped = classify_dependency_failure(exc)
             if mapped is None or mapped is exc:

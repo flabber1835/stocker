@@ -29,6 +29,7 @@ AUTOMATION = frozenset({
     "test_automation_composition.py",
     "test_automation_worker_source_recovery.py",
     "test_automation_service.py",
+    "test_opening_execution_diagnostics.py",
     "test_issue_201_automation_financial_grade.py",
     "test_automation_p1_continuity.py",
     "test_automation_safety_seams.py",
