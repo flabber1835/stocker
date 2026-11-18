@@ -175,14 +175,21 @@ fi
   refuse "BASE_BACKUP_MISSING" 4 \
     "no complete base backup exists for the current PostgreSQL cluster"
 LATEST="$BACKUP_ROOT/base/$NAME"
-${COMPOSE[@]} exec -T sentinel-postgres test -d "/sentinel-backup/base/$NAME" ||
-  refuse "BASE_BACKUP_NOT_FOUND" 4 \
-    "requested base backup does not exist: $LATEST"
-${COMPOSE[@]} exec -T sentinel-postgres test -f "/sentinel-backup/base/$NAME/backup_manifest" ||
-  refuse "BASE_BACKUP_MANIFEST_MISSING" 4 \
-    "latest backup has no manifest: $LATEST"
-MTIME="$(${COMPOSE[@]} exec -T sentinel-postgres \
-  stat -c %Y "/sentinel-backup/base/$NAME/backup_manifest")"
+if ! MTIME="$("${COMPOSE[@]}" exec -T sentinel-postgres sh -ceu '
+  NAME="$1"
+  test -d "/sentinel-backup/base/$NAME" || { echo NO_DIRECTORY; exit; }
+  test -f "/sentinel-backup/base/$NAME/backup_manifest" || { echo NO_MANIFEST; exit; }
+  test -f "/sentinel-backup/base/$NAME/sentinel-recovery-marker" || { echo NO_MARKER; exit; }
+  stat -c %Y "/sentinel-backup/base/$NAME/backup_manifest"
+' sh "$NAME")"; then
+  refuse "BASE_BACKUP_METADATA_UNAVAILABLE" 4 "selected base metadata could not be read"
+fi
+case "$MTIME" in
+  NO_DIRECTORY) refuse "BASE_BACKUP_NOT_FOUND" 4 "requested base backup does not exist: $LATEST" ;;
+  NO_MANIFEST) refuse "BASE_BACKUP_MANIFEST_MISSING" 4 "latest backup has no manifest: $LATEST" ;;
+  NO_MARKER) refuse "BASE_BACKUP_RECOVERY_MARKER_MISSING" 4 "latest backup lacks a post-base recovery marker" ;;
+  ''|*[!0-9]*) refuse "BASE_BACKUP_CLOCK_INVALID" 4 "base backup manifest modification time is unavailable" ;;
+esac
 # A completed generation may have been published while it was enumerated.
 NOW="$(date +%s)"
 AGE_HOURS="$(( (NOW - MTIME) / 3600 ))"
@@ -191,11 +198,6 @@ AGE_HOURS="$(( (NOW - MTIME) / 3600 ))"
 [ "$((NOW - MTIME))" -le "$((MAX_AGE_HOURS * 3600))" ] ||
   refuse "BASE_BACKUP_STALE" 4 \
     "latest base backup is ${AGE_HOURS}h old (max ${MAX_AGE_HOURS}h)"
-${COMPOSE[@]} exec -T sentinel-postgres \
-  test -f "/sentinel-backup/base/$NAME/sentinel-recovery-marker" ||
-  refuse "BASE_BACKUP_RECOVERY_MARKER_MISSING" 4 \
-    "latest backup lacks a post-base recovery marker"
-
 # Prove the same restore-horizon invariants as runtime authority while remaining
 # inside the private-media boundary. PostgreSQL parses its own manifest; the
 # postgres OS identity verifies every WAL byte against its durable sidecar.

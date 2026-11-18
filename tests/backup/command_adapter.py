@@ -196,7 +196,7 @@ def docker():
             stage = "base-publish"
         elif 'namespace="$1" wal="$2"' in source:
             stage = "wal-proof"
-        elif command[:3] == ["stat", "-c", "%Y"]:
+        elif command[:2] == ["sh", "-ceu"] and 'echo NO_MANIFEST' in command[2]:
             stage = "status-manifest-stat"
         elif command[:3] == ["bash", "-s", "--"] and len(command) == 8:
             stage = "wal-chain-proof"

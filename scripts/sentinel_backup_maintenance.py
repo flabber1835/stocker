@@ -506,7 +506,9 @@ def _chain(root,image,selected,observation,runner,state,*,shared_mode):
     path = root+'/base/'+selected['name']
     command = ['bash','scripts/sentinel-backup-status.sh']
     if shared_mode: command.append('--shared-integrity')
+    started = time.monotonic()
     status = runner(command+['--backup',path],timeout=600)
+    checked_at = time.monotonic()
     if shared_mode and not any(line.startswith('shared_integrity_proof:') for line in status.splitlines()):
         raise Refused('selected common integrity returned no common proof')
     observation = observe_primary(runner)
@@ -517,6 +519,13 @@ def _chain(root,image,selected,observation,runner,state,*,shared_mode):
         if receipt is None: raise Refused('selected base has neither verified producer nor genuine restore evidence')
     state['phase'] = 'PUBLISH_CHAIN'
     publish_runtime_chain(status,selected,observation,root,runner,schedule=state['schedule'])
+    print('backup_chain_work:'+json.dumps(dict(
+        status_seconds=round(checked_at-started, 3),
+        evidence_seconds=round(time.monotonic()-checked_at, 3),
+        wal_segments=chain['wal_segments'], full_scrub=chain['integrity_full_scrub'],
+        receipt_hash_operations=chain['integrity_objects_hashed'],
+        receipt_read_passes=chain['integrity_read_passes']),
+        sort_keys=True, separators=(',', ':')))
     return chain,receipt,observation
 
 
@@ -544,7 +553,8 @@ def _tick(root, runner, progress, started,state):
     deferred = not heavy_work_allowed(observation)
     if not deferred:
         reap_restore_resources(observation["now"], runner)
-    selected = worker("observe", image, root, observation, runner)
+    action = 'observe-current' if shared_mode and deferred else 'observe'
+    selected = worker(action, image, root, observation, runner)
     renewed = renewal_due(selected, observation)
     if renewed and not deferred:
         if shared_mode:
