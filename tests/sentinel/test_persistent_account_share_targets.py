@@ -415,6 +415,17 @@ def test_unprojected_command_dependency_covers_ordinary_fractional_and_retry(con
                  'previous_projection_fingerprint': None}
         assert structural_verification._unprojected_command_started(
             conn, 'held-share-targets', ('plan', basis)) is False
+    superseded = Command(CommandIdentity(_binding().identity, previous.plan_id, SID,
+                                         revision=1),
+                         BrokerInstrument(SID, 'PBR.A'), Side.BUY, D(1))
+    journal.save_command(conn, superseded)
+    journal.save_command(conn, superseded.transition(CommandState.SUPERSEDED),
+                         previous=CommandState.PLANNED)
+    for schema_name in variants:
+        basis = {'schema': schema_name, 'previous_plan_id': previous.plan_id,
+                 'previous_projection_fingerprint': None}
+        assert structural_verification._unprojected_command_started(
+            conn, 'held-share-targets', ('plan', basis)) is False
     pending = command.transition(CommandState.SEND_PENDING)
     journal.save_command(conn, pending, previous=CommandState.PLANNED)
     for schema_name in variants:
