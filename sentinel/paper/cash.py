@@ -208,6 +208,17 @@ async def _broker_cash_state_or_refuse(
         raise
     except (broker_cash.BrokerCashAuthorityRefused, MalformedBrokerEvidence,
             ActivityCorrectionRequiresRecovery) as exc:
+        if (isinstance(exc, ActivityCorrectionRequiresRecovery) and exc.raw_event is not None
+                and isinstance(exc.account_identity, BrokerAccountIdentity)
+                and getattr(broker, "financial_activity_sse", False) is True and binding.broker == "alpaca"
+                and binding.identity.matches_account(exc.account_identity)):
+            from sentinel.execution.fill_integrity import retain_native_refusal
+            from .model import PaperDataIntegrityRefused
+            # The refusal's independent journal commit must never publish the
+            # failed operation's surrounding uncommitted financial work.
+            conn.rollback()
+            retain_native_refusal(conn, exc.account_identity, exc)
+            raise PaperDataIntegrityRefused("owned native cash activity requires correction/bust recovery") from exc
         raise PaperActivationRefused(
             f"broker cash authority is inconsistent: {exc}") from exc
     except Exception as exc:                                  # noqa: BLE001

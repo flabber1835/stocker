@@ -53,6 +53,20 @@ def test_historical_or_other_modes_do_not_gain_operational_admission(mode, opera
         host(mode=mode, operational=operational).assert_activation_timing('2026-08-12')
 
 
+@pytest.mark.parametrize('mode,operational,final,prospective,offset', [
+    ('paper', True, True, False, -1), ('dual', False, True, False, -1),
+    ('dual', True, False, False, -1), ('dual', True, True, True, 10),
+    ('dual', True, True, False, 10)])
+def test_backup_wait_keeps_financial_and_unqualified_opening_cutoffs(monkeypatch, mode, operational,
+                                                                     final, prospective, offset):
+    now = datetime(2026, 8, 13, 14, tzinfo=UTC)
+    monkeypatch.setattr(install.core, '_utcnow', lambda: now)
+    opening = (now + timedelta(minutes=offset)).isoformat()
+    obj = host(mode=mode, operational=operational, target_source_final=final,
+               prospective=prospective, execution_open_at=opening)
+    assert obj._activation_backup_cutoff(obj._causal_timing()) == opening
+
+
 def test_reintroduced_host_clock_coupling_is_detected(monkeypatch):
     source = textwrap.dedent(inspect.getsource(install.InstallAnytimeDeploy.assert_activation_timing))
     source = source.replace('or not eligible', 'or not self._timing_eligible(timing)')

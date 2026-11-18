@@ -94,6 +94,69 @@ def collect(db, f):
     return asyncio.run(module.collect(db, config=f.config, reader=f.broker, now=NOW))
 
 
+@pytest.mark.parametrize("completion,expected", [
+    (2, None), (0, "FUTURE_FILL"), (-1, "ACTIVITY_OBSERVATION_CLOCK_INVALID"),
+    (module.DEADLINE_SECONDS + 1, "ACTIVITY_OBSERVATION_CLOCK_INVALID")])
+def test_notification_clock_uses_the_native_read_completion(db, monkeypatch, completion, expected):
+    from tests.support.current_workflow_clock import BusinessClock
+    f = fixture(db, monkeypatch, record_progress=False)
+    clock = BusinessClock(NOW)
+    monkeypatch.setattr(module, "datetime", clock.datetime)
+    executed = (NOW + timedelta(seconds=1)).isoformat()
+    f.order["filled_at"] = executed
+    for activity in f.activities:
+        activity["transaction_time"] = executed
+    read = f.broker._get
+    async def complete(path, params=None):
+        response = await read(path, params)
+        if path.endswith("/FILL"):
+            clock.instant = NOW + timedelta(seconds=completion)
+        return response
+    monkeypatch.setattr(f.broker, "_get", complete)
+    def poll():
+        return asyncio.run(module.collect(db, config=f.config, reader=f.broker))
+    if expected:
+        with pytest.raises(module.FillNotificationRefused, match=expected):
+            poll()
+        assert db.execute("SELECT count(*) FROM sentinel_alert_outbox").fetchone()[0] == 0
+    else:
+        assert poll() == 2
+        poll()
+        assert db.execute("SELECT count(*) FROM sentinel_alert_outbox WHERE event_type='BROKER_FILL'").fetchone()[0] == 2
+    assert db.execute("SELECT count(*) FROM sentinel_fills").fetchone()[0] == 0
+
+
+def test_notification_pre_read_clock_falsifier(db, monkeypatch):
+    original = module._collect
+    async def broken(*args, **kwargs):
+        kwargs["response_clock"] = None
+        return await original(*args, **kwargs)
+    monkeypatch.setattr(module, "_collect", broken)
+    with pytest.raises(module.FillNotificationRefused, match="FUTURE_FILL"):
+        test_notification_clock_uses_the_native_read_completion(db, monkeypatch, 2, None)
+
+
+def test_later_page_cannot_legitimize_future_fill_in_first_response(db, monkeypatch):
+    from tests.support.current_workflow_clock import BusinessClock
+    f = fixture(db, monkeypatch, record_progress=False)
+    clock = BusinessClock(NOW)
+    monkeypatch.setattr(module, "datetime", clock.datetime)
+    executed = (NOW + timedelta(seconds=1)).isoformat()
+    f.order["filled_at"] = executed
+    read = f.broker._get
+    async def paged(path, params=None):
+        if not path.endswith("/FILL"):
+            return await read(path, params)
+        if "page_token" in params:
+            clock.instant = NOW + timedelta(seconds=2)
+            return []
+        return [dict(f.activities[0], id=f"20261022094100000::{i}", transaction_time=executed) for i in range(100)]
+    monkeypatch.setattr(f.broker, "_get", paged)
+    with pytest.raises(module.FillNotificationRefused, match="FUTURE_FILL"):
+        asyncio.run(module.collect(db, config=f.config, reader=f.broker))
+    assert db.execute("SELECT count(*) FROM sentinel_alert_outbox").fetchone()[0] == 0
+
+
 def test_acknowledged_order_discovers_fill_before_financial_reconciliation(db, monkeypatch):
     f = fixture(db, monkeypatch, record_progress=False)
     positive = dict(f.order)

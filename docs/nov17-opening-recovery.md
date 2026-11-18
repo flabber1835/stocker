@@ -61,15 +61,34 @@ wire type is not retained. Its success does not qualify the missing type.
   delta registry with their exact ASTs and behavioral acceptance tests. Keep
   their historical AST pins unchanged and falsify unknown neighboring edits.
 - The separate cash-activity correction/bust guard can refuse before fill
-  reconciliation. It remains terminal and fail-closed, but it does not yet
-  retain a raw native-refusal row. This adjacent evidence gap is separate from
-  the observed `partial_fill` failure and requires its own qualification.
+  reconciliation. For the reconciled account's certified PAPER activity stream,
+  retain the exact event in the private native-refusal journal once its stable
+  account bracket, history replay, event ID and reference ID are proved. Roll
+  back the failed cash operation before recording the refusal. The record uses
+  the broker, account number and native UUID, without the account response or
+  request headers. A foreign or unidentified event has no owned refusal row.
+  A matched correction remains a data-integrity refusal, with its raw contents
+  confined to the journal. No reversal, cash flow, fill or cursor advance is
+  implied.
 - Historical native-refusal rows remain immutable. After the parser accepts
   `partial_fill`, ordinary exact-id replay must safely observe and apply the
   previously refused event once through canonical reconciliation. The repair
   must not synthesize a fill from this document or from dashboard state.
 
 ## Qualification and why CI missed it
+
+PAPER fill notifications also produced a `FUTURE_FILL` alert at 14:35:35.790636
+UTC. The three owned executions were stamped 14:35:32.361807, 14:35:35.032392
+and 14:35:35.034028. The alert lacks a native reference and request clocks.
+The collector captured its observation time before the account, order and
+activity reads, so it could reject an execution that occurred during those reads.
+Keep the initial clock for the private activation boundary. For each finite
+activity read, compare execution times and validate the fill set against the
+trusted host response clock. Refuse clock regression or elapsed time outside
+the existing read deadline. A fill after its response, a changed account or
+order, or a mismatched cumulative quantity still refuses the complete batch.
+The notification collector retains its original delivery deduplication. Its
+reads confer no trading or canonical fill authority.
 
 The fractional simulator represented partial order status and quantity but
 still emitted `execution_type=fill` in its synthetic Activity SSE. Green CI
@@ -176,3 +195,26 @@ strict read, the verifier's idle poll after that commit, or historical mismatch
 fallback while the current cycle was in `RETRY_WAIT`. The fenced-install
 no-snapshot state also lacked a direct copy test. These are separate fixture
 gaps from the native Activity SSE vocabulary gap above.
+
+## Findings through the November 17 evening activation
+
+| Observation | Cause and qualification |
+| --- | --- |
+| CRL was acknowledged but the local journal initially had no fills. | The owned trade reader and the simulator disagreed with the provider's incremental execution type. PR601 accepts the documented type. PR602–604 let the fenced coordinator reconcile the exact owned command before GO, grant the one-file receipt permission and accept bounded successful command diagnostics. The installed journal now contains the three signed cash debits of $335.82, $335.82 and $666.01. |
+| The installation command printed two fast-forward checks. | The launcher locked the release checkout, fast-forwarded and executed the new launcher under the same lock. The software receipt and activation request record their separate outcomes. During fenced installation the strict dashboard requires a current signed snapshot. |
+| Preparation refused although account cash and buying power both showed $7,064.26. | The original $8,401.91 minus the three fill debits agreed with the account. The native stream also contained a $6.25 credit and a $0.01 fee. Earlier qualification covered a delayed fee in isolation. The new cash tests replay both posting orders, preserve the gross reserve, and check continuity across recovery, replacement plans and private restore. |
+| Activation restarted expensive source checks twice. | A completed WAL proof ceased covering the newly observed frontier while another owner was refreshing it. Earlier tests covered retrying the preparation job. New lock and lease tests require a fresh proof at each pre-mutation boundary and verify that validated work survives the retry. |
+| A fill notification was refused as `FUTURE_FILL`. | The collector sampled its time before making the native reads. A fill received during the request could exceed that timestamp. The retained alert lacks the offending fill ID. All three durable executions predate the alert by under four seconds. The timing regression must distinguish a fill during a request from a timestamp after the response. |
+| The latest activation receipt showed only `DeployRefused`. | The coordinator persisted the exception class while its private command log identified the cash gate. The status contract needs a bounded, actionable reason for the failed phase. |
+
+The latest fenced dashboard reported five red rows. The November 17 exposure
+decision had no adopted plan, the shadow publisher was stopped, and the runtime
+lacked a current authority verdict. The account and broker observations had
+expired. The panel process, its database readiness and the backup row were
+healthy. Acknowledging history cannot supply those missing observations or
+release the fence.
+
+The worker probe distinguishes a signed, clean stop from a critical latch or
+an interrupted attempt. Show its recorded reason on the worker row. A clean
+stop supplies no worker liveness and remains red until a current running
+observation arrives.

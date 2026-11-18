@@ -360,6 +360,60 @@ def test_removed_backup_retry_is_detected_at_certificate_handoff(tmp_path, monke
         test_backup_contention_retries_exact_signed_install_only(tmp_path, monkeypatch, 'converges')
 
 
+@pytest.mark.parametrize('command', ['prepare-paper-plan', 'activate-paper-automation',
+                                    'release-paper-automation-kill-switch'])
+@pytest.mark.parametrize('changed_publication', [False, True])
+def test_after_open_backup_wait_rechecks_retained_dual_source(tmp_path, monkeypatch, command, changed_publication):
+    obj, events, control, running = appliance(tmp_path, install.InstallAnytimeDeploy)
+    del obj.assert_activation_timing  # Exercise the real current-publication check.
+    now = datetime(2026, 10, 9, 15, tzinfo=timezone.utc)
+    decision = '2026-10-08'
+    timing = dict(target=decision, frontier=decision, publication_fingerprint='e'*64,
+                  target_source_final=True, prospective=False, remaining_ms=0,
+                  execution_open_at=(now - timedelta(minutes=90)).isoformat())
+    obj._causal_timing = lambda **kwargs: timing
+    obj.reviewed_validation.validation = {'valid_until': core._utc_text(now + timedelta(seconds=20))}
+    subject = core.data_publication_subject_value({
+        'publication_fingerprint': timing['publication_fingerprint'], 'visible_frontier': decision})
+    obj.reviewed_validation.data_publication_sha256 = core._validation_subject_digest('data_publication', subject)
+    ticks, attempts = [], []
+    monkeypatch.setattr(core, '_utcnow', lambda: now + timedelta(seconds=sum(ticks)))
+    monkeypatch.setattr(core.time, 'monotonic', lambda: sum(ticks))
+
+    def sleep(seconds):
+        assert not any(running.values()) and control['kill_switch_engaged']
+        ticks.append(seconds)
+        if changed_publication:
+            timing['publication_fingerprint'] = 'c'*64
+
+    monkeypatch.setattr(core.time, 'sleep', sleep)
+    obj._require_native_fee_wait_authority = lambda *a, **kw: dict(control)
+    authorized = obj._authorized_cli
+    def cli(args, **kwargs):
+        if args[0] == command:
+            attempts.append(tuple(args))
+            if len(attempts) == 1:
+                return _backup_busy(args)
+        return authorized(args, **kwargs)
+    obj._authorized_cli = cli
+    if changed_publication:
+        with pytest.raises(core.ActivationPending, match='publication changed'):
+            obj.prepare_activate_start('certificate', decision)
+        assert len(attempts) == 1 and control['kill_switch_engaged']
+    else:
+        obj.prepare_activate_start('certificate', decision)
+        assert len(attempts) == 2 and attempts[0] == attempts[1]
+        assert ticks == [5] and events.count(command) == 1
+
+
+def test_reintroducing_past_open_as_backup_cutoff_prevents_valid_preparation(tmp_path, monkeypatch):
+    monkeypatch.setattr(install.InstallAnytimeDeploy, '_activation_backup_cutoff',
+                        core.AutonomousDeploy._activation_backup_cutoff)
+    with pytest.raises(core.DeployRefused, match='original cutoff'):
+        test_after_open_backup_wait_rechecks_retained_dual_source(
+            tmp_path, monkeypatch, 'prepare-paper-plan', False)
+
+
 @pytest.mark.parametrize('cls', CLASSES)
 @pytest.mark.parametrize('failure', [None, 'refused', 'receipt', 'generation', 'decision'])
 def test_explicit_unsent_recovery_runs_after_restore_and_before_release(tmp_path, cls, failure):

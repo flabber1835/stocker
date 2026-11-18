@@ -150,7 +150,9 @@ finally:
 
 
 class DeployRefused(RuntimeError):
-    pass
+    def __init__(self, *args, public_reason=None):
+        super().__init__(*args)
+        self.public_reason = public_reason
 
 
 class ActivationPending(DeployRefused):
@@ -1258,12 +1260,30 @@ class Runner:
         return completed
 
 
-def _raise_command_refusal(completed, argv) -> None:
+def _plan_preparation_refusal_reason(completed):
+    """Public operator codes for the signed prepare-paper-plan CLI's terminal refusals."""
+    known = {
+        "REFUSED: account cash is not yet coherent with known positive native cash activity; "
+        "preparation/recovery must wait for the full cash equation before adopting a new plan or baseline":
+            "NATIVE_CREDIT_UNREFLECTED",
+        "REFUSED: cash is unexplained by qualified native postings and exact fills":
+            "PAPER_CASH_DIFFERENCE_UNEXPLAINED",
+        "REFUSED: cash posting attribution is ambiguous": "PAPER_CASH_POSTING_AMBIGUOUS",
+    }
+    lines = (completed.stderr or "").splitlines()
+    if (completed.returncode == 2 and not (completed.stdout or "").strip() and lines
+            and sum(line.lstrip().startswith("REFUSED:") for line in lines) == 1):
+        return known.get(lines[-1], "PAPER_PLAN_REFUSED")
+    return "PAPER_PLAN_REFUSED"
+
+
+def _raise_command_refusal(completed, argv, *, public_reason=None) -> None:
     detail = (getattr(completed, "stderr", None) or completed.stdout or "").strip().splitlines()
     tail = " | ".join(detail[-4:])[:1200]
     raise DeployRefused(
         "command failed (%d): %s%s" % (
-            completed.returncode, " ".join(argv), (" — " + tail) if tail else ""))
+            completed.returncode, " ".join(argv), (" — " + tail) if tail else ""),
+        public_reason=public_reason)
 
 
 class DeploymentLock:
@@ -2315,7 +2335,8 @@ with store.connect(os.environ['SENTINEL_DATABASE_URL'],
     def _activation_backup_cli(
             self, args: Sequence[str], *, certificate_sha256: Optional[str] = None,
             enabled: bool = False, deadline: Optional[Tuple[datetime, float]] = None,
-            cutoff: Optional[str] = None, capture: bool = False, check: bool = True,
+            cutoff: Optional[str] = None, decision_session: Optional[str] = None,
+            capture: bool = False, check: bool = True,
     ) -> subprocess.CompletedProcess:
         """Retry one typed pre-mutation refusal under its original activation clocks."""
         protocol = self._load_activation_protocol("activation_backup_protocol")
@@ -2364,12 +2385,18 @@ with store.connect(os.environ['SENTINEL_DATABASE_URL'],
                 remaining = min(self._native_fee_wait_seconds(clock) for clock in clocks)
             except DeployRefused as exc:
                 raise DeployRefused("activation backup proof wait reached its original cutoff") from exc
+            if cutoff is None and decision_session is not None:
+                self.assert_activation_timing(decision_session, timeout=remaining)
+                remaining = min(self._native_fee_wait_seconds(clock) for clock in clocks)
             self._require_activation_writers_stopped(timeout=min(15, remaining / 2))
             fence = self._require_native_fee_wait_authority(
                 certificate_sha256, timeout=min(30, remaining), enabled=enabled)
             if retained_fence is not None and fence != retained_fence:
                 raise DeployRefused("activation fence changed while waiting for backup proof")
             retained_fence = fence
+
+    def _activation_backup_cutoff(self, timing: Optional[Mapping]) -> Optional[str]:
+        return timing.get("execution_open_at") if isinstance(timing, Mapping) else None
 
     def _prepare_activation_plan(
             self, prepare_args: Sequence[str], certificate_sha256: str,
@@ -2383,19 +2410,21 @@ with store.connect(os.environ['SENTINEL_DATABASE_URL'],
                 requested, getattr(self.reviewed_validation, 'mode', None))]
         protocol = self._load_native_fee_protocol()
         deadline = None
-        opening_cutoff = timing.get("execution_open_at") if isinstance(timing, Mapping) else None
+        opening_cutoff = self._activation_backup_cutoff(timing)
         witness_attempted = False
         try:
             while True:
                 result = self._activation_backup_cli(prepare_args, certificate_sha256=certificate_sha256,
-                    deadline=deadline, cutoff=opening_cutoff, capture=True, check=False)
+                    deadline=deadline, cutoff=opening_cutoff, decision_session=decision_session,
+                    capture=True, check=False)
                 stdout, stderr = result.stdout or "", getattr(result, "stderr", None) or ""
                 if result.returncode != protocol.EXIT_NATIVE_FEE_WAIT:
                     if (protocol.NATIVE_FEE_WAIT_MARKER in stdout
                             or protocol.NATIVE_FEE_WAIT_MARKER in stderr):
                         raise DeployRefused("native fee posting wait contradicted the command exit status")
                     if result.returncode != 0:
-                        _raise_command_refusal(result, getattr(result, "args", prepare_args))
+                        _raise_command_refusal(result, getattr(result, "args", prepare_args),
+                                               public_reason=_plan_preparation_refusal_reason(result))
                     if deadline:
                         self._native_fee_wait_seconds(deadline)
                     return _json_output(result, label="prepared paper plan"), deadline
@@ -2463,7 +2492,7 @@ with store.connect(os.environ['SENTINEL_DATABASE_URL'],
     def prepare_activate_start(self, certificate_sha256: str,
                                decision_session: str) -> Mapping:
         timing = self.assert_activation_timing(decision_session)
-        opening_cutoff = timing.get("execution_open_at") if isinstance(timing, Mapping) else None
+        opening_cutoff = self._activation_backup_cutoff(timing)
         self.quiesce_activation_writers()
         self.phase("plan: prepare one current durable paper plan")
         prepare_args = [
@@ -2497,7 +2526,8 @@ with store.connect(os.environ['SENTINEL_DATABASE_URL'],
             "--confirm-old-writer-fenced", "--actor", self.cfg.actor,
             "--reason", "autonomous deployment",
             "--confirm-enable-unattended-alpaca-paper-automation"],
-            certificate_sha256=certificate_sha256, deadline=fee_deadline, cutoff=opening_cutoff)
+            certificate_sha256=certificate_sha256, deadline=fee_deadline, cutoff=opening_cutoff,
+            decision_session=decision_session)
         killed = self._automation_status()
         if (killed.get("enabled") is not True
                 or killed.get("kill_switch_engaged") is not True
@@ -2520,7 +2550,8 @@ with store.connect(os.environ['SENTINEL_DATABASE_URL'],
             "--confirm-certificate-sha256", certificate_sha256,
             "--actor", self.cfg.actor, "--reason", "autonomous deployment verified",
             "--confirm-release-unattended-paper-kill-switch"],
-            certificate_sha256=certificate_sha256, enabled=True, deadline=fee_deadline, cutoff=opening_cutoff)
+            certificate_sha256=certificate_sha256, enabled=True, deadline=fee_deadline, cutoff=opening_cutoff,
+            decision_session=decision_session)
         self.start_activated_runtime(certificate_sha256, decision_session)
         return current
 

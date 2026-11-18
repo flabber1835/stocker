@@ -4195,10 +4195,17 @@ def _shadow_worker_row(state_dir, database_url, *, observer=None, diagnostics=No
                   'CRITICAL_LATCH': 'HALTED · INTEGRITY FENCE',
                   'UNACKNOWLEDGED_WORKER': 'HALTED · INTERRUPTED WORK',
                   'STOPPED': 'STOPPED'}
+        if running:
+            detail = 'The publisher is running. Portfolio verification is a separate check.'
+        elif clean_stop:
+            detail = 'The publisher stopped cleanly. Strategy updates resume when the worker is running.'
+        elif reason == 'CRITICAL_LATCH':
+            detail = 'An integrity check fenced the publisher. Review the recorded failure before restarting it.'
+        else:
+            detail = 'A worker attempt is unaccounted for. Verify the retained state before restarting the publisher.'
         return model.Row('shadow_worker', 'Strategy worker', labels[reason],
             model.OK if running else model.FAIL,
-            ('The publisher is running. Portfolio verification is a separate check.' if running else
-             'The publisher is halted; retained-state verification and operator recovery are required.'),
+            detail,
             as_of=value.get('observed_at'), freshness=timedelta(seconds=status.MAX_AGE_SECONDS),
             operational_fact=(model.OperationalFact(kind='SHADOW_WORKER', state='ACTIVE_WORKER')
                               if running and reason == 'ACTIVE_WORKER'

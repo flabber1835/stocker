@@ -108,11 +108,39 @@ def validate_request(path):
     return request, receipt
 
 
+# Only these repository-owned strings may leave the private activation attempt log.
+STATUS_REASONS = {
+    'NATIVE_CREDIT_UNREFLECTED': ('PAPER_PLAN', 'A native credit is visible in activity. '
+        'Check the account cash and matching native postings before preparing the plan.'),
+    'PAPER_CASH_DIFFERENCE_UNEXPLAINED': ('PAPER_PLAN', 'Account cash differs from owned fills and '
+        'qualified native postings. Reconcile the difference before activation.'),
+    'PAPER_CASH_POSTING_AMBIGUOUS': ('PAPER_PLAN', 'Multiple sets of native postings explain the balance. '
+        'Review the account posting evidence.'),
+    'PAPER_PLAN_REFUSED': ('PAPER_PLAN', 'PAPER plan preparation failed. Review the private activation attempt log.'),
+    'CLOSED_SESSION_SOURCE_PENDING': ('FINANCIAL_GO', 'Waiting for finalized market data for the closed session.'),
+    'ACTIVATION_CONFIGURATION_PENDING': ('CONFIGURATION', 'Complete the required activation configuration.'),
+    'ACTIVATION_SIGNING_PENDING': ('CONFIGURATION', 'Check the activation signing key and identity configuration.'),
+    'FENCED_PAPER_RECOVERY_REFUSED': ('FENCED_RECOVERY', 'Fenced PAPER command recovery failed. '
+        'Review the retained command journal and recovery evidence.'),
+    'FINANCIAL_GO_REFUSED': ('FINANCIAL_GO', 'Financial validation failed. Review the private GO evidence.'),
+    'ACTIVATION_READINESS_PENDING': ('ACTIVATION', 'Waiting for activation readiness. Check the private attempt log.'),
+    'ACTIVATION_REQUEST_INVALID': ('REQUEST', 'Verify the installation receipt and activation request.'),
+    'ACTIVATION_REFUSED': ('ACTIVATION', 'Activation failed. Review the private activation attempt log.'),
+}
+
+
+def _public_reason(exc, fallback):
+    code = getattr(exc, 'public_reason', None)
+    return code if isinstance(code, str) and code in STATUS_REASONS else fallback
+
+
 def status(path, state, *, reason=None, installation_verified=True):
     value = {'schema': 'sentinel.activation-status/1', 'activation_state': state,
              'installation_state': 'INSTALLED' if installation_verified else 'UNVERIFIED',
              'observed_at': core._utc_text(core._utcnow()),
              'reason': reason}
+    if reason is not None:
+        value['phase'], value['detail'] = STATUS_REASONS[reason]
     write_document(Path(path).parent / 'activation-status.json', value)
     return value
 
@@ -210,8 +238,10 @@ def financial_bundle(obj, request):
                                capture=True, stream=True, check=False, timeout=86400)
     if completed.returncode:
         if _source_frontier_wait(completed):
-            raise core.ActivationPending('closed-session market data is not source-final yet')
-        raise core.DeployRefused('supported financial GO refused; retained evidence requires review')
+            raise core.ActivationPending('closed-session market data is not source-final yet',
+                                         public_reason='CLOSED_SESSION_SOURCE_PENDING')
+        raise core.DeployRefused('supported financial GO refused; retained evidence requires review',
+                                 public_reason='FINANCIAL_GO_REFUSED')
     output = completed.stdout or ''
     paths = re.findall(r'^bundle: (.+)$', output, re.M)
     hashes = re.findall(r'^sha256: ([0-9a-f]{64})$', output, re.M)
@@ -388,7 +418,8 @@ def attempt(path, request, receipt, *, environment_writer=None):
     except sentinel_env.EnvRefused as exc:
         if ('REQUIRED_VALUES_MISSING_OR_PLACEHOLDER' in str(exc)
                 or 'REQUIRED_ALERT_TRANSPORT_MISSING' in str(exc)):
-            raise core.ActivationPending('activation configuration incomplete') from exc
+            raise core.ActivationPending('activation configuration incomplete',
+                                         public_reason='ACTIVATION_CONFIGURATION_PENDING') from exc
         raise core.DeployRefused('activation configuration is malformed') from exc
     config_type, deploy_type = roles.activation_types(request['mode'])
     env = bootstrap.discover(env, discover_signing_key=request['mode'] != 'shadow')
@@ -397,7 +428,8 @@ def attempt(path, request, receipt, *, environment_writer=None):
     except core.DeployRefused as exc:
         # Missing activation material is availability; malformed identities never retry.
         if 'is required' in str(exc) or 'signing key is not a readable file' in str(exc):
-            raise core.ActivationPending('activation signing/identity configuration incomplete') from exc
+            raise core.ActivationPending('activation signing/identity configuration incomplete',
+                                         public_reason='ACTIVATION_SIGNING_PENDING') from exc
         raise
     directory = core._attempt_dir(cfg, request['source_commit'])
     obj = deploy_type(cfg, core.Runner(env, directory / 'commands.log'), directory,
@@ -424,7 +456,12 @@ def attempt(path, request, receipt, *, environment_writer=None):
             if request['mode'] != 'shadow':
                 obj.read_paper_account()
                 obj.confirm_disabled_activation_fence()
-                recover_fenced_paper_commands(obj, request, receipt)
+                try:
+                    recover_fenced_paper_commands(obj, request, receipt)
+                except core.DeployRefused as exc:
+                    if type(exc) is core.DeployRefused and exc.public_reason is None:
+                        exc.public_reason = 'FENCED_PAPER_RECOVERY_REFUSED'
+                    raise
         bundle, confirmation = financial_bundle(obj, request)
         # Parse the signed proposal here; run_activation binds software/account
         # and reads current financial lineage once after confirming its fence.
@@ -567,6 +604,7 @@ def main(argv=None):
             write_document(args.request.parent / 'activation-owner.json', {
                 'schema': 'sentinel.activation-owner/1', 'pid': os.getpid(),
                 'request_sha256': digest(args.request)})
+            last_wait_reason = None
             while True:
                 with host_lifecycle_lock():
                     request, receipt = validate_request(args.request)
@@ -578,8 +616,12 @@ def main(argv=None):
                         with core.DeploymentLock(authority / 'autonomous-deploy.lock'):
                             writer = owned_configuration(args.request, roles._deploy_writer)
                             attempt(args.request, request, receipt, environment_writer=writer)
-                    except core.ActivationPending:
-                        status(args.request, 'WAITING_FOR_READINESS')
+                    except core.ActivationPending as exc:
+                        reason = _public_reason(exc, 'ACTIVATION_READINESS_PENDING')
+                        status(args.request, 'WAITING_FOR_READINESS', reason=reason)
+                        if reason != last_wait_reason:
+                            print(f'ACTIVATION WAITING: {reason} — {STATUS_REASONS[reason][1]}', flush=True)
+                            last_wait_reason = reason
                     else:
                         status(args.request, 'ACTIVE')
                         return 0
@@ -588,8 +630,10 @@ def main(argv=None):
         failure_status(args.request, 'INTERRUPTED', installation_verified=verified)
         return 130
     except (core.DeployRefused, EnvWriteRefused, OSError, ValueError) as exc:
-        failure_status(args.request, 'REFUSED', reason=type(exc).__name__, installation_verified=verified)
-        print('ACTIVATION REFUSED: ' + type(exc).__name__, file=sys.stderr)
+        fallback = 'ACTIVATION_REFUSED' if verified else 'ACTIVATION_REQUEST_INVALID'
+        reason = _public_reason(exc, fallback)
+        failure_status(args.request, 'REFUSED', reason=reason, installation_verified=verified)
+        print(f'ACTIVATION REFUSED: {reason} — {STATUS_REASONS[reason][1]}', file=sys.stderr)
         return 2
     finally:
         signal.signal(signal.SIGTERM, previous_signal)

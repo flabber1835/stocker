@@ -628,7 +628,7 @@ c.rollback(); c.close()
     def prepare_activate_start(self, certificate_sha256: str,
                                decision_session: str) -> Mapping:
         timing = self.assert_activation_timing(decision_session)
-        opening_cutoff = timing.get("execution_open_at") if isinstance(timing, Mapping) else None
+        opening_cutoff = self._activation_backup_cutoff(timing)
         self.quiesce_activation_writers()
         self.phase("plan: prepare and re-read one exact durable paper plan")
         prepare_args = [
@@ -672,7 +672,8 @@ c.rollback(); c.close()
             "--confirm-old-writer-fenced", "--actor", self.cfg.actor,
             "--reason", "autonomous deployment",
             "--confirm-enable-unattended-alpaca-paper-automation"],
-            certificate_sha256=certificate_sha256, deadline=fee_deadline, cutoff=opening_cutoff)
+            certificate_sha256=certificate_sha256, deadline=fee_deadline, cutoff=opening_cutoff,
+            decision_session=decision_session)
         killed = self._automation_status()
         if (killed.get("enabled") is not True
                 or killed.get("kill_switch_engaged") is not True
@@ -697,7 +698,8 @@ c.rollback(); c.close()
             "--actor", self.cfg.actor,
             "--reason", "autonomous deployment verified",
             "--confirm-release-unattended-paper-kill-switch"],
-            certificate_sha256=certificate_sha256, enabled=True, deadline=fee_deadline, cutoff=opening_cutoff)
+            certificate_sha256=certificate_sha256, enabled=True, deadline=fee_deadline, cutoff=opening_cutoff,
+            decision_session=decision_session)
         self.start_activated_runtime(certificate_sha256, decision_session)
         return current
 

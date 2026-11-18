@@ -16,6 +16,17 @@ receipt. A newer closed decision appearing during this sequence remains a typed
 readiness wait. Historical research/vendor modes retain their prospective
 admission rules; the anytime rule applies to reviewed operational dual mode.
 
+A typed pre-mutation backup wait in operational dual activation uses the
+five-minute step budget and the reviewed validation expiry. Keep the opening
+cutoff for every prospective plan and historical/research admission. Once the
+opening for an exact, signed, finalized operational decision has already
+passed, it is no longer a deadline for starting the scheduler. A short backup
+contention before plan preparation, fenced enable or kill release can retry
+under that same signed decision. Recheck current publication, deadline, fence,
+stopped writers and certificate before retry. This exception cannot retime a
+financial order or extend a native-fee wait or active execution window. The
+durable scheduler continues to skip the elapsed opening.
+
 The durable scheduler cycle is the cutover. A new or still-undispatched
 `DISCOVERED` obligation first reached at or after its regular-session open is
 superseded after shared-journal recovery, without preparation or new transport.

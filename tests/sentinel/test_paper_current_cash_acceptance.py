@@ -15,7 +15,7 @@ from sentinel.execution.contract import Completeness, resolved_capability_graph
 from sentinel.execution.guarded import (
     ExecutionBrokerGuard, GuardedExecutionBroker, PaperPreparationGrant)
 from tests.sentinel.test_alpaca_boundary_overlay import (
-    ACCOUNT_NUMBER, Httpx, Response, account_payload, activity_event, sse)
+    ACCOUNT_NUMBER, ACCOUNT_UUID, Httpx, Response, account_payload, activity_event, sse)
 from tests.sentinel.test_journal_and_reconcile import pg
 from tests.support.postgres import drop_public_tables
 from sentinel import binding, schema
@@ -145,6 +145,67 @@ def test_cash_boundary_preserves_structural_authority_and_transient_errors(conn,
             binding=binding.require(conn), through=NOW))
     assert isinstance(refused.value, PaperRetryableRefused) is (fault == 'transport')
     assert conn.execute('SELECT COUNT(*) FROM sentinel_cash_flows').fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("kind", ["cash_revision", "trade_correct", "trade_bust"])
+def test_identified_cash_correction_survives_rollback_once(conn, kind):
+    from sentinel.paper import cash
+    from sentinel.paper.model import PaperDataIntegrityRefused
+    event = activity_event(activity_type="DIV" if kind == "cash_revision" else "TRD",
+        previous_id="prior-native-ref" if kind == "cash_revision" else None,
+        details={} if kind == "cash_revision" else {"execution_type": kind})
+    event.pop("account_id")  # Certified Trading API subjects come from the two account reads.
+    broker, http = selected(events=sse(event))
+    owner = binding.require(conn)
+    query = "SELECT state FROM sentinel_processed_sessions WHERE cursor_name LIKE 'native-fill-refusal:%'"
+    conn.execute("INSERT INTO sentinel_processed_sessions(cursor_name,session,state) VALUES ('failed-work',%s,'{}')",
+                 (NOW.date(),))
+    for _ in range(2):
+        with pytest.raises(PaperDataIntegrityRefused) as refused:
+            asyncio.run(cash._broker_cash_state_or_refuse(conn, broker=broker, binding=owner, through=NOW))
+        assert event["ref_id"] not in str(refused.value)
+        conn.rollback()
+        rows = conn.execute(query).fetchall()
+        assert len(rows) == 1, "one immutable cash correction refusal required"
+        proof = rows[0][0]
+        assert proof["raw_event"] == event
+        assert proof["account_identity"] == {"broker": "alpaca", "account_id": ACCOUNT_NUMBER,
+                                            "raw": {"id": ACCOUNT_UUID}}
+        assert conn.execute("SELECT count(*) FROM sentinel_fills").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM sentinel_cash_flows").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM sentinel_processed_sessions WHERE cursor_name='failed-work'").fetchone()[0] == 0
+        assert broker_cash.load_activity_state(conn, broker="alpaca", account_id=ACCOUNT_NUMBER) is None
+    assert all(method == "GET" for method, _, _ in http.calls)
+
+
+@pytest.mark.parametrize("fault", ["foreign_event", "foreign_endpoint", "missing_ref", "replay_changed"])
+def test_unbound_cash_correction_never_enters_owned_refusal_journal(conn, fault):
+    from sentinel.paper import cash
+    from sentinel.paper.model import PaperActivationRefused, PaperDataIntegrityRefused
+    event = activity_event(previous_id="prior-reference")
+    routes = {}
+    if fault == "foreign_event":
+        event["account_id"] = "wrong-native-uuid"
+    if fault == "foreign_endpoint":
+        routes["/v2/account"] = dict(account_payload(), account_number="another-account",
+                                     created_at="2026-02-12T00:00:00Z")
+    if fault == "missing_ref":
+        event.pop("ref_id")
+    if fault == "replay_changed":
+        responses = iter((sse(event), sse(dict(event, previous_id="changed"))))
+        routes[PATH] = lambda _: Response(text=next(responses))
+    broker, _ = selected(events=sse(event), routes=routes)
+    with pytest.raises(PaperActivationRefused) as refused:
+        asyncio.run(cash._broker_cash_state_or_refuse(conn, broker=broker, binding=binding.require(conn), through=NOW))
+    assert not isinstance(refused.value, PaperDataIntegrityRefused)
+    assert conn.execute("SELECT count(*) FROM sentinel_processed_sessions WHERE cursor_name LIKE 'native-fill-refusal:%'").fetchone()[0] == 0
+
+
+def test_removed_cash_correction_journal_is_detected(conn, monkeypatch):
+    from sentinel.execution import fill_integrity
+    monkeypatch.setattr(fill_integrity, "retain_native_refusal", lambda *args: None)
+    with pytest.raises(AssertionError, match="one immutable cash correction refusal required"):
+        test_identified_cash_correction_survives_rollback_once(conn, "trade_bust")
 
 
 @pytest.mark.parametrize('fault', ['malformed', 'correction'])

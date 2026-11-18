@@ -429,9 +429,10 @@ def test_fenced_recovery_refusal_stops_before_financial_go(monkeypatch, tmp_path
         lambda *args:(_ for _ in ()).throw(core.DeployRefused('native fill invalid')))
     monkeypatch.setattr(activate, 'financial_bundle',
         lambda *args:pytest.fail('GO ran after recovery refusal'))
-    with pytest.raises(core.DeployRefused, match='native fill invalid'):
+    with pytest.raises(core.DeployRefused, match='native fill invalid') as caught:
         activate.attempt(tmp_path/'request.json', dict(mode='dual', source_commit=SHA,
             installation_sha256='f'*64, bundle=None), dict(runtime_image=IMAGE))
+    assert activate._public_reason(caught.value, 'ACTIVATION_REFUSED') == 'FENCED_PAPER_RECOVERY_REFUSED'
     assert calls == ['fence', 'account', 'disabled-killed']
 
 
@@ -737,6 +738,90 @@ def test_coordinator_outcome_never_overwrites_software_completion(monkeypatch, p
     assert (phase_request.parent / 'installation-receipt.json').read_bytes() == original
 
 
+@pytest.mark.parametrize('case,expected', [
+    ('cash', 'PAPER_CASH_DIFFERENCE_UNEXPLAINED'),
+    ('ambiguous', 'PAPER_CASH_POSTING_AMBIGUOUS'),
+    ('unreflected', 'NATIVE_CREDIT_UNREFLECTED'),
+    ('private', 'PAPER_PLAN_REFUSED'),
+    ('mixed', 'PAPER_PLAN_REFUSED'),
+    ('wrong-channel', 'PAPER_PLAN_REFUSED'),
+    ('unexpected-exit', 'PAPER_PLAN_REFUSED'),
+])
+def test_public_plan_refusal_preserves_fence_and_never_publishes_subprocess_output(
+        monkeypatch, tmp_path, phase_request, capsys, case, expected):
+    from fractions import Fraction
+    from sentinel import activation_backup_protocol, paper_fee_wait_protocol
+    from sentinel.cli._shared import paper_refused
+    from sentinel.paper.cash_postings import _remaining
+    from sentinel.paper.model import PaperActivationRefused
+    from tests.sentinel.test_activation_writer_handoff import appliance
+
+    secret = 'fixture-secret/http-token'
+    if case == 'unreflected':
+        error = PaperActivationRefused('account cash is not yet coherent with known positive native '
+            'cash activity; preparation/recovery must wait for the full cash equation '
+            'before adopting a new plan or baseline')
+    else:
+        amounts = {'a': Fraction(5), 'b': Fraction(5)}
+        with pytest.raises(PaperActivationRefused) as caught:
+            _remaining(amounts, Fraction(5 if case == 'ambiguous' else 3))
+        error = caught.value
+    code = paper_refused(error, activation_command='prepare-paper-plan')
+    wire = capsys.readouterr().err
+    output = completed(code=code, stderr='INFO request: ' + secret + '\n' + wire)
+    if case == 'private':
+        output.stdout, output.stderr = secret, 'REFUSED: ' + secret
+    if case == 'mixed':
+        output.stderr += 'REFUSED: ' + secret + '\n'
+    if case == 'wrong-channel':
+        output.stdout, output.stderr = wire, secret
+    if case == 'unexpected-exit':
+        output.returncode = 124
+
+    obj, events, control, running = appliance(tmp_path, core.AutonomousDeploy)
+    monkeypatch.setattr(obj, '_load_native_fee_protocol', lambda: paper_fee_wait_protocol)
+    monkeypatch.setattr(obj, '_load_activation_protocol', lambda _: activation_backup_protocol)
+    def cli(args, **kwargs):
+        assert args[0] == 'prepare-paper-plan'
+        assert not any(running.values()) and control['kill_switch_engaged'] and not control['enabled']
+        events.append(args[0])
+        return output
+    obj._authorized_cli = cli
+    def attempt(path, request, receipt, *, environment_writer):
+        with obj.activation_transition():
+            obj.prepare_activate_start('certificate', '2026-10-08')
+    monkeypatch.setattr(activate, 'attempt', attempt)
+    monkeypatch.setattr(activate, 'host_lifecycle_lock', nullcontext)
+    monkeypatch.setattr(core, 'merged_environment', lambda: {
+        'SENTINEL_AUTHORITY_ARTIFACTS_DIR': str(phase_request.parent / 'authority')})
+    original = (phase_request.parent / 'installation-receipt.json').read_bytes()
+    assert activate.main(['--request', str(phase_request)]) == 2
+    record = records.read_document(phase_request.parent / 'activation-status.json')
+    public = capsys.readouterr()
+    assert record['activation_state'] == 'REFUSED' and record['installation_state'] == 'INSTALLED'
+    assert record['phase'] == 'PAPER_PLAN' and record['reason'] == expected
+    assert record['detail'] in public.err and expected in public.err
+    assert secret not in json.dumps(record) + public.out + public.err
+    assert events.count('prepare-paper-plan') == 1 and 'emergency-kill' in events
+    assert not control['enabled'] and control['kill_switch_engaged'] and not any(running.values())
+    assert (phase_request.parent / 'installation-receipt.json').read_bytes() == original
+
+
+def test_unrecognized_reason_code_cannot_reach_receipt_or_console(monkeypatch, phase_request, capsys):
+    secret = 'private-dsn-with-password'
+    def refused(*args, **kwargs):
+        raise core.DeployRefused(secret, public_reason=secret)
+    monkeypatch.setattr(activate, 'attempt', refused)
+    monkeypatch.setattr(activate, 'host_lifecycle_lock', nullcontext)
+    monkeypatch.setattr(core, 'merged_environment', lambda: {
+        'SENTINEL_AUTHORITY_ARTIFACTS_DIR': str(phase_request.parent / 'authority')})
+    assert activate.main(['--request', str(phase_request)]) == 2
+    record = records.read_document(phase_request.parent / 'activation-status.json')
+    output = capsys.readouterr()
+    assert record['reason'] == 'ACTIVATION_REFUSED' and record['phase'] == 'ACTIVATION'
+    assert secret not in json.dumps(record) + output.out + output.err
+
+
 def test_invalid_queue_request_has_controlled_error(tmp_path, capsys):
     assert activate.main(['--queue-from-installation', str(tmp_path / 'missing'), '--mode', 'dual']) == 2
     assert 'ACTIVATION REQUEST REFUSED' in capsys.readouterr().err
@@ -940,7 +1025,9 @@ def test_source_wait_reuses_sealed_request_and_releases_lifecycle_before_retry(m
         activate.financial_bundle(obj, request)
     def sleep(delay):
         assert delay == 60 and not owned
-        assert records.read_document(phase_request.parent/'activation-status.json')['activation_state'] == 'WAITING_FOR_READINESS'
+        waiting = records.read_document(phase_request.parent/'activation-status.json')
+        assert waiting['activation_state'] == 'WAITING_FOR_READINESS'
+        assert waiting['phase'] == 'FINANCIAL_GO' and waiting['reason'] == 'CLOSED_SESSION_SOURCE_PENDING'
         assert phase_request.read_bytes() == original_request
         assert installation.read_bytes() == original_installation
     monkeypatch.setattr(activate, 'attempt', attempt)

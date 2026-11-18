@@ -79,6 +79,8 @@
       "retained_design": "docs/retained-state-activation.md"
     },
     "_broker_cash_state_or_refuse": {
+      "correction_evidence_design": "docs/nov17-opening-recovery.md",
+      "correction_evidence_acceptance": "tests/sentinel/test_paper_current_cash_acceptance.py::test_identified_cash_correction_survives_rollback_once",
       "acceptance": [
         "tests/sentinel/test_paper_current_cash_acceptance.py"
       ],
@@ -86,7 +88,7 @@
       "native_postings_design": "docs/paper-unconfirmed-native-postings.md",
       "native_postings_acceptance": ["tests/sentinel/test_unconfirmed_paper_postings.py"],
       "native_postings_predecessor_ast_sha256": "f66ec283e97d746ec49c377e9bc834a94638970cdca4055028dd0cb0404ed72e",
-      "generated_ast_sha256": "b0aa98b219262da4bdbefc9ec423f648c219f802566ecd649e0d9bffa917e9c2",
+      "generated_ast_sha256": "52a87a5a2c0208d53284893accefe012dcbcb2905c461c4865ebc22e4c79eb3c",
       "historical_ast_sha256": "c2b5e1f2561d1f1c9ccd1348481fdcc3c1a2f6976b036b73ed9320f2ae15a8c4",
       "module": "cash",
       "predecessor_ast_sha256": "c2b5e1f2561d1f1c9ccd1348481fdcc3c1a2f6976b036b73ed9320f2ae15a8c4",
