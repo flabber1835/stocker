@@ -270,6 +270,23 @@ def pending(page,header):
    assert datetime.fromisoformat(row['valid_until'])==bound
    checking.add(key)
  if maintenance_wait(rows.get('backup_restore',{}),instant):checking.add('backup_restore')
+ if expected.get('handoff_mode')=='POST_TRADE_REACTIVATED':
+  # A withdrawn or renewing dependency may be observed again within the
+  # existing deadline. Only the complete strict validator admits a handoff.
+  assert not any(row.get('color')=='red' or row.get('original_status',row['status']) in {'fail','unknown'}
+                 for row in rows.values()),'NONSTARTUP_READINESS_FAILURE'
+  review=page.get('operator_review')
+  health=page['dashboard_health']
+  assert not health['active_conditions'] and (review is None or not review['active'])
+  conditions=set(health['review_conditions']) | (set(review['warnings']) if review is not None else set())
+  assert conditions <= checking|startup|{'paper_reconciliation'},'NONSTARTUP_READINESS_FAILURE'
+  if not strict or checking:
+   return sorted(checking) or ['dashboard_subject_revalidation']
+  waiting={key for key in startup if rows[key]['status']=='pending'}
+  if waiting:return sorted(waiting)
+  expires=min(datetime.fromisoformat(observation['valid_until']),datetime.fromisoformat(health['valid_until']))
+  if instant>=expires:return ['dashboard_publication_expired']
+  return None
  workflows=set()
  if checking:
   for key,phase in [('automation_cycle','AUTOMATION_WAITING_OPEN'),('automation_step_open','AUTOMATION_OPEN')]:
@@ -345,7 +362,11 @@ while True:
   observation_until=datetime.fromisoformat(page['observation']['valid_until'])
   health_until=datetime.fromisoformat(page['dashboard_health']['valid_until'])
   observed=datetime.fromisoformat(page['as_of'])
-  assert all(at.utcoffset()==timedelta(0) for at in (observation_until,health_until,observed))
+  dates=(observation_until,health_until,observed)
+  if expected.get('handoff_mode')=='POST_TRADE_REACTIVATED':
+   assert all(at.utcoffset() is not None for at in dates)
+  else:
+   assert all(at.utcoffset()==timedelta(0) for at in dates)
   assert health_until<=observation_until<=observed+timedelta(seconds=30)
   if datetime.now(timezone.utc)>=health_until:
    reason=['dashboard_publication_expired']

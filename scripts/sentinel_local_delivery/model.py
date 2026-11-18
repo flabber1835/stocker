@@ -12,6 +12,8 @@ import tempfile
 SCHEMA = 'sentinel.local-paper-delivery/3'
 SUCCESSOR_SCHEMA = 'sentinel.local-paper-delivery/4'
 ACCESS_PATH_SCHEMA = 'sentinel.local-paper-delivery/5'
+REACTIVATED_SCHEMA = 'sentinel.local-paper-delivery/6'
+SUCCESSOR_MODES = ('POST_TRADE_SUCCESSOR', 'POST_TRADE_REACTIVATED')
 POST_SCHEMA_ACCESS_PATH = 'POST_SCHEMA_ACCESS_PATH'
 PREVIOUS_SCHEMA = 'sentinel.local-paper-delivery/2'
 LEGACY_SCHEMA = 'sentinel.local-paper-delivery/1'
@@ -97,15 +99,16 @@ def validate_request(value):
         'schema', 'operation_id', 'source', 'deployment', 'predecessor',
         'candidate', 'qualification', 'allowed_delta', 'created_at'}
     require(isinstance(value,dict), 'REQUEST_SHAPE')
-    if value.get('schema') in {SCHEMA,SUCCESSOR_SCHEMA,ACCESS_PATH_SCHEMA}:
+    if value.get('schema') in {SCHEMA,SUCCESSOR_SCHEMA,ACCESS_PATH_SCHEMA,REACTIVATED_SCHEMA}:
         fields.add('handoff_mode')
     if value.get('schema') == ACCESS_PATH_SCHEMA:
         fields.add('canonical_proof_phase')
     require(set(value)==fields, 'REQUEST_SHAPE')
-    require(value['schema'] in {SCHEMA,SUCCESSOR_SCHEMA,ACCESS_PATH_SCHEMA,PREVIOUS_SCHEMA,LEGACY_SCHEMA},
+    require(value['schema'] in {SCHEMA,SUCCESSOR_SCHEMA,ACCESS_PATH_SCHEMA,REACTIVATED_SCHEMA,PREVIOUS_SCHEMA,LEGACY_SCHEMA},
             'REQUEST_SCHEMA')
     require(isinstance(handoff_mode(value),str)
         and (handoff_mode(value)=='PRE_OPEN' if value['schema']==ACCESS_PATH_SCHEMA
+             else handoff_mode(value)=='POST_TRADE_REACTIVATED' if value['schema']==REACTIVATED_SCHEMA
              else handoff_mode(value)=='POST_TRADE_SUCCESSOR' if value['schema']==SUCCESSOR_SCHEMA
              else handoff_mode(value) in {'PRE_OPEN','POST_TRADE','BLOCKED_UNSENT'}),
         'REQUEST_HANDOFF_MODE')
@@ -191,7 +194,7 @@ class Journal:
     def read(self):
         path = self.folder/'receipt.json'
         if not path.exists():
-            require(self.request['schema'] in {SCHEMA,SUCCESSOR_SCHEMA,ACCESS_PATH_SCHEMA,PREVIOUS_SCHEMA},
+            require(self.request['schema'] in {SCHEMA,SUCCESSOR_SCHEMA,ACCESS_PATH_SCHEMA,REACTIVATED_SCHEMA,PREVIOUS_SCHEMA},
                     'LEGACY_DELIVERY_CANNOT_RESUME')
             return dict(schema=self.request['schema'], operation_id=self.request['operation_id'],
                         request_sha256=self.subject, stage='NEW', history=[], artifacts={})
@@ -222,7 +225,7 @@ class Journal:
 
     def advance(self, expected, stage, **artifacts):
         self.require_active()
-        require(self.request['schema'] in {SCHEMA,SUCCESSOR_SCHEMA,ACCESS_PATH_SCHEMA,PREVIOUS_SCHEMA},
+        require(self.request['schema'] in {SCHEMA,SUCCESSOR_SCHEMA,ACCESS_PATH_SCHEMA,REACTIVATED_SCHEMA,PREVIOUS_SCHEMA},
                 'LEGACY_DELIVERY_CANNOT_RESUME')
         current = self.read()
         require(current['stage'] == expected and STAGES.index(stage) == STAGES.index(expected)+1,

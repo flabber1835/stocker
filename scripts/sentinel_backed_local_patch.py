@@ -275,6 +275,7 @@ class BackedHost(Host):
     supports_post_trade = True
     supports_blocked_unsent = True
     supports_post_trade_successor = True
+    supports_post_trade_reactivated = True
     supports_post_schema_access_path = True
 
     def preflight_environment(self, values):

@@ -4,6 +4,10 @@ These programs do not accept source code or SQL from an operation receipt.
 Canonical comparison obtains a fresh server-enforced read-only connection on
 all attempts. Only typed corpus contention is retried within original clocks."""
 
+from .model import SUCCESSOR_MODES
+from . import reactivated
+
+
 AUTOMATION_CONFIG = r'''import json,sys
 from sentinel.automation_runtime import config_from_env
 print(config_from_env(json.load(sys.stdin)).fingerprint)
@@ -255,7 +259,7 @@ def handoff_filters(mode):
         candidate = "s.state='WAITING_OPEN'"
         ready = ("s.state='WAITING_OPEN' AND s.failure_code IS NULL AND s.failure_detail IS NULL "
             "AND s.completed_at IS NULL AND s.execute_at>clock_timestamp()+interval '15 minutes'")
-    elif mode in {'POST_TRADE','POST_TRADE_SUCCESSOR'}:
+    elif mode=='POST_TRADE' or mode in SUCCESSOR_MODES:
         terminal = "s.state='SUCCEEDED' AND s.failure_code IS NULL AND s.failure_detail IS NULL"
         if mode=='POST_TRADE':
             terminal = '('+terminal+') OR ('+_CLEAN_CASH_RETIRED_SQL+')'
@@ -344,14 +348,14 @@ def snapshot_sql(mode='PRE_OPEN'):
     generation = 's.control_generation=c.generation AND s.config_sha256=c.config_sha256'
     plan_value, plan_join = _PLAN_VALUE, _PLAN_JOIN
     plan_ready = 'AND p.superseded_by IS NULL'
-    facts = _SETTLED_FACTS if mode in {'POST_TRADE', 'POST_TRADE_SUCCESSOR'} else ''
+    facts = _SETTLED_FACTS if mode=='POST_TRADE' or mode in SUCCESSOR_MODES else ''
     if mode == 'BLOCKED_UNSENT':
         generation = 's.control_generation=c.generation-1 AND s.config_sha256=c.config_sha256'
         plan_value = 'CASE WHEN p.plan_id IS NULL THEN NULL ELSE '+_PLAN_VALUE+' END'
         plan_join = 'LEFT '+_PLAN_JOIN
         plan_ready = 'AND p.plan_id IS NULL'
         facts += '\n '+_BLOCKED_FACTS
-    elif mode == 'POST_TRADE_SUCCESSOR':
+    elif mode in SUCCESSOR_MODES:
         generation = 's.control_generation<c.generation'
         plan_join = (
             'JOIN sentinel_execution_plans original ON original.plan_id=s.plan_id\n'
@@ -359,6 +363,8 @@ def snapshot_sql(mode='PRE_OPEN'):
         )
         plan_ready = _SUCCESSOR_READY
         facts += '\n '+_SUCCESSOR_FACTS
+        if mode == 'POST_TRADE_REACTIVATED':
+            facts += reactivated.SNAPSHOT_FACTS
     return _SNAPSHOT_SQL.format(candidate=candidate, ready=ready, facts=facts,
         cursor_fields=_CURSOR_EVIDENCE_FIELDS, issuer_filter=_ISSUER_EVIDENCE_FILTER,
         execution_recovery_filter=_EXECUTION_RECOVERY_FILTER,
@@ -694,7 +700,7 @@ _BLOCKED_BODY = r'''        from datetime import datetime,timedelta,timezone
             output['recovery_kind'] = kind
 '''
 def _canonical_plan_program(*, successor):
-    settled_mode = ("in {'POST_TRADE','POST_TRADE_SUCCESSOR'}" if successor else "=='POST_TRADE'")
+    settled_mode = ("in {'POST_TRADE','POST_TRADE_SUCCESSOR','POST_TRADE_REACTIVATED'}" if successor else "=='POST_TRADE'")
     historical = _SUCCESSOR_HISTORY if successor else ''
     historical_output = "        output['historical_completion']=historical_completion\n" if successor else ''
     return (_CANONICAL_OBSERVATION + _CANONICAL_PLAN + historical
@@ -712,7 +718,7 @@ BLOCKED_CANONICAL = _CANONICAL_OBSERVATION + _BLOCKED_BODY + _CANONICAL_FINISH
 def canonical_program(mode):
     if mode == 'BLOCKED_UNSENT':
         return BLOCKED_CANONICAL
-    if mode == 'POST_TRADE_SUCCESSOR':
+    if mode in SUCCESSOR_MODES:
         return SUCCESSOR_CANONICAL
     if mode in {'PRE_OPEN', 'POST_TRADE'}:
         return CANONICAL
@@ -1150,6 +1156,8 @@ def panel_program(mode, *, clean_retired=False, observed=False):
         return _panel_program(_SKIPPED_PANEL_BODY, observed=True) if observed else SKIPPED_PANEL
     if mode == 'BLOCKED_UNSENT':
         return _panel_program(_BLOCKED_PANEL_BODY, observed=True) if observed else BLOCKED_PANEL
+    if mode == 'POST_TRADE_REACTIVATED':
+        return _panel_program(reactivated.PANEL_BODY, observed=observed)
     if mode == 'POST_TRADE_SUCCESSOR':
         return _panel_program(_SUCCESSOR_PANEL_BODY, observed=True) if observed else SUCCESSOR_PANEL
     if mode in {'PRE_OPEN', 'POST_TRADE'}:

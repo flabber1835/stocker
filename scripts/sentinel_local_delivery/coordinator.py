@@ -245,9 +245,15 @@ class Delivery:
             require(evidence.snapshot(self.host)==state and self.host.postgres()==pg,
                     'STATE_CHANGED_DURING_PREFLIGHT')
             native = evidence.native_positions(self.host,values)
-            if handoff_mode(self.host.request) in {'POST_TRADE','POST_TRADE_SUCCESSOR'}:
+            if handoff_mode(self.host.request) in {'POST_TRADE','POST_TRADE_SUCCESSOR','POST_TRADE_REACTIVATED'}:
                 require(native==new_proof.get('settled_native_positions'),
                         'POST_TRADE_NATIVE_RECONCILIATION_CHANGED')
+            if handoff_mode(self.host.request)=='POST_TRADE_REACTIVATED':
+                close=datetime.fromisoformat(state['cycle']['execution_close_at'])
+                end=min(utcnow()+timedelta(seconds=readiness.SECONDS),close-timedelta(minutes=15))
+                extra['predecessor_panel']=evidence.panel(self.host,state,wait_until=end)
+                require(utcnow()<end and evidence.snapshot(self.host)==state,
+                        'REACTIVATED_PREFLIGHT_SUBJECT_CHANGED')
             if handoff_mode(self.host.request)=='POST_TRADE_SUCCESSOR':
                 worker=applications['sentinel-automation']
                 extra['predecessor_automation']=dict(container=worker['Id'],image=worker['Image'])
@@ -395,15 +401,18 @@ class Delivery:
         require(current==postgres,'POSTGRES_CHANGED_DURING_FINAL_OBSERVATION')
         preservation_done = time.monotonic_ns()
         panel_scope={'native_positions_count':len(artifacts['native_positions'])} if repair else {}
+        if handoff_mode(self.host.request)=='POST_TRADE_REACTIVATED':
+            close=datetime.fromisoformat(artifacts['preserved']['cycle']['execution_close_at'])
+            end=min(end,close-timedelta(minutes=15))
         panel=evidence.panel(self.host,artifacts['preserved'],
             wait_until=min(end,utcnow()+timedelta(seconds=deadline-self.monotonic())),**panel_scope)
         publication_done = time.monotonic_ns()
         leader=self._readiness_unchanged(applications,leader)
         readiness.cutoff(receipt,now=utcnow())
         require(self.monotonic()<deadline,'APPLICATION_READINESS_DEADLINE')
-        if handoff_mode(self.host.request) in {'PRE_OPEN','POST_TRADE'}:
+        if handoff_mode(self.host.request) in {'PRE_OPEN','POST_TRADE','POST_TRADE_REACTIVATED'}:
             boundary=datetime.fromisoformat(panel['installation_panel_valid_until'])
-            require(boundary.utcoffset() is not None and utcnow()<boundary,
+            require(boundary.utcoffset() is not None and utcnow()<min(end,boundary),
                     'INSTALLATION_PANEL_EXPIRED')
         return self.journal.advance(stage,'VERIFIED',verified_at=utcnow().isoformat(),
                                     leader=leader,panel=panel,notification_appends=appends,
@@ -417,7 +426,9 @@ class Delivery:
                                        if repair else
                                       {'operational_ready':False,
                                        'installation_scope':'POST_TRADE_SUCCESSOR_COMPATIBLE_APPLICATION_REPAIR'}
-                                       if handoff_mode(self.host.request)=='POST_TRADE_SUCCESSOR' else {}))
+                                       if handoff_mode(self.host.request)=='POST_TRADE_SUCCESSOR' else
+                                      {'operational_ready':False,'installation_scope':'POST_TRADE_REACTIVATED_SOFTWARE_ONLY'}
+                                       if handoff_mode(self.host.request)=='POST_TRADE_REACTIVATED' else {}))
 
     def advance(self):
         with self.host.owned():

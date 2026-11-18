@@ -11,8 +11,8 @@ from datetime import timedelta
 import re
 import time
 
-from . import checks
-from .model import COMPAT_DRAIN_PREDECESSOR, DeliveryRefused, digest, handoff_mode, require, utcnow
+from . import checks, reactivated
+from .model import COMPAT_DRAIN_PREDECESSOR, SUCCESSOR_MODES, DeliveryRefused, digest, handoff_mode, require, utcnow
 
 
 _BINDING_KEYS = ('deployment_id', 'broker', 'broker_account_id', 'takeover_epoch')
@@ -115,7 +115,9 @@ def snapshot(host):
     """Select exactly one current, prepared future cycle and its source closure."""
     mode = handoff_mode(host.request)
     repair = mode=='BLOCKED_UNSENT'
-    successor = mode=='POST_TRADE_SUCCESSOR'
+    successor = mode in SUCCESSOR_MODES
+    if mode=='POST_TRADE_REACTIVATED':
+        require(getattr(host,'supports_post_trade_reactivated',False), 'REACTIVATED_BACKED_ADAPTER_REQUIRED')
     if repair:
         require(getattr(host,'supports_blocked_unsent',False)
             and host.load_values().get('SENTINEL_LOCAL_PAPER_BACKUP_POLICY')=='REQUIRED_V1',
@@ -173,12 +175,12 @@ def snapshot(host):
                 ('lease_live','scoped_plans','scoped_commands','transport_events')),
             'BLOCKED_UNSENT_NOT_FENCED_OR_UNSENT')
     elif successor:
-        require_post_trade_successor(current)
+        require_post_trade_successor(current, healthy=mode=='POST_TRADE_REACTIVATED')
     else:
         require(current['ready'] is True and cycle['plan_id'] == plan['plan_id']
                 and cycle['control_generation'] == control['generation'],
                 'Saved plan is not ready with sufficient future execution margin')
-    if mode in {'POST_TRADE','POST_TRADE_SUCCESSOR'}:
+    if mode=='POST_TRADE' or successor:
         skipped = mode=='POST_TRADE' and checks.clean_cash_retirement(cycle)
         successful = (cycle.get('state')=='SUCCEEDED'
             and cycle.get('failure_code') is None and cycle.get('failure_detail') is None)
@@ -209,7 +211,7 @@ def snapshot(host):
     return current
 
 
-def require_post_trade_successor(current):
+def require_post_trade_successor(current, *, healthy=False):
     """Authenticate old completion without promoting its obsolete authority."""
     control,cycle,plan = current['control'],current['cycle'],current['plan']
     relation=current.get('successor')
@@ -247,6 +249,9 @@ def require_post_trade_successor(current):
     require(original.get('rollout_certificate_sha256')==cycle.get('certificate_sha256')
         and active.get('rollout_certificate_sha256')==control.get('certificate_sha256'),
         'POST_TRADE_SUCCESSOR_CERTIFICATE_CHANGED')
+    if healthy:
+        reactivated.require_lineage(current)
+        return
     incidents=current.get('retained_incidents')
     require(isinstance(incidents,dict) and bool(incidents),
         'POST_TRADE_SUCCESSOR_WORKER_INCIDENT_ABSENT')
@@ -300,8 +305,8 @@ def canonical_check(host, values, state):
         decision=state['cycle']['decision_session'], effective=state['cycle']['effective_session'])
     if mode == 'POST_TRADE':
         expected.update(handoff_mode='POST_TRADE',reconciliation_id=state['reconciliation']['seq'])
-    if mode == 'POST_TRADE_SUCCESSOR':
-        expected.update(handoff_mode='POST_TRADE_SUCCESSOR',
+    if mode in SUCCESSOR_MODES:
+        expected.update(handoff_mode=mode,
             reconciliation_id=state['reconciliation']['seq'],cycle_id=state['cycle']['cycle_id'],
             original_plan=state['successor']['original_plan'],
             original_plan_fingerprint=state['cycle']['plan_fingerprint'],
@@ -539,7 +544,7 @@ def check_drain(host, values, target, proof):
 def migrate_operational_schema(host, candidate):
     result=host.compose(candidate,'run','--rm','--no-deps','--pull','never','--entrypoint','python',
         'sentinel-authorized-cli','-B','-c',
-        checks.READ_OPERATIONAL_SCHEMA if handoff_mode(host.request) in {'BLOCKED_UNSENT','POST_TRADE_SUCCESSOR'}
+        checks.READ_OPERATIONAL_SCHEMA if handoff_mode(host.request) in ('BLOCKED_UNSENT', *SUCCESSOR_MODES)
         else checks.INSTALL_OPERATIONAL_SCHEMA,timeout=150)
     value=json.loads(result.stdout)
     require(isinstance(value,dict) and set(value)=={'installation','complete'}
@@ -560,8 +565,8 @@ def panel(host, state, *, wait_until=None, native_positions_count=None):
             expected.update(clean_retired=True, cycle_id=state['cycle']['cycle_id'],
                 completed_at=state['cycle']['completed_at'],
                 reconciliation_id=state['reconciliation']['seq'])
-    if handoff_mode(host.request)=='POST_TRADE_SUCCESSOR':
-        expected.update(handoff_mode='POST_TRADE_SUCCESSOR',
+    if handoff_mode(host.request) in SUCCESSOR_MODES:
+        expected.update(handoff_mode=handoff_mode(host.request),
             cycle_id=state['cycle']['cycle_id'],original_plan=state['cycle']['plan_id'],
             retained_incidents=state['retained_incidents'])
     if repair:

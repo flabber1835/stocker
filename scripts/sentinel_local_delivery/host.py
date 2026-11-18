@@ -579,7 +579,9 @@ print(json.dumps(dict(source=r['identity_hash'],shadow_config=hashlib.sha256(jso
         return deepcopy(public)
 
     def verify_candidate(self):
-        require(handoff_mode(self.request)!='POST_TRADE_SUCCESSOR'
+        require(handoff_mode(self.request)!='POST_TRADE_REACTIVATED'
+            or getattr(self,'supports_post_trade_reactivated',False), 'REACTIVATED_BACKED_ADAPTER_REQUIRED')
+        require(handoff_mode(self.request) not in {'POST_TRADE_SUCCESSOR','POST_TRADE_REACTIVATED'}
             or getattr(self,'supports_post_trade_successor',False),
             'POST_TRADE_SUCCESSOR_BACKED_ADAPTER_REQUIRED')
         require(handoff_mode(self.request)=='PRE_OPEN' or getattr(self,'supports_post_trade',False),
