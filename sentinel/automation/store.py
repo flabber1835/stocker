@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any, Mapping
 
@@ -196,15 +197,18 @@ def engage_kill(
 
 
 def engage_kill_if_leader(
-        conn, permit: LeaderPermit, *, actor: str, reason: str) -> AutomationControl:
+        conn, permit: LeaderPermit, *, actor: str, reason: str,
+        before_mutation: Callable[[Any], None] | None = None) -> AutomationControl:
     """Latch a worker's refusal only under its original, still-live fence."""
     if not isinstance(permit, LeaderPermit):
         raise StaleLeaderRefused("automatic kill requires the original leader permit")
-    return _engage_kill(conn, permit=permit, actor=actor, reason=reason)
+    return _engage_kill(conn, permit=permit, actor=actor, reason=reason,
+                        before_mutation=before_mutation)
 
 
 def _engage_kill(
-        conn, *, permit: LeaderPermit | None, actor: str, reason: str) -> AutomationControl:
+        conn, *, permit: LeaderPermit | None, actor: str, reason: str,
+        before_mutation: Callable[[Any], None] | None = None) -> AutomationControl:
     actor = _require_text(actor, "actor")
     reason = _require_text(reason, "reason")
     try:
@@ -226,6 +230,8 @@ def _engage_kill(
                     (permit.holder_id, permit.fence_token, permit.control_generation))
                 if cur.fetchone() is None:
                     raise StaleLeaderRefused("automatic kill lost its live automation fence")
+                if before_mutation is not None:
+                    before_mutation(conn)
             cur.execute(
                 "UPDATE sentinel_automation_control SET generation=%s,"
                 " kill_switch_engaged=TRUE,authority_verdict=NULL,"
@@ -1011,7 +1017,8 @@ def transition_cycle(
         failure_detail: str | None | object = _UNSET,
         diagnostic: Mapping[str, Any] | object = _UNSET,
         opening_cutoffs: Mapping[str, str] | None = None,
-        increment_attempt: bool = False) -> CycleRecord:
+        increment_attempt: bool = False,
+        before_mutation: Callable[[Any], None] | None = None) -> CycleRecord:
     """Transition and event append in one fenced transaction."""
     if not isinstance(to_state, CycleState):
         to_state = CycleState(to_state)
@@ -1077,6 +1084,8 @@ def transition_cycle(
             permit.control_generation,
             permit.holder_id, permit.fence_token,
         ])
+        if before_mutation is not None:
+            before_mutation(conn)
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE sentinel_automation_cycles SET "
@@ -1114,7 +1123,8 @@ def adopt_cycle(
         failure_code: str | None = None,
         failure_detail: str | None = None,
         diagnostic: Mapping[str, Any] | None = None,
-        increment_attempt: bool = False) -> CycleRecord:
+        increment_attempt: bool = False,
+        before_mutation: Callable[[Any], None] | None = None) -> CycleRecord:
     """Adopt a fenced cycle without rewriting its originating identity.
 
     This is the sole cross-generation transition.  A current live leader may
@@ -1210,6 +1220,8 @@ def adopt_cycle(
             cycle_id, current.state.value, permit.control_generation,
             permit.holder_id, permit.fence_token,
         ])
+        if before_mutation is not None:
+            before_mutation(conn)
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE sentinel_automation_cycles SET "

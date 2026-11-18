@@ -7,9 +7,9 @@ import time
 import pytest
 
 from sentinel.automation import store
-from sentinel.automation.model import StaleLeaderRefused
+from sentinel.automation.model import AutomationConfig, CycleState, StaleLeaderRefused
 from sentinel.feed import store as feed_store
-from tests.sentinel.test_automation_store import conn, enable, identity, pg
+from tests.sentinel.test_automation_store import conn, cycle_spec, enable, identity, pg
 
 
 def refused(conn):
@@ -139,3 +139,83 @@ def test_removed_last_database_time_check_is_caught(conn, monkeypatch):
     monkeypatch.setattr(store, '_invalidate_lease', namespace['_invalidate_lease'])
     with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
         test_kill_rolled_back_if_database_clock_expires_after_lock_and_before_invalidation(conn, monkeypatch)
+
+
+def terminal_hook_case(conn, mode):
+    config = AutomationConfig()
+    control = enable(conn, config)
+    permit = store.acquire_lease(conn, holder_id="worker-a", lease_seconds=30)
+    if mode == "kill":
+        write = store.engage_kill_if_leader
+        arguments = dict(actor="sentinel-automation", reason="authority refused")
+    else:
+        cycle = store.create_cycle(conn, permit=permit, spec=cycle_spec(control, config))
+        arguments = dict(cycle_id=cycle.cycle_id, to_state=CycleState.BLOCKED)
+        write = store.transition_cycle
+        if mode == "adopt":
+            store.engage_kill(conn, actor="operator", reason="generation boundary")
+            store.release_kill(conn, expected_binding=identity(config), actor="operator", reason="resume")
+            permit = store.acquire_lease(conn, holder_id="worker-b", lease_seconds=30)
+            write = store.adopt_cycle
+    store.record_authority_verdict(conn, verdict="FAIL", detail="certificate refused",
+        holder_id=permit.holder_id, fence_token=permit.fence_token, control_generation=permit.control_generation)
+    return write, dict(arguments, permit=permit)
+
+
+def cycle_evidence(conn):
+    return conn.execute("""SELECT
+        (SELECT jsonb_agg(to_jsonb(c) ORDER BY cycle_id) FROM sentinel_automation_cycles c),
+        (SELECT jsonb_agg(to_jsonb(e) ORDER BY seq) FROM sentinel_automation_cycle_events e)
+    """).fetchone()
+
+
+@pytest.mark.parametrize("mode", ["transition", "adopt", "kill"])
+@pytest.mark.parametrize("outcome", ["accept", "refuse", "stale"])
+def test_terminal_callback_uses_the_target_transaction_or_leaves_no_changes(conn, mode, outcome):
+    write, arguments = terminal_hook_case(conn, mode)
+    conn.execute("CREATE TEMP TABLE terminal_guard_marker (guard_xid text)")
+    conn.commit()
+    if outcome == "stale":
+        store.release_lease(conn, permit=arguments["permit"])
+    control_before = evidence(conn)
+    cycle_before = cycle_evidence(conn)
+    called = []
+
+    def guard(target):
+        assert target is conn
+        assert cycle_evidence(target) == cycle_before
+        assert target.execute("SELECT kill_switch_engaged, authority_verdict FROM sentinel_automation_control"
+                              " WHERE id=1").fetchone() == (False, "FAIL")
+        xid = target.execute("INSERT INTO terminal_guard_marker VALUES (pg_current_xact_id()::text)"
+                             " RETURNING guard_xid").fetchone()[0]
+        called.append(xid)
+        if outcome == "refuse":
+            raise StaleLeaderRefused("publication subject changed")
+
+    if outcome != "accept":
+        with pytest.raises(StaleLeaderRefused, match="publication subject changed" if outcome=="refuse" else None):
+            write(conn, **arguments, before_mutation=guard)
+        assert len(called) == (1 if outcome == "refuse" else 0)
+        assert evidence(conn) == control_before and cycle_evidence(conn) == cycle_before
+        assert conn.execute("SELECT count(*) FROM terminal_guard_marker").fetchone() == (0,)
+        return
+    result = write(conn, **arguments, before_mutation=guard)
+    if mode == "kill":
+        assert result.kill_switch_engaged
+        changed = "SELECT xmin::text FROM sentinel_automation_control WHERE id=1"
+        event = "SELECT xmin::text FROM sentinel_automation_events ORDER BY seq DESC LIMIT 1"
+    else:
+        assert result.state is CycleState.BLOCKED
+        changed = "SELECT xmin::text FROM sentinel_automation_cycles"
+        event = "SELECT xmin::text FROM sentinel_automation_cycle_events ORDER BY seq DESC LIMIT 1"
+    assert called == [conn.execute(changed).fetchone()[0]] == [conn.execute(event).fetchone()[0]]
+    assert conn.execute("SELECT guard_xid FROM terminal_guard_marker").fetchall() == [(called[0],)]
+
+
+def test_removing_terminal_subject_callback_is_detected(conn, monkeypatch):
+    original = store.transition_cycle
+    def without_subject_check(conn, *, before_mutation=None, **kwargs):
+        return original(conn, **kwargs)
+    monkeypatch.setattr(store, "transition_cycle", without_subject_check)
+    with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
+        test_terminal_callback_uses_the_target_transaction_or_leaves_no_changes(conn, "transition", "refuse")
