@@ -20,7 +20,9 @@ from sentinel.feed.retained_source import RetainedSource
 
 class Observer(Protocol):
     def stage(self, name: str) -> None: ...
+    def wait_for_backup(self, exc: backup_runtime_authority.BackupIntegrityBusy) -> None: ...
     def acquisition(self) -> AbstractContextManager[None]: ...
+    def reporting(self, phase: str, job_id: str) -> AbstractContextManager[None]: ...
     def publication(self, phase: str, job_id: str) -> AbstractContextManager[None]: ...
 
 
@@ -219,7 +221,12 @@ def run(conn, job_id, *, operational, boundary, lease, observer: Observer):
             # Once READY, prove financial durability before the final
             # provider reobservation, so a horizon renewal cannot duplicate
             # that expensive network work. Publication checks again.
-            backup_runtime_authority.require(conn, operation="operational publication preflight")
+            while True:
+                try:
+                    backup_runtime_authority.require(conn, operation="operational publication preflight")
+                    break
+                except backup_runtime_authority.BackupIntegrityBusy as exc:
+                    observer.wait_for_backup(exc)
             conn.commit()
         rolling_work.checkpoint()
         observer.stage('SOURCE_CORROBORATION')
@@ -230,8 +237,16 @@ def run(conn, job_id, *, operational, boundary, lease, observer: Observer):
         rolling_work.checkpoint()
     phase = "rolling_operational_publication" if operational else "rolling_comparison_publication"
     observer.stage('PUBLICATION')
-    with observer.publication(phase, job_id):
-        producer = identity.require_feed_producer_identity()
-        result = boundary.publish(conn, lease, request, producer=producer)
-        conn.commit()
+    with observer.reporting(phase, job_id):
+        while True:
+            try:
+                with observer.publication(phase, job_id):
+                    producer = identity.require_feed_producer_identity()
+                    result = boundary.publish(conn, lease, request, producer=producer)
+                    conn.commit()
+                break
+            except operational_snapshot.PublicationAdmissionBusy as exc:
+                if not operational:
+                    raise
+                observer.wait_for_backup(exc)
     return result

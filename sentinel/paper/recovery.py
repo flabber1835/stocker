@@ -400,17 +400,17 @@ async def recover_automated_paper_cycle(
                     deployment=binding.identity,
                     initial_result=result, actions=actions,
                     dual_mode=dual_mode, clock=clock))
-            cash_changed = _cash_authority_or_refuse(
-                conn, plan=plan, deployment=binding.identity,
-                account=account,
-                observation=confirmed_result.observation,
-                activity_state=activity_state,
-                # Recovery submits nothing. A recognized post-plan
-                # dividend/interest/fee is legitimate realized economics;
-                # it may be certified after the book is clean even though
-                # it would refuse a stale plan's new BUY authorization.
-                permit_new_activity=True,
-                endpoint_lag_observed_at=evidence_at, allow_native_fee_wait=True)
+            from .cash import fractional_posting_reserve
+            posting_reserve = (fractional_posting_reserve(conn, plan=plan, deployment=binding.identity,
+                account=account, observation=confirmed_result.observation, activity_state=activity_state)
+                if dual_mode and confirmed_result.clean else None)
+            cash_changed = False
+            if posting_reserve is None:
+                cash_changed = _cash_authority_or_refuse(
+                    conn, plan=plan, deployment=binding.identity, account=account,
+                    observation=confirmed_result.observation, activity_state=activity_state,
+                    permit_new_activity=True, endpoint_lag_observed_at=evidence_at,
+                    allow_native_fee_wait=True)
             result.cash_plan_superseded = bool(cash_changed)
             if target_projection is None:
                 return result

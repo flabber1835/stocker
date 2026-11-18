@@ -17,6 +17,10 @@ class OperationalSnapshotRefused(RuntimeError):
     pass
 
 
+class PublicationAdmissionBusy(backup_runtime_authority.BackupIntegrityBusy):
+    """An exact backup check refused the writer before any publication mutation."""
+
+
 def _now():
     return datetime.now(timezone.utc)
 
@@ -224,7 +228,10 @@ def publish(conn, lease, request, *, producer):
     actual_producer = identity.require_feed_producer_identity()
     if producer != actual_producer:
         raise OperationalSnapshotRefused("PUBLICATION_PRODUCER_CHANGED")
-    backup_runtime_authority.require(conn, operation="operational snapshot publication")
+    try:
+        backup_runtime_authority.require(conn, operation="operational snapshot publication")
+    except backup_runtime_authority.BackupIntegrityBusy as exc:
+        raise PublicationAdmissionBusy(str(exc)) from exc
     candidate = str(row[6])
     manifest = rolling_store.manifest(conn, candidate)
     with conn.cursor() as cur:

@@ -412,6 +412,8 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
         retry_skipped = dual_mode and market_policy is None and ProtectedLimitPolicy.from_env() is not None
     except TargetProjectionRefused as exc:
         raise PaperActivationRefused(str(exc)) from exc
+    fractional_cash = dual_mode and market_policy is not None and market_policy.fractional
+    from . import cash_postings
     if market_policy is not None and not dual_mode:
         raise PaperActivationRefused("market BUY policy requires backed dual PAPER preparation")
     retirement_request = None
@@ -674,10 +676,17 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                 activity_state = await _broker_cash_state_or_refuse(
                     conn, broker=broker, binding=binding,
                     through=observation_time)
-                _cash_authority_or_refuse(
-                    conn, plan=existing_plan, deployment=binding.identity,
-                    account=account, observation=observation,
-                    activity_state=activity_state, allow_native_fee_wait=rec.clean)
+                posting_reserve = None
+                if fractional_cash:
+                    rec, account, activity_state, posting_reserve = await cash_postings.prepare(
+                        conn, broker=broker, binding=binding, plan=existing_plan, rec=rec,
+                        account=account, activity=activity_state, actions=actions, clock=clock)
+                    observation = rec.observation
+                if posting_reserve is None:
+                    _cash_authority_or_refuse(
+                        conn, plan=existing_plan, deployment=binding.identity,
+                        account=account, observation=observation,
+                        activity_state=activity_state, allow_native_fee_wait=rec.clean)
                 await _instrument_map(
                     conn, broker, state, existing_plan, observation, preparation=True)
                 journal.adopt_current_plan(conn, existing_plan)
@@ -809,6 +818,7 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
             activity_state = await _broker_cash_state_or_refuse(
                 conn, broker=broker, binding=binding,
                 through=account_observed_at)
+            carried_postings = {}
             prepared_retirement = None
             if retirement_request is not None:
                 from .reconciliation_evidence import _settled_account_evidence_bracket
@@ -830,7 +840,16 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                 scan_entitlements(
                     conn, binding=binding.to_dict(), through=through_date, account=account,
                     informational_only=dual_mode)
-                if prepared_retirement is None:
+                posting_reserve = None
+                if fractional_cash and prepared_retirement is None:
+                    rec, account, activity_state, posting_reserve = await cash_postings.prepare(
+                        conn, broker=broker, binding=binding, plan=existing_plan, rec=rec,
+                        account=account, activity=activity_state, actions=actions, clock=clock)
+                    observation = rec.observation
+                    if posting_reserve is not None:
+                        carried_postings = cash_postings.carry_forward(
+                            conn, plan_id=existing_plan.plan_id, account_id=binding.broker_account_id)
+                if prepared_retirement is None and posting_reserve is None:
                     _cash_authority_or_refuse(
                         conn, plan=existing_plan, deployment=binding.identity,
                         account=account, observation=observation,
@@ -933,7 +952,13 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                         broker_cash.record_plan_baseline(
                             conn, plan_id=latest.plan_id,
                             decision_session=latest.decision_session,
-                            activity_state=activity_state)
+                            activity_state=activity_state, **carried_postings)
+                        if carried_postings:
+                            from .cash import fractional_posting_reserve
+                            reserve = fractional_posting_reserve(conn, plan=latest, deployment=binding.identity,
+                                account=account, observation=observation, activity_state=activity_state)
+                            if reserve != posting_reserve:
+                                raise PaperActivationRefused("successor differs from the observed native posting reserve")
                     except broker_cash.BrokerCashAuthorityRefused as exc:
                         raise PaperActivationRefused(
                             "cannot establish immutable dual plan cash "

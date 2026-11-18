@@ -211,9 +211,17 @@ class ExecutionResult:
         terminal_bad = any(
             command.state.name in {"UNKNOWN", "REJECTED", "CANCELLED"}
             for command in self.session.submitted)
-        settlement = set(getattr(self.session, "settlement_deferred", ()))
-        actionable_deferrals = set(self.session.deferred) - settlement
-        actionable_deferrals.update(settlement & set(self.session.deferral_reasons))
+        expected = set(getattr(self.session, "settlement_deferred", ()))
+        posting = getattr(self.session, "posting_deferred", ())
+        if posting:
+            from sentinel.execution.fractional_progress import PostingFunds
+            try:
+                if PostingFunds.from_dict(self.session.posting_funds).credit_can_fund_order():
+                    expected.update(posting)
+            except ValueError:
+                return True
+        actionable_deferrals = set(self.session.deferred) - expected
+        actionable_deferrals.update(expected & set(self.session.deferral_reasons))
         return (self.session.runtime_state is not RuntimeState.RUNNING
                 or bool(self.session.refused) or bool(actionable_deferrals)
                 or terminal_bad)

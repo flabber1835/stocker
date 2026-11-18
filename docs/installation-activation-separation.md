@@ -330,7 +330,15 @@ closing that foreground terminal interrupts activation, leaving installed
 software intact and execution fenced. A supervised systemd handoff survives
 closing the installation terminal; inspect its named unit with `journalctl -fu UNIT`.
 The JSON `activation-status.json` reports preparation, waiting, active, refused
-or interrupted state. It does not replace the immutable installation receipt.
+or interrupted state. A refusal or readiness wait includes a finite reason code,
+the phase and a public explanation. The console and receipt use the same
+vocabulary. The phase distinguishes fenced command recovery, financial GO and
+plan preparation. For the prepared plan, the signed CLI's exact refusal can
+identify an unreflected native credit, an unexplained cash difference or
+ambiguous posting attribution. Other preparation failures direct the operator
+to the attempt log. Keep subprocess output, account identifiers and command
+arguments in the private log. Preserve the fence, retry decisions and
+immutable installation receipt.
 Never pass credentials as command arguments.
 
 The change introduces no new provider, formation, execution or restore algorithm.

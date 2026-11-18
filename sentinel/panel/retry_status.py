@@ -274,10 +274,18 @@ def clean_execution_deadline(cycle):
         return None
 
 
-def submitted_commands_progress(cycle: Mapping) -> bool:
-    """Positive producer evidence of submission, never completion or authority."""
+def verified_posting_wait(execution):
+    from sentinel.execution.fractional_progress import PostingFunds
+    try:
+        return PostingFunds.from_dict(execution.get('posting_funds')).credit_can_fund_order()
+    except (TypeError, ValueError, ArithmeticError):
+        return False
+
+
+def submitted_commands_progress(cycle: Mapping, *, cash_wait: bool = False) -> bool:
+    """Validate the clean execution attempt and its reported action."""
     if (cycle.get('state') != 'RECONCILING'
-            or cycle.get('failure_code') != 'COMMANDS_IN_FLIGHT'
+            or cycle.get('failure_code') != ('CASH_POSTING_WAIT' if cash_wait else 'COMMANDS_IN_FLIGHT')
             or any(cycle.get(k) for k in ('terminal_reason', 'callback_failure', 'exception_type'))):
         return False
     diagnostic = cycle.get('diagnostic')
@@ -293,15 +301,21 @@ def submitted_commands_progress(cycle: Mapping) -> bool:
             or execution.get('restricted_securities') != {}):
         return False
     deferred = execution.get('deferred')
-    if deferred != [] or execution.get('settlement_deferred', []) != []:
+    settlement = execution.get('settlement_deferred', [])
+    posting = execution.get('posting_deferred', [])
+    if cash_wait and (not posting or settlement != []):
+        return False
+    if deferred != [] or settlement != [] or posting != []:
         if (not isinstance(deferred, list) or not 0 < len(deferred) <= 100
                 or any(not isinstance(sid, str) or not sid for sid in deferred)
                 or len(set(deferred)) != len(deferred)
-                or deferred != execution.get('settlement_deferred')
+                or not isinstance(settlement, list) or not isinstance(posting, list)
+                or deferred != settlement + posting
+                or (posting and not verified_posting_wait(execution))
                 or execution.get('deferral_reasons') != {}):
             return False
     submitted = execution.get('submitted')
-    if (not isinstance(submitted, list) or not 0 < len(submitted) <= 100
+    if (not isinstance(submitted, list) or len(submitted) > 100 or bool(submitted) == cash_wait
             or any(not isinstance(key, str) or not 0 < len(key) <= 200 for key in submitted)
             or len(set(submitted)) != len(submitted)):
         return False
@@ -321,6 +335,17 @@ def submitted_commands_progress(cycle: Mapping) -> bool:
         return False
     opened, execute, updated, wake, closed = clocks
     return opened <= execute <= updated < wake <= closed
+
+
+def posting_wait_deadline(cycle: Mapping) -> datetime | None:
+    if not submitted_commands_progress(cycle, cash_wait=True):
+        return None
+    deadline = clean_execution_deadline(cycle)
+    diagnostic_deadline = clean_execution_deadline(dict(
+        cycle, original_execution_deadline_at=cycle['diagnostic'].get('original_execution_deadline_at')))
+    if deadline is None or deadline != diagnostic_deadline or cycle['next_wake_at'] >= deadline:
+        return None
+    return deadline - timedelta(microseconds=1)
 
 
 @dataclass(frozen=True)

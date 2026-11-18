@@ -586,3 +586,33 @@ fixed compact anchor. This source proof grants no trading authority.
 bash scripts/sentinel-restore-drill.sh --physical-only --backup EXACT_PRE_DDL_BASE --order-amount-witness ABSOLUTE_NEW_WITNESS
 python3 scripts/sentinel_order_amount_coverage_recovery.py --installation-receipt EXACT_RECEIPT --witness ABSOLUTE_NEW_WITNESS --confirm-witness-sha256 FILE_SHA256 --backup BASE_NAME --output ABSOLUTE_NEW_TRANSFER_RECEIPT
 ```
+
+## Market purchases while native cash postings are unconfirmed
+
+Owner decision, November 17, 2026. In backed dual fractional PAPER, an execution
+plan with an authenticated cash posting difference can buy up to its current
+allocation using the lower of fresh 1× buying power and observed account cash
+less the gross possible unposted debit. The existing $1.00 market order cushion
+comes out of this budget. A stream credit alone adds no available funds. Keep
+the strict account checks for an unexplained cash / buying power difference.
+
+For a fractionable asset, choose the smaller of its remaining purchase dollars
+and this funding ceiling before creating the command. Verify that exact amount
+again with fresh evidence before sending it. A FILLED order that used only part
+of the allocation establishes ownership of the filled shares. Its unused
+allocation survives with each prior fill debit and each order's cushion charged.
+Preserve the ordinary rounding residual rule for a fully funded order and the
+original share target of a whole-share fallback. Only settled owned fills can
+release a purchase for another revision. Each revision checks the current plan,
+account-wide unresolved orders and original execution cutoff. A successor plan
+carries the remaining dollars only while the same holding episode and exposure
+continue. A change from 100% to 55% exposure sizes a fresh target against the
+actual owned shares and can require selling. A later cash posting alone never
+creates an order or extends its execution window.
+When the verified net funds cannot cover the minimum order and cushion, expose
+the remaining allocation as waiting for cash only when the observed pending
+credits could make a minimum order fundable. Record the spendable ceiling,
+pending credits and reserved debits with that attempt. An isolated wait on
+those credits is expected within the original buy window. The automation
+reconciles it in the ordinary current-plan cycle. Other shortages and
+restrictions keep their own diagnostics.

@@ -418,7 +418,8 @@ def _protected_allocation_or_refuse(conn, *, plan, state, shadow_equity=None, re
 
 def _market_buy_candidate_or_refuse(conn, *, plan, projection, deployment,
                                     observation, client_key, instrument,
-                                    quantity, order_terms, estimate, session, notional=None):
+                                    quantity, order_terms, estimate, session, notional=None,
+                                    cash_ceiling=None):
     """Bind a market BUY to the exact quiescent book and pending command."""
     from fractions import Fraction
     from sentinel.execution import commands, market_buy_sizing, target_reprojection
@@ -471,7 +472,8 @@ def _market_buy_candidate_or_refuse(conn, *, plan, projection, deployment,
                 or not delta.is_increase or Fraction(estimate) > Fraction(budget)):
             raise OrderEvidenceNotReady("purchase exceeds its evidenced remaining allocation")
         if notional is not None:
-            if delta.notional != notional or quantity is not None:
+            if (delta.notional is None or quantity is not None or
+                    fractional_progress.funded_notional(delta.notional, cash_ceiling) != notional):
                 raise PaperActivationRefused("dollar BUY differs from its immutable remaining allocation")
         elif delta.notional is None:
             if quantity != delta.quantity:

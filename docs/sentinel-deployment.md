@@ -1,5 +1,14 @@
 # Sentinel current operating contract
 
+[Unconfirmed native cash postings](paper-unconfirmed-native-postings.md) describes
+when backed fractional PAPER may continue using broker-reported funds while
+dividends or fees await confirmation. The [cash display](paper-cash-posting-display.md)
+shows the amounts and the time they were checked.
+
+[Backup proof contention during publication](backup-contention-at-source-publication.md)
+describes how a preparation worker keeps its validated candidate while waiting
+for a fresh backup proof at writer admission.
+
 [Signed CLI dependency fence](signed-cli-dependency-fence.md) prevents a
 read-only signed command from starting or recreating PostgreSQL through
 Compose dependencies. The existing database must already be healthy.

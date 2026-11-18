@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import logging
 import inspect
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from decimal import Decimal
 from typing import Callable, Mapping, Optional, Sequence
@@ -66,6 +66,8 @@ class SessionResult:
     restricted_securities: Mapping[str, str] = field(default_factory=dict)
     deferral_reasons: Mapping[str, str] = field(default_factory=dict)
     settlement_deferred: tuple[str, ...] = ()
+    posting_deferred: tuple[str, ...] = ()
+    posting_funds: dict[str, str] | None = None
 
     def to_dict(self) -> dict:
         return {"runtime_state": self.runtime_state.value,
@@ -73,6 +75,8 @@ class SessionResult:
                 "refused": dict(self.refused),
                 "deferred": list(self.deferred),
                 "settlement_deferred": list(self.settlement_deferred),
+                **({"posting_deferred": list(self.posting_deferred), "posting_funds": self.posting_funds}
+                   if self.posting_funds is not None else {}),
                 "deferral_reasons": dict(self.deferral_reasons),
                 "detail": self.detail,
                 "restricted_securities": dict(self.restricted_securities),
@@ -485,6 +489,7 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
     refused: dict = {}
     deferred: list = []
     settlement_deferred: list[str] = []
+    posting_deferred: list[str] = []
     deferral_reasons: dict = {}
     restrictions = dict(security_restrictions or {})
     buy_deferrals = buy_deferrals or {}
@@ -582,6 +587,8 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
             out.append(delta)
         return out
 
+    posting_funds = None
+
     async def submit_all(candidates, obs, commands):
         """Authorize and send, against the observation `candidates` were sized
         from. Returns the commands now outstanding."""
@@ -595,12 +602,22 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
             await mutation_authority(rec)
         for index, delta in enumerate(authorized_candidates):
             residual = None
+            partial_allocation = False
             if fractional:
                 from sentinel.execution.fractional_orders import choose
                 from sentinel.execution.guarded import OrderEvidenceNotReady
                 try:
                     delta, residual = await choose(broker, conn=conn, deployment=deployment,
                         projection=target_projection, delta=delta, instrument=instruments[delta.security_id])
+                    if delta.notional is not None and posting_funds is not None:
+                        principal = fractional_progress.funded_notional(delta.notional, posting_funds.cash_ceiling)
+                        if principal is None:
+                            if posting_funds.credit_can_fund_order():
+                                posting_deferred.append(delta.security_id)
+                                continue
+                            raise OrderEvidenceNotReady("available cash cannot cover the minimum notional and headroom")
+                        partial_allocation = principal < delta.notional
+                        delta = replace(delta, notional=principal)
                 except OrderEvidenceNotReady as exc:
                     deferred.append(delta.security_id)
                     deferral_reasons[delta.security_id] = str(exc)
@@ -672,6 +689,8 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                     for item in authorized_candidates[index + 1:])
                 break
             if market and delta.is_increase:
+                if partial_allocation:
+                    settlement_deferred.append(delta.security_id)
                 settlement_deferred.extend(
                     item.security_id for item in authorized_candidates[index + 1:])
                 break
@@ -832,13 +851,18 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
         settle_note = "market BUY awaits complete account-wide order reconciliation"
 
     async def verify_increase_authority():
+        nonlocal posting_funds
         if increase_authority is None and increase_reconciliation_authority is None:
             return ""
         try:
             if increase_authority is not None:
                 await increase_authority(observation)
             if increase_reconciliation_authority is not None:
-                await increase_reconciliation_authority(rec)
+                funds = await increase_reconciliation_authority(rec)
+                if fractional and informational_current_book and isinstance(funds, fractional_progress.PostingFunds):
+                    posting_funds = funds
+                else:
+                    posting_funds = None
         except BrokerAuthorityRefused:
             raise
         except Exception as exc:                              # noqa: BLE001
@@ -918,6 +942,8 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
         settlement_deferred.clear()
 
     detail = f"{len(submitted)} submitted, {len(refused)} refused"
+    if posting_deferred:
+        detail += ", waiting for verified purchase funds: " + ", ".join(posting_deferred)
     if deferral_reasons:
         detail += ", deferred: " + "; ".join(deferral_reasons.values())
     for note in (detail_window, settle_note):
@@ -925,8 +951,10 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
             detail += ", " + note
     return SessionResult(runtime_state=runtime, reconciliation=rec,
                          submitted=tuple(submitted), refused=refused,
-                         deferred=tuple(dict.fromkeys((*deferred, *settlement_deferred))),
-                         settlement_deferred=tuple(settlement_deferred), detail=detail,
+                         deferred=tuple(dict.fromkeys((*deferred, *settlement_deferred, *posting_deferred))),
+                         settlement_deferred=tuple(settlement_deferred), posting_deferred=tuple(posting_deferred),
+                         posting_funds=(posting_funds.to_dict() if posting_funds else None),
+                         detail=detail,
                          deferral_reasons=deferral_reasons,
                          restricted_securities=restrictions)
 

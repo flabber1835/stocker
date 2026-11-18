@@ -3,9 +3,21 @@
   "autonomous_paper_design": "docs/autonomous-paper-readiness.md",
   "base": "4bba6875b07288cf6ebc6a149b926075b1e41c60",
   "definitions": {
+    "fractional_posting_reserve": {
+      "module": "cash",
+      "generated_ast_sha256": "bbe44d5f082449dfdee60d36f0170675eea7d8090f966aa2edec140c669f099a",
+      "historical_ast_sha256": null,
+      "native_postings_design": "docs/paper-unconfirmed-native-postings.md",
+      "native_postings_acceptance": [
+        "tests/sentinel/test_unconfirmed_paper_postings.py"
+      ]
+    },
     "ExecutionResult": {
       "module": "model",
-      "generated_ast_sha256": "965eb98ccce22d16740e572c1b40ddb50f7cfc515604fa7e94ee5df28f9e0eaf",
+      "native_postings_design": "docs/fractional-paper-execution.md",
+      "native_postings_acceptance": ["tests/sentinel/test_fractional_flow.py"],
+      "native_postings_predecessor_ast_sha256": "965eb98ccce22d16740e572c1b40ddb50f7cfc515604fa7e94ee5df28f9e0eaf",
+      "generated_ast_sha256": "7b5e2355538cab51d170e1496ca950128c30a718ba8e5cc8b52c05a538ae49f5",
       "historical_ast_sha256": "9db80c56276d282f7a1439c47260d980488cc625b354a5d19a9774733697694b",
       "serial_market_buy_design": "docs/nov16-basket-throughput.md",
       "serial_market_buy_acceptance": ["tests/sentinel/test_fractional_flow.py::test_guarded_market_buy_continuation_uses_fresh_settlement"]
@@ -67,11 +79,16 @@
       "retained_design": "docs/retained-state-activation.md"
     },
     "_broker_cash_state_or_refuse": {
+      "correction_evidence_design": "docs/nov17-opening-recovery.md",
+      "correction_evidence_acceptance": "tests/sentinel/test_paper_current_cash_acceptance.py::test_identified_cash_correction_survives_rollback_once",
       "acceptance": [
         "tests/sentinel/test_paper_current_cash_acceptance.py"
       ],
       "design": "docs/paper-current-cash-transition.md",
-      "generated_ast_sha256": "f66ec283e97d746ec49c377e9bc834a94638970cdca4055028dd0cb0404ed72e",
+      "native_postings_design": "docs/paper-unconfirmed-native-postings.md",
+      "native_postings_acceptance": ["tests/sentinel/test_unconfirmed_paper_postings.py"],
+      "native_postings_predecessor_ast_sha256": "f66ec283e97d746ec49c377e9bc834a94638970cdca4055028dd0cb0404ed72e",
+      "generated_ast_sha256": "52a87a5a2c0208d53284893accefe012dcbcb2905c461c4865ebc22e4c79eb3c",
       "historical_ast_sha256": "c2b5e1f2561d1f1c9ccd1348481fdcc3c1a2f6976b036b73ed9320f2ae15a8c4",
       "module": "cash",
       "predecessor_ast_sha256": "c2b5e1f2561d1f1c9ccd1348481fdcc3c1a2f6976b036b73ed9320f2ae15a8c4",
@@ -86,7 +103,10 @@
       "fee_continuation_design": "docs/native-fee-plan-continuation.md",
       "fee_continuation_predecessor_ast_sha256": "b6fb62419b6d8133eb562b040cc37dd5a4647d381db6d9a2a68a2704bc4b9883",
       "forward_cash_design": "docs/late-cash-distributions.md",
-      "generated_ast_sha256": "71c03aad1e90a63e02d1b077ae748e9ad781777acc9d789157e5bfdbc4c22f49",
+      "native_postings_design": "docs/paper-unconfirmed-native-postings.md",
+      "native_postings_acceptance": ["tests/sentinel/test_unconfirmed_paper_postings.py"],
+      "native_postings_predecessor_ast_sha256": "71c03aad1e90a63e02d1b077ae748e9ad781777acc9d789157e5bfdbc4c22f49",
+      "generated_ast_sha256": "1e32d398ba7d41a22f29d6fa8d353ff6e2febda5de4d6c0e808ca84986fb7024",
       "historical_ast_sha256": "c6ba9a412b1eef9da63b19cea444dbd28794ea378c28fa926f6352059f8fe980",
       "module": "cash",
       "native_cash_wait_acceptance": [
@@ -154,7 +174,10 @@
       ],
       "composition_design": "docs/sentinel-execution-contract.md",
       "current_book_design": "docs/autonomous-paper-readiness.md",
-      "generated_ast_sha256": "a18fe3072f022b8e3ef492d0694957429dc9d3d553a0d299b1d2f00626985c47",
+      "native_postings_design": "docs/fractional-paper-execution.md",
+      "native_postings_acceptance": ["tests/sentinel/test_fractional_flow.py"],
+      "native_postings_predecessor_ast_sha256": "a18fe3072f022b8e3ef492d0694957429dc9d3d553a0d299b1d2f00626985c47",
+      "generated_ast_sha256": "1458e26d75c1a17629f6848d50f90f1885038647f52e784508504854bb5fd651",
       "serial_market_buy_predecessor_ast_sha256": "5d74face745dc8d57754045e7277a11493c68957846687cd4c8021c5c50b67a1",
       "serial_market_buy_design": "docs/nov16-basket-throughput.md",
       "serial_market_buy_acceptance": [
@@ -374,7 +397,10 @@
       "reason": "Owner-PAPER same-decision recovered window renewal; explicit PREPARE/debug policy and terminal-command checks remain mandatory."
     },
     "_market_buy_candidate_or_refuse": {
-      "generated_ast_sha256": "3c40019be3ba92aad1f339c6d545767b2675b709990634de325a9eb05a647747",
+      "native_postings_design": "docs/fractional-paper-execution.md",
+      "native_postings_acceptance": ["tests/sentinel/test_fractional_flow.py"],
+      "native_postings_predecessor_ast_sha256": "3c40019be3ba92aad1f339c6d545767b2675b709990634de325a9eb05a647747",
+      "generated_ast_sha256": "598e8e6e41239837cb81feab8e380beff1f8cba1d9f2b0d37ddab15925395226",
       "consolidation": {
         "predecessor_ast_sha256": "804ed0e0139277fb9682c3f1060cbca2a472fb0d58841f9afdfd9dee160b3888",
         "design": ["docs/paper-performance-consolidation.md"],
@@ -440,7 +466,10 @@
         "tests/sentinel/test_native_fee_plan_continuation.py"
       ],
       "design": "docs/native-fee-plan-continuation.md",
-      "generated_ast_sha256": "b0e1c91495e2d573c5bd4cbc649d87f7ebb5611c4547fc689fe177a77e8779e3",
+      "native_postings_design": "docs/paper-unconfirmed-native-postings.md",
+      "native_postings_acceptance": ["tests/sentinel/test_unconfirmed_paper_postings.py"],
+      "native_postings_predecessor_ast_sha256": "b0e1c91495e2d573c5bd4cbc649d87f7ebb5611c4547fc689fe177a77e8779e3",
+      "generated_ast_sha256": "4cb34ea624fb659f291f99be0b6f7e634ba0e233001f0d83c8bb300aec57c266",
       "consolidation": {
         "predecessor_ast_sha256": "274ef1500044d54caa5a358029c72f73a47ed4dab5514ca64ba894530cd988eb",
         "design": ["docs/fractional-paper-execution.md", "docs/paper-performance-consolidation.md"],
@@ -718,7 +747,7 @@
       "acceptance": "docs/unattended-operation-qualification.md",
       "activation_backup_entry": {
         "predecessor_ast_sha256": "d361d997276f68704603e24f389f8cb57a10a0db6f9867dcf05ff85bd6a60ec7",
-        "source_ast_sha256": "30ed70ac91ddab7e59e4103edd57b07f0d86ad2dbae03889ff77a8e432722ffa",
+        "source_ast_sha256": "5dad2fd360b5cdba455cbdfeeaa5fb60578e80bf6634ec2cedb21559ae7ccc3f",
         "design": "docs/backup-proof-refresh-overlap.md#retry-the-fenced-activation-step",
         "acceptance": "tests/sentinel/test_activation_backup_entry.py"
       },
@@ -738,7 +767,10 @@
       "composition_design": "docs/sentinel-execution-contract.md",
       "current_book_design": "docs/autonomous-paper-readiness.md",
       "design": "docs/unattended-operating-contract.md",
-      "generated_ast_sha256": "a6bd59485126d3c472d6dc5cf4869d9772cb6da2493ed0c4b56d9dcc4940cce6",
+      "native_postings_design": "docs/paper-unconfirmed-native-postings.md",
+      "native_postings_acceptance": ["tests/sentinel/test_unconfirmed_paper_postings.py"],
+      "native_postings_predecessor_ast_sha256": "a6bd59485126d3c472d6dc5cf4869d9772cb6da2493ed0c4b56d9dcc4940cce6",
+      "generated_ast_sha256": "4f9a32dd85355d8ca54a047735e20e0708d52fd664f472af2c06a6ef81394d0f",
       "consolidation": {
         "predecessor_ast_sha256": "4e4c03bde9e5f92dda25efaa8f6c0a5cbd96fd2fe60e4318961b7f38096c55de",
         "design": ["docs/fractional-paper-execution.md", "docs/paper-performance-consolidation.md"],
@@ -823,7 +855,10 @@
       "current_book_design": "docs/autonomous-paper-readiness.md",
       "design": "docs/unattended-operating-contract.md",
       "forward_cash_design": "docs/late-cash-distributions.md",
-      "generated_ast_sha256": "46d68a987ad09a6654ae8f624cf5bb1bfeff74293ea7d4d4180e61ee18b8a7ba",
+      "native_postings_design": "docs/paper-unconfirmed-native-postings.md",
+      "native_postings_acceptance": ["tests/sentinel/test_unconfirmed_paper_postings.py"],
+      "native_postings_predecessor_ast_sha256": "46d68a987ad09a6654ae8f624cf5bb1bfeff74293ea7d4d4180e61ee18b8a7ba",
+      "generated_ast_sha256": "64a4def4e7a18f6b8955f3411196e3d50c5afac27c16aced41506ee677912399",
       "consolidation": {
         "predecessor_ast_sha256": "202cf310a12be8daada8704adedeb4a8fb91cd5917ddcfa37b1a5243547dd3b5",
         "design": ["docs/fractional-paper-execution.md", "docs/paper-performance-consolidation.md"],

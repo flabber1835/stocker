@@ -123,7 +123,7 @@ def test_restore_validator_reconstructs_every_durable_chain(monkeypatch, retirem
         restore_validation.broker_cash, "decode_plan_baseline",
         lambda *_args, **_kwargs: SimpleNamespace(
             decision_session="2026-08-25", broker="alpaca",
-            account_id="paper-account"))
+            account_id="paper-account", pending_postings=()))
     monkeypatch.setattr(
         restore_validation.automation_store, "load_cycle_batch",
         lambda _c, cycle_ids: cycle_ids)

@@ -624,6 +624,18 @@ finally:
                 else "paper activation requires the exact current finalized decision and source")
         return timing
 
+    def _activation_backup_cutoff(self, timing: Optional[Mapping]) -> Optional[str]:
+        opening = super()._activation_backup_cutoff(timing)
+        if (isinstance(timing, Mapping) and self.reviewed_validation is not None
+                and self.reviewed_validation.mode == 'dual'
+                and getattr(self, '_operational_source_only', False) is True
+                and timing.get('target_source_final') is True and timing.get('prospective') is False):
+            # assert_activation_timing authenticated the current publication. A
+            # past open can no longer admit orders for this retained decision.
+            if core._backup_opening_time(opening) <= core._utcnow():
+                return None
+        return opening
+
     def verify_reviewed_shadow_bindings_quiesced(self) -> None:
         reviewed = self.reviewed_validation
         if (reviewed is None or reviewed.mode not in {"shadow", "dual"}

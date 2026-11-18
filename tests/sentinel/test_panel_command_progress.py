@@ -58,6 +58,53 @@ def test_reproduced_clean_submission_is_not_interrupted_transport():
     assert 'INTERRUPTED' not in rows['automation_step_transport'].value
 
 
+def posting_wait_cycle():
+    c = cycle()
+    deadline = NOW + timedelta(minutes=5)
+    c.update(failure_code='CASH_POSTING_WAIT', failure_detail='Waiting for confirmed purchase funds',
+             original_execution_deadline_at=deadline.isoformat(), next_wake_at=NOW+timedelta(seconds=5))
+    c['diagnostic']['original_execution_deadline_at'] = deadline.isoformat()
+    c['diagnostic']['execution'].update(submitted=[], deferred=['CRL'], posting_deferred=['CRL'],
+        settlement_deferred=[], deferral_reasons={}, posting_funds=dict(account_cash='1.51',
+        buying_power='1.51', cash_ceiling='1.5', pending_credit='6.25', reserved_debit='0.01'))
+    return c
+
+
+def test_confirmed_cash_wait_has_its_own_clock_and_no_claim_of_a_fill():
+    c = posting_wait_cycle()
+    row = summary(c)
+    assert row.value == 'AWAITING CONFIRMED CASH' and row.effective_status(NOW) == model.OK
+    for step in steps(c)[4:6]:
+        assert step.value == row.value and step.effective_status(NOW) == model.OK
+        assert step.effective_status(NOW+timedelta(minutes=5)) == model.FAIL
+    assert row.effective_status(NOW+timedelta(minutes=5)) == model.FAIL
+
+
+@pytest.mark.parametrize('fault', ['missing_receipt', 'wrong_ceiling', 'no_credit', 'unknown_order',
+                                   'other_plan', 'changed_deadline', 'late_wake', 'actual_submission'])
+def test_unverified_cash_wait_cannot_turn_a_failed_cycle_green(fault):
+    c = posting_wait_cycle()
+    e = c['diagnostic']['execution']
+    if fault == 'missing_receipt':
+        del e['posting_funds']
+    elif fault == 'wrong_ceiling':
+        e['posting_funds']['cash_ceiling'] = '2'
+    elif fault == 'no_credit':
+        e['posting_funds']['pending_credit'] = '0'
+    elif fault == 'unknown_order':
+        e['reconciliation']['unresolved'] = ['unconfirmed-order']
+    elif fault == 'other_plan':
+        c['diagnostic']['plan']['plan_id'] = 'previous-plan'
+    elif fault == 'changed_deadline':
+        c['diagnostic']['original_execution_deadline_at'] = NOW.isoformat()
+    elif fault == 'late_wake':
+        c['next_wake_at'] = NOW+timedelta(minutes=5)
+    elif fault == 'actual_submission':
+        e['submitted'] = ['order-key']
+    assert summary(c).effective_status(NOW) == model.FAIL
+    assert steps(c)[4].effective_status(NOW) == model.FAIL
+
+
 @pytest.mark.parametrize('adverse_history', [False, True])
 def test_recovery_retry_cannot_rewrite_the_earlier_submission(adverse_history):
     submission = cycle()

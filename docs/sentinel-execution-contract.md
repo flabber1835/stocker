@@ -1,5 +1,9 @@
 # Sentinel — the execution and recovery contract
 
+[Unconfirmed cash postings](paper-unconfirmed-native-postings.md) defines the
+account evidence and fee reservations required for backed fractional PAPER
+execution while a dividend or fee awaits confirmation in the cash balance.
+
 [Fractional PAPER execution](fractional-paper-execution.md) defines the distinct
 prospective dollar-purchase policy and its amount-aware fulfillment contract.
 Its explicit selection supersedes quantity-only purchase assumptions for new

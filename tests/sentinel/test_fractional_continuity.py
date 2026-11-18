@@ -95,6 +95,44 @@ def test_partial_whole_fallback_carries_acquired_shares_and_original_dollars(dat
     assert successor[1] == {AAA.security_id: {"budget": "519", "origin": "CONTINUING"}}
 
 
+def test_partly_funded_dollar_order_reprojects_after_exposure_change(database, monkeypatch):
+    schema.ensure_schema(database)
+    before, original = case()
+    sid = AAA.security_id
+    plan = owned_plan(original, account_nav=D(20000))
+    initial = base(before, plan)
+    projection = fractional_sizing.resolve(before, plan, initial, references(plan, initial),
+        MarketBuyPolicy(True), baseline={"through_event_seq": 0, "commands": [], "holdings": {}},
+        retained_targets={})
+    assert projection.opening_sizing["purchases"][sid]["budget"] == "1000"
+    journal.save_plan(database, plan)
+    target_reprojection.record_projection(database, projection)
+    partial = dollars(notional="699", filled="6.99", state=S.FILLED)
+    partial = replace(partial, identity=replace(partial.identity, plan_id=plan.plan_id))
+    journal.save_command(database, partial)
+    native_fills(database, partial)
+    monkeypatch.setattr(dual_plan_authority, "load_authority", lambda *_args, **_kwargs: {
+        "plan_fingerprint": plan.fingerprint(), "shadow_state": before.to_dict(),
+        "authority_sha256": "a" * 64})
+    def next_basis(exposure):
+        after, _ = case(exposure=exposure)
+        after.last_processed_session = plan.effective_session.isoformat()
+        return held_targets.build_basis(database, previous=plan, state=after,
+            binding=SimpleNamespace(**DEPLOY.to_dict(), identity=DEPLOY),
+            rollout=RolloutState(RolloutMode.CONTROLLER, 1, "a" * 64))
+
+    same = next_basis("1")
+    assert same["targets"] == {sid: "6.99"}
+    assert same["purchase_budgets"] == {sid: "300"}
+    reduced = next_basis("0.55")
+    assert not reduced["targets"] and not reduced["purchase_budgets"]
+    targets, purchases, blocked = fractional_sizing.allocate(raw_targets={sid: D("5.5")},
+        retained=reduced["targets"], baseline={"holdings": {sid: "6.99"}},
+        carry=reduced["purchase_budgets"], prices={sid: D(100)}, intents=[],
+        nav=D(20000), exposure=D("0.55"), shadow_equity=D(100000))
+    assert targets[sid] - D("6.99") == D("-1.49") and not purchases and not blocked
+
+
 def test_zero_share_continuation_includes_native_reference_and_can_resolve(database, monkeypatch):
     schema.ensure_schema(database)
     state, raw = case(entries=0)

@@ -117,6 +117,7 @@ class CashActivityState:
     balance_total: Decimal
     last_event_id: Optional[str] = None
     activity_identity_scheme: Optional[str] = None
+    posting_kinds: tuple[tuple[str, str], ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -139,6 +140,9 @@ class PlanCashBaseline:
     # Native reference IDs have no sortable append order; exact membership is
     # needed to distinguish a fee-only suffix from offsetting or revised cash.
     activity_membership: Optional[tuple[tuple[str, str], ...]] = None
+
+    pending_postings: tuple[str, ...] = ()
+    posting_source: tuple[str, str] | None = None
 
     @property
     def activity_identity_authoritative(self) -> bool:
@@ -361,18 +365,20 @@ def load_activity_state(conn, *, broker: str,
           "last_activity_id", "balance_total"}
     v2 = v1 | {"last_event_id"}
     v3 = v2 | {"activity_identity_scheme"}
+    v4 = v3 | {'posting_kinds'}
     state_keys = frozenset(state)
-    if (state_keys not in {frozenset(v1), frozenset(v2), frozenset(v3)}
+    if (state_keys not in {frozenset(v1), frozenset(v2), frozenset(v3), frozenset(v4)}
             or state.get("kind") not in {
                 "broker-cash-activity/v1", "broker-cash-activity/v2",
-                "broker-cash-activity/v3"}):
+                "broker-cash-activity/v3", "broker-cash-activity/v4"}):
         raise BrokerCashAuthorityRefused(
             f"cash activity cursor {name} has an unknown state shape")
     if ((state.get("kind") == "broker-cash-activity/v1" and set(state) != v1)
             or (state.get("kind") == "broker-cash-activity/v2"
                 and set(state) != v2)
             or (state.get("kind") == "broker-cash-activity/v3"
-                and set(state) != v3)):
+                and set(state) != v3)
+            or (state.get('kind') == 'broker-cash-activity/v4' and set(state) != v4)):
         raise BrokerCashAuthorityRefused(
             f"cash activity cursor {name} mixes incompatible schema fields")
     if state["broker"] != broker or state["account_id"] != account_id:
@@ -397,6 +403,11 @@ def load_activity_state(conn, *, broker: str,
         raise BrokerCashAuthorityRefused(
             f"cash activity cursor {name} applies the Alpaca Activity-SSE "
             "identity scheme to another broker")
+    kinds = state.get('posting_kinds')
+    if 'posting_kinds' in state and (identity_scheme != ACTIVITY_IDENTITY_SCHEME
+            or not isinstance(kinds, dict) or any(not isinstance(k, str) or not k
+                or v not in ('CDIV', 'FEE') for k, v in kinds.items())):
+        raise BrokerCashAuthorityRefused('invalid cash posting classification')
     return CashActivityState(
         broker=broker, account_id=account_id,
         processed_through=_aware(
@@ -405,7 +416,8 @@ def load_activity_state(conn, *, broker: str,
         balance_total=_finite_decimal(
             state["balance_total"], where=f"cash activity cursor {name} total"),
         last_event_id=last_event_id,
-        activity_identity_scheme=identity_scheme)
+        activity_identity_scheme=identity_scheme,
+        posting_kinds=None if kinds is None else tuple(sorted(kinds.items())))
 
 
 def _binding_established_at(conn, *, broker: str, account_id: str) -> datetime:
@@ -492,7 +504,7 @@ def _insert_activity(conn, *, broker: str, account_id: str,
 
 async def ingest_account_cash(
         conn, *, broker_adapter, broker: str, account_id: str,
-        through: Optional[datetime] = None) -> CashActivityState:
+        through: Optional[datetime] = None, qualify_postings: bool = False) -> CashActivityState:
     """Fetch one complete bounded interval and advance its cursor atomically.
 
     No row is written until the adapter has proved that the whole paginated
@@ -518,6 +530,8 @@ async def ingest_account_cash(
         raise BrokerCashAuthorityRefused(
             "an authoritative Activity-SSE cash cursor cannot be downgraded "
             "to timestamp-paged activity ingestion")
+    track_postings = financial_sse and (qualify_postings or (prior is not None and prior.posting_kinds is not None))
+    replay_kinds = track_postings and prior is not None and prior.posting_kinds is None
     missing_last_flow = False
     if prior is not None:
         # A cursor survives a table-selective restore independently of its
@@ -545,7 +559,7 @@ async def ingest_account_cash(
         if upper < prior.processed_through:
             raise BrokerCashAuthorityRefused(
                 "broker cash ingestion clock moved behind its durable cursor")
-        if upper == prior.processed_through and not missing_last_flow:
+        if upper == prior.processed_through and not missing_last_flow and not replay_kinds:
             return prior
         # A v1 cursor is only a business-time boundary. It cannot resume the
         # Activity SSE without gaps because a backfill is published later with
@@ -578,7 +592,7 @@ async def ingest_account_cash(
         after = established
     activity_kwargs = {"after": after, "through": upper}
     if (prior is not None and prior.last_event_id is not None and financial_sse
-            and not missing_last_flow):
+            and not missing_last_flow and not replay_kinds):
         activity_kwargs["since_event_id"] = prior.last_event_id
     batch = await broker_adapter.account_cash_activities(**activity_kwargs)
     if not isinstance(batch, BrokerCashActivityBatch):
@@ -602,6 +616,14 @@ async def ingest_account_cash(
                 "the complete replay does not prove it was a zero-value event; "
                 "restore the complete behavioral state")
 
+    posting_kinds = dict(prior.posting_kinds or ()) if prior else {}
+    if replay_kinds:
+        retained = _native_cash_ledger(conn, broker=broker, account_id=account_id)
+        prefix = f"{FLOW_PREFIX}{broker}:{account_id}:"
+        replayed = {prefix + item.activity_id for item in batch.activities if item.net_amount}
+        if not retained.keys() <= replayed or (prior.last_event_id is not None
+                and (batch.last_event_id is None or batch.last_event_id < prior.last_event_id)):
+            raise BrokerCashAuthorityRefused("posting classification replay omitted retained evidence")
     seen: set[str] = set()
     # A proven zero-value legacy last-id was a traversal cursor, not a ledger
     # witness. Normalize it away. New state retains only an activity that has a
@@ -616,6 +638,20 @@ async def ingest_account_cash(
         inserted = _insert_activity(
             conn, broker=broker, account_id=account_id,
             activity=activity)
+        if track_postings:
+            raw = activity.raw
+            kind = None
+            if (raw.get("currency") == "USD" and raw.get("status") == "executed"
+                    and raw.get("ref_id") == activity.activity_id and not raw.get("previous_id")):
+                if (activity.activity_type == "DIV" and raw.get("activity_subtype") == "CDIV"
+                        and activity.net_amount > 0):
+                    kind = "CDIV"
+                elif activity.activity_type == "FEE" and activity.net_amount < 0:
+                    kind = "FEE"
+            if not inserted and not replay_kinds and posting_kinds.get(activity.activity_id) != kind:
+                raise BrokerCashAuthorityRefused("replayed cash posting classification changed")
+            if kind is not None:
+                posting_kinds[activity.activity_id] = kind
         if inserted:
             running_total += Fraction(activity.net_amount)
             last_id = activity.activity_id
@@ -641,7 +677,8 @@ async def ingest_account_cash(
         last_activity_id=last_id, balance_total=balance_total,
         last_event_id=last_event_id,
         activity_identity_scheme=(
-            ACTIVITY_IDENTITY_SCHEME if financial_sse else None))
+            ACTIVITY_IDENTITY_SCHEME if financial_sse else None),
+        posting_kinds=tuple(sorted(posting_kinds.items())) if track_postings else None)
     payload = {
         "kind": ("broker-cash-activity/v3" if financial_sse
                  else "broker-cash-activity/v2"),
@@ -652,6 +689,8 @@ async def ingest_account_cash(
         "last_event_id": last_event_id,
         "balance_total": str(balance_total),
     }
+    if track_postings:
+        payload.update(kind="broker-cash-activity/v4", posting_kinds=posting_kinds)
     if financial_sse:
         payload["activity_identity_scheme"] = ACTIVITY_IDENTITY_SCHEME
     with conn.cursor() as cur:
@@ -686,6 +725,7 @@ def decode_plan_baseline(plan_id: str, row) -> PlanCashBaseline:
     v2 = v1 | {"last_activity_id"}
     v3 = v2 | {"activity_identity_scheme"}
     v4 = v3 | {"activity_membership"}
+    v5 = v4 | {"pending_postings", "posting_source"}
     if ((state.get("kind") == "broker-cash-plan/v1" and set(state) != v1)
             or (state.get("kind") == "broker-cash-plan/v2"
                 and set(state) != v2)
@@ -693,9 +733,10 @@ def decode_plan_baseline(plan_id: str, row) -> PlanCashBaseline:
                 and set(state) != v3)
             or (state.get("kind") == "broker-cash-plan/v4"
                  and set(state) != v4)
+            or (state.get("kind") == "broker-cash-plan/v5" and set(state) != v5)
             or state.get("kind") not in {
                 "broker-cash-plan/v1", "broker-cash-plan/v2",
-                "broker-cash-plan/v3", "broker-cash-plan/v4"}):
+                "broker-cash-plan/v3", "broker-cash-plan/v4", "broker-cash-plan/v5"}):
         raise BrokerCashAuthorityRefused(
             f"plan cash baseline {plan_id} has an unknown state shape")
     if state["plan_id"] != plan_id:
@@ -717,7 +758,7 @@ def decode_plan_baseline(plan_id: str, row) -> PlanCashBaseline:
             f"plan cash baseline {plan_id} applies the Alpaca Activity-SSE "
             "identity scheme to another broker")
     membership = None
-    if state["kind"] == "broker-cash-plan/v4":
+    if state["kind"] in {"broker-cash-plan/v4", "broker-cash-plan/v5"}:
         raw_membership = state["activity_membership"]
         prefix = f"{FLOW_PREFIX}{state['broker']}:{state['account_id']}:"
         if (identity_scheme != ACTIVITY_IDENTITY_SCHEME
@@ -733,6 +774,17 @@ def decode_plan_baseline(plan_id: str, row) -> PlanCashBaseline:
                 or (last_flow is not None and last_flow not in raw_membership)):
             raise BrokerCashAuthorityRefused("plan cash membership has no original last identity")
         membership = tuple(sorted(raw_membership.items()))
+    pending = state.get("pending_postings", [])
+    if (not isinstance(pending, list) or any(type(k) is not str for k in pending)
+            or pending != sorted(set(pending)) or not set(pending) <= dict(membership or ()).keys()
+            or (state["kind"] == "broker-cash-plan/v5" and not pending)):
+        raise BrokerCashAuthorityRefused("invalid immutable pending posting membership")
+    source = state.get("posting_source")
+    if pending and (not isinstance(source, list) or len(source) != 2
+            or not isinstance(source[0], str) or not source[0] or source[0] == plan_id
+            or not isinstance(source[1], str) or len(source[1]) != 64
+            or any(char not in "0123456789abcdef" for char in source[1])):
+        raise BrokerCashAuthorityRefused("invalid predecessor for immutable pending postings")
     return PlanCashBaseline(
         plan_id=plan_id, broker=str(state["broker"]),
         account_id=str(state["account_id"]), decision_session=session,
@@ -742,11 +794,14 @@ def decode_plan_baseline(plan_id: str, row) -> PlanCashBaseline:
             state["balance_total"], where=f"plan cash baseline {plan_id} total"),
         last_activity_id=last_activity_id,
         activity_identity_scheme=identity_scheme,
-        activity_membership=membership)
+        activity_membership=membership, pending_postings=tuple(pending),
+        posting_source=tuple(source) if source else None)
 
 
 def record_plan_baseline(conn, *, plan_id: str, decision_session: date,
-                         activity_state: CashActivityState) -> PlanCashBaseline:
+                         activity_state: CashActivityState,
+                         pending_postings: tuple[str, ...] = (),
+                         posting_source: tuple[str, str] | None = None) -> PlanCashBaseline:
     """Stamp the cash-activity total under which an immutable plan was sized."""
     if (activity_state.broker != "alpaca"
             or activity_state.activity_identity_scheme
@@ -764,6 +819,7 @@ def record_plan_baseline(conn, *, plan_id: str, decision_session: date,
         balance_total=activity_state.balance_total,
         last_activity_id=activity_state.last_activity_id,
         activity_identity_scheme=activity_state.activity_identity_scheme,
+        pending_postings=pending_postings, posting_source=posting_source,
         activity_membership=(existing.activity_membership if existing is not None else
             capture_activity_membership(conn, activity_state=activity_state)))
     if existing is not None:
@@ -783,6 +839,15 @@ def record_plan_baseline(conn, *, plan_id: str, decision_session: date,
         "activity_identity_scheme": activity_state.activity_identity_scheme,
         "activity_membership": dict(candidate.activity_membership),
     }
+    if bool(pending_postings) != bool(posting_source):
+        raise BrokerCashAuthorityRefused("pending posts must carry their predecessor observation")
+    if pending_postings:
+        if (pending_postings != tuple(sorted(set(pending_postings)))
+                or not set(pending_postings) <= dict(candidate.activity_membership).keys()):
+            raise BrokerCashAuthorityRefused("pending cash postings lack original native membership")
+        payload.update(kind="broker-cash-plan/v5", pending_postings=list(pending_postings),
+                       posting_source=list(posting_source))
+        decode_plan_baseline(plan_id, (decision_session, payload))
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO sentinel_processed_sessions"

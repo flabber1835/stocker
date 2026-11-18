@@ -191,16 +191,25 @@ def test_unavailable_opening_reference_is_deferred_even_when_projected_quantity_
     assert "REFERENCE_UNAVAILABLE" in result.deferral_reasons["SEC-AAA"]
 
 
-def test_removing_executor_cohort_callback_is_detected(conn, monkeypatch):
-    source = inspect.getsource(executor._execute_session_locked)
-    needle = "await increase_reconciliation_authority(rec)"
-    assert source.count(needle) == 1
-    local = {}
-    exec(compile(source.replace(needle, "pass"), "<private-executor-cohort>", "exec"),
-         vars(executor), local)
-    monkeypatch.setattr(executor, "_execute_session_locked", local["_execute_session_locked"])
-    with pytest.raises(AssertionError):
-        test_executor_earns_exact_reconciliation_cohort_before_any_protected_promise(conn, monkeypatch, False)
+@pytest.mark.parametrize("remove_callback", [False, True], ids=["original", "removed"])
+def test_removing_executor_cohort_callback_is_detected(conn, monkeypatch, remove_callback):
+    if remove_callback:
+        source = inspect.getsource(executor._execute_session_locked)
+        needle = "await increase_reconciliation_authority(rec)"
+        assert source.count(needle) == 1
+        local = {}
+        exec(compile(source.replace(needle, "None"), "<private-executor-cohort>", "exec"),
+             vars(executor), local)
+        monkeypatch.setattr(executor, "_execute_session_locked", local["_execute_session_locked"])
+
+    broker, result, calls, _ = asyncio.run(execute_locked(conn, monkeypatch, rejected=True))
+    if remove_callback:
+        assert not calls and result.deferred == ()
+        assert [command.security_id for command in result.submitted] == ["SEC-AAA"]
+        assert broker.sent_terms == [result.submitted[0].order_terms]
+    else:
+        assert len(calls) == 1 and result.deferred == ("SEC-AAA",)
+        assert not broker.sent_terms and not result.submitted
 
 
 @pytest.mark.parametrize("selected", [False, True])

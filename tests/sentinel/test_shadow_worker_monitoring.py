@@ -89,10 +89,12 @@ def test_only_signed_clean_stop_keeps_fenced_attribution(state, monkeypatch):
     stopped = row(state, monkeypatch)
     assert stopped.status == model.FAIL and stopped.as_of == NOW
     assert stopped.operational_fact.state == 'STOPPED'
+    assert 'stopped cleanly' in stopped.detail
 
     arm(state)
     interrupted = row(state, monkeypatch)
     assert interrupted.status == model.FAIL and interrupted.operational_fact is None
+    assert 'unaccounted for' in interrupted.detail
     status.publish(target, A, stopped=True, now=NOW)
     interrupted = row(state, monkeypatch)
     assert interrupted.status == model.FAIL and interrupted.operational_fact is None
@@ -100,6 +102,7 @@ def test_only_signed_clean_stop_keeps_fenced_attribution(state, monkeypatch):
     target.write_text('terminal refusal')
     critical = row(state, monkeypatch)
     assert critical.status == model.FAIL and critical.operational_fact is None
+    assert 'integrity check fenced' in critical.detail
 
 
 def test_stalled_status_file_cannot_block_the_http_worker(state):

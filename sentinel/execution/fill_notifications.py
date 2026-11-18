@@ -116,13 +116,14 @@ def _notification_order(order):
     return order
 
 
-async def _activities(reader, order_id):
+async def _activities(reader, order_id, *, completed_at):
     items, seen, token = [], set(), None
     for _ in range(10):
         params = {"order_id": order_id, "direction": "asc", "page_size": 100}
         if token:
             params["page_token"] = token
         page = await reader._get("/v2/account/activities/FILL", params)
+        observed_at = completed_at()
         if not isinstance(page, list) or len(page) > 100:
             raise FillNotificationRefused("MALFORMED_FILL_PAGE")
         for item in page:
@@ -130,14 +131,14 @@ async def _activities(reader, order_id):
             if not native_id or native_id in seen:
                 raise FillNotificationRefused("REPEATED_OR_MISSING_FILL_ID")
             seen.add(native_id)
-            items.append(item)
+            items.append((item, observed_at))
         if len(page) < 100:
             return items
         token = page[-1]["id"]
     raise FillNotificationRefused("FILL_PAGE_LIMIT")
 
 
-async def _collect(conn, *, reader, since, now, config=None, rotation=0):
+async def _collect(conn, *, reader, since, now, config=None, rotation=0, response_clock=None):
     bound = _binding(conn) if config is None else _binding(conn, config=config)
     candidates = _candidates(conn, bound, since, paper=config is None, rotation=rotation)
     conn.commit()  # No transaction or execution-writer lock spans network I/O.
@@ -149,20 +150,30 @@ async def _collect(conn, *, reader, since, now, config=None, rotation=0):
         raise FillNotificationRefused("BROKER_ACCOUNT_CHANGED")
     subject = hashlib.sha256(outbox._json({"binding": bound, "native": native}).encode()).hexdigest()
     alerts = []
+    observed_at = now
+    def completed_at():
+        nonlocal observed_at
+        if response_clock is not None:
+            completed = response_clock()
+            if not observed_at <= completed <= now + timedelta(seconds=DEADLINE_SECONDS):
+                raise FillNotificationRefused("ACTIVITY_OBSERVATION_CLOCK_INVALID")
+            observed_at = completed
+        return observed_at
+
     for command in candidates:
         order = await reader._get("/v2/orders/" + command["broker_order_id"])
         native_filled = _check_order(command, order)
         if Fraction(native_filled) <= command["covered"]:
             continue
-        activities = await _activities(reader, command["broker_order_id"])
+        activities = await _activities(reader, command["broker_order_id"], completed_at=completed_at)
         fills = []
-        for raw in activities:
+        for raw, page_at in activities:
             result = native_activity.normalize_activity(
                 raw, subject_sha256=subject, account_id=native, order=_notification_order(order))
             if result.disposition == "QUARANTINED" or result.fill is None:
                 raise FillNotificationRefused(result.reason_code or "NATIVE_FILL_REQUIRED")
             fill = result.fill
-            if fill.executed_at > now:
+            if fill.executed_at > page_at:
                 raise FillNotificationRefused("FUTURE_FILL")
             if (command["side"] == "BUY" and order.get("limit_price") is not None
                     and fill.price > Decimal(order["limit_price"])):
@@ -189,7 +200,7 @@ async def _collect(conn, *, reader, since, now, config=None, rotation=0):
         # checks, without claiming that account-wide history is complete.
         broker_order = reader._to_order(order)
         from sentinel.execution.contract import BrokerObservation
-        fill_integrity.validate(BrokerObservation(now, orders=(broker_order,),
+        fill_integrity.validate(BrokerObservation(observed_at, orders=(broker_order,),
             fills=tuple(fills)), {broker_order.broker_order_id: broker_order})
     last = await reader.identify_account()
     if (last.account_id, last.broker, last.raw.get("id")) != (first.account_id, first.broker, native):
@@ -230,7 +241,8 @@ async def collect(conn, *, config, reader=None, now=None, rotation=0):
     if activated is None:
         raise FillNotificationRefused("NOTIFICATION_POLICY_MISSING")
     since = max(since, activated[0])
-    now = now or datetime.now(timezone.utc)
+    response_clock = (lambda: datetime.now(timezone.utc)) if now is None else None
+    now = response_clock() if response_clock is not None else now
     if since > now:
         raise FillNotificationRefused("FUTURE_NOTIFICATION_BOUNDARY")
     from sentinel.trading_environment import TradingEnvironment
@@ -246,4 +258,5 @@ async def collect(conn, *, config, reader=None, now=None, rotation=0):
             secret_key=config.alpaca_secret, base_url=config.base_url)
     return await asyncio.wait_for(
         _collect(conn, reader=reader, since=since, now=now,
-                 config=config if live else None, rotation=rotation), DEADLINE_SECONDS)
+                 config=config if live else None, rotation=rotation,
+                 response_clock=None if live else response_clock), DEADLINE_SECONDS)

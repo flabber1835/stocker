@@ -1506,9 +1506,10 @@ _DB_CURSOR = _DB_INCARCERATION_CURSOR
 class ActivityCorrectionRequiresRecovery(RuntimeError):
     """A correction/bust needs reversal semantics before trading may continue."""
 
-    def __init__(self, message, *, raw_event=None):
+    def __init__(self, message, *, raw_event=None, account_identity=None):
         super().__init__(message)
         self.raw_event = dict(raw_event) if raw_event is not None else None
+        self.account_identity = account_identity
 
 class RestoreGradeIncreaseDeferred(RuntimeError):
     """A database takeover has not yet made predecessor DAY orders harmless."""
@@ -1929,6 +1930,7 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
             since_event_id: Optional[str] = None,
             verify_snapshot_replay: bool = False,
             require_account_history: bool = False,
+            cash_activity: bool = False,
             expected_identity: Optional[contract.BrokerAccountIdentity] = None,
             ) -> tuple[dict, ...]:
         floor = _required_aware_ts(
@@ -2075,6 +2077,18 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
                     "Alpaca account identity changed around Activity SSE read")
             return events
 
+        def accepted(events):
+            if cash_activity:
+                for event in events:
+                    kind = str(event["details"].get("execution_type") or "").strip().lower()
+                    if str(event.get("previous_id") or "").strip() or kind in {"trade_correct", "trade_bust"}:
+                        identity = contract.BrokerAccountIdentity(account.broker, account.account_id, {"id": account_uuid})
+                        raise ActivityCorrectionRequiresRecovery(
+                            "Activity SSE reported a correction/bust; cash/fill "
+                            "authority is fenced until the prior ref_id is reversed",
+                            raw_event=event, account_identity=identity)
+            return events
+
         # Timestamp filters establish only a *bounded snapshot*. They are
         # not a replay cursor because Alpaca filters business time (`at`),
         # while delayed/backfilled events append later in event_id order.
@@ -2092,7 +2106,7 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
                     raise MalformedBrokerPayload(
                         "Activity SSE bounded snapshot replay disagreed with "
                         "its discovery snapshot")
-            return snapshot
+            return accepted(snapshot)
         cursor = str(since_event_id).strip()
         if not cursor:
             raise MalformedBrokerPayload(
@@ -2120,7 +2134,7 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
         if str(replay[0]["event_id"]) < cursor:
             raise MalformedBrokerPayload(
                 "Activity SSE cursor replay crossed behind its durable id")
-        return replay
+        return accepted(replay)
 
     async def account_cash_activities(
             self, *, after: datetime,
@@ -2141,20 +2155,11 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
             after=_ACTIVITY_BUSINESS_TIME_FLOOR, through=through,
             since_event_id=since_event_id,
             verify_snapshot_replay=self.financial_activity_sse,
-            require_account_history=self.financial_activity_sse)
+            require_account_history=self.financial_activity_sse,
+            cash_activity=True)
         activities: list[broker_cash.BrokerCashActivity] = []
         last_ref: Optional[str] = None
         for event in events:
-            previous_id = str(event.get("previous_id") or "").strip()
-            details = event["details"]
-            execution_type = str(details.get("execution_type") or "").lower()
-            if previous_id or execution_type in {"trade_correct", "trade_bust"}:
-                # Correction/bust arithmetic must reverse the prior ref_id.
-                # Until that reversal is represented in the durable ledger,
-                # treating the new event as another positive fill is unsafe.
-                raise ActivityCorrectionRequiresRecovery(
-                    "Activity SSE reported a correction/bust; cash/fill "
-                    "authority is fenced until the prior ref_id is reversed")
             activity_type = str(event.get("activity_type") or "").upper()
             activity_subtype = str(
                 event.get("activity_subtype") or "").upper()

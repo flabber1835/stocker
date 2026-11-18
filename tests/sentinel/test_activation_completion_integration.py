@@ -377,6 +377,20 @@ def test_remaining_sequence_actual_physical_restore_leader_and_receipt(conn,pg,t
         campaign.stop('automation')
 
 
+def causal_timing_at(now):
+    from sentinel.feed import calendar
+    from sentinel.shadow_runtime import publication_not_before
+
+    target = calendar.latest_closed_session(now)
+    final_at = publication_not_before(target)
+    effective = calendar.next_session(target)
+    opening = calendar.session_window(effective)[0].astimezone(timezone.utc)
+    return dict(target=target, frontier=DECISION.isoformat(), target_source_final=now >= final_at,
+                target_source_final_at=final_at.isoformat(), publication_fingerprint=FINGERPRINT,
+                execution_session=effective, execution_open_at=opening.isoformat(), prospective=now < opening,
+                remaining_ms=max(0, int((opening - now).total_seconds() * 1000)))
+
+
 @pytest.mark.parametrize('clock', [
     '2026-08-11T22:00:00+00:00',  # just after the decision closed
     '2026-08-12T01:00:00+00:00',  # overnight
@@ -385,21 +399,14 @@ def test_remaining_sequence_actual_physical_restore_leader_and_receipt(conn,pg,t
     '2026-08-12T18:00:00+00:00',  # already intraday
 ])
 def test_actual_completion_with_anytime_host_guard(conn, pg, tmp_path, monkeypatch, clock):
-    from sentinel.feed import calendar
     now = datetime.fromisoformat(clock)
-    target = calendar.latest_closed_session(now)
-    assert target == DECISION.isoformat(), 'fixture must represent the actual latest closed decision'
-    effective = calendar.next_session(target)
-    opening, _ = calendar.session_window(effective)
-    remaining = int((opening.astimezone(timezone.utc)-now).total_seconds()*1000)
+    timing = causal_timing_at(now)
+    assert timing['target'] == DECISION.isoformat(), 'fixture must represent the actual latest closed decision'
     campaign = Campaign(conn, pg, tmp_path, monkeypatch)
     # Only provider/attestation observations are fixtures; admission itself is
     # the production host method, joined to real control/restore/lease/receipt.
     campaign.obj._operational_source_only = True
-    campaign.obj._causal_timing = lambda: dict(
-        target=target, frontier=target, target_source_final=True,
-        publication_fingerprint=FINGERPRINT,
-        prospective=remaining > 0, remaining_ms=remaining)
+    campaign.obj._causal_timing = lambda **_: timing
     campaign.obj.assert_activation_timing = install.InstallAnytimeDeploy.assert_activation_timing.__get__(campaign.obj)
     try:
         health = campaign.execute()
@@ -424,14 +431,7 @@ def test_restore_crossing_open_or_close_has_the_right_activation_boundary(
     clock = [datetime.fromisoformat('2026-08-12T13:00:00+00:00')]
     campaign = Campaign(conn, pg, tmp_path, monkeypatch)
     campaign.obj._operational_source_only = True
-    def timing():
-        target = calendar.latest_closed_session(clock[0])
-        opening, _ = calendar.session_window(calendar.next_session(target))
-        remaining = int((opening.astimezone(timezone.utc)-clock[0]).total_seconds()*1000)
-        return dict(target=target, frontier=DECISION.isoformat(), target_source_final=True,
-                    publication_fingerprint=FINGERPRINT,
-                    prospective=remaining > 0, remaining_ms=remaining)
-    campaign.obj._causal_timing = timing
+    campaign.obj._causal_timing = lambda **_: causal_timing_at(clock[0])
     campaign.obj.assert_activation_timing = install.InstallAnytimeDeploy.assert_activation_timing.__get__(campaign.obj)
     actual_run = campaign.run
     def cross_after_actual_restore(args, **kwargs):

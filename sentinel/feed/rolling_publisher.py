@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+from time import monotonic, sleep
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
@@ -22,9 +23,43 @@ class PublicationObserver:
     def __init__(self, conn, lease):
         self.conn, self.lease = conn, lease
         self.stage_name = 'SHADOW_ADVANCE'
+        self.backup_wait_until = None
 
     def stage(self, name: str) -> None:
         self.stage_name = name
+        self.backup_wait_until = None
+
+    def wait_for_backup(self, exc):
+        from sentinel import backup_retry
+        from sentinel.feed import progress
+
+        if self.conn.closed or writer_schedule.connection_discarded(exc):
+            raise exc
+        self.conn.rollback()
+        if self.backup_wait_until is None:
+            self.backup_wait_until = monotonic() + writer_schedule.MAX_DRAIN_SECONDS
+
+        def remaining():
+            try:
+                owned = jobs._owned(self.conn, self.lease)
+                left = min((owned[2] - owned[10]).total_seconds(),
+                           (owned[3] - owned[10]).total_seconds(),
+                           self.backup_wait_until - monotonic())
+                external = writer_schedule._external_remaining()
+            finally:
+                self.conn.rollback()  # _owned takes a row lock. Release it before sleeping.
+            if external is not None:
+                left = min(left, external)
+            if left <= 0:
+                raise exc
+            return left
+
+        seconds = remaining()
+        progress.emit('backup_durability', 'working', job_id=self.lease.job_id,
+                      reason=backup_retry.busy_reason(exc).value,
+                      remaining_seconds=math.ceil(seconds))
+        sleep(min(2.0, seconds))
+        remaining()
 
     @contextmanager
     def acquisition(self):
@@ -32,13 +67,27 @@ class PublicationObserver:
             yield
 
     @contextmanager
-    def publication(self, phase, job_id):
+    def reporting(self, phase, job_id):
         from sentinel.feed import progress
-        with progress.phase(phase, job_id=job_id), writer_schedule.turn(self.conn, self.lease), store.corpus_write_lock(self.conn):
+        with progress.phase(phase, job_id=job_id):
             yield
         if phase == 'rolling_operational_publication':
             progress.emit('rolling_operational_visibility', 'completed', job_id=job_id,
                           commit_observed_at=datetime.now(timezone.utc).isoformat())
+
+    @contextmanager
+    def publication(self, phase, job_id):
+        from sentinel.feed import operational_snapshot
+        admitted = False
+        try:
+            with writer_schedule.turn(self.conn, self.lease), store.corpus_write_lock(self.conn):
+                admitted = True
+                yield
+        except backup_runtime_authority.BackupIntegrityBusy as exc:
+            if (admitted or phase != 'rolling_operational_publication'
+                    or writer_schedule.connection_discarded(exc)):
+                raise
+            raise operational_snapshot.PublicationAdmissionBusy(str(exc)) from exc
 
 
 def _record_failure(conn, lease, exc, *, operational=False):
