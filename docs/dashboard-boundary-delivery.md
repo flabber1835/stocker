@@ -72,3 +72,10 @@ Withdraw positive styling at the original evidence deadline. A pending request
 can display a bounded refresh with the original timestamps while waiting for a
 valid response. The original failure, offline, hidden-page and retry limits
 continue to apply. Machine health still requires its strict current proof.
+
+The same bounded early read applies to a partial document while it has a
+current region on screen and the server has finished the refresh. A partial
+document stays partial throughout. A document with no current regions, or
+with a refresh already pending, follows the ordinary cadence. Hidden tabs
+defer foreground refreshes until visible. Each region keeps its original
+evidence deadline even when the next response is also partial.

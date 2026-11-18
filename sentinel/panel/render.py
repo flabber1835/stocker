@@ -656,8 +656,10 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     scheduledBoundary = null;
     var boundary = generated + value;
     var remaining = boundary - Date.now();
+    var currentRegion = document.body.dataset.observationCurrent === "false" &&
+      document.querySelector('.row[data-current="true"]') !== null;
     if (!validBudget(value) || !(remaining > 0 && remaining <= regular) ||
-        document.body.dataset.observationCurrent !== "true" ||
+        (document.body.dataset.observationCurrent !== "true" && !currentRegion) ||
         document.body.dataset.refreshPending !== "false"){{ return regular; }}
     if (Math.abs(boundary - earlyBoundary) <= 1){{
       if (followedBoundary){{ return regular; }}

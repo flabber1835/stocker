@@ -50,6 +50,54 @@ for (const residualMs of [3360,1550,670]) {
   });
 }
 
+test('near-expiry PARTIAL renews its current book card with bounded reads',async({page,request})=>{
+  const fixture=JSON.parse(fs.readFileSync(process.env.SENTINEL_DOM_FIXTURE,'utf8'));
+  const documents=fixture.short_partial;
+  const assets=await panelAssets(request,documents.initial,documents.same,documents.next);
+  const arrival=Date.parse(documents.arrival);
+  const pending=[];
+  await page.clock.install({time:new Date(arrival-60000)});
+  await page.clock.pauseAt(new Date(arrival));
+  await page.route('**/*',async route=>{
+    const path=new URL(route.request().url()).pathname;
+    if(assets.has(path))return route.fulfill({status:200,...assets.get(path)});
+    if(path!=='/')return route.fulfill({status:404,body:''});
+    const body=route.request().isNavigationRequest() ? documents.initial :
+      await new Promise(resolve=>pending.push(resolve));
+    await route.fulfill({status:200,contentType:'text/html',
+      headers:{'X-Sentinel-Panel-Status':'PARTIAL'},body});
+  });
+  await page.goto('http://127.0.0.1:18947/');
+  const body=page.locator('body');
+  const book=page.locator('#status-book');
+  const plan=page.locator('#status-paper_plan');
+  await expect(body).toHaveAttribute('data-observation-current','false');
+  await expect(book).toHaveAttribute('data-current','true');
+  await expect(page.locator('.overview-card.core-slots')).toHaveAttribute('data-current','true');
+  await expect(plan).toHaveAttribute('data-current','false');
+  await expect(page.locator('#operational-state')).toHaveClass('state neutral');
+  await page.clock.runFor(335);
+  await expect.poll(()=>pending.length).toBe(1);
+  pending[0](documents.same);
+  await expect(body).toHaveAttribute('data-max-age-seconds','0.335');
+  await expect(body).toHaveAttribute('data-observation-current','false');
+  await expect(book).toHaveAttribute('data-current','true');
+  await page.clock.runFor(335);
+  await expect.poll(()=>pending.length).toBe(2);
+  await expect(body).toHaveAttribute('data-max-age-seconds','0.335');
+  await page.clock.runFor(20);
+  pending[1](documents.next);
+  await expect(body).toHaveAttribute('data-generated-at',documents.received);
+  await expect(body).toHaveAttribute('data-observation-current','false');
+  await expect(book).toHaveAttribute('data-current','true');
+  await expect(plan).toHaveAttribute('data-current','false');
+  await expect(page.locator('#operational-state')).toHaveClass('state neutral');
+  await expect(page.locator('html')).not.toHaveClass(/not-current/);
+  await page.clock.runFor(1000);
+  expect(pending).toHaveLength(2);
+  await expect(book).toHaveAttribute('data-current','true');
+});
+
 test('refresh preserves the live document, scroll, focus and details while border follows evidence',async({page,request})=>{
   const fixture=JSON.parse(fs.readFileSync(process.env.SENTINEL_DOM_FIXTURE,'utf8'));
   const assets=await panelAssets(request,fixture.green,fixture.red);

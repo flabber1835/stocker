@@ -137,6 +137,10 @@ def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None, pan
         guard = 'next.body.dataset.observationCurrent !== (status === "CURRENT" ? "true" : "false")'
         assert script.count(guard) == 1
         script = script.replace(guard, 'false')
+    elif mutation in {'partial-region-required', 'partial-region-ignored'}:
+        guard = 'document.querySelector(\'.row[data-current="true"]\') !== null'
+        assert script.count(guard) == 1
+        script = script.replace(guard, 'false' if mutation == 'partial-region-required' else 'true')
     return subprocess.run([node, str(Path(__file__).with_name('panel_refresh_harness.cjs'))],
         input=json.dumps({'script':script,'generated':generated.isoformat(),'failure':failure,
                           'wake':wake,'budget':budget,'case':case}),
@@ -319,6 +323,28 @@ def test_observed_nine_second_proof_and_six_second_response_do_not_flash_red():
     result = run_refresh('fresh', wake='transport-matrix', panel=transport_panel(),
                          case={'latencyMs':6400,'cycles':4,'requireAmber':True})
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize('wake,current_regions', [
+    ('partial-short-current', True),
+    ('partial-short-empty', False),
+    ('partial-short-hidden', True),
+    ('partial-short-pending', True),
+])
+def test_short_partial_refresh_keeps_current_regions_and_network_bounds(wake, current_regions):
+    result = run_refresh('busy', wake=wake, panel=transport_panel(.67),
+                         case={'currentRegions': current_regions})
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize('wake,current_regions,mutation,expected', [
+    ('partial-short-current', True, 'partial-region-required', 'requires an early read'),
+    ('partial-short-empty', False, 'partial-region-ignored', 'keeps the ordinary floor'),
+])
+def test_partial_region_eligibility_falsifiers(wake, current_regions, mutation, expected):
+    result = run_refresh('busy', wake=wake, panel=transport_panel(.67),
+                         case={'currentRegions': current_regions}, mutation=mutation)
+    assert result.returncode != 0 and expected in result.stderr
 
 
 @pytest.mark.parametrize('wake,case', [

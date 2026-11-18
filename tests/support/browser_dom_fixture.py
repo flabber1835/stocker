@@ -36,7 +36,10 @@ page = model.Panel(now=now, rows=rows,
         status='CLEAN', observed_at=now, reviewed_at=now))
 negative = replace(page, rows=[*rows, model.Row('broker', 'Browser negative fixture',
     'UNAVAILABLE', model.FAIL, as_of=now, required_current=True)])
+partial = replace(page, observation_current=False,
+    observation_changed_scopes=('PAPER',))
 assert dashboard_health(page)['color'] == 'green' and dashboard_health(negative)['color'] == 'red'
+assert dashboard_health(partial)['color'] == 'neutral'
 
 
 def publication(subject, at, end):
@@ -57,6 +60,14 @@ for residual_ms in (3360, 1550, 670):
         initial=publication(page, now, expiry), same=publication(page, early, expiry),
         next=publication(negative if residual_ms == 1550 else page,
             received, received + timedelta(seconds=20)))
+partial_expiry = arrival + timedelta(milliseconds=670)
+partial_early = arrival + timedelta(milliseconds=335)
+partial_received = partial_expiry + timedelta(milliseconds=20)
+short_partial = dict(
+    arrival=arrival.isoformat(), received=partial_received.isoformat(),
+    initial=publication(partial, now, partial_expiry),
+    same=publication(partial, partial_early, partial_expiry),
+    next=publication(partial, partial_received, partial_received + timedelta(seconds=20)))
 print(json.dumps(dict(now=now.isoformat(),
     green=render(page, refresh_seconds=5), red=render(negative, refresh_seconds=5),
-    short_receipts=short_receipts)))
+    short_receipts=short_receipts, short_partial=short_partial)))
