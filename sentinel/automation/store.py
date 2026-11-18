@@ -982,6 +982,7 @@ def transition_cycle(
         failure_code: str | None | object = _UNSET,
         failure_detail: str | None | object = _UNSET,
         diagnostic: Mapping[str, Any] | object = _UNSET,
+        opening_cutoffs: Mapping[str, str] | None = None,
         increment_attempt: bool = False) -> CycleRecord:
     """Transition and event append in one fenced transaction."""
     if not isinstance(to_state, CycleState):
@@ -1024,6 +1025,10 @@ def transition_cycle(
             "failure_detail": failure_detail,
         }
         detail: dict[str, Any] = {}
+        if opening_cutoffs is not None:
+            if current.state is not CycleState.PLAN_READY or to_state is not CycleState.WAITING_OPEN:
+                raise InvalidCycleTransition("opening cutoffs belong to the scheduled plan")
+            detail["opening_cutoffs"] = dict(opening_cutoffs)
         for column, value in fields.items():
             if value is not _UNSET:
                 assignments.append(f"{column}=%s")

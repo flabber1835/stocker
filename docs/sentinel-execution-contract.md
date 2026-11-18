@@ -26,6 +26,11 @@ to its economic inputs while retaining every fresh broker and signed-authority
 boundary and the existing ten-minute increase cutoff. Opening readiness requires
 measured full-gateway evidence; a passing late-submission refusal is insufficient.
 
+[November 18 opening execution cost](nov18-opening-execution-cost.md) retains
+the final canonical financial proof and observed-book convergence while reusing
+unchanged immutable proof material inside one fenced callback. It also records
+bounded stage timings without extending execution authority or the cutoff.
+
 [Late cash distributions](late-cash-distributions.md) defines point-in-time
 forward entitlement reconciliation and automatic retirement of a cleanly
 reconciled execution plan whose native cash activity set has changed.

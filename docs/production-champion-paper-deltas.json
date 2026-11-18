@@ -17,7 +17,10 @@
       "native_postings_design": "docs/fractional-paper-execution.md",
       "native_postings_acceptance": ["tests/sentinel/test_fractional_flow.py"],
       "native_postings_predecessor_ast_sha256": "965eb98ccce22d16740e572c1b40ddb50f7cfc515604fa7e94ee5df28f9e0eaf",
-      "generated_ast_sha256": "7b5e2355538cab51d170e1496ca950128c30a718ba8e5cc8b52c05a538ae49f5",
+      "opening_callback_predecessor_ast_sha256": "7b5e2355538cab51d170e1496ca950128c30a718ba8e5cc8b52c05a538ae49f5",
+      "opening_callback_design": "docs/nov18-opening-execution-cost.md",
+      "opening_callback_acceptance": ["tests/sentinel/test_opening_execution_diagnostics.py"],
+      "generated_ast_sha256": "9bd745e8bb5e3a6569824c187ba452c573e449f928aca251b1bbca91b782e55f",
       "historical_ast_sha256": "9db80c56276d282f7a1439c47260d980488cc625b354a5d19a9774733697694b",
       "serial_market_buy_design": "docs/nov16-basket-throughput.md",
       "serial_market_buy_acceptance": ["tests/sentinel/test_fractional_flow.py::test_guarded_market_buy_continuation_uses_fresh_settlement"]
@@ -177,7 +180,15 @@
       "native_postings_design": "docs/fractional-paper-execution.md",
       "native_postings_acceptance": ["tests/sentinel/test_fractional_flow.py"],
       "native_postings_predecessor_ast_sha256": "a18fe3072f022b8e3ef492d0694957429dc9d3d553a0d299b1d2f00626985c47",
-      "generated_ast_sha256": "1458e26d75c1a17629f6848d50f90f1885038647f52e784508504854bb5fd651",
+      "opening_callback_predecessor_ast_sha256": "1458e26d75c1a17629f6848d50f90f1885038647f52e784508504854bb5fd651",
+      "opening_callback_design": ["docs/nov18-opening-execution-cost.md", "docs/paper-unconfirmed-native-postings.md"],
+      "opening_callback_acceptance": [
+        "tests/sentinel/test_opening_execution_diagnostics.py",
+        "tests/sentinel/test_automation_runtime.py::test_operational_completion_reenters_owned_proof_with_fresh_fences",
+        "tests/sentinel/test_rolling_status_transactions.py::test_same_callback_structural_resume_reuses_only_unchanged_economic_rows",
+        "tests/sentinel/test_unconfirmed_paper_postings.py::test_opening_cash_confirmation_holds_no_provisional_cursor_lock"
+      ],
+      "generated_ast_sha256": "d766a34399ed81b17bdb73630a90bdfd0e8a7cef3cd0c6930ec1e31b50ff8bc2",
       "serial_market_buy_predecessor_ast_sha256": "5d74face745dc8d57754045e7277a11493c68957846687cd4c8021c5c50b67a1",
       "serial_market_buy_design": "docs/nov16-basket-throughput.md",
       "serial_market_buy_acceptance": [

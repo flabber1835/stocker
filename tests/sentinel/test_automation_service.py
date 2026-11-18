@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import logging
 from types import SimpleNamespace
 
 import pytest
@@ -482,7 +483,7 @@ async def test_changed_runtime_config_durably_kills_and_cannot_silently_resume(
 
 
 @pytest.mark.asyncio
-async def test_prepare_restart_and_execution_use_durable_boundaries(conn) -> None:
+async def test_prepare_restart_and_execution_use_durable_boundaries(conn, caplog) -> None:
     cfg = config()
     enable(conn, cfg)
     prepared_calls = []
@@ -511,11 +512,23 @@ async def test_prepare_restart_and_execution_use_durable_boundaries(conn) -> Non
     assert waiting.cycle.state is CycleState.WAITING_OPEN
     assert prepared_calls == [prepared.cycle.cycle_id]
     assert executed_calls == []
+    from sentinel.panel import model, sources
+    cycle = sources._latest_automation_cycle(conn)
+    events = sources._automation_cycle_events(conn, cycle["cycle_id"])
+    schedule = model.opening_schedule(cycle, events)
+    assert schedule.new_order_cutoff == cycle["execute_at"] + timedelta(
+        seconds=cfg.maximum_execution_lateness_seconds)
+    assert schedule.buy_cutoff == min(schedule.new_order_cutoff,
+                                     cycle["execution_open_at"] + timedelta(minutes=10))
+    assert schedule.recovery_deadline == cycle["execution_close_at"]
 
-    completed = await restarted.tick(conn, now=THURSDAY_AFTER_OPEN)
+    with caplog.at_level(logging.INFO, logger=service_module.__name__):
+        completed = await restarted.tick(conn, now=THURSDAY_AFTER_OPEN)
     assert completed.action is TickAction.EXECUTED
     assert completed.cycle.state is CycleState.SUCCEEDED
     assert executed_calls == [prepared.cycle.plan_id]
+    assert ('stage=terminal_transition_and_commit path=EXECUTE returned=True '
+            'elapsed_ms=') in caplog.text
 
     second_restart = await restarted.tick(conn, now=THURSDAY_AFTER_OPEN)
     assert second_restart.cycle.state is CycleState.SUCCEEDED

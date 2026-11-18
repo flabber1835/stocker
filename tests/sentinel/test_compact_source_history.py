@@ -199,3 +199,13 @@ def test_fixed_anchor_guard_has_an_executed_falsifier(tmp_path, monkeypatch):
     monkeypatch.setattr(basis, '_profile', namespace['_profile'])
     with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
         test_repinning_profile_cannot_change_the_fixed_anchor(tmp_path, monkeypatch)
+
+def test_opening_fixes_retain_exact_installed_pr605_source():
+    revision = 'd0a9bb5f1c5ce4321c4ffb5ea838061239ad925d'
+    predecessor = basis._profile()['retained_predecessors'][revision]['files']
+    assert len(predecessor) == 492
+    assert admission.source_closure(predecessor) == 'ecd02b17d48e59ecb5d8a28096a1a8d696b10735c0d614a0956feff371b1fbd2'
+    actual = admission._source_files(basis.PROFILE.parent)
+    assert basis.predecessor_view(actual, previous=predecessor) == predecessor
+    altered = {**actual, 'automation/env_config.py': 'f' * 64}
+    assert basis.predecessor_view(altered, previous=predecessor) == altered

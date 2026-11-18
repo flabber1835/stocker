@@ -211,13 +211,71 @@ def _posting_inputs(conn, *, plan, activity):
 
 async def prepare(conn, *, broker, binding, plan, rec, account, activity, actions, clock):
     """Earn a repeatable account/book bracket before adopting or reusing a bridge."""
-    from .cash import fractional_posting_reserve
-    from .reconciliation_evidence import _settled_account_evidence_bracket
     if _posting_inputs(conn, plan=plan, activity=activity) is None:
         return rec, account, activity, None
+    return await _confirm(conn, broker=broker, binding=binding, plan=plan, rec=rec, actions=actions, clock=clock)
+
+
+async def opening_cash_evidence(conn, *, broker, binding, plan, rec, account, through, actions, clock):
+    """Release provisional activity writes before a further broker round trip."""
+    from .cash import _broker_cash_state_or_refuse
+
+    baseline = broker_cash.load_plan_baseline(conn, plan_id=plan.plan_id)
+    prior = read_posting_status(conn, plan_id=plan.plan_id, account_id=plan.broker_account_id)
+    provisional = None
+    if not prior and not (baseline and baseline.pending_postings):
+        # The writer owns the surrounding transaction. A newly discovered
+        # posting will be ingested again at the end of the confirmation read.
+        conn.execute('SAVEPOINT preliminary_opening_cash')
+        activity = await _broker_cash_state_or_refuse(conn, broker=broker, binding=binding, through=through)
+        if _posting_inputs(conn, plan=plan, activity=activity) is None:
+            conn.execute('RELEASE SAVEPOINT preliminary_opening_cash')
+            return rec, account, activity, None
+        provisional = activity, _opening_members(conn, activity)
+        conn.execute('ROLLBACK TO SAVEPOINT preliminary_opening_cash')
+        conn.execute('RELEASE SAVEPOINT preliminary_opening_cash')
+    return await _confirm(conn, broker=broker, binding=binding, plan=plan, rec=rec, actions=actions,
+                          clock=clock, provisional=provisional)
+
+
+def _opening_members(conn, activity):
+    try:
+        return broker_cash._current_cash_ledger(conn, activity_state=activity)
+    except broker_cash.BrokerCashAuthorityRefused as exc:
+        raise PaperActivationRefused(f"invalid native cash posting evidence: {exc}") from exc
+
+
+def _require_provisional_members(conn, provisional, activity):
+    first, members = provisional
+    if (activity is None or activity.posting_kinds is None
+            or (first.broker, first.account_id) != (activity.broker, activity.account_id)
+            or activity.processed_through < first.processed_through
+            or (first.last_event_id is not None
+                and (activity.last_event_id is None or activity.last_event_id < first.last_event_id))):
+        raise PaperActivationRefused("confirmed native cash traversal regressed")
+    current = _opening_members(conn, activity)
+    first_kinds = dict(first.posting_kinds)
+    current_kinds = dict(activity.posting_kinds)
+    prefix = f"{broker_cash.FLOW_PREFIX}{first.broker}:{first.account_id}:"
+    for key, commitment in members.items():
+        native_id = key.removeprefix(prefix)
+        if current.get(key) != commitment or first_kinds.get(native_id) != current_kinds.get(native_id):
+            raise PaperActivationRefused("confirmed native cash traversal changed provisional evidence")
+    added = current.keys() - members.keys()
+    if ((not added and first.last_activity_id != activity.last_activity_id)
+            or (added and prefix+str(activity.last_activity_id) not in added)):
+        raise PaperActivationRefused("confirmed native cash traversal changed its last cash member")
+
+
+async def _confirm(conn, *, broker, binding, plan, rec, actions, clock, provisional=None):
+    from .cash import fractional_posting_reserve
+    from .reconciliation_evidence import _settled_account_evidence_bracket
+
     rec, account, activity, _, _ = await _settled_account_evidence_bracket(
         conn=conn, broker=broker, binding=binding, expected_account=binding.broker_account_id,
         deployment=binding.identity, initial_result=rec, actions=actions, dual_mode=True, clock=clock)
+    if provisional is not None:
+        _require_provisional_members(conn, provisional, activity)
     reserve = fractional_posting_reserve(conn, plan=plan, deployment=binding.identity,
         account=account, observation=rec.observation, activity_state=activity)
     return rec, account, activity, reserve

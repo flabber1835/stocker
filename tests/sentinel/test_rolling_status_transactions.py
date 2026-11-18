@@ -249,6 +249,132 @@ def test_private_structural_reuse_checks_original_writer_on_fresh_backend(materi
     _unchanged_caller(conn,transaction)
 
 
+def test_same_callback_structural_resume_reuses_only_unchanged_economic_rows(material):
+    conn = material
+    loaded = []
+
+    def proof():
+        loaded.append(len(loaded) + 1)
+        return {'derivation': loaded[-1]}
+
+    def read(key='same-plan'):
+        return structural_verification.material(
+            conn, slot='dual-sizing', key=key, load=proof)
+
+    with _actual_pin(conn):
+        conn.execute('SELECT pg_advisory_lock(%s)', (WRITER_LOCK_KEY,))
+        try:
+            with structural_verification.callback(conn) as scope:
+                first = read()
+            assert first == {'derivation': 1}
+            first['derivation'] = -1
+            assert conn.execute('SELECT pg_advisory_unlock(%s)',
+                                (WRITER_LOCK_KEY,)).fetchone() == (True,)
+            conn.commit()
+            with pytest.raises(structural_verification.VerificationScopeRefused,
+                               match='WRITER_LOCK_LOST'):
+                with scope.resume(conn):
+                    read()
+            with pytest.raises(structural_verification.VerificationScopeRefused,
+                               match='OWNER_OR_PIN_CHANGED'):
+                with scope.resume(object()):
+                    read()
+
+            conn.execute('SELECT pg_advisory_lock(%s)', (WRITER_LOCK_KEY,))
+            with scope.resume(conn):
+                assert read() == {'derivation': 1}
+            assert loaded == [1]
+
+            conn.execute(
+                'INSERT INTO sentinel_processed_sessions'
+                ' (cursor_name,session,state) VALUES (%s,%s,%s::jsonb)',
+                ('test:opening-proof-version', '2026-11-17', '{}'))
+            conn.commit()
+            with scope.resume(conn):
+                assert read() == {'derivation': 2}
+                assert read(key='changed-current-context') == {'derivation': 3}
+            assert loaded == [1, 2, 3]
+        finally:
+            conn.execute('SELECT pg_advisory_unlock(%s)',
+                         (WRITER_LOCK_KEY,))
+            conn.commit()
+    conn.execute('SELECT pg_advisory_lock(%s)', (WRITER_LOCK_KEY,))
+    try:
+        with pytest.raises(publication.CorpusIncoherent,
+                           match='READINESS_SCOPE_CHANGED'):
+            with scope.resume(conn):
+                read()
+    finally:
+        conn.execute('SELECT pg_advisory_unlock(%s)', (WRITER_LOCK_KEY,))
+        conn.commit()
+
+
+@pytest.mark.parametrize('removed', ['writer', 'economic_rows'])
+def test_structural_resume_falsifiers_fail_when_guard_removed(
+        material, monkeypatch, removed):
+    if removed == 'writer':
+        monkeypatch.setattr(structural_verification.Scope, 'require',
+                            lambda *_args: None)
+        with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+            test_same_callback_structural_resume_reuses_only_unchanged_economic_rows(
+                material)
+    else:
+        monkeypatch.setattr(structural_verification, '_inventory',
+                            lambda *_args: ('unchanging-catalog', ()))
+        with pytest.raises(AssertionError, match="derivation.*2"):
+            test_same_callback_structural_resume_reuses_only_unchanged_economic_rows(
+                material)
+
+
+def test_dual_sizing_cold_derivation_count_across_completion_scope(
+        material, monkeypatch):
+    from sentinel import dual_plan_authority
+    from sentinel.execution import held_targets
+
+    conn = material
+    calls = []
+    monkeypatch.setattr(held_targets, 'predecessor_version',
+                        lambda *_args: 'same-predecessor')
+
+    def derive(_conn, **_kwargs):
+        calls.append('cold')
+        return {'authority_sha256': str(len(calls))}
+
+    monkeypatch.setattr(dual_plan_authority, '_rederive_plan', derive)
+    plan = SimpleNamespace(plan_id='test-opening-plan',
+                           to_dict=lambda: {'plan_id': 'test-opening-plan'})
+    binding = SimpleNamespace(account='paper')
+    rollout = SimpleNamespace(version=1)
+
+    def proof():
+        return dual_plan_authority.rederive_plan(
+            conn, plan=plan, binding=binding, rollout_state=rollout)
+
+    with _actual_pin(conn):
+        conn.execute('SELECT pg_advisory_lock(%s)', (WRITER_LOCK_KEY,))
+        try:
+            with structural_verification.callback(conn) as scope:
+                assert proof()['authority_sha256'] == '1'
+            assert conn.execute('SELECT pg_advisory_unlock(%s)',
+                                (WRITER_LOCK_KEY,)).fetchone() == (True,)
+            conn.commit()
+            conn.execute('SELECT pg_advisory_lock(%s)', (WRITER_LOCK_KEY,))
+            with scope.resume(conn):
+                assert proof()['authority_sha256'] == '1'
+            assert calls == ['cold']
+            conn.execute(
+                'INSERT INTO sentinel_processed_sessions'
+                ' (cursor_name,session,state) VALUES (%s,%s,%s::jsonb)',
+                ('test:opening-sizing-version', '2026-11-17', '{}'))
+            conn.commit()
+            with scope.resume(conn):
+                assert proof()['authority_sha256'] == '2'
+            assert calls == ['cold', 'cold']
+        finally:
+            conn.execute('SELECT pg_advisory_unlock(%s)', (WRITER_LOCK_KEY,))
+            conn.commit()
+
+
 def _mutated(monkeypatch,old,new):
     source = inspect.getsource(committed_read.proof_connection)
     assert source.count(old) == 1

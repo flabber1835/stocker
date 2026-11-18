@@ -89,6 +89,19 @@ class Scope:
         finally:
             _current.reset(token)
 
+    @contextmanager
+    def resume(self, owner):
+        """Reenter one callback's material after a fresh writer-lock admission.
+
+        The caller must still own the original rolling publication pin.  A
+        missing outer pin cannot turn an expired scope into a reusable proof.
+        Each material lookup repeats its row-version and context checks.
+        """
+        if owner is not self.owner or self.pin is None:
+            raise VerificationScopeRefused('STRUCTURAL_RESUME_OWNER_OR_PIN_CHANGED')
+        with self.guard(owner):
+            yield
+
 
 @contextmanager
 def callback(owner):

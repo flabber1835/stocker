@@ -14,7 +14,7 @@ import sys
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from sentinel import schema
+from sentinel import opening_stage_log, schema
 from sentinel.automation import store as automation_store
 from sentinel.automation_recovery import ProductionAutomation, config_from_env
 from sentinel.config import SentinelConfig
@@ -107,6 +107,7 @@ async def _run() -> int:
 
 
 def main() -> int:
+    opening_stage_log.install_worker_sink()
     return asyncio.run(_run())
 
 

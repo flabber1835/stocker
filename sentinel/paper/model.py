@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from decimal import Decimal, InvalidOperation
 
@@ -205,6 +205,10 @@ class ExecutionResult:
     plan: ExecutionPlan
     preflight: object
     session: object
+    # In-process, same-callback performance material only.  It is absent from
+    # the serialized result and grants no broker or completion authority.
+    structural_scope: object | None = field(default=None, repr=False, compare=False)
+    opening_stages_ms: Mapping[str, int] = field(default_factory=dict)
 
     @property
     def needs_attention(self) -> bool:
@@ -229,6 +233,7 @@ class ExecutionResult:
     def to_dict(self) -> dict:
         return {"paper_submission_authorized": not self.needs_attention,
                 "operator_attention_required": self.needs_attention,
+                "opening_stages_ms": dict(self.opening_stages_ms),
                 "plan": self.plan.to_dict(),
                 "preflight": self.preflight.to_dict(),
                 "execution": self.session.to_dict()}

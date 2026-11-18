@@ -363,6 +363,7 @@ every 128-row batch while bounding the time other disposable parts must wait.
 Before taking either writer lock, the read-only acquisition hint resolves the
 live job lineage and current-publication references once and checks membership
 in that set. When every part is pinned, maintenance can stay idle even with a
-long inventory. A timed-out hint still admits a bounded pass. Qualification compares the hint with the canonical pin function for live
+long inventory. A timed-out hint still admits a bounded pass. Qualification compares the hint
+with the canonical pin function for live
 ancestors, linked payloads, current publications and retired parts. The
 certified acquisition schema and its deletion guards remain authoritative.

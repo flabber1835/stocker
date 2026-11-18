@@ -2211,9 +2211,32 @@ def test_debug_window_service_cutoff_is_exclusive_and_current_config_only():
         refresh=lambda context: None, prepare=lambda context: None,
         recover=lambda context: None, execute=lambda context: None)
     assert service._latest_new_execution_at(cycle) == window.not_after
+    assert service._opening_cutoffs(cycle) == {
+        'new_orders': window.not_after.isoformat(), 'buys': window.not_after.isoformat()}
     assert not service._execution_is_fresh(now=window.not_before-timedelta(seconds=1), cycle=cycle)
     assert service._execution_is_fresh(now=window.not_before, cycle=cycle)
     assert service._execution_is_fresh(now=window.not_after-timedelta(seconds=1), cycle=cycle)
     assert not service._execution_is_fresh(now=window.not_after, cycle=cycle)
     assert not service._execution_expired(now=window.not_after-timedelta(seconds=1), cycle=cycle)
     assert service._execution_expired(now=window.not_after, cycle=cycle)
+    cycle.execute_at = window.not_before + timedelta(seconds=1)
+    assert service._opening_cutoffs(cycle) is None
+    cycle.execute_at = window.not_before
+    cycle.config_sha256 = '0' * 64
+    assert service._opening_cutoffs(cycle) is None
+
+
+@pytest.mark.parametrize(('delay', 'lateness', 'expected_new', 'expected_buy'),
+                         [(60, 540, 600, 600), (300, 30, 330, 330), (300, 540, 840, 600)])
+def test_recorded_cutoff_uses_selected_policy_and_original_opening_buy_bound(
+        delay, lateness, expected_new, expected_buy):
+    selected = AutomationConfig(execution_delay_seconds=delay, maximum_execution_lateness_seconds=lateness)
+    cycle, _ = scheduled_record(selected, module.CycleState.PLAN_READY)
+    service = module.AutomationService(config=selected, holder_id="clock-test",
+        refresh=lambda context: None, prepare=lambda context: None,
+        recover=lambda context: None, execute=lambda context: None)
+    opened = cycle.execution_open_at
+    assert service._opening_cutoffs(cycle) == {
+        'new_orders': (opened + timedelta(seconds=expected_new)).isoformat(),
+        'buys': (opened + timedelta(seconds=expected_buy)).isoformat(),
+    }

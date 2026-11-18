@@ -785,7 +785,20 @@ def test_real_paper_preparation_and_restart_reuse_only_verified_rolling_shadow(
         sid: quantity for sid, quantity in projection.target_basket.items() if quantity > 0}
     for command in result.session.submitted:
         broker.fill(command.client_key)
-    retry = execute(90)
+    from sentinel import dual_reconciliation, structural_verification
+    # Match production's outer automation pin.  The gateway nests its own pin
+    # and returns an in-process scope; completion reacquires the writer on the
+    # same connection after the gateway has released its first writer scope.
+    with feed_inputs.pinned(conn, commit=False):
+        retry = execute(90)
+        assert isinstance(retry.structural_scope, structural_verification.Scope)
+        with journal.writer_lock(conn):
+            with retry.structural_scope.resume(conn):
+                _shadow_result, completion = dual_reconciliation.verified_plan_intent(
+                    conn, plan=retry.plan, observation_id=OBS,
+                    starting_cash=100000, binding=bound,
+                    rollout_state=load_rollout_state(conn))
+                assert completion['verdict'] == 'MATCH'
     assert retry.session.submitted == ()
     assert target_reprojection.load_projection(conn, plan_id=first.plan.plan_id) == projection
     assert opening_reads == []

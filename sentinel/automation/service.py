@@ -27,6 +27,7 @@ from typing import Any, Awaitable, Callable, Mapping, TypeAlias
 
 from pydantic import ValidationError
 
+from sentinel import opening_stage_log
 from sentinel.automation import integrity, schedule, store
 from sentinel.automation.source_completion import SourceCompletionHint, progressed
 from sentinel.backup_guard import BUSY_RETRY_MAX_SECONDS
@@ -73,6 +74,26 @@ CALLBACK_AUTHORITY_SECONDS = 60
 _RESTARTABLE_DEADLINE_PHASES = frozenset({
     "REFRESH", "PREFLIGHT_RECOVER", "PREPARE", "RECOVER",
 })
+
+
+def _timed_terminal_transition(path: str, operation: Callable[[], CycleRecord]) -> CycleRecord:
+    """Measure the fenced terminal write, commit and reload as one operation."""
+    if path not in {"EXECUTE", "RECOVER"}:
+        raise ValueError("unknown terminal transition path")
+    started_ns = time.perf_counter_ns()
+    returned = False
+    try:
+        cycle = operation()
+        returned = True
+        return cycle
+    finally:
+        elapsed_ms = min(
+            max(0, (time.perf_counter_ns() - started_ns) // 1_000_000),
+            86_400_000)
+        opening_stage_log.info(
+            "automation_execution_stage stage=terminal_transition_and_commit "
+            "path=%s returned=%s elapsed_ms=%d",
+            path, returned, elapsed_ms)
 
 
 PrepareCallable: TypeAlias = Callable[
@@ -521,6 +542,18 @@ class AutomationService:
             cycle.execution_close_at,
             cycle.execute_at + timedelta(
                 seconds=self.config.maximum_execution_lateness_seconds))
+
+    def _opening_cutoffs(self, cycle: CycleRecord) -> dict[str, str] | None:
+        """Record the original admission limits for the read-only dashboard."""
+        if cycle.config_sha256 != self.config.fingerprint:
+            return None
+        window = self.config.debug_window_for(cycle)
+        if self.config.paper_debug_window is not None and window is None:
+            return None
+        cutoff = self._latest_new_execution_at(cycle)
+        buy_cutoff = (cutoff if window is not None else
+                      min(cutoff, cycle.execution_open_at + timedelta(minutes=10)))
+        return dict(new_orders=cutoff.isoformat(), buys=buy_cutoff.isoformat())
 
     def _execution_is_fresh(self, *, now: datetime, cycle: CycleRecord) -> bool:
         window = self.config.debug_window_for(cycle)
@@ -1538,6 +1571,7 @@ class AutomationService:
             cycle = store.transition_cycle(
                 conn, permit=permit, cycle_id=cycle.cycle_id,
                 to_state=CycleState.WAITING_OPEN,
+                opening_cutoffs=self._opening_cutoffs(cycle),
                 next_wake_at=cycle.execute_at)
 
         if cycle.state is CycleState.WAITING_OPEN:
@@ -1796,9 +1830,9 @@ class AutomationService:
                 cycle = store.transition_cycle(
                     conn, permit=permit, cycle_id=cycle.cycle_id,
                     to_state=CycleState.RECONCILING)
-            cycle = self._recover_transition(
+            cycle = _timed_terminal_transition("RECOVER", lambda: self._recover_transition(
                 conn, permit=permit, cycle=cycle,
-                to_state=CycleState.SUCCEEDED, next_wake_at=None, **common)
+                to_state=CycleState.SUCCEEDED, next_wake_at=None, **common))
             return TickResult(
                 action=TickAction.RECOVERED, cycle=cycle, permit=permit,
                 reason="read-only recovery reached clean reconciliation")
@@ -2031,9 +2065,9 @@ class AutomationService:
             "diagnostic": result.diagnostic,
         }
         if result.disposition is ExecuteDisposition.SUCCEEDED:
-            cycle = store.transition_cycle(
+            cycle = _timed_terminal_transition("EXECUTE", lambda: store.transition_cycle(
                 conn, permit=permit, cycle_id=cycle.cycle_id,
-                to_state=CycleState.SUCCEEDED, next_wake_at=None, **common)
+                to_state=CycleState.SUCCEEDED, next_wake_at=None, **common))
             return TickResult(
                 action=TickAction.EXECUTED, cycle=cycle, permit=permit)
         if result.disposition is ExecuteDisposition.RECONCILE:

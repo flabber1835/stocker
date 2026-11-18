@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import multiprocessing
 import os
+import subprocess
 import sys
 import time
 from types import SimpleNamespace
@@ -355,3 +356,12 @@ while True:
 
 
 __all__ = ['conn', 'pg']
+
+def test_supervised_health_does_not_load_trading_callback_runtime():
+    script = """import sys
+from sentinel import automation_liveness
+automation_liveness.config_from_env({})
+assert 'sentinel.automation_runtime' not in sys.modules
+assert 'sentinel.paper.execution' not in sys.modules
+"""
+    subprocess.run([sys.executable, '-c', script], check=True)
