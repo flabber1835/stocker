@@ -354,6 +354,13 @@ the beginning so newly inserted, previously locked and newly unpinned parts
 are considered again. Finishing an all-pinned sweep yields to the ordinary
 maintenance interval. A failed candidate cannot starve later keys.
 
+If the class times out after its last part statement, including during
+restoration of planner settings or the final budget check, roll back the whole
+class. The pass may retain only the last visited part key for scheduling and
+must reset its remaining burst. Keep deletion counts at zero for that class.
+The interrupted visit alone does not request an immediate wake. A full pass
+rollback also rolls back the scheduling key.
+
 A partially drained part may consume up to 32 consecutive price batches. Each
 batch uses a new pin and row-lock check. After the burst, the cursor advances
 to other parts. Losing eligibility, lock contention or a failed candidate

@@ -110,6 +110,9 @@ class _Budget:
         self.raw, self.deadline, self.ceiling_ms = raw, deadline, ceiling_ms
         self.authorization = authorization
         self.parent = parent
+        # Scheduling evidence only, including a cancellation during scope
+        # cleanup after the last class-5 statement has already returned.
+        self.last_acquisition_part = None
 
     def check(self):
         if time.monotonic() >= self.deadline:
@@ -729,6 +732,8 @@ def _acquisition_step(conn, progress, *, batch_rows):
         (ACQUISITION_PAGE,) if after is None else (after, ACQUISITION_PAGE)).fetchall()
     for (part,) in page:
         visited = progress.model_copy(update={'acquisition_after':part, 'acquisition_batches_left':0})
+        if isinstance(conn, _Budget):
+            conn.last_acquisition_part = part
         try:
             # Locked and pinned rows advance discovery without dirtying their
             # heap tuples. Only an admitted candidate takes a disposal lock.
@@ -831,6 +836,10 @@ def _pass(conn, *, batch_rows, deadline=None):
                 progress, cause = exc.progress, exc.cause
             else:
                 progress, cause = before, exc
+                if (work.last_acquisition_part is not None and
+                        (isinstance(cause, RetentionBudgetExpired) or getattr(cause, 'sqlstate', None) == '57014')):
+                    progress = before.model_copy(update={'acquisition_after':work.last_acquisition_part,
+                                                        'acquisition_batches_left':0})
             errors[str(class_id)] = type(cause).__name__
             if class_id==2 and cause is not authorization.error and (isinstance(cause,RetentionBudgetExpired)
                                or getattr(cause,'sqlstate',None)=='57014'):

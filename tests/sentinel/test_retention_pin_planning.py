@@ -286,6 +286,61 @@ def test_pinned_prefix_has_bounded_discovery_and_resumes_after_restart(pin_sql):
     _, result = retention._run_class(conn, 5, progress, batch_rows=1)
     assert result['deleted_acquisition_parts'] == 1
 
+@pytest.mark.parametrize('interruption', ['planner_restore', 'final_class_check'])
+def test_post_delete_interruption_yields_the_key_but_rolls_back_data(pin_sql, monkeypatch, interruption):
+    conn, _ = pin_sql
+    conn.execute('SET jit=on')
+    conn.execute('CREATE TABLE sentinel_snapshot_retirements(candidate_id uuid)')
+    conn.execute('CREATE TABLE sentinel_snapshot_maintenance(id boolean PRIMARY KEY, '
+                 'updated_at timestamptz DEFAULT clock_timestamp(), diagnostic jsonb)')
+    conn.execute("INSERT INTO sentinel_acquisition_parts(part_id,manifest) VALUES('first','{}'),('second','{}')")
+    conn.execute("INSERT INTO sentinel_acquisition_prices VALUES('first','2026-09-14','A','{}'),"
+                 "('first','2026-09-14','B','{}')")
+    for key in (1579621904,1579663541):
+        conn.execute('SELECT pg_advisory_lock(%s)', (key,))
+    retained = retention.RetentionProgress(known_retirement_count=0, next_class=5,
+        acquisition_after='first', acquisition_batches_left=4)
+    retention._write_result(conn, {}, retained)
+    conn.commit()
+
+    run = retention._run_class
+    monkeypatch.setattr(retention, '_run_class', lambda port, cls, progress, **kw:
+        run(port, cls, progress, **kw) if cls == 5 else (progress, retention._stats()))
+    execute = retention._Budget.execute
+    deleted = []
+
+    def interrupt_once(port, sql, params=None):
+        if sql.startswith("SELECT set_config('jit'") and len(deleted) == 1:
+            assert conn.execute('SELECT count(*) FROM sentinel_acquisition_prices').fetchone() == (1,)
+            if interruption == 'planner_restore':
+                conn.execute("SET LOCAL statement_timeout='20ms'")
+                conn.execute('SELECT pg_sleep(1)')  # Real cancellation during planner restoration.
+            result = execute(port, sql, params)
+            port.deadline = time.monotonic() - 1  # Actual post-return class budget check.
+            return result
+        result = execute(port, sql, params)
+        if sql.startswith('DELETE FROM sentinel_acquisition_prices'):
+            deleted.append(result.rowcount)
+        return result
+
+    monkeypatch.setattr(retention._Budget, 'execute', interrupt_once)
+    failed = retention._pass(conn, batch_rows=1)
+    conn.commit()
+    assert deleted == [1] and failed['status'] == 'RETRY'
+    assert not failed['more_work'] and not failed['progress_made']
+    assert failed['deleted_acquisition_rows'] == failed['deleted_acquisition_parts'] == 0
+    assert conn.execute('SELECT count(*) FROM sentinel_acquisition_prices').fetchone() == (2,)
+    saved = retention._read_progress(conn)
+    assert saved.acquisition_after == 'first' and saved.acquisition_batches_left == 0
+    assert conn.execute('SHOW jit').fetchone() == ('on',)
+
+    monkeypatch.setattr(retention._Budget, 'execute', execute)
+    next_pass = retention._pass(conn, batch_rows=1)
+    conn.commit()
+    assert next_pass['deleted_acquisition_parts'] == 1 and next_pass['deleted_acquisition_rows'] == 0
+    assert conn.execute('SELECT part_id FROM sentinel_acquisition_parts').fetchall() == [('first',)]
+
+
 def test_cancelled_part_yields_to_the_next_key_and_is_revisited(pin_sql):
     import psycopg
 
