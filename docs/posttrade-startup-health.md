@@ -21,6 +21,11 @@ belong to the sole tentative alert. Unknown alerts, additional incidents,
 changed old rows, a negative operational state, or any candidate identity
 change refuse. An interrupted `START_REQUESTED` resumes by inspecting already
 running candidate processes before its strict predecessor snapshot check.
+If all six exact candidate containers are already running but some health
+checks are still starting, it waits for those same process identities under
+the original cutoff before classifying the incident. A mixed candidate and
+predecessor process set, changed configuration label, restarted process, or
+health timeout refuses without another Compose start.
 If the sole alert is temporarily awaiting delivery, the installer rereads
 the exact subject within the original deadline. It never treats an unsettled
 alert as an accepted financial snapshot.

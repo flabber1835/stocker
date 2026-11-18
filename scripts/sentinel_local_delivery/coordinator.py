@@ -406,6 +406,18 @@ class Delivery:
             hashes=self.host.candidate_config_hashes(candidate)
             applications=self.host.containers(SERVICES,missing_ok=True)
             reactivated=handoff_mode(self.host.request)=='POST_TRADE_REACTIVATED'
+            candidate_image=self.host.request['candidate']['image']
+            already_starting=(reactivated and any(
+                item is not None and item.get('Image')==candidate_image
+                for service,item in applications.items() if service!='sentinel-shadow'))
+            if already_starting and not self.host.candidate_apps_ready(hashes,applications):
+                expected=reactivated_readiness.candidate_start_in_progress(
+                    self.host,applications,hashes)
+                applications=self.host.wait_applications_health(
+                    deadline=min(deadline,self.monotonic()+120),clock=self.monotonic,
+                    expected=expected)
+                require(self.host.candidate_apps_ready(hashes,applications),
+                        'REACTIVATED_STARTUP_PROCESS_SET_CHANGED')
             if reactivated and self.host.candidate_apps_ready(hashes,applications):
                 # A lost stage acknowledgement can leave the exact candidate
                 # running before its six process identities were journaled.

@@ -172,6 +172,72 @@ def test_resume_after_lost_start_stage_ack_accepts_only_same_running_candidate(o
     assert resumed['artifacts']['startup_tentative_alert']['alert_id'] == ALERT_ID
 
 
+def lost_partial_start(operation, monkeypatch):
+    host, journal, delivery, _, _ = ready_start(operation, monkeypatch)
+    compose = host.compose
+
+    def lost_ack(values, *args, **kwargs):
+        result = compose(values, *args, **kwargs)
+        if args[0] == 'up' and 'sentinel-automation' in args:
+            add_alert(host)
+            host.items['sentinel-panel']['State']['Health']['Status'] = 'starting'
+            raise model.DeliveryRefused('LOST_COMPOSE_ACK')
+        return result
+
+    host.compose = lost_ack
+    with pytest.raises(model.DeliveryRefused, match='LOST_COMPOSE_ACK'):
+        delivery.step()
+    assert journal.read()['stage'] == 'START_REQUESTED'
+    host.compose = compose
+    return host, journal, delivery
+
+
+def test_lost_ack_partially_healthy_set_waits_same_six_ids_without_recompose(operation, monkeypatch):
+    host, journal, delivery = lost_partial_start(operation, monkeypatch)
+    before = list(host.calls)
+    old_wait = host.wait_applications_health
+    observed = []
+
+    def finish_health(*, deadline, clock, expected=None):
+        observed.append(deepcopy(expected))
+        if len(observed) == 1:
+            assert expected is not None and set(expected) == set(coordinator.SERVICES)
+        host.items['sentinel-panel']['State']['Health']['Status'] = 'healthy'
+        return old_wait(deadline=deadline, clock=clock, expected=expected)
+
+    host.wait_applications_health = finish_health
+    started = delivery.step()
+    assert started['stage'] == 'APPLICATIONS_STARTED' and len(observed) == 2
+    assert started['artifacts']['started_applications'] == observed[0]
+    assert not any(isinstance(call, tuple) and call[0] == 'up' for call in host.calls[len(before):])
+
+
+@pytest.mark.parametrize('fault', ['mixed', 'config', 'replaced', 'health_timeout'])
+def test_lost_ack_partial_set_refuses_change_or_timeout_without_recompose(operation, monkeypatch, fault):
+    host, journal, delivery = lost_partial_start(operation, monkeypatch)
+    if fault == 'mixed':
+        host.items['sentinel-panel']['Image'] = host.request['predecessor']['image']
+    elif fault == 'config':
+        host.items['sentinel-panel']['Config']['Labels']['com.docker.compose.config-hash'] = 'f'*64
+    elif fault == 'replaced':
+        old_wait = host.wait_applications_health
+
+        def replace(**kwargs):
+            host.items['sentinel-panel']['Id'] = 'f'*64
+            host.items['sentinel-panel']['State']['Health']['Status'] = 'healthy'
+            return old_wait(**kwargs)
+
+        host.wait_applications_health = replace
+    else:
+        host.wait_applications_health = lambda **kwargs: model.require(False,
+            'APPLICATION_STARTUP_HEALTH_TIMEOUT')
+    before = list(host.calls)
+    with pytest.raises(model.DeliveryRefused):
+        delivery.step()
+    assert journal.read()['stage'] == 'START_REQUESTED'
+    assert not any(isinstance(call, tuple) and call[0] == 'up' for call in host.calls[len(before):])
+
+
 def test_pending_alert_waits_for_delivery_without_recording_unsettled_state(operation, monkeypatch):
     host, journal, delivery, _, _ = ready_start(operation, monkeypatch)
     alerting_compose(host, unsettled=1)

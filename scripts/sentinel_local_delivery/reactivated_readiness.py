@@ -21,6 +21,41 @@ _CURRENT_ACQUISITION = ("SELECT json_build_object('holder',holder_id,'generation
 _HEALTH_EPISODE = 'SELECT active_identity FROM sentinel_alert_health_cursor WHERE id=1'
 
 
+def _aware(raw):
+    try:
+        return isinstance(raw, str) and datetime.fromisoformat(raw).utcoffset() is not None
+    except ValueError:
+        return False
+
+
+def candidate_start_in_progress(host, applications, hashes):
+    """Only one complete same-image process set may await its health checks."""
+    image = host.request['candidate']['image']
+    require(isinstance(hashes, dict) and set(applications) == set(SERVICES),
+            'REACTIVATED_STARTUP_PROCESS_SET_CHANGED')
+    for service in SERVICES:
+        item = applications.get(service)
+        state = item.get('State') if isinstance(item, dict) else None
+        config = item.get('Config') if isinstance(item, dict) else None
+        labels = config.get('Labels') if isinstance(config, dict) else None
+        require(isinstance(item, dict) and item.get('Image') == image
+                and isinstance(item.get('Id'), str) and re.fullmatch('[0-9a-f]{64}', item['Id'])
+                and item.get('RestartCount') == 0 and isinstance(state, dict)
+                and state.get('Running') is True and state.get('OOMKilled') is False
+                and state.get('Restarting') is False and _aware(state.get('StartedAt'))
+                and isinstance(labels, dict)
+                and labels.get('com.docker.compose.project') == 'sentinel'
+                and labels.get('com.docker.compose.service') == service
+                and isinstance(hashes.get(service), str)
+                and re.fullmatch('[0-9a-f]{64}', hashes[service])
+                and labels.get('com.docker.compose.config-hash') == hashes[service],
+                'REACTIVATED_STARTUP_PROCESS_SET_CHANGED')
+    return {service:dict(Id=applications[service]['Id'],
+            RestartCount=applications[service]['RestartCount'],
+            State={'StartedAt':applications[service]['State']['StartedAt']})
+            for service in SERVICES}
+
+
 def require_qualified_same_tool(host):
     """An old installed release cannot borrow this newer acceptance rule."""
     runtime_root = Path(__file__).resolve().parents[2]
@@ -116,7 +151,7 @@ def tentative_startup(host, receipt, applications, hashes):
         item = applications[service]
         require(isinstance(item.get('Id'), str) and re.fullmatch('[0-9a-f]{64}', item['Id'])
                 and item.get('RestartCount') == 0
-                and datetime.fromisoformat(item['State']['StartedAt']).utcoffset() is not None,
+                and _aware(item['State']['StartedAt']),
                 'APPLICATION_STARTUP_PROCESS_CHANGED')
     # A full financial/source snapshot must accept the sole alert's shape and
     # every other preflight fact, even though no incident cause is accepted yet.
