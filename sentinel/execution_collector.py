@@ -64,20 +64,23 @@ class _FailureDiagnostics:
 
 
 def record_stall(kind, reason):
+    from sentinel import account_collection_incidents
     from sentinel.feed import store
     from sentinel.automation import outbox
     conn = store.connect(os.environ['SENTINEL_DATABASE_URL'],connect_timeout=3,statement_timeout_ms=2000)
     try:
-        prefix = 'account-status' if kind == 'ACCOUNT' else 'fill-notification'
-        outbox.enqueue(conn,idempotency_key=prefix+'-collection:'+reason,
-            event_type='ACCOUNT_STATUS_COLLECTION_FAILED' if kind == 'ACCOUNT' else 'FILL_NOTIFICATION_COLLECTION_FAILED',
-            severity='WARN',payload={'reason':reason})
+        if kind == 'ACCOUNT':
+            account_collection_incidents.record_failure(conn, reason=reason, stage='COLLECT_JOB')
+        else:
+            outbox.enqueue(conn,idempotency_key='fill-notification-collection:'+reason,
+                event_type='FILL_NOTIFICATION_COLLECTION_FAILED',severity='WARN',payload={'reason':reason})
     finally:
         conn.rollback();conn.close()
 
 
 def collect_once(kind, fill_rotation=0, *, reader=None, config=None, connection_factory=None):
     """Existing execution collectors keep their binding and native receipt rules."""
+    from sentinel import account_collection_incidents
     from sentinel.config import SentinelConfig
     from sentinel.feed import store
     from sentinel.automation import outbox
@@ -96,16 +99,30 @@ def collect_once(kind, fill_rotation=0, *, reader=None, config=None, connection_
             options = ({'report_reservation_recheck': True} if kind == 'ACCOUNT'
                        else {'rotation': fill_rotation})
             result = asyncio.run(module.collect(conn,config=config,reader=reader, **options))
+            if kind == 'ACCOUNT' and result is False:
+                return 'NOT_BOUND'
+            if kind == 'ACCOUNT' and result == account_status.SAMPLE_SUPERSEDED:
+                return result
             return (account_status.RESERVATION_RECHECK
                     if kind == 'ACCOUNT' and result == account_status.RESERVATION_RECHECK
                     else 'COLLECTED')
         except Exception as exc:
             conn.rollback()
-            typed = kind == 'FILL' and isinstance(exc,fill_notifications.FillNotificationRefused)
+            if kind == 'ACCOUNT':
+                if isinstance(exc, account_status.AccountEvidenceBusy):
+                    reason = ('ACCOUNT_EVIDENCE_LOCK_TIMEOUT' if str(exc) == 'ACCOUNT_EVIDENCE_LOCK_TIMEOUT'
+                              else 'ACCOUNT_EVIDENCE_PUBLICATION_EXPIRED')
+                    account_collection_incidents.record_failure(conn, reason=reason, stage='PERSIST_ACCOUNT',
+                        sqlstate='55P03' if reason == 'ACCOUNT_EVIDENCE_LOCK_TIMEOUT' else None,
+                        dependency=exc.dependency,lock_timeouts=exc.lock_timeouts, blocker=exc.blocker)
+                else:
+                    account_collection_incidents.record_failure(conn, reason=type(exc).__name__, stage='COLLECT_ACCOUNT',
+                        sqlstate=supervisor_io.error_diagnostic(exc)['sqlstate'])
+                return 'REFUSED'
+            typed = isinstance(exc,fill_notifications.FillNotificationRefused)
             reason = str(exc) if typed else type(exc).__name__
-            prefix = 'account-status' if kind == 'ACCOUNT' else 'fill-notification'
-            outbox.enqueue(conn,idempotency_key=prefix+'-collection:'+reason,
-                event_type='ACCOUNT_STATUS_COLLECTION_FAILED' if kind == 'ACCOUNT' else 'FILL_NOTIFICATION_COLLECTION_FAILED',
+            outbox.enqueue(conn,idempotency_key='fill-notification-collection:'+reason,
+                event_type='FILL_NOTIFICATION_COLLECTION_FAILED',
                 severity='CRITICAL' if typed else 'WARN',payload={'reason':reason})
             return 'REFUSED'
     finally:
