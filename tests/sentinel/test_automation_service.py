@@ -377,8 +377,10 @@ async def test_real_idle_poll_fence_loss_never_crashes_or_uses_old_token(
     old = store.acquire_lease(conn, holder_id="worker-a", lease_seconds=30)
     runtime = object.__new__(ProductionAutomation)
     runtime.holder_id = "worker-a"
+    runtime.automation_config = cfg
     runtime._idle_attestation = None
     verified = []
+    observers = []
 
     def authority_check(connection, permit):
         # Lose the token after control_wake reads it, using a separate actual
@@ -399,7 +401,12 @@ async def test_real_idle_poll_fence_loss_never_crashes_or_uses_old_token(
         store.require_leader(connection, permit)
         return store.load_control(connection), None
 
-    monkeypatch.setattr(runtime, "_assert_control_authority", authority_check)
+    def start_observer(control, permit, observed_at):
+        observers.append((control, permit, observed_at))
+        return SimpleNamespace(finished=SimpleNamespace(is_set=lambda: False))
+
+    monkeypatch.setattr(runtime, "_idle_current_facts", authority_check)
+    monkeypatch.setattr(runtime, "_start_idle_authority_observer", start_observer)
     monkeypatch.setattr(runtime, "_assert_cycle_authority", lambda *_a, **_kw: pytest.fail("no cycle expected"))
     monkeypatch.setattr(runtime, "_broker", lambda *_a, **_kw: pytest.fail("idle broker reached"))
     monkeypatch.setattr(runtime, "notify", lambda *_a, **_kw: pytest.fail("stale poll must not notify"))
@@ -412,11 +419,14 @@ async def test_real_idle_poll_fence_loss_never_crashes_or_uses_old_token(
     if loss == "expired":
         fresh = store.acquire_lease(conn, holder_id="worker-a", lease_seconds=30)
         assert fresh.fence_token > old.fence_token
-        assert await runtime.control_wake(conn) is None
+        assert await runtime.control_wake(conn) is not None
         assert verified == [old, fresh]
+        assert len(observers) == 1
+        assert observers[0][1] == fresh
     else:
         assert await runtime.control_wake(conn) is None
         assert verified == [old]
+        assert observers == []
 
 
 @pytest.mark.asyncio
