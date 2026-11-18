@@ -153,7 +153,7 @@ RETAINED_PREDECESSORS = {
     INSTALLED_PREDECESSOR_REVISION: (434, '85165e291f835307e86d45a1c678d44529ce42d1d46713614147c676ade7c47b'),
 }
 STRUCTURAL_PROFILE_SHA256 = '139d811983db0777eb6a92949e7e6adbe1c12d063c05d40c461f918cc741c5a0'
-PROFILE_SHA256 = 'd21e40d33239f48374c1e4cd0d685857ae4378b8d165185bd8de997a8d6fa623'
+PROFILE_SHA256 = '179f259cc9454a03b038ea739db0a54adb683570e574b8ae45ccedd654c1cfcb'
 PROFILE = Path(__file__).with_name('url-selected-trading-transition.json')
 _SCHEMA = 'sentinel.url-selected-trading-transition/76'
 _SELF = 'url_selected_source_basis.py'
