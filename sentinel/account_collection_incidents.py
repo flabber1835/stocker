@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from sentinel import supervisor_io
 from sentinel.automation import outbox
 from sentinel.account_lock_observation import LockSample
 from sentinel.panel import attempt_store, review_store
@@ -84,7 +85,8 @@ def _save(conn, context, episodes, now):
                                         review_store.signature(body,purpose=PURPOSE)))
 
 
-def record_failure(conn, *, stage, reason, sqlstate=None, dependency='UNATTRIBUTED', lock_timeouts=0, blocker=None):
+def _update_episode(conn, *, stage, reason, sqlstate, dependency, lock_timeouts, blocker):
+    conn.execute("SET LOCAL lock_timeout = '250ms'")
     context = attempt_store.context(conn)
     episodes = _load(conn, context, verify_missing=True)
     now = conn.execute('SELECT clock_timestamp()').fetchone()[0]
@@ -100,10 +102,24 @@ def record_failure(conn, *, stage, reason, sqlstate=None, dependency='UNATTRIBUT
                           first_seen=now,last_seen=now,occurrences=1,lock_timeouts=lock_timeouts,
                           blocker=blocker,recovered_at=None)
     _save(conn, context, (episodes+[current])[-LIMIT:], now)
-    outbox.enqueue(conn, idempotency_key='account-status-collection:v2:'+str(current.occurrence),
-        event_type='ACCOUNT_STATUS_COLLECTION_FAILED', severity='WARN',
-        payload=dict(occurrence=str(current.occurrence),reason=reason,stage=stage,sqlstate=sqlstate,
-                     dependency=dependency,context_sha256=context))
+    return current, context
+
+
+def record_failure(conn, *, stage, reason, sqlstate=None, dependency='UNATTRIBUTED', lock_timeouts=0, blocker=None):
+    try:
+        current, context = _update_episode(conn, stage=stage, reason=reason, sqlstate=sqlstate,
+            dependency=dependency, lock_timeouts=lock_timeouts, blocker=blocker)
+        key = 'account-status-collection:v2:'+str(current.occurrence)
+        payload = dict(occurrence=str(current.occurrence), reason=reason, stage=stage, sqlstate=sqlstate,
+                       dependency=dependency, context_sha256=context)
+    except Exception as exc:
+        # No warning has been sent or committed. Preserve the original cause
+        # even when a binding, receipt key, catalog, or prior history is unavailable.
+        conn.rollback()
+        supervisor_io._pipe_report('account collection failure diagnostic unavailable: '+type(exc).__name__)
+        key, payload = 'account-status-collection:'+reason, {'reason': reason}
+    outbox.enqueue(conn, idempotency_key=key, event_type='ACCOUNT_STATUS_COLLECTION_FAILED',
+                   severity='WARN', payload=payload)
 
 
 def recover(conn, *, observed_at):

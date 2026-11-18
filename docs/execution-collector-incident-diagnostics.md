@@ -50,6 +50,10 @@ returns finite stage labels. No SQL, backend IDs, identities or arguments
 leave PostgreSQL. A probe that loses the race or fails cannot delay publication
 or change a retry, recovery or trading decision. Recovery bookkeeping runs
 only after a committed observation and has a short independent lock timeout.
+If the account collection itself fails while the signed episode store is
+unavailable, roll back the incomplete episode, report the recording fault
+separately and use the pre-existing immutable warning for the original cause.
+An unknown outcome from committing a warning is never retried under a new key.
 
 Decision before implementation, November8. A current fill-collection warning
 retained only `DependencyError`. The parent already received the safe original

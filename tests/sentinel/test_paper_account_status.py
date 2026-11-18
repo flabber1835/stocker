@@ -249,6 +249,32 @@ def test_unavailable_optional_incident_history_never_retries_the_account(db, mon
     assert bool(warnings) == (receipt != 'none')
 
 
+def test_failed_account_collection_retains_its_original_warning_when_diagnostics_are_unavailable(db, monkeypatch):
+    import psycopg
+    from sentinel import execution_collector as collector, supervisor_io
+
+    f = fixture(db, monkeypatch)
+    db.commit()
+    monkeypatch.delenv('SENTINEL_PUBLICATION_RECEIPT_KEY', raising=False)
+    diagnostics = []
+    monkeypatch.setattr(supervisor_io, '_pipe_report', diagnostics.append)
+
+    class OriginalAccountFailure(Exception):
+        pass
+
+    async def unavailable():
+        raise OriginalAccountFailure('private_canary')
+
+    monkeypatch.setattr(f.reader, 'account_snapshot', unavailable)
+    for _ in range(2):
+        assert collector.collect_once('ACCOUNT', reader=f.reader, config=f.config,
+            connection_factory=lambda *a, **k: psycopg.connect(db.info.dsn)) == 'REFUSED'
+    assert db.execute("SELECT idempotency_key,payload FROM sentinel_alert_outbox").fetchall() == [
+        ('account-status-collection:OriginalAccountFailure', {'reason':'OriginalAccountFailure'})]
+    assert db.execute('SELECT count(*) FROM sentinel_broker_account_evidence').fetchone() == (0,)
+    assert len(diagnostics) == 2 and 'private_canary' not in str(diagnostics)
+
+
 @pytest.mark.parametrize("field,value", [
     ("account_number", "PAforeign"), ("id", "not-a-uuid"),
     ("currency", "EUR"), ("currency", None), ("cash", "NaN"),
