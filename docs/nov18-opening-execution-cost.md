@@ -26,6 +26,16 @@ same database connection, original live pin and actual writer-lock ownership.
 Every material use rechecks the exact economic row inventory and current
 context. A changed or added economic row forces a cold verification. The existing broker,
 trial and cash namespace exclusions apply only to immutable structural inputs.
+The retained-target predecessor dependency also includes command state: when
+its immutable share projection is absent, every basis schema must recheck
+whether any command for that predecessor has left `PLANNED` or `SUPERSEDED`.
+Command rows are outside the processed-session inventory, so the private
+structural scope includes this predicate in the versions of both retained
+targets and the enclosing dual sizing proof. A change across the
+gateway/completion writer-lock gap invalidates both warm results and runs the
+ordinary cold verifier, which refuses an unprojected transported or `UNKNOWN`
+predecessor. Fractional bases additionally keep their existing command and
+fill row-version dependencies.
 Current source, readiness, transport approval, binding, rollout, signed
 authority and projection checks remain fresh in their respective verifiers.
 
