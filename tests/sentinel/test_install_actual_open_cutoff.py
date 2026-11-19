@@ -119,10 +119,12 @@ def test_open_expiry_before_kill_release_leaves_paper_fenced(tmp_path):
     control = dict(enabled=False, kill_switch_engaged=True,
                    certificate_sha256='cert')
     obj.establish_activation_backup = lambda: calls.append('verified-recovery')
-    plan = {'plan': {'plan_id': 'exact', 'decision_session': '2026-10-02'},
-            'database_authorities_match': True}
+    from tests.sentinel.test_activation_completion_protocol import prepared_plan, activation_read
+    plan = prepared_plan('2026-10-02', '2026-10-05')
     def cli(args, **kwargs):
         calls.append(args[0])
+        if '--for-dual-activation' in args:
+            return SimpleNamespace(stdout=json.dumps(activation_read(plan)), returncode=0)
         if args[0] == 'activate-paper-automation':
             control['enabled'] = True
         return SimpleNamespace(stdout=json.dumps(plan), returncode=0)

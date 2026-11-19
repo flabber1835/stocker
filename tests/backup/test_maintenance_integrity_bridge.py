@@ -139,7 +139,8 @@ def test_host_transport_requires_explicit_backed_paper(field, value):
     with pytest.raises(bridge.Refused): bridge.environment(actual)
 
 
-def test_unique_broker_free_worker_uses_canonical_postgres_and_is_reaped(monkeypatch):
+@pytest.mark.parametrize('release', [False, True])
+def test_unique_broker_free_worker_uses_canonical_postgres_and_is_reaped(monkeypatch, release):
     calls = []; container = 'c'*64
     monkeypatch.setattr(bridge, 'runtime_image', lambda runner: IMAGE)
     def runner(args):
@@ -149,7 +150,9 @@ def test_unique_broker_free_worker_uses_canonical_postgres_and_is_reaped(monkeyp
         return SimpleNamespace(returncode=0, stdout=json.dumps(proof()))
     args = SimpleNamespace(base_backup=proof()['base_backup'], system_identifier=SYSTEM,
         wal_segment_bytes=SEGMENT, observed_frontier=proof()['recoverable_through_wal'])
+    args.release_check = release
     assert bridge.observe(args, values=values(), runner=runner, bounded=bounded) == proof()
+    assert ('--release-check' in calls[0][0]) is release
     command, options = calls[0]
     assert command[command.index('--network')+1] == 'container:'+container
     assert command[command.index('--entrypoint')+1:][:4] == ['python', IMAGE, '-m', 'sentinel.backup_maintenance_integrity']
@@ -210,20 +213,21 @@ def test_selected_maintenance_tick_publishes_actual_hit_without_legacy_fallback(
     assert not any('retain' in c for c in boundary.calls)
 
 
-def test_explicit_shell_mode_preserves_fresh_guards_and_never_falls_back(tmp_path):
+@pytest.mark.parametrize('mode', ['--shared-integrity', '--release-integrity'])
+def test_explicit_shell_mode_preserves_fresh_guards_and_never_falls_back(tmp_path, mode):
     lab=ShellLab(tmp_path)
     assert lab.run().returncode==0
     base=lab.base/'base-20260910T120000Z'
     os.utime(base/'backup_manifest',(1789041600,1789041600))
     helper=lab.scripts/'sentinel_backup_shared_integrity.py'
     helper.write_text("raise SystemExit(4)\n")
-    result=lab.run('sentinel-backup-status.sh','--shared-integrity','--backup',str(base))
+    result=lab.run('sentinel-backup-status.sh',mode,'--backup',str(base))
     assert result.returncode==4 and 'BASE_BACKUP_SHARED_INTEGRITY_REFUSED' in result.stderr
     assert 'backup_ready:true' not in result.stdout and 'wal_chain_ready:true' not in result.stdout
     # A broken fresh shell guard refuses before the new helper is invoked.
     helper.write_text("raise RuntimeError('shared helper must not run')\n")
     (base/'sentinel-recovery-marker').unlink()
-    result=lab.run('sentinel-backup-status.sh','--shared-integrity','--backup',str(base))
+    result=lab.run('sentinel-backup-status.sh',mode,'--backup',str(base))
     assert result.returncode==4 and 'BASE_BACKUP_SYSTEM_ID_MISMATCH' in result.stderr
     assert 'shared helper must not run' not in result.stderr
 
@@ -246,3 +250,61 @@ def test_removed_paper_selection_guard_is_detected_before_any_sql(monkeypatch):
     monkeypatch.setattr(worker,'prove',namespace['prove'])
     with pytest.raises(AssertionError,match='touched PostgreSQL'):
         test_worker_refuses_live_before_any_database_or_archive_work(monkeypatch)
+
+
+@pytest.mark.parametrize('cause,stage,cleanup,expected', [
+    ('BackupHorizonExceeded', 'PROOF', 'RELEASED', 5),
+    ('BackupRuntimeRefused', 'PROOF', 'RELEASED', 4),
+    ('BackupHorizonExceeded', 'PROOF', 'FAILED', 4),
+    ('BackupHorizonExceeded', 'HOST_VALIDATE', 'RELEASED', 4),
+])
+def test_only_genuine_release_horizon_overflow_can_trigger_go_base_repair(monkeypatch, capsys,
+                                                                          cause, stage, cleanup, expected):
+    record = report.failure(origin='HOST', code='INTEGRITY_REFUSED', stage=stage, cause_type=cause,
+        proof_lock=cleanup, worker_container='REMOVED')
+    def failed(_args):
+        raise bridge.IntegrityFailure(record)
+    monkeypatch.setattr(bridge, 'observe', failed)
+    monkeypatch.setattr(sys, 'argv', ['bridge', '--release-check', '--base-backup', proof()['base_backup'],
+        '--observed-frontier', proof()['recoverable_through_wal'], '--system-identifier', SYSTEM,
+        '--wal-segment-bytes', str(SEGMENT)])
+    assert bridge.main() == expected
+    stdout = capsys.readouterr().out
+    assert ('SENTINEL_BACKUP_CHAIN_REASON=RUNTIME_HORIZON_EXCEEDED' in stdout) == (expected == 5)
+
+
+def test_selected_release_shell_propagates_image_and_horizon_without_fallback(tmp_path):
+    lab = ShellLab(tmp_path)
+    assert lab.run().returncode == 0
+    base = lab.base/'base-20260910T120000Z'
+    os.utime(base/'backup_manifest', (1789041600, 1789041600))
+    helper = lab.scripts/'sentinel_backup_shared_integrity.py'
+    helper.write_text("import sys\nassert '--release-check' in sys.argv\n"
+        + "assert sys.argv[sys.argv.index('--release-image')+1] == "+repr(IMAGE)+"\n"
+        + "print('SENTINEL_BACKUP_CHAIN_REASON=RUNTIME_HORIZON_EXCEEDED')\nraise SystemExit(5)\n")
+    output = lab.run('sentinel-backup-status.sh', '--release-integrity', '--release-image', IMAGE,
+                     '--backup', str(base))
+    assert output.returncode == 4
+    assert 'SENTINEL_BACKUP_STATUS_REASON=BASE_BACKUP_RUNTIME_HORIZON_EXCEEDED' in output.stderr
+    assert 'backup_ready:true' not in output.stdout
+
+
+def test_release_checker_uses_selected_certified_image_during_checkout_transition(tmp_path, monkeypatch):
+    monkeypatch.setattr(coordinator, 'ROOT', tmp_path)
+    pointer = tmp_path/'artifacts/sentinel/deployment/validated-runtime.env'
+    pointer.parent.mkdir(parents=True)
+    old = 'sha256:'+'1'*64
+    pointer.write_text('SENTINEL_RUNTIME_IMAGE_REF='+old+'\n')
+    revision = 'a'*40
+    def runner(command):
+        if command[:2] == ['git', 'rev-parse']:
+            return revision
+        if command[:2] == ['git', 'status']:
+            return ''
+        assert command[:3] == ['docker', 'image', 'inspect']
+        return revision if command[-1] == IMAGE else 'b'*40
+    assert coordinator.runtime_image(runner, release_image=IMAGE) == IMAGE
+    with pytest.raises(coordinator.Refused, match='does not match'):
+        coordinator.runtime_image(runner, release_image=old)
+    with pytest.raises(coordinator.Refused, match='immutable'):
+        coordinator.runtime_image(runner, release_image='mutable:tag')

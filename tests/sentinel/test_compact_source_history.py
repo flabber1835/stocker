@@ -207,7 +207,9 @@ def test_fixed_anchor_guard_has_an_executed_falsifier(tmp_path, monkeypatch):
      '1950aaf9b930185c9afe595483cb2dc32a777fda67d48626a17e589fca41c30e'),
     ('4ce1dc299dd781fb223f5b8b59c3beff0fcddf95', 499,
      'e9f2380588311f59d6ec70b9c27da79fafe17f79852959ae34c5ede247195551'),
-], ids=['installed-pr605', 'installed-pr606', 'installed-nov18-posttrade'])
+    ('2a185a434347451c33f6649105f1feba8c06290c', 499,
+     '19d2612d82201c668fcf338f7c13c06287760eba8798cce5f2dc881105f24fab'),
+], ids=['installed-pr605', 'installed-pr606', 'installed-nov18-posttrade', 'installed-pr607'])
 def test_opening_fixes_retain_exact_installed_source(revision, count, digest):
     predecessor = basis._profile()['retained_predecessors'][revision]['files']
     assert len(predecessor) == count

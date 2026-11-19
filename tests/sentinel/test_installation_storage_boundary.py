@@ -281,6 +281,9 @@ def test_public_unchanged_schema_install_never_consults_financial_backup(
     assert receipt['paper_account_id'] == STATUS['broker_account_id']
     assert selection._pointer_digest(selection.POINTER) == IMAGE
     assert state['created'] and not state['migrated']
+    assert [call for call in calls if call[:3] == ['docker', 'image', 'inspect']
+            and call[-1] == IMAGE] == [['docker', 'image', 'inspect', IMAGE]]
+    assert sum(call[:2] == ['docker', 'inspect'] for call in calls) >= len(state['roles'])
     assert state['receipt_before_handoff'] == bool(queue and mode)
     assert 'PRIVATE_NOTE=preserved' in core.ENV_PATH.read_text()
     assert not any('backup' in arg or 'restore' in arg for call in calls

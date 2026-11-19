@@ -339,10 +339,12 @@ def test_public_activation_rechecks_operator_services_before_kill_release(tmp_pa
         SimpleNamespace(env={'SENTINEL_WEB_PUSH_VAPID_PUBLIC_KEY': 'fixture'}, run=run), tmp_path,
         reviewed_validation=SimpleNamespace(mode=mode))
     obj.base_compose = ['docker', 'compose', '-f', 'fixture.yml']
-    plan = {'plan': {'plan_id': 'same-plan', 'decision_session': '2026-10-02'},
-            'database_authorities_match': True}
+    from tests.sentinel.test_activation_completion_protocol import prepared_plan, activation_read
+    plan = prepared_plan('2026-10-02', '2026-10-05')
     def cli(args, **kwargs):
         calls.append(args)
+        if '--for-dual-activation' in args:
+            return SimpleNamespace(stdout=json.dumps(activation_read(plan)), stderr='', returncode=0)
         return SimpleNamespace(stdout=json.dumps(plan), stderr='', returncode=0)
     obj._authorized_cli = cli
     obj._base_cli = cli

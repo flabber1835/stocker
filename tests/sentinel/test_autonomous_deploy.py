@@ -439,7 +439,7 @@ def test_reviewed_dual_starts_shadow_and_attests_before_paper_release(
     obj.run_activation()
 
     assert events == [
-        "git", "review", "broker-integrity", "build", "quiesce", "disabled-fence",
+        "review", "broker-integrity", "build", "quiesce", "disabled-fence",
         "durable-integrity", "quiesced-review", "mode", "operator-services",
         "paper-read", "ownership", "authority", "shadow-start",
         "shadow-attested:" + attested_session, "paper-released:" + attested_session,

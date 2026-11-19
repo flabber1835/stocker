@@ -69,6 +69,81 @@ def test_live_preflight_callback_is_bound_to_the_planless_current_fence(conn, mo
         rejects_foreign_fence()
 
 
+def test_unselected_owner_paper_activation_uses_deployment_state_and_retains_legacy_selection(tmp_path, monkeypatch):
+    from sentinel import local_paper
+    from sentinel.panel import projection_service
+    monkeypatch.setenv(local_paper.MODE_ENV, local_paper.MODE)
+    monkeypatch.setenv(local_paper.ACCOUNT_ENV, 'PAfixture')
+    monkeypatch.setenv('SENTINEL_REVIEWED_DEPLOYMENT_MODE', '')
+    def built():
+        return sources.build_panel(state_dir=tmp_path, database_url='', now=CLOSE)
+    fenced = built()
+    assert fenced.row('financial_activation').value == 'ACTIVATION PENDING'
+    assert fenced.row('financial_activation').effective_status(CLOSE) != model.OK
+    assert fenced.row('trial_verification') is None and fenced.row('actual_account') is None
+    assert projection_service._financial_receipt_overlay(None, '', fenced,
+        now=CLOSE, changed=('PAPER',), facts=None, basis={}) == ({}, {})
+    native_rows, errors = sources._automation_rows('')
+    authority = model.Row('authority', 'Execution authority', 'WITHDRAWN', model.UNKNOWN,
+        operational_fact=model.OperationalFact(kind='AUTHORITY', state='ACTIVATION_VERDICT_WITHDRAWN'))
+    monkeypatch.setattr(sources, '_automation_rows',
+        lambda _dsn: ([authority if row.key == 'authority' else row for row in native_rows], errors))
+    assert built().row('financial_activation').value == 'DISABLED · KILL ENGAGED'
+    monkeypatch.setenv('SENTINEL_REVIEWED_DEPLOYMENT_MODE', 'paper')
+    assert built().row('trial_verification') is not None
+    monkeypatch.delenv(local_paper.MODE_ENV)
+    monkeypatch.setenv('SENTINEL_REVIEWED_DEPLOYMENT_MODE', '')
+    assert built().row('trial_verification') is not None
+
+
+def test_matching_saved_plan_is_visible_only_as_unadopted_metadata(conn):
+    from sentinel.panel.overview import _plan_html
+    conn.execute("""CREATE TEMP TABLE sentinel_automation_cycles AS SELECT 'cycle'::text AS cycle_id,
+        'PREPARING'::text AS state, 4 AS control_generation, 'deploy'::text AS deployment_id,
+        'alpaca'::text AS broker,'account'::text AS broker_account_id,'epoch'::text AS takeover_epoch,
+        'certificate'::text AS certificate_sha256,'config'::text AS config_sha256,
+        'CONTROLLER'::text AS rollout_mode,2 AS rollout_version,current_date AS decision_session,
+        current_date+1 AS effective_session,false AS historical_state_only,NULL::text AS plan_id,
+        NULL::text AS failure_code,NULL::text AS failure_detail,
+        '3'::text AS data_version,'publication'::text AS publication_fingerprint,
+        statement_timestamp()+interval '8 hours' AS execute_at""")
+    conn.execute("""CREATE TEMP TABLE sentinel_automation_control AS SELECT 1 AS id, true AS enabled,
+        false AS kill_switch_engaged,'PASS'::text AS authority_verdict,control_generation AS generation,
+        deployment_id,broker,broker_account_id,takeover_epoch,certificate_sha256,config_sha256,
+        rollout_mode,rollout_version FROM sentinel_automation_cycles""")
+    conn.execute("""CREATE TEMP TABLE sentinel_execution_plans AS SELECT deployment_id,broker,broker_account_id,
+        takeover_epoch,decision_session,effective_session,rollout_mode,rollout_version,
+        certificate_sha256 AS rollout_certificate_sha256,NULL::text AS superseded_by,
+        data_version::integer AS data_version,publication_fingerprint,
+        statement_timestamp() AS created_at FROM sentinel_automation_cycles""")
+    conn.execute("""CREATE TEMP TABLE sentinel_rollout_state AS SELECT 1 AS id,rollout_mode AS mode,
+        rollout_version AS version,certificate_sha256 FROM sentinel_automation_cycles""")
+    created, expires = sources._saved_plan_adoption(conn, 'cycle')
+    row = model.Row('paper_plan','Next paper plan',model.AWAITING_PLAN_ADOPTION,model.PENDING,
+        as_of=created,valid_until=expires)
+    view = model.Panel(rows=[row], now=created)
+    assert 'Plan saved · awaiting verification' in _plan_html(view)
+    assert 'Plan saved · awaiting verification' in presentation.preparation_stage(view)
+    assert not row.can_show_paper_plan(created)
+    assert presentation.dashboard_health(view)['plan_readiness'] == 'pending'
+    assert 'Plan saved' not in _plan_html(replace(view, now=expires))
+    for table, field in (
+        ('automation_control', 'generation=3'), ('automation_control', 'kill_switch_engaged=true'),
+        ('execution_plans', "broker_account_id='other'"), ('execution_plans', 'effective_session=current_date+2'),
+        ('execution_plans', "superseded_by='next'"), ('execution_plans', 'data_version=1'),
+        ('execution_plans', "publication_fingerprint='old'"), ('rollout_state', "certificate_sha256='old'"),
+        ('automation_cycles', "execute_at=clock_timestamp()-interval '1 second'"),
+        ('automation_cycles', "state='WAITING_OPEN'"), ('automation_cycles', "plan_id='adopted'"),
+    ):
+        conn.execute('SAVEPOINT independent')
+        conn.execute('UPDATE sentinel_'+table+' SET '+field)
+        assert sources._saved_plan_adoption(conn, 'cycle') is None, (table, field)
+        conn.execute('ROLLBACK TO SAVEPOINT independent')
+    conn.execute('INSERT INTO sentinel_execution_plans SELECT * FROM sentinel_execution_plans')
+    with pytest.raises(ValueError, match='multiple matching'):
+        sources._saved_plan_adoption(conn, 'cycle')
+
+
 def test_data_only_wake_does_not_expire_fresh_broker_evidence():
     checked, retry = CLOSE+timedelta(seconds=56), CLOSE+timedelta(seconds=68)
     cycle = dict(state='RETRY_WAIT', retry_phase='REFRESH', prepare_at=CLOSE,
@@ -138,7 +213,13 @@ def test_partial_close_uses_original_progress_and_keeps_affected_rows_unavailabl
         checks_passed=4, checks_total=4, as_of=now, checked_at=now)
     plan = model.Row('paper_plan', 'Plan', 'NOT PREPARED', model.PENDING)
     review = OperatorReview(scope='1'*64, head=1, reviewed_head=0, status='REVIEW', observed_at=now)
-    panel = model.Panel(rows=[worker, feed, plan], now=now, local_paper_mode=True, operator_review=review,
+    stage = model.automation_cycle_row(installed=True, enabled=True, cycle_id='close-cycle',
+        state='PREPARING', decision_session='2026-11-11', updated_at=CLOSE, execution_open_at=OPEN)
+    steps = model.automation_step_rows(installed=True, enabled=True, cycle={
+        'cycle_id': 'close-cycle', 'state': 'PREPARING', 'decision_session': '2026-11-11',
+        'updated_at': CLOSE, 'execution_open_at': OPEN})
+    assert all(row.operational_fact == stage.operational_fact for row in steps)
+    panel = model.Panel(rows=[worker, feed, plan, stage], now=now, local_paper_mode=True, operator_review=review,
         observation_current=False, observation_changed_scopes=('PAPER',),
         observation_generated_at=now-timedelta(seconds=1), observation_valid_until=until)
     health = presentation.dashboard_health(panel)
@@ -151,3 +232,8 @@ def test_partial_close_uses_original_progress_and_keeps_affected_rows_unavailabl
     lost = replace(panel, observation_changed_scopes=('SHADOW', 'PAPER'))
     assert presentation.dashboard_health(lost)['color'] == 'neutral'
     assert delivery.closing_refresh_deadline(replace(panel, now=until)) is None
+    assert delivery.closing_refresh_deadline(replace(panel, rows=[worker, feed, plan])) is None
+    for change in (dict(state='WAITING_OPEN'), dict(session='2026-11-10')):
+        fact = stage.operational_fact.model_copy(update=change)
+        stopped = replace(stage, operational_fact=fact)
+        assert delivery.closing_refresh_deadline(replace(panel, rows=[worker, feed, plan, stopped])) is None

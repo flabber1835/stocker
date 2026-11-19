@@ -111,12 +111,65 @@ def test_failure_note_and_diagnostic_roll_back_together(conn, monkeypatch):
     assert conn.execute(f'SELECT count(*) FROM {review_schema.EVENTS}').fetchone()[0] == 0
 
 
+def test_each_failed_attempt_survives_one_review_episode_across_retries(conn, monkeypatch):
+    recorder = review.Recorder(component='verifier')
+    clean(recorder, conn)
+    owned = install_receipts(conn)
+    at = datetime.now(timezone.utc)-timedelta(seconds=3)
+    key = review.store.scope(conn)
+    def failures():
+        return [event['details'] for event in review.store.recent(conn, key)
+                if event['details'].get('reason') == 'Verification attempt failed']
+    original = attempt(at=at)
+    assert publish(conn, owned, original)
+    for n in range(1, 19):
+        assert publish(conn, owned, attempt(index=n, outcome='QUEUED', at=at))
+        assert publish(conn, owned, attempt(index=n, outcome='RUNNING', at=at))
+        assert publish(conn, owned, attempt(index=n, at=at))
+    assert [event['attempt'] for event in failures()] == [original]
+    archive, = conn.execute(f'SELECT DISTINCT scope_sha256 FROM {review_schema.EVENTS} '
+        'WHERE scope_sha256<>%s', (key,)).fetchone()
+    preserved = review.store.recent(conn, archive)
+    assert [event['details']['attempt'] for event in reversed(preserved)] == [
+        attempt(index=n, at=at) for n in range(1, 19)]
+    assert all(event['details']['first_attempt_id'] == original['attempt_id'] for event in preserved)
+    assert not publish(conn, owned, attempt(index=18, at=at))
+    conn.commit()
+    reviewed = recorder.observe(panel(), conn.info.dsn)
+    recorder.acknowledge(panel(), conn.info.dsn, reviewed.token, actor='qualification operator')
+    assert publish(conn, owned, attempt(index=19, at=at))
+    assert len(failures()) == 2
+    # Changed diagnostic, financial subject, runtime, recovery and scope are independent incidents.
+    changed = attempt(index=20, code='READ_LOCK_UNAVAILABLE', at=at)
+    assert publish(conn, owned, changed)
+    assert len(failures()) == 3
+    assert publish(conn, owned, dict(changed, attempt_id=f'{21:032x}', subject_sha256='d'*64))
+    assert len(failures()) == 4
+    monkeypatch.setenv('SENTINEL_GIT_COMMIT', '8'*40)
+    assert publish(conn, owned, dict(changed, attempt_id=f'{22:032x}', subject_sha256='d'*64))
+    assert len(failures()) == 5
+    assert publish(conn, owned, dict(attempt(index=23, outcome='VERIFIED', at=at), subject_sha256='d'*64))
+    assert publish(conn, owned, dict(changed, attempt_id=f'{24:032x}', subject_sha256='d'*64))
+    assert len(failures()) == 6
+    assert publish(conn, owned, original, scope='PAPER')
+    assert len(failures()) == 7
+
+
+def test_lost_episode_identity_reproduces_duplicate_review_entries(conn, monkeypatch):
+    record = review.record_verification_failure_owned
+    def ungrouped(conn, *, scope, attempt, episode):
+        return record(conn, scope=scope, attempt=attempt, episode=None)
+    monkeypatch.setattr(review, 'record_verification_failure_owned', ungrouped)
+    with pytest.raises(AssertionError):
+        test_each_failed_attempt_survives_one_review_episode_across_retries(conn, monkeypatch)
+
+
 def test_removed_native_failure_publication_is_detected(conn, monkeypatch):
     source = inspect.getsource(attempt_store.publish_owned)
-    guard = 'record_verification_failure_owned(conn, scope=scope, attempt=current)'
-    assert source.count(guard) == 2
+    guard = 'record_verification_failure_owned(conn, scope=scope, attempt=current, episode=episode)'
+    assert source.count(guard) == 1
     namespace = {}
-    exec(compile(source.replace(guard, 'False'), '<browser-sampled-failure-mutant>', 'exec'),
+    exec(compile(source.replace(guard, '(None, False)'), '<browser-sampled-failure-mutant>', 'exec'),
          vars(attempt_store), namespace)
     monkeypatch.setattr(attempt_store, 'publish_owned', namespace['publish_owned'])
     with pytest.raises(AssertionError):

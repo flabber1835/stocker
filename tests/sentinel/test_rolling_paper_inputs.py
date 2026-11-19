@@ -425,8 +425,17 @@ def test_host_dual_plan_readback_joins_actual_cli_and_read_only_book(
     monkeypatch.setattr(config_module, "build_execution_broker",
                         lambda *a, **k: pytest.fail("inspection constructed a broker"))
 
+    from sentinel import dual_reconciliation
+    verified = []
+    canonical = dual_reconciliation.verified_plan_intent
+    def counted(connection, **kwargs):
+        assert connection.execute("SHOW transaction_read_only").fetchone()[0] == "on"
+        verified.append(kwargs["plan"].plan_id)
+        return canonical(connection, **kwargs)
+    monkeypatch.setattr(dual_reconciliation, "verified_plan_intent", counted)
     def run(argv, **kwargs):
-        assert argv[-2:] == ["sentinel", "current-paper-plan"]
+        assert argv[-3:] == ["sentinel", "current-paper-plan", "--for-dual-activation"]
+        assert "--no-deps" in argv
         values = forwarded(argv)
         output, errors = io.StringIO(), io.StringIO()
         with monkeypatch.context() as patch:
@@ -438,11 +447,14 @@ def test_host_dual_plan_readback_joins_actual_cli_and_read_only_book(
                 code = asyncio.run(cli._current_paper_plan(SentinelConfig(
                     database_url=conn.info.dsn, base_url=DEFAULT_BASE_URL,
                     alpaca_key="", alpaca_secret="", state_dir=tmp_path,
-                    max_cycles=1, poll_seconds=0)))
+                    max_cycles=1, poll_seconds=0), SimpleNamespace(for_dual_activation=True)))
         assert code == 0, errors.getvalue()
         return subprocess.CompletedProcess(argv, code, output.getvalue(), errors.getvalue())
     obj.runner.run = run
-    current = json.loads(obj._base_cli(["current-paper-plan"], capture=True).stdout)
+    current = obj._check_prepared_activation_plan({"plan": before}, str(first.plan.decision_session))
+    assert verified == [first.plan.plan_id]
+    assert current["activation_restore_checked"] is True
+    assert current["dual_reconciliation"]["plan_fingerprint"] == first.plan.fingerprint()
     assert current["database_authorities_match"] is True
     assert current["plan"]["plan_id"] == first.plan.plan_id
     assert journal.latest_plan(conn).to_dict() == before

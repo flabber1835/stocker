@@ -416,3 +416,28 @@ def test_direct_host_checkpoint_import_does_not_require_pythonpath(tmp_path):
     result=subprocess.run([sys.executable,'-B','-E',str(Path(checkpoint.__file__).resolve())],
         cwd=tmp_path,capture_output=True,text=True,timeout=20)
     assert result.returncode==0,result.stderr
+
+
+def test_backed_checkpoint_requires_common_proof_covering_the_committed_boundary(commands, monkeypatch):
+    monkeypatch.setenv('SENTINEL_LOCAL_PAPER_BACKUP_POLICY', 'REQUIRED_V1')
+    def common(argv, timeout):
+        output = commands(argv, timeout)
+        if argv[:2] == ['bash', 'scripts/sentinel-backup-status.sh']:
+            assert argv[2:] == ['--release-integrity', '--release-image', IMAGE,
+                                '--backup', '/backups/base/'+commands.selected['name']]
+            report = maintenance.runtime_chain_proof(output, commands.selected, commands.observation, '/backups')
+            report.update(schema='sentinel.maintenance-integrity/1', integrity_read_passes=2,
+                integrity_objects_hashed=2, integrity_full_scrub=False, integrity_max_reuse_seconds=300,
+                integrity_completed_uptime=1000., integrity_observed_uptime=1061.,
+                wal_segment_bytes=commands.observation['segment_size'])
+            output += '\nshared_integrity_proof:'+json.dumps(report)
+        return output
+    assert checkpoint.reuse(Path('/backups'), common).endswith(commands.selected['name'])
+    assert commands.recorded[-1]['integrity_objects_hashed'] == 2
+
+
+def test_backed_checkpoint_refuses_standalone_report(commands, monkeypatch):
+    monkeypatch.setenv('SENTINEL_LOCAL_PAPER_BACKUP_POLICY', 'REQUIRED_V1')
+    with pytest.raises(RuntimeError, match='common physical integrity'):
+        checkpoint.reuse(Path('/backups'), commands)
+    assert commands.recorded == []

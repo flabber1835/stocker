@@ -26,7 +26,7 @@ def test_same_owner_reuses_discovery_but_never_returned_mutable_list(tmp_path):
     assert len(calls) == 2
 
 
-@pytest.mark.parametrize('changed', ['source','dotenv','environment','pointer'])
+@pytest.mark.parametrize('changed', ['source','dotenv','environment','pointer','progress_mount'])
 def test_changed_source_environment_or_runtime_pointer_requires_fresh_discovery(tmp_path,changed):
     context = compose.ComposeContext()
     calls = []
@@ -36,6 +36,8 @@ def test_changed_source_environment_or_runtime_pointer_requires_fresh_discovery(
         return SimpleNamespace(returncode=0,stdout='-f canonical.yml')
     context.resolve(root=tmp_path,env=env,invoke=invoke)
     if changed == 'environment':env['SENTINEL_FORCE_NO_CPU_LIMITS']='1'
+    elif changed == 'progress_mount':
+        (tmp_path/'artifacts/sentinel/authority/operator-progress').mkdir(parents=True)
     else:
         name = {'source':'scripts/sentinel-compose.sh','dotenv':'.env',
             'pointer':'artifacts/sentinel/deployment/validated-runtime.env'}[changed]

@@ -148,7 +148,7 @@ def test_native_fee_wait_stays_in_owned_fenced_activation(tmp_path, monkeypatch,
     obj._authorized_cli = prepare
 
     if case == 'converges':
-        assert obj.prepare_activate_start('certificate', decision)['plan']['plan_id'] == 'exact'
+        assert obj.prepare_activate_start('certificate', decision)['plan']['plan_id'] == 'sentinel-'+'d'*64
         assert len(attempts) == 2
         assert events.count('stop-shadow') == 1
         assert events.index('restore') < events.index('release-paper-automation-kill-switch')
@@ -334,7 +334,7 @@ def test_backup_contention_does_not_renew_native_fee_observation(tmp_path, monke
     obj._authorized_cli = cli
 
     if case == 'converges':
-        assert obj.prepare_activate_start('certificate', decision)['plan']['plan_id'] == 'exact'
+        assert obj.prepare_activate_start('certificate', decision)['plan']['plan_id'] == 'sentinel-'+'d'*64
         assert len(attempts) == 3 and attempts.count(attempts[0]) == 3
         assert events.count('stop-shadow') == 1
         assert ticks[0] == 65 and events.index('restore') < events.index('release-paper-automation-kill-switch')
@@ -498,8 +498,8 @@ def appliance(tmp_path, cls, *, failure=None):
         running[service] = True
         return SimpleNamespace(returncode=0, stdout='', stderr='')
     obj.runner.run = run
-    plan = {'plan': {'plan_id': 'exact', 'decision_session': '2026-10-08'},
-            'database_authorities_match': True}
+    from tests.sentinel.test_activation_completion_protocol import prepared_plan, activation_read
+    plan = prepared_plan('2026-10-08', '2026-10-09')
 
     def cli(args, **kwargs):
         command = args[0]
@@ -508,6 +508,9 @@ def appliance(tmp_path, cls, *, failure=None):
         events.append(command)
         if failure == command:
             raise core.DeployRefused('permanent CLI refusal')
+        if '--for-dual-activation' in args:
+            reconcile()
+            return SimpleNamespace(returncode=0, stdout=json.dumps(activation_read(plan)), stderr='')
         if command == 'activate-paper-automation':
             control['enabled'] = True
         elif command == 'release-paper-automation-kill-switch':
@@ -572,7 +575,7 @@ def test_complete_activation_hands_off_all_writers_before_dispatch(tmp_path, cls
     obj, events, control, running = appliance(tmp_path, cls)
     with obj.activation_transition():
         result = obj.prepare_activate_start('certificate', '2026-10-08')
-    assert result['plan']['plan_id'] == 'exact'
+    assert result['plan']['plan_id'] == 'sentinel-'+'d'*64
     assert events == ['stop-automation', 'stop-shadow', 'prepare-paper-plan',
         'current-paper-plan', 'reconcile-plan', 'activate-paper-automation',
         'operator-health', 'restore', 'release-paper-automation-kill-switch',

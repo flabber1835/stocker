@@ -147,6 +147,140 @@ def test_current_resource_grant_runs_once_under_one_owned_slot():
     assert len(case.calls)==1
 
 
+@pytest.mark.parametrize('change', ['same', 'new-subject', 'idle'])
+def test_occupied_scan_keeps_fresh_negative_visible_and_bounds_retry(change):
+    case = Scenario(retain=True)
+    case.fail = True
+    case.value.read('private')
+    case.finish()
+    original = case.value.read('private')[0][0]
+    attempt = case.value.attempt_state()
+    assert original.status == model.FAIL
+    case.tick = reader.RETRY_SECONDS+1
+    if change == 'new-subject':
+        case.key = 'b'*64
+    result = case.value.read('private', scan_occupied=change != 'idle')[0][0]
+    assert result.status == model.FAIL
+    if change == 'same':
+        assert result == original
+        assert case.value.attempt_state() == attempt
+        assert len(case.calls) == 1
+        case.tick = 2*reader.RETRY_SECONDS
+        case.value.read('private', scan_occupied=True)
+    case.finish()
+    assert [call[0] for call in case.calls] == ['a'*64, case.key]
+
+
+def test_early_negative_retry_guard_has_executed_falsifier(monkeypatch):
+    replace_method(monkeypatch, reader.Reader, 'read', 'scan_occupied and retry_failed_check',
+                   'False and retry_failed_check')
+    with pytest.raises(AssertionError):
+        test_occupied_scan_keeps_fresh_negative_visible_and_bounds_retry('same')
+
+
+def _slow_read_only_observer(directory, paper, _subject):
+    import os
+    import time
+    from pathlib import Path
+    (Path(directory)/('paper' if paper else 'shadow')).write_text(str(os.getpid()))
+    time.sleep(10)
+
+
+def test_verifier_shutdown_reaps_active_child_and_refuses_queued_child_before_owner_release(
+        conn, tmp_path, monkeypatch):
+    import os
+    import signal
+    import time
+    from tests.sentinel.test_operational_read_projection import install_projection
+    install_projection(conn)
+    monkeypatch.setenv('SENTINEL_DATABASE_URL', conn.info.dsn)
+    monkeypatch.delenv('ALPACA_API_KEY', raising=False)
+    monkeypatch.delenv('ALPACA_SECRET_KEY', raising=False)
+    monkeypatch.setattr(service, 'HEARTBEAT', tmp_path/'heartbeat')
+    # Real native owner, semaphore, supervised subprocess and shutdown. Replace
+    # only the expensive read body and stable fixture subject.
+    monkeypatch.setattr(service, '_restore_readers', lambda *a, **k: {})
+    stopped = Event()
+    times, pids = [], []
+    def before_shutdown(owner, readers, *args, **kwargs):
+        for scope, instance in readers.items():
+            instance.observer = _slow_read_only_observer
+            instance.evidence_reader = instance.queued_evidence_reader = lambda *_: 'a'*64
+            instance.read(str(tmp_path), include_paper=scope=='PAPER')
+            if scope == 'SHADOW':
+                deadline = time.monotonic()+5
+                while not (tmp_path/'shadow').exists() and time.monotonic()<deadline:
+                    time.sleep(.02)
+                pids.append(int((tmp_path/'shadow').read_text()))
+        assert readers['PAPER'].pending and readers['PAPER'].work_started is None
+        assert not conn.execute('SELECT pg_try_advisory_lock(%s,%s)', service.OWNER_LOCK).fetchone()[0]
+        times.append(time.monotonic())
+        signal.raise_signal(signal.SIGTERM)
+    monkeypatch.setattr(service, '_run_owned_loop', before_shutdown)
+    previous = {signum: signal.getsignal(signum) for signum in (signal.SIGTERM,signal.SIGINT)}
+    try:
+        assert service.run(stopped=stopped) == 0
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+    assert stopped.is_set() and time.monotonic()-times[0]<4
+    with pytest.raises(ProcessLookupError):
+        os.kill(pids[0], 0)
+    assert not (tmp_path/'paper').exists()
+    assert conn.execute('SELECT pg_try_advisory_lock(%s,%s)', service.OWNER_LOCK).fetchone()[0]
+    assert conn.execute(f'SELECT count(*) FROM {service.schema.RECEIPTS}').fetchone() == (0,)
+
+
+def test_stopped_owner_discards_results_before_receipt_or_diagnostic(monkeypatch):
+    import time
+    stopped = Event()
+    rollbacks = []
+    conn = SimpleNamespace(rollback=lambda:rollbacks.append(True))
+    instance = SimpleNamespace(completed=None, read=lambda *_a, **_k:stopped.set())
+    monkeypatch.setattr(service, 'snapshot', lambda *_a, **_k:pytest.fail('published during shutdown'))
+    service._refresh_readers(conn, {'SHADOW':instance}, 'offline', 'owner', {}, stopped,
+                             time.monotonic()+5)
+    assert rollbacks == [True]
+
+
+def test_refresh_samples_native_contention_before_consuming_the_first_answer(pg, monkeypatch):
+    import psycopg
+    import time
+    from sentinel import local_paper, snapshot_scan_admission
+    monkeypatch.setattr(local_paper, 'enabled', lambda:True)
+    monkeypatch.setattr(service, 'snapshot', lambda *a,**k: None)
+    monkeypatch.setattr(service, '_opening_scan_reserve', lambda *a:None)
+    monkeypatch.setattr(service, '_closing_scan_reserve', lambda *a:None)
+    calls = []
+    instance = SimpleNamespace(completed=None, read=lambda *a,**kw:calls.append(kw),
+                               attempt_state=lambda:None)
+    with psycopg.connect(pg.sync_dsn) as conn, psycopg.connect(pg.sync_dsn) as worker:
+        def refresh():
+            service._refresh_readers(conn, {'SHADOW':instance}, 'offline', 'owner', {}, Event(),
+                                     time.monotonic()+5)
+            return calls.pop()
+        with snapshot_scan_admission.admitted(worker):
+            options = refresh()
+            assert options['scan_occupied'] is True
+            assert options['defer_refresh_until'] > datetime.now(timezone.utc)
+        assert refresh() == {'include_paper':False}
+
+
+def test_long_first_observation_cannot_immediately_queue_identical_negative_under_contention():
+    case = Scenario(retain=True)
+    case.fail = True
+    # The reader's initial observation remains mandatory even on an occupied
+    # scan. Its answer becomes available after the normal retry period.
+    assert case.slot.acquire(timeout=1)
+    case.value.read('private', scan_occupied=True)
+    case.tick = reader.RETRY_SECONDS+3
+    case.grant()
+    assert case.value.completed is None and case.value.answer is not None
+    result = case.value.read('private', scan_occupied=True)
+    assert result[0][0].status == model.FAIL and case.value.attempt_state()['outcome'] == 'FAILED'
+    assert len(case.calls) == 1 and case.value.pending is None
+
+
 @pytest.mark.parametrize('clock',['monotonic','utc'])
 def test_metadata_read_cannot_regress_either_clock_above_original_admission(clock):
     wall=[0.0];case=None

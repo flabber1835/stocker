@@ -182,10 +182,25 @@ def test_database_timeout_uses_retained_http_and_preserves_a_real_schema_failure
     try:
         with TestClient(app.app, raise_server_exceptions=False) as client:
             assert client.get('/?document=1').headers['x-sentinel-panel-status'] == 'CURRENT'
+            phase = 'Software installation · checking stored authority'
+            monkeypatch.setattr(app.install_progress, 'current', lambda: phase)
+            from urllib.parse import unquote
+            assert unquote(client.get('/panel.json').headers['x-sentinel-deployment-progress']) == phase
             failure = ConnectionTimeout('private connection detail')
             response = client.get('/?document=1')
             assert response.headers['x-sentinel-panel-status'] == 'LAST_KNOWN'
             assert_healthy_retained(response.text)
+            assert phase in response.text
+            assert unquote(client.get('/panel.json').headers['x-sentinel-deployment-progress']) == phase
+            refresh = client.get('/', headers={'X-Sentinel-Refresh': '1'})
+            assert refresh.status_code == 503 and refresh.content == b''
+            assert client.get('/', headers={'Sec-Fetch-Dest': 'empty', 'Sec-Fetch-Site': 'same-origin'}).content == b''
+            assert refresh.headers['retry-after'] == '5'
+            assert unquote(refresh.headers['x-sentinel-deployment-progress']) == phase
+            monkeypatch.setattr(app.install_progress, 'current', lambda: None)
+            assert phase not in client.get('/?document=1').text
+            assert 'x-sentinel-deployment-progress' not in client.get('/',
+                headers={'X-Sentinel-Refresh': '1'}).headers
             machine = client.get('/panel.json')
             assert machine.status_code == 503 and machine.json()['status'] == 'UNKNOWN'
             assert 'private connection detail' not in machine.text and not failure_latch
