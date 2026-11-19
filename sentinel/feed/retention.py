@@ -743,7 +743,8 @@ def _acquisition_step(conn, progress, *, batch_rows):
             if available is None:
                 continue
             rows = conn.execute('SELECT ctid FROM sentinel_acquisition_prices WHERE part_id=%s '
-                'LIMIT %s FOR UPDATE SKIP LOCKED', (part, min(batch_rows, ACQUISITION_BATCH_ROWS))).fetchall()
+                'ORDER BY session,ticker LIMIT %s FOR UPDATE SKIP LOCKED',
+                (part, min(batch_rows, ACQUISITION_BATCH_ROWS))).fetchall()
             _authorize(conn)
             deleted = 0
             if rows:

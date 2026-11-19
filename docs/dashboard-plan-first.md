@@ -312,6 +312,17 @@ financial activation, plan replay or backup/restore operation is introduced.
 
 ### Human health and review after an intraday activation
 
+Decision 2026-11-19. A financial receipt renewal can precede the next full
+dashboard snapshot. A completed same-day run keeps its human health meaning
+through a SHADOW, PAPER or combined renewal only if the HTTP reader proves the
+complete display remains current, rereads every displayed financial fact in
+each changed scope, and the completed-run, discovery and independent source
+checks below still pass. The original proof clocks and the exchange close
+bound this interpretation. An unproved native subject change, partial or retained
+display, or absent replacement proof cannot support it. The review baseline
+can be displayed if its conditions still agree. Strict readiness and the
+acknowledgment token still require a strictly current snapshot.
+
 Decision 2026-11-18, before implementation. A software activation after a
 completed same-day PAPER run starts a new healthy control generation with no
 cycle yet. The prior completed run remains a separately authenticated display

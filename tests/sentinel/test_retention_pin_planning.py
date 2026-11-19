@@ -169,6 +169,96 @@ def test_real_acquisition_disposal_and_final_guard_run_inside_scope(pin_sql):
     assert observed and conn.execute('SHOW jit').fetchone()==('on',)
 
 
+def test_late_price_part_seeks_existing_primary_key_for_each_capped_batch(pin_sql):
+    conn, _ = pin_sql
+    target, last, empty = ('a' * 64, 'y' * 64, 'z' * 64)
+    # Match the installed 58-key distribution and roughly 1.9% selectivity.
+    # Acquisition parts arrive in hash-key rather than lexical order; a part's
+    # own tuples can all sit late in the heap even with weak key correlation.
+    conn.execute("""
+        INSERT INTO sentinel_acquisition_prices
+        SELECT 'f' || left(repeat(md5(((n-1) / 2560)::text),2),63), DATE '2026-01-01' + mod(n,100),
+               lpad(n::text,8,'0'), repeat('price payload',12)
+        FROM generate_series(1,143360) n
+    """)
+    conn.execute("""
+        INSERT INTO sentinel_acquisition_prices
+        SELECT %s, DATE '2026-01-01' + mod(n,100), lpad(n::text,8,'0'), repeat('price payload',12)
+        FROM generate_series(1,2816) n
+    """, (target,))
+    conn.execute("INSERT INTO sentinel_acquisition_prices VALUES(%s,'2026-09-14','AAA','{}')", (last,))
+    conn.execute("INSERT INTO sentinel_acquisition_parts(part_id,manifest) "
+        "SELECT DISTINCT part_id,'{}'::jsonb FROM sentinel_acquisition_prices")
+    conn.execute("INSERT INTO sentinel_acquisition_parts(part_id,manifest) VALUES(%s,'{}')", (empty,))
+    # The resulting 150,000-row sample covers the entire private fixture.
+    conn.execute('ALTER TABLE sentinel_acquisition_prices ALTER COLUMN part_id SET STATISTICS 500')
+    conn.execute('ANALYZE sentinel_acquisition_prices')
+    for key in (1579621904, 1579663541):
+        conn.execute('SELECT pg_advisory_lock(%s)', (key,))
+    conn.commit()
+
+    plans = {}
+    class Measured:
+        def execute(self, query, params=None):
+            if query.startswith('SELECT ctid FROM sentinel_acquisition_prices'):
+                def plan(statement, part):
+                    return '\n'.join(line for line, in conn.execute(
+                        'EXPLAIN (COSTS OFF) ' + statement, (part, params[1])).fetchall())
+                for part in (target, last, empty):
+                    plans[part] = plan(query, part)
+                plans['unordered'] = plan(query.replace('ORDER BY session,ticker ', ''), target)
+            return conn.execute(query, params)
+
+    progress = retention.RetentionProgress(known_retirement_count=0)
+    progress, result = retention._run_class(Measured(), 5, progress, batch_rows=5000)
+    assert progress.acquisition_after == target and result['deleted_acquisition_rows'] == 128
+    assert result['deleted_acquisition_parts'] == 0
+    assert 'Seq Scan on sentinel_acquisition_prices' in plans['unordered']
+    for part in (target, last, empty):
+        assert 'Index Scan using sentinel_acquisition_prices_pkey' in plans[part]
+        assert 'Index Cond: (part_id =' in plans[part] and 'Sort' not in plans[part]
+
+
+def test_locked_price_prefix_yields_to_unlocked_rows_and_other_parts_until_revisit(pin_sql):
+    import psycopg
+    from psycopg import sql
+    conn, _ = pin_sql
+    conn.execute("INSERT INTO sentinel_acquisition_parts(part_id,manifest) "
+        "VALUES ('first','{}'),('next-empty','{}'),('next-one','{}')")
+    conn.execute("INSERT INTO sentinel_acquisition_prices VALUES "
+        "('first','2026-09-14','A','{}'),('first','2026-09-14','B','{}'),"
+        "('first','2026-09-14','C','{}'),('next-one','2026-09-14','A','{}')")
+    for key in (1579621904, 1579663541):
+        conn.execute('SELECT pg_advisory_lock(%s)', (key,))
+    initial = retention.RetentionProgress(known_retirement_count=0)
+    schema = conn.execute('SELECT current_schema()').fetchone()[0]
+    conn.commit()
+    def step(progress):
+        conn.execute("SET LOCAL statement_timeout='1s'")
+        result = retention._run_class(conn, 5, progress, batch_rows=128)
+        conn.commit()
+        return result
+    with psycopg.connect(conn.info.dsn) as peer:
+        peer.execute(sql.SQL('SET LOCAL search_path TO {},public').format(sql.Identifier(schema)))
+        peer.execute("SELECT ticker FROM sentinel_acquisition_prices WHERE part_id='first' "
+            "AND ticker='A' FOR UPDATE").fetchone()
+        _, result = step(initial)
+        assert (result['deleted_acquisition_rows'], result['deleted_acquisition_parts']) == (2, 0)
+        # Only the locked last row remains. A fresh traversal can still drain
+        # both kinds of later parts under the actual pin and deletion guards.
+        progress, result = step(initial)
+        assert progress.acquisition_after == 'next-empty'
+        assert (result['deleted_acquisition_rows'], result['deleted_acquisition_parts']) == (0, 1)
+        progress, result = step(progress)
+        assert progress.acquisition_after == 'next-one'
+        assert (result['deleted_acquisition_rows'], result['deleted_acquisition_parts']) == (1, 1)
+        progress, result = step(progress)
+        assert progress.acquisition_after is None and not result['progress_made']
+    _, result = step(progress)
+    assert (result['deleted_acquisition_rows'], result['deleted_acquisition_parts']) == (1, 1)
+    assert conn.execute('SELECT count(*) FROM sentinel_acquisition_parts').fetchone() == (0,)
+
+
 def test_bulk_delete_checks_each_distinct_part_once(pin_sql):
     conn, log = pin_sql
     conn.execute('SET LOCAL jit=off')

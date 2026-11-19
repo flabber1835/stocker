@@ -900,7 +900,7 @@ def add_category_tables(storage):
         'sentinel_sep_staging': 'run_id text',
         'sentinel_snapshot_workers': 'owner text,job_id text',
         'sentinel_acquisition_parts': 'part_id text PRIMARY KEY,manifest jsonb,created_at timestamptz DEFAULT clock_timestamp()',
-        'sentinel_acquisition_prices': 'part_id text,session date,security_id text,payload text',
+        'sentinel_acquisition_prices': 'part_id text,session date,ticker text,payload text,PRIMARY KEY(part_id,session,ticker)',
         'sentinel_normalized_blocks': 'block_sha256 text PRIMARY KEY,canonical_payload text',
         'sentinel_candidate_blocks': 'candidate_id uuid,block_sha256 text',
         'sentinel_processed_sessions': 'cursor_name text PRIMARY KEY,session date,state jsonb',

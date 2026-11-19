@@ -506,12 +506,10 @@ def _completed_work_normal(panel) -> bool:
 def _post_activation_completion_normal(panel) -> bool:
     """Human-health context for one completed prior run; never PAPER authority."""
     from sentinel.feed import calendar
-    from sentinel.panel.delivery import display_current, row_current
+    from sentinel.panel.delivery import complete_receipt_handoff, display_current, row_current
 
     if (not panel.local_paper_mode or not display_current(panel) or panel.source_errors
-            or not panel.observation_current and (
-                panel.observation_retained or panel.observation_changed_scopes != ('PAPER',)
-                or 'paper_reconciliation' not in panel.observation_revalidated_keys)
+            or not panel.observation_current and not complete_receipt_handoff(panel)
             or len({row.key for row in panel.rows}) != len(panel.rows)
             or panel.row('trading_run') is not None):
         return False

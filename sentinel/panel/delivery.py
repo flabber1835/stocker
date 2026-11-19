@@ -27,6 +27,21 @@ def display_keys(panel):
                  if row.key in _KNOWN or row.key.startswith('automation_step_'))
 
 
+def complete_receipt_handoff(panel):
+    """Every changed receipt was reread inside the full display handoff's own clock."""
+    scopes = set(panel.observation_changed_scopes)
+    expiry = panel.observation_valid_until
+    if (not scopes or scopes - {'SHADOW', 'PAPER'} or panel.observation_retained
+            or not panel.observation_display_current or expiry is None or expiry.utcoffset() is None
+            or panel.now >= expiry):
+        return False
+    required = {'paper_reconciliation'} if 'PAPER' in scopes else set()
+    if 'SHADOW' in scopes:
+        required.update(('shadow_verification', 'book', 'exposure', 'terminals'))
+        required.update(row.key for row in panel.rows if row.key in _FINANCIAL_SHADOW)
+    return required.issubset(panel.observation_revalidated_keys)
+
+
 def finish_display_handoff(panel, *, now, owner_expiry, snapshot_expiry, account_keys):
     """Expire each proved row independently, then determine whole-page currency."""
     if owner_expiry <= now:
