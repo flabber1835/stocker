@@ -25,7 +25,7 @@ NAME = 'sentinel-backup-integrity-v1.json'
 PURPOSE = 'sentinel.backup-integrity-reuse/1'
 LOCK_KEY = 0x534E54424B503031
 MAX_BYTES = 512 * 1024
-MAX_AGE = 300
+MAX_AGE = 24 * 60 * 60
 REFRESH_LEAD_SECONDS = 180
 
 

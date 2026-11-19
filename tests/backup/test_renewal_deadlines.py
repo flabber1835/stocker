@@ -90,6 +90,18 @@ def test_byte_refresh_is_early_and_owned_by_original_maintenance_proof():
     assert schedule.next_at() == 410
 
 
+def test_daily_scrub_keeps_five_minute_publications_and_original_early_deadline():
+    clock = Clock()
+    record = dict(proof(), integrity_max_reuse_seconds=86400)
+    for age, delay in ((200, 300), (86000, 220), (86221, 0)):
+        published = clock.publication()
+        due = renewal.byte_renewal_at(published, record, record['integrity_completed_uptime'] + age)
+        assert due == clock.publication(delay)
+        schedule = clock.schedule()
+        schedule.accept(published, byte_due_at=due, own_publication=True)
+        assert schedule.delay() == delay
+
+
 def test_invalid_byte_timing_neither_advances_nor_invents_a_renewal():
     clock = Clock()
     publication = clock.publication()

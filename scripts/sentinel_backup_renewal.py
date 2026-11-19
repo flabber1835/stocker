@@ -38,7 +38,7 @@ def byte_renewal_at(publication_at, proof, primary_uptime):
     completed = proof.get('integrity_completed_uptime')
     observed = proof.get('integrity_observed_uptime')
     limit = proof.get('integrity_max_reuse_seconds')
-    if (limit != INTERVAL_SECONDS or any(type(stamp) not in {int, float} or not math.isfinite(stamp)
+    if (limit not in (INTERVAL_SECONDS, 86400) or any(type(stamp) not in {int, float} or not math.isfinite(stamp)
             for stamp in (completed, observed)) or not 0 <= completed <= observed < completed+limit):
         return None
     if isinstance(primary_uptime, str):
@@ -50,7 +50,7 @@ def byte_renewal_at(publication_at, proof, primary_uptime):
             or primary_uptime < observed):
         return None
     age = primary_uptime - completed
-    due_in = max(0, limit - PROOF_REFRESH_LEAD_SECONDS - age)
+    due_in = min(INTERVAL_SECONDS, max(0, limit - PROOF_REFRESH_LEAD_SECONDS - age))
     return (timestamp(publication_at) + timedelta(seconds=due_in)).isoformat()
 
 

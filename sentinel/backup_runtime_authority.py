@@ -571,9 +571,11 @@ def _validate_archive_objects_owned(
         if any(name not in objects for name in previous_names):
             raise BackupRuntimeRefused(
                 f"{operation}: archived frontier moved behind an already verified restore horizon")
+    from sentinel.backup_integrity_reuse import MAX_AGE
+    scrub_seconds = MAX_AGE if shared is not None else FULL_SCRUB_SECONDS
     refresh_due = maintenance_refresh and shared is not None and shared.refresh_due()
     full_required = (cached is None or now < cached['full_scrub_at'] or
-                     now-cached['full_scrub_at'] >= FULL_SCRUB_SECONDS or
+                     now-cached['full_scrub_at'] >= scrub_seconds or
                      any(actual[name] != cached['metadata'][name] for name in cached['objects']))
     full_scrub = full_required or refresh_due
     if read_only and full_scrub:
@@ -664,6 +666,7 @@ def _archive_frontier(conn, *, operation: str) -> tuple[str, int]:
 
 def _require(conn, *, operation: str, base_backup: str | None = None,
              maintenance_refresh: bool = False) -> dict:
+    from sentinel import backup_integrity_reuse
     if not enabled():
         return {"enabled": False}
     try:
@@ -708,7 +711,8 @@ def _require(conn, *, operation: str, base_backup: str | None = None,
         "integrity_objects_hashed": hashed_objects,
         "integrity_full_scrub": full_scrub,
         "integrity_read_passes": 2 if hashed_objects else 0,
-        "integrity_max_reuse_seconds": FULL_SCRUB_SECONDS,
+        "integrity_max_reuse_seconds": (backup_integrity_reuse.MAX_AGE
+                                      if backup_integrity_reuse.selected() else FULL_SCRUB_SECONDS),
     }
 
 

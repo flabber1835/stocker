@@ -62,6 +62,20 @@ def test_closed_report_refuses_bad_types_counts_scope_and_original_expiry(field,
         worker.MaintenanceProof.model_validate(actual)
 
 
+def test_daily_and_legacy_full_proof_ages_are_validated_against_the_reported_policy():
+    for window in (300, 86400):
+        value = dict(proof(), integrity_max_reuse_seconds=window)
+        end = value['integrity_completed_uptime'] + window
+        value['integrity_observed_uptime'] = end - 1
+        assert report.validate(value) == value
+        assert worker.MaintenanceProof.model_validate(value).integrity_max_reuse_seconds == window
+        value['integrity_observed_uptime'] = end
+        with pytest.raises(ValueError):
+            report.validate(value)
+        with pytest.raises(ValueError):
+            worker.MaintenanceProof.model_validate(value)
+
+
 def test_extra_and_duplicate_report_cannot_hide_in_legacy_parser():
     value = proof(); value['invented_permission'] = True
     with pytest.raises(ValueError): report.validate(value)
@@ -234,7 +248,7 @@ def test_explicit_shell_mode_preserves_fresh_guards_and_never_falls_back(tmp_pat
 
 def test_removed_original_clock_guard_is_detected_by_executed_report_falsifier(monkeypatch):
     source=inspect.getsource(report.validate)
-    guard='or not 0 <= stamps[1]-stamps[0] < 300'
+    guard="or not 0 <= stamps[1]-stamps[0] < value['integrity_max_reuse_seconds']"
     assert source.count(guard)==1
     namespace=dict(vars(report));exec(compile(source.replace(guard,'or False'),'<removed common proof expiry>','exec'),namespace)
     monkeypatch.setattr(report,'validate',namespace['validate'])

@@ -10,6 +10,13 @@ def public_payload(panel):
     """Use exactly the same evidence eligibility and clocks on every surface."""
     health = dashboard_health(panel)
     display_current = delivery.display_current(panel)
+    review = panel.operator_review
+    public_review = None
+    if review is not None and panel.observation_current:
+        public_review = review.model_dump(mode='json')
+    elif (review is not None and display_current and not panel.observation_retained
+            and panel.observation_changed_scopes == ('PAPER',)):
+        public_review = {**review.model_dump(mode='json'), 'token': None}
     return {
         'overall': panel.overall,
         'operational': panel.operational if panel.observation_current else model.UNKNOWN,
@@ -24,7 +31,7 @@ def public_payload(panel):
             'changed_scopes': list(panel.observation_changed_scopes),
             'revalidated_keys': list(panel.observation_revalidated_keys),
             'valid_until': panel.observation_valid_until.isoformat() if panel.observation_valid_until else None},
-        'operator_review': panel.operator_review.model_dump(mode='json') if panel.operator_review and panel.observation_current else None,
+        'operator_review': public_review,
         'verification_attempts': panel.trial_details.get('verification_attempts', {}),
         'as_of': panel.now.isoformat(),
         'source_errors': panel.source_errors,

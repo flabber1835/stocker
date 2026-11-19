@@ -86,7 +86,7 @@ def _call(channel, function, args, parent_pid):
         channel.close()
 
 
-def run(function, *args, timeout=1.0, start_method='fork', cancelled=None):
+def run(function, *args, timeout=1.0, start_method='fork', cancelled=None, unreaped=None):
     """Do not let a silent server socket disable the parent's kill deadline.
 
     Callers return small fixed-shape rows or None. The child finishes sending
@@ -95,12 +95,13 @@ def run(function, *args, timeout=1.0, start_method='fork', cancelled=None):
     """
     # SIGKILL cannot immediately reap uninterruptible kernel I/O. Do not grow
     # an unbounded population of observers on a failed filesystem.
-    for prior in list(_UNREAPED):
+    unreaped = _UNREAPED if unreaped is None else unreaped
+    for prior in list(unreaped):
         if prior.is_alive():
             raise TimeoutError('prior supervisor dependency observer is not reaped')
         prior.join(timeout=0)
         prior.close()
-        _UNREAPED.remove(prior)
+        unreaped.remove(prior)
     # Threaded HTTP callers use spawn: inheriting another thread's locks or
     # connection state through fork can deadlock the observer itself.
     context = multiprocessing.get_context(start_method)
@@ -137,7 +138,7 @@ def run(function, *args, timeout=1.0, start_method='fork', cancelled=None):
             if not process.is_alive():
                 process.close()
             else:
-                _UNREAPED.append(process)
+                unreaped.append(process)
 
 
 def _stderr(message):

@@ -339,10 +339,10 @@ def assert_maintenance_renews_before_expiry(media, monkeypatch):
     media.prove()
     previous = media.receipt()['proof']['completed_uptime']
     with monkeypatch.context() as early:
-        expire_proof_clock(early, offset=115)
+        expire_proof_clock(early, offset=reuse.MAX_AGE-reuse.REFRESH_LEAD_SECONDS-5)
         assert media.prove()['integrity_objects_hashed'] == 0
         assert media.receipt()['proof']['completed_uptime'] == previous
-    expire_proof_clock(monkeypatch, offset=125)
+    expire_proof_clock(monkeypatch, offset=reuse.MAX_AGE-reuse.REFRESH_LEAD_SECONDS+5)
     assert media.prove('application')['integrity_objects_hashed'] == 0
     assert media.receipt()['proof']['completed_uptime'] == previous
     with count_reads(monkeypatch) as reads:
@@ -362,7 +362,7 @@ def test_newly_archived_wal_is_admissible_during_proactive_renewal(
     media.prove()
     stamp = media.receipt()['proof']['completed_uptime']
     media.advance()
-    expire_proof_clock(monkeypatch, offset=125)
+    expire_proof_clock(monkeypatch, offset=reuse.MAX_AGE-reuse.REFRESH_LEAD_SECONDS+5)
     original = authority._hash_objects
     observed = []
 
@@ -435,8 +435,8 @@ def test_bridge_refuses_borrowed_transaction_without_committing_it(media):
         assert borrowed.execute('SELECT count(*) FROM caller_work').fetchone() == (0,)
 
 
-def expire_proof_clock(monkeypatch, *, offset=301):
-    """Advance past the 300-second window without forging a pre-boot completion."""
+def expire_proof_clock(monkeypatch, *, offset=reuse.MAX_AGE+1):
+    """Advance past the full-scrub window without forging a pre-boot completion."""
     original = reuse._clock
 
     def advanced(conn):
@@ -679,7 +679,7 @@ def test_removing_current_selection_argument_has_an_executed_falsifier(media, mo
 def test_release_reuses_prefix_and_hashes_only_new_wal_during_renewal_headroom(media, monkeypatch):
     producer = media.prove()
     stamp = producer['integrity_completed_uptime']
-    expire_proof_clock(monkeypatch, offset=125)
+    expire_proof_clock(monkeypatch, offset=reuse.MAX_AGE-reuse.REFRESH_LEAD_SECONDS+5)
     with count_reads(monkeypatch) as reads:
         assert media.prove(release_check=True)['integrity_objects_hashed'] == 0
         assert reads == []

@@ -186,7 +186,7 @@ def _slow_read_only_observer(directory, paper, _subject):
     time.sleep(10)
 
 
-def test_verifier_shutdown_reaps_active_child_and_refuses_queued_child_before_owner_release(
+def test_paper_progresses_during_shadow_and_shutdown_reaps_both_before_owner_release(
         conn, tmp_path, monkeypatch):
     import os
     import signal
@@ -208,12 +208,13 @@ def test_verifier_shutdown_reaps_active_child_and_refuses_queued_child_before_ow
             instance.observer = _slow_read_only_observer
             instance.evidence_reader = instance.queued_evidence_reader = lambda *_: 'a'*64
             instance.read(str(tmp_path), include_paper=scope=='PAPER')
-            if scope == 'SHADOW':
-                deadline = time.monotonic()+5
-                while not (tmp_path/'shadow').exists() and time.monotonic()<deadline:
-                    time.sleep(.02)
-                pids.append(int((tmp_path/'shadow').read_text()))
-        assert readers['PAPER'].pending and readers['PAPER'].work_started is None
+            marker = tmp_path/scope.lower()
+            deadline = time.monotonic()+5
+            while not marker.exists() and time.monotonic()<deadline:
+                time.sleep(.02)
+            assert marker.exists(), f'{scope} did not start independently'
+            pids.append(int(marker.read_text()))
+        assert len(set(pids)) == 2
         assert not conn.execute('SELECT pg_try_advisory_lock(%s,%s)', service.OWNER_LOCK).fetchone()[0]
         times.append(time.monotonic())
         signal.raise_signal(signal.SIGTERM)
@@ -225,9 +226,9 @@ def test_verifier_shutdown_reaps_active_child_and_refuses_queued_child_before_ow
         for signum, handler in previous.items():
             signal.signal(signum, handler)
     assert stopped.is_set() and time.monotonic()-times[0]<4
-    with pytest.raises(ProcessLookupError):
-        os.kill(pids[0], 0)
-    assert not (tmp_path/'paper').exists()
+    for pid in pids:
+        with pytest.raises(ProcessLookupError):
+            os.kill(pid, 0)
     assert conn.execute('SELECT pg_try_advisory_lock(%s,%s)', service.OWNER_LOCK).fetchone()[0]
     assert conn.execute(f'SELECT count(*) FROM {service.schema.RECEIPTS}').fetchone() == (0,)
 
