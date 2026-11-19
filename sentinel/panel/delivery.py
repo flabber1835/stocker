@@ -7,7 +7,7 @@ from sentinel.panel import model
 _FINANCIAL_SHADOW = model.SHADOW_ROW_KEYS | {'exposure', 'book', 'terminals'}
 _SHADOW = _FINANCIAL_SHADOW | {'feed', 'ingest', 'shadow_segment',
     'paper_plan', 'trading_run', 'completed_trading_run', 'authority', 'automation_cycle'}
-_PAPER = frozenset({'paper_reconciliation', 'paper_plan', 'trading_run',
+_PAPER = frozenset({'financial_activation', 'paper_reconciliation', 'paper_plan', 'trading_run',
     'completed_trading_run', 'alpaca_account', 'actual_account', 'broker',
     'ownership', 'automation', 'automation_leader', 'automation_cycle',
     'authority', 'runtime_identity', 'issuer_reference', *model.TRIAL_ROW_KEYS})
@@ -133,6 +133,16 @@ def closing_refresh_deadline(panel):
     opened = calendar.session_window(calendar.next_session(session))[0]
     if not closed <= now < opened or ready and str(fact.session) != session:
         return None
+    if ready:
+        cycle = panel.row('automation_cycle')
+        stage = cycle.operational_fact if cycle is not None else None
+        if (stage is None or stage.kind != 'AUTOMATION_CYCLE' or str(stage.session) != session
+                or stage.state not in {'DISCOVERED', 'REFRESHING_DATA', 'PREPARING'}
+                or cycle.as_of is None or not closed <= cycle.as_of <= generated
+                or cycle.effective_status(now) != model.WARN or cycle.recovery is None
+                or not cycle.recovery.active(now)):
+            return None
+        boundary = min(boundary, cycle.recovery.deadline or boundary)
     boundary = min(boundary, opened, worker.valid_until, _row_boundary(feed) or boundary)
     return boundary if now < boundary else None
 

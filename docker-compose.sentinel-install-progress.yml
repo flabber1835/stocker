@@ -1,0 +1,10 @@
+# The host creates this dedicated directory before resolving the graph.
+services:
+  sentinel-panel:
+    volumes:
+      - type: bind
+        source: ${SENTINEL_AUTHORITY_ARTIFACTS_DIR:-./artifacts/sentinel/authority}/operator-progress
+        target: /run/sentinel-install-progress
+        read_only: true
+        bind:
+          create_host_path: false

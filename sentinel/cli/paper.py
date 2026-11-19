@@ -337,18 +337,22 @@ async def _prepare_paper_plan(config: SentinelConfig, args) -> int:
     return EXIT_OK
 
 
-async def _current_paper_plan(config: SentinelConfig, _args=None) -> int:
+async def _current_paper_plan(config: SentinelConfig, args=None) -> int:
     """Print the durable current plan without constructing a broker client."""
     from sentinel import paper, schema
     from sentinel.automation_runtime import shadow_config_from_env
     from sentinel.feed import store as feed_store
+    from sentinel.feed.publication import CorpusLockUnavailable
 
     if not config.database_url:
         print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
         return EXIT_CONFIG
 
+    activation = getattr(args, "for_dual_activation", False)
     conn = feed_store.connect(config.database_url)
     try:
+        if activation:
+            conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
         feed_store.require_feed_schema(conn)
         schema.require_runtime_schema(conn)
         dual_kwargs = {}
@@ -364,8 +368,24 @@ async def _current_paper_plan(config: SentinelConfig, _args=None) -> int:
                 "dual_shadow_observation_id": observation_id,
                 "dual_shadow_starting_cash": starting_cash,
             }
+        if activation:
+            if not dual_kwargs:
+                raise paper.PaperActivationRefused("activation requires reviewed dual mode")
+            from sentinel.execution.alpaca import upgrade_restore_reason
+            reason = upgrade_restore_reason(conn)
+            if reason:
+                raise paper.PaperActivationRefused(reason)
         result = paper.current_paper_plan(
             conn, base_url=config.base_url, **dual_kwargs)
+        if activation:
+            result["activation_restore_checked"] = True
+    except CorpusLockUnavailable as exc:
+        if not activation or type(exc) is not CorpusLockUnavailable:
+            return _paper_refused(exc)
+        # Match the bounded, owned host activation read protocol.
+        contention = {"schema": "sentinel.activation-read-wait/1", "reason": "CORPUS_LOCK_BUSY"}
+        print("SENTINEL_ACTIVATION_READ_WAIT=" + json.dumps(contention, sort_keys=True, separators=(",", ":")))
+        return 75
     except _paper_refusal_types() as exc:
         return _paper_refused(exc)
     finally:

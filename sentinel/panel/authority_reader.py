@@ -326,7 +326,8 @@ class Reader:
             self.completion.set()
 
     def read(self, database_url, *, include_paper=True, allow_start=True,
-             awaiting_until=None, awaiting_since=None, defer_refresh_until=None):
+             awaiting_until=None, awaiting_since=None, defer_refresh_until=None,
+             scan_occupied=False):
         try:
             key = self.key_factory(database_url, include_paper,
                                    self.evidence_reader(database_url, include_paper))
@@ -482,6 +483,17 @@ class Reader:
                     retry_failed_check = False
             refresh_due = (fresh is None or retry_failed_check or self.identity_failure is not None
                            or age >= timedelta(seconds=REFRESH_SECONDS))
+            # A completed same-subject negative remains visible. Yield only its
+            # early repeat, never a changed subject, identity failure or expiry.
+            if (scan_occupied and retry_failed_check and fresh is not None and not errors
+                    and age < timedelta(seconds=2*RETRY_SECONDS) and self.identity_failure is None
+                    and not self.supersession_failed and self._coalesced_retry is None
+                    and len(rows) == 1 and self.negative_result == (rows[0], key)
+                    and self.failure_diagnostic is not None
+                    and self.failure_diagnostic.code == 'NEGATIVE_RESULT'
+                    and rows[0].effective_status(self.wall_clock()) == model.FAIL
+                    and (rows[0].valid_until is None or self.wall_clock() < rows[0].valid_until)):
+                refresh_due = False
             if fresh is not None and len(rows) == 1 and model.activation_fee_paper_pending(rows[0]):
                 refresh_due = (refresh_due or self.wall_clock()+timedelta(
                                    seconds=ACTIVATION_FEE_REFRESH_LEAD_SECONDS)

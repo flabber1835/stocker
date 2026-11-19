@@ -69,6 +69,7 @@ def select_certified_runtime(deploy):
             or core._DIGEST.fullmatch(str(image.get('Id') or '')) is None):
         raise core.DeployRefused('actual software image differs from signed certification')
     deploy.runtime_repo_digest = deploy.test_repo_digest = reference
+    deploy._selected_role_image = (reference, image['Id'])
     deploy.runtime_digest = deploy.test_digest = digest
     deploy._ci_single_runtime = True
     deploy.env.update({
@@ -116,9 +117,8 @@ class InstallationDeploy(bootstrap.BootstrapDeploy):
         super().quiesce_backup_and_migrate()
         # Only signed software plus a confirmed durable fence can replace the
         # selector. Financial readiness is neither consulted nor implied.
-        state = self._automation_status()
-        if state.get('enabled') is not False or state.get('kill_switch_engaged') is not True:
-            raise core.DeployRefused('runtime selection requires disabled+killed execution')
+        # install_quiescent checks disabled control, durable kill and invalidated
+        # lease inside the catalog transaction immediately before selection.
         self.phase('installation: exact nonfinancial dashboard review schema')
         code = (
             "import os; from sentinel.feed import store; "
@@ -236,7 +236,8 @@ def main(argv=None):
         attempt = core._attempt_dir(cfg, head)
         runner = core.Runner(env, attempt / 'commands.log')
         obj = InstallationDeploy(cfg, runner, attempt, environment_writer=safe_update_dotenv)
-        with core.DeploymentLock(cfg.authority_dir / 'autonomous-deploy.lock'):
+        with core.DeploymentLock(cfg.authority_dir / 'autonomous-deploy.lock'), \
+                core.deploy_progress.reporting(cfg.authority_dir, 'install'):
             obj.run()
         if args.activate_when_ready:
             try:

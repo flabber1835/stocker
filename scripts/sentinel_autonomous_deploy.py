@@ -47,6 +47,7 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 import sentinel_env
+import sentinel_deploy_progress as deploy_progress
 import sentinel_go_feed_progress as feed_progress
 
 
@@ -1176,6 +1177,8 @@ class Runner:
 
     def _stream(self, argv, *, cwd, timeout, env, capture=False):
         deadline = None if timeout is None else time.monotonic() + timeout
+        stages = (deploy_progress.GoStages()
+                  if argv[:2] == ["bash", "scripts/sentinel-go-validate.sh"] else None)
         output = []
         errors = []
         process = subprocess.Popen(
@@ -1211,6 +1214,8 @@ class Runner:
                         decoder, target, visible = key.data
                         decoded = decoder.decode(chunk, final=not chunk)
                         target.append(decoded)
+                        if stages is not None and target is output:
+                            stages.consume(decoded)
                         if visible:
                             print(decoded, end="", flush=True)
                         if not chunk:
@@ -1494,6 +1499,7 @@ class AutonomousDeploy:
         return self._software_verification
 
     def phase(self, text: str) -> None:
+        deploy_progress.phase(text)
         print("\n== %s" % text, flush=True)
 
     def git_preflight(self) -> None:
@@ -1525,7 +1531,7 @@ class AutonomousDeploy:
             raise DeployRefused(
                 "reviewed validation bundle disappeared before deployment") from exc
         if (current_digest != reviewed.bundle_sha256
-                or self.commit != reviewed.git_commit):
+                or (self.commit and self.commit != reviewed.git_commit)):
             raise DeployRefused(
                 "reviewed validation identity changed before deployment")
 
@@ -1533,6 +1539,7 @@ class AutonomousDeploy:
             reviewed, env=self.env, invoke=self._reviewed_invoke,
             software_verification=self.software_verification())
         self._verify_reviewed_account(reviewed)
+        self.commit = reviewed.git_commit
 
     def _verify_reviewed_account(self, reviewed):
         verify_reviewed_account_binding(reviewed, self.cfg.account_id)
@@ -1817,10 +1824,14 @@ class AutonomousDeploy:
         """Inspect only non-secret immutable image and process facts."""
         if not getattr(self, "_ci_single_runtime", False):
             return  # Historical local build fixtures retain their original scope.
-        expected = self.runner.run(["docker", "image", "inspect", "--format", "{{.Id}}",
-            self.runtime_repo_digest], capture=True, timeout=15).stdout.strip()
-        if _DIGEST.fullmatch(expected) is None:
-            raise DeployRefused("selected runtime image identity is malformed")
+        selected = getattr(self, "_selected_role_image", None)
+        if selected and selected[0] == self.runtime_repo_digest:
+            expected = selected[1]
+        else:
+            expected = self.runner.run(["docker", "image", "inspect", "--format", "{{.Id}}",
+                self.runtime_repo_digest], capture=True, timeout=15).stdout.strip()
+            if _DIGEST.fullmatch(expected) is None:
+                raise DeployRefused("selected runtime image identity is malformed")
         for role in roles:
             ids = self._application_role_ids(role, include_stopped=True)
             if len(ids) != 1:
@@ -1899,6 +1910,12 @@ class AutonomousDeploy:
             reader_args = self._retained_reader_args()
         elif args and args[0] == "current-paper-plan":
             reader_args = self._current_plan_reader_args()
+            if list(args) == ["current-paper-plan", "--for-dual-activation"]:
+                import sentinel_activation_read as read_probe
+                return read_probe.run(self, self.base_compose + [
+                    "--profile", "cli", "run", "--rm", "-T", "--no-deps",
+                    *reader_args, "sentinel", *args], "current PAPER activation plan",
+                    timeout=timeout, budget_seconds=300)
         return self.runner.run(self.base_compose + [
             "--profile", "cli", "run", "--rm", "-T", *reader_args, "sentinel"]
             + list(args), capture=capture, check=check, timeout=timeout)
@@ -2496,6 +2513,33 @@ with store.connect(os.environ['SENTINEL_DATABASE_URL'],
                 '--initial-paper-recovery-reason', initial['reason'],
                 '--confirm-initial-paper-recovery', '--confirm-retain-current-paper-credentials']
 
+    def _check_prepared_activation_plan(self, prepared, decision_session):
+        dual = self.reviewed_validation is not None and self.reviewed_validation.mode == "dual"
+        args = ["current-paper-plan"]
+        if dual:
+            args.append("--for-dual-activation")
+        current = _json_output(self._base_cli(args, capture=True), label="current paper plan")
+        plan = prepared.get("plan") or {}
+        reread = current.get("plan") or {}
+        if plan.get("decision_session") != decision_session:
+            raise DeployRefused("prepared plan decision session differs from signed warmup")
+        if current.get("database_authorities_match") is not True:
+            raise DeployRefused("current plan database authorities do not match")
+        if (not plan.get("plan_id") or reread.get("plan_id") != plan.get("plan_id")
+                or reread.get("decision_session") != decision_session):
+            raise DeployRefused("current plan re-read is not the exact plan just prepared")
+        if dual:
+            if current.get("activation_restore_checked") is not True:
+                raise DeployRefused("current plan activation restore identity was not checked")
+            match = self._require_dual_match(current.get("dual_reconciliation"))
+            if (reread["plan_id"] != "sentinel-" + match["plan_fingerprint"]
+                    or match.get("decision_session") != decision_session
+                    or not reread.get("effective_session")
+                    or match.get("effective_session") != reread["effective_session"]
+                    or match["state_sha256"] != reread.get("shadow_snapshot_hash")):
+                raise DeployRefused("PAPER reconciliation does not identify the exact prepared plan")
+        return current
+
     def prepare_activate_start(self, certificate_sha256: str,
                                decision_session: str) -> Mapping:
         timing = self.assert_activation_timing(decision_session)
@@ -2511,16 +2555,7 @@ with store.connect(os.environ['SENTINEL_DATABASE_URL'],
         prepare_args += self._initial_paper_recovery_args()
         prepared, fee_deadline = self._prepare_activation_plan(
             prepare_args, certificate_sha256, decision_session, timing)
-        current = _json_output(self._base_cli(
-            ["current-paper-plan"], capture=True), label="current paper plan")
-        plan = prepared.get("plan") or {}
-        if plan.get("decision_session") != decision_session:
-            raise DeployRefused("prepared plan decision session differs from signed warmup")
-        if current.get("database_authorities_match") is False:
-            raise DeployRefused("current plan database authorities do not match")
-        if (self.reviewed_validation is not None
-                and self.reviewed_validation.mode == "dual"):
-            self._verify_dual_plan_shadow_reconciliation()
+        current = self._check_prepared_activation_plan(prepared, decision_session)
 
         if fee_deadline:
             self._native_fee_wait_seconds(fee_deadline)
@@ -2676,18 +2711,17 @@ with store.connect(os.environ['SENTINEL_DATABASE_URL'],
         payload = _marked_json_output(
             completed, marker="SENTINEL_DUAL_RECONCILIATION=",
             label="PAPER reconciliation")
+        return self._require_dual_match(payload)
+
+    @staticmethod
+    def _require_dual_match(payload) -> Mapping:
         if (not isinstance(payload, dict)
                 or payload.get("schema")
                 != "sentinel.dual-plan-shadow-reconciliation/1"
                 or payload.get("verdict") != "MATCH"
-                or _HEX64.fullmatch(
-                    str(payload.get("state_sha256") or "")) is None
-                or _HEX64.fullmatch(str(payload.get(
-                    "shadow_runtime_authority_sha256") or "")) is None
-                or _HEX64.fullmatch(str(payload.get(
-                    "sizing_authority_sha256") or "")) is None
-                or _HEX64.fullmatch(str(payload.get(
-                    "plan_fingerprint") or "")) is None):
+                or any(not isinstance(payload.get(key), str) or not _HEX64.fullmatch(payload[key])
+                       for key in ("state_sha256", "shadow_runtime_authority_sha256",
+                                   "sizing_authority_sha256", "plan_fingerprint"))):
             raise DeployRefused(
                 "PAPER plan did not exactly match certified shadow intent")
         return payload
@@ -3089,7 +3123,8 @@ with store.connect(os.environ['SENTINEL_DATABASE_URL'],
         if reviewed is None:
             raise DeployRefused('activation requires its own exact financial admission')
         self._installation_only = False
-        self.git_preflight()
+        # The reviewed preflight binds clean main, exact HEAD and origin/main
+        # in a single fresh observation after GO returns.
         self.verify_reviewed_preflight()
         self.check_paper_account_deployment_integrity()
         self.build_promote()

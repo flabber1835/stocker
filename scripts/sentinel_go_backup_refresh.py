@@ -23,6 +23,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+from sentinel_backup_integrity_report import release_proof, release_status_command
 import sentinel_go_lock as go_lock
 import sentinel_go_phase_entry as phase
 
@@ -159,7 +160,7 @@ def _require_checkout_exact(runner, *, commit: str, env: Mapping[str, str]) -> N
 
 
 def ensure_recent_verified_base_backup(
-        runner, *, env: Mapping[str, str], commit: str) -> BackupRefreshResult:
+        runner, *, env: Mapping[str, str], commit: str, runtime_ref=None) -> BackupRefreshResult:
     """Establish current backup durability and return auditable local evidence."""
     _require_go_authority(env)
     if go._HEX40.fullmatch(str(commit)) is None:
@@ -168,8 +169,19 @@ def ensure_recent_verified_base_backup(
     run_env = go._without_broker_authority(dict(env))
     _require_checkout_exact(runner, commit=str(commit), env=run_env)
 
-    status = runner.run(
-        ["bash", "scripts/sentinel-backup-status.sh"], env=run_env)
+    status_command = release_status_command(run_env, image=runtime_ref)
+    def verify_status(*extra):
+        result = runner.run([*status_command, *extra], env=run_env)
+        if result.returncode == 0 and '--release-integrity' in status_command:
+            try:
+                proof = release_proof(result.stdout)
+                if extra and proof['base_backup'] != Path(extra[-1]).name:
+                    raise ValueError('release validated a different requested base')
+            except (ValueError, TypeError, KeyError):
+                raise BackupRefreshRefused("BASE_BACKUP_SHARED_INTEGRITY_REFUSED") from None
+        return result
+
+    status = verify_status()
     if status.returncode == 0:
         print("[GO] backup durability checkpoint passed", flush=True)
         return BackupRefreshResult(
@@ -209,9 +221,7 @@ def ensure_recent_verified_base_backup(
     if not _created_db_mutation_proven(refreshed):
         raise BackupRefreshRefused("BASE_BACKUP_DB_MUTATION_EVIDENCE_UNAVAILABLE")
 
-    verified = runner.run(
-        ["bash", "scripts/sentinel-backup-status.sh", "--backup", path],
-        env=run_env)
+    verified = verify_status("--backup", path)
     if verified.returncode != 0:
         raise BackupRefreshRefused(
             _status_reason(verified) or "BASE_BACKUP_POST_REFRESH_NOT_READY")
@@ -387,7 +397,7 @@ def _preparation_with_backup_refresh(*args, **kwargs):
     def renew():
         nonlocal audit_sha
         try:
-            result = ensure_recent_verified_base_backup(runner, env=env, commit=str(commit))
+            result = ensure_recent_verified_base_backup(runner, env=env, commit=str(commit), runtime_ref=runtime_ref)
             if history and not result.refreshed:
                 return "BACKUP_RENEWAL_HORIZON_NOT_CONFIRMED"
             history.append(asdict(result))

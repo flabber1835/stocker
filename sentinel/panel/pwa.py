@@ -51,7 +51,7 @@ button:disabled{opacity:.6}
 (function(){
   "use strict";
   __CURRENT_DOCUMENT_SCRIPT__
-  var busy = false, controller = null, again = false, away = false;
+  var busy = false, controller = null, again = false, away = false, retryTimer = null;
   var status = document.getElementById("launch-status");
   var detail = document.getElementById("launch-detail");
   var retry = document.getElementById("launch-retry");
@@ -62,6 +62,7 @@ button:disabled{opacity:.6}
   }
   async function load() {
     if (document.body.dataset.panelLaunch !== "true" || !visible()) { return; }
+    clearTimeout(retryTimer);
     if (busy) { again = true; return; }
     if (!navigator.onLine) { offline(); return; }
     busy = true; retry.disabled = true;
@@ -71,7 +72,7 @@ button:disabled{opacity:.6}
     var active = controller;
     var deadline = setTimeout(function(){ active.abort(); }, 15000);
     try {
-      var response = await fetch(location.href, {cache:"no-store", credentials:"same-origin", signal:active.signal});
+      var response = await fetch(location.href, {cache:"no-store", credentials:"same-origin", headers:{"X-Sentinel-Refresh":"1"}, signal:active.signal});
       var documentStatus = response.headers.get("X-Sentinel-Panel-Status");
       if (!response.ok || !["CURRENT", "PARTIAL"].includes(documentStatus) ||
           new URL(response.url || location.href, location.href).origin !== location.origin) {
@@ -86,7 +87,15 @@ button:disabled{opacity:.6}
         if (!navigator.onLine) { offline(); }
         else {
           status.textContent = "STATUS NOT CURRENT — CONNECTION DELAYED";
-          detail.textContent = "Current status could not be loaded. Retry when the connection is ready.";
+          var progress = response && response.status === 503 &&
+            new URL(response.url || location.href, location.href).origin === location.origin &&
+            response.headers.get("X-Sentinel-Deployment-Progress");
+          if (response && response.status === 503) {
+            detail.textContent = (progress ? decodeURIComponent(progress) + ". " : "") + "Checking again in five seconds.";
+            retryTimer = setTimeout(load, 5000);
+          } else {
+            detail.textContent = "Current status could not be loaded. Retry when the connection is ready.";
+          }
         }
       }
     } finally {

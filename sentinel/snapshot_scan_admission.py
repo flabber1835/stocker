@@ -6,6 +6,18 @@ LOCK_KEY = 0x534E545343414E31
 WAIT_SECONDS = 120
 
 
+def occupied(conn):
+    """A current native resource holder/waiter, solely for discretionary reads."""
+    from sentinel.execution.journal import WRITER_LOCK_KEY
+    return conn.execute("""
+        SELECT EXISTS (SELECT FROM pg_catalog.pg_locks
+            WHERE locktype='advisory' AND mode='ExclusiveLock' AND objsubid=1
+              AND database=(SELECT oid FROM pg_catalog.pg_database WHERE datname=current_database())
+              AND pid<>pg_backend_pid()
+              AND ((classid=%s AND objid=%s) OR (granted AND classid=0 AND objid=%s)))
+        """, (LOCK_KEY >> 32, LOCK_KEY & 0xffffffff, WRITER_LOCK_KEY)).fetchone()[0]
+
+
 @contextmanager
 def admitted(conn, *, wait_seconds=WAIT_SECONDS):
     """The caller owns this idle proof connection, never a borrowed transaction."""

@@ -234,6 +234,8 @@ def financial_bundle(obj, request):
         return Path(request['bundle']), request['bundle_sha256']
     target = {'shadow': 'SHADOW', 'dual': 'DUAL_RUN_OBSERVATION',
               'paper': 'HISTORICAL_PAPER_EXECUTION'}[request['mode']]
+    core.deploy_progress.publish('validation')
+    print('\n== activation: validate financial readiness', flush=True)
     completed = obj.runner.run(['bash', 'scripts/sentinel-go-validate.sh', '--target', target],
                                capture=True, stream=True, check=False, timeout=86400)
     if completed.returncode:
@@ -613,7 +615,8 @@ def main(argv=None):
                         return 0
                     status(args.request, 'PREPARING')
                     try:
-                        with core.DeploymentLock(authority / 'autonomous-deploy.lock'):
+                        with core.DeploymentLock(authority / 'autonomous-deploy.lock'), \
+                                core.deploy_progress.reporting(authority, 'activate'):
                             writer = owned_configuration(args.request, roles._deploy_writer)
                             attempt(args.request, request, receipt, environment_writer=writer)
                     except core.ActivationPending as exc:

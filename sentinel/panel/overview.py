@@ -12,7 +12,7 @@ from decimal import Decimal
 from html import escape
 from zoneinfo import ZoneInfo
 
-from sentinel.panel.model import FAIL, MARKET_BUY_OBSERVATION, OK, UNKNOWN, Panel, PaperOrderOutcome, ShadowSlot
+from sentinel.panel.model import AWAITING_PLAN_ADOPTION, FAIL, MARKET_BUY_OBSERVATION, OK, UNKNOWN, Panel, PaperOrderOutcome, ShadowSlot
 from sentinel.panel.presentation import describe, dashboard_health, opening_wait_label, preparation_stage, visible_preparation
 
 
@@ -121,6 +121,13 @@ def _leg_html(leg, outcomes) -> str:
         +_esc(target)+'</div>'+prior+'</li>')
 
 
+def _awaiting_adoption(panel):
+    row = panel.row('paper_plan')
+    return (row is not None and row.value == AWAITING_PLAN_ADOPTION and row.paper_plan is None
+            and row.as_of is not None and row.valid_until is not None
+            and row.as_of <= panel.now < row.valid_until)
+
+
 def _plan_html(panel: Panel, *, current: bool = True) -> str:
     row = panel.row('paper_plan')
     plan = row.paper_plan if row is not None else None
@@ -128,6 +135,10 @@ def _plan_html(panel: Panel, *, current: bool = True) -> str:
     # the overview nor a retained response can promote an expired plan.
     admitted = row is not None and row.can_show_paper_plan(panel.now)
     if not admitted:
+        if _awaiting_adoption(panel):
+            return ('<section class="overview-card next-plan" aria-labelledby="next-plan-title">'
+                    '<h2 id="next-plan-title">Next trading plan</h2>'
+                    '<p>Plan saved · awaiting verification for scheduled execution.</p></section>')
         current = _run_html(panel)
         if current:
             return current
@@ -190,7 +201,7 @@ def _plan_html(panel: Panel, *, current: bool = True) -> str:
 
 def _preparation_html(panel: Panel, *, refresh_pending: bool = False) -> str:
     planned = panel.row('paper_plan')
-    if planned is not None and planned.can_show_paper_plan(panel.now):
+    if _awaiting_adoption(panel) or planned is not None and planned.can_show_paper_plan(panel.now):
         return ''
     work = visible_preparation(panel)
     if work is None:

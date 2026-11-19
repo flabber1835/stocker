@@ -153,6 +153,10 @@ def _financial_receipt_overlay(conn, database_url, panel, *, now, changed, facts
 
     from sentinel.panel import read_projection
 
+    if panel.row('financial_activation') is not None:
+        # This composition has no selected financial observer. Its control and
+        # account evidence still follow the ordinary native refresh paths.
+        return {}, {}
     arguments = dict(now=now, facts=facts, native_subjects=basis.get('native'),
                      display_basis=basis or None, with_error_scopes=True)
     if 'GLOBAL' in panel.financial_source_errors:

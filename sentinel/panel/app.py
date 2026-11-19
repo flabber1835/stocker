@@ -25,11 +25,12 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
-from sentinel import shadow_segments
+from sentinel import install_progress, shadow_segments
 from sentinel.dependency_availability import database_unavailable
 from sentinel.operational_status import color
 from sentinel.panel import delivery, last_known, model, singleflight
@@ -38,7 +39,7 @@ from sentinel.panel.review import recorder
 from sentinel.panel.review_store import ReviewRefused
 from sentinel.panel.pwa import LAUNCH_HTML, MANIFEST, SERVICE_WORKER
 from sentinel.panel.presentation import dashboard_health
-from sentinel.panel.render import REFRESH_SECONDS, STATIC_ASSETS, render
+from sentinel.panel.render import REFRESH_SECONDS, STATIC_ASSETS, deployment_progress_html, render
 from sentinel.panel.push_enrollment import router as push_enrollment_router
 from sentinel.panel.segment_disclosure import disclose as _shadow_segment_disclosure
 from sentinel.panel.serialization import public_payload
@@ -63,6 +64,10 @@ _STATIC_DIR = Path(__file__).with_name("static")
 _PANEL_BUILDS = singleflight.Builds()
 
 
+def _progress_headers(phase):
+    return {'X-Sentinel-Deployment-Progress': quote(phase, safe='')} if phase else {}
+
+
 def _one_panel_build(function):
     """Keep finite wait failures explicitly non-current on every route."""
     @wraps(function)
@@ -72,17 +77,28 @@ def _one_panel_build(function):
         except singleflight.BuildUnavailable:
             headers = {"Cache-Control": "no-store", "Retry-After": "5"}
             message = "Current signed status is temporarily unavailable."
+            phase = install_progress.current() if function.__name__ in {'panel', 'panel_json'} else None
+            headers.update(_progress_headers(phase))
             if function.__name__ == "panel":
+                request = kwargs.get('request') or (args[0] if args else None)
+                if request is not None and (request.headers.get('x-sentinel-refresh') == '1'
+                        or request.headers.get('sec-fetch-dest') == 'empty'
+                        and request.headers.get('sec-fetch-site') == 'same-origin'):
+                    return Response(status_code=503, headers=headers)
                 retained = last_known.read(_config())
                 if retained is not None:
-                    return HTMLResponse(retained, headers={**headers,
-                        'X-Sentinel-Panel-Status': 'LAST_KNOWN'})
+                    if phase:
+                        retained = retained.replace(deployment_progress_html().encode(),
+                            deployment_progress_html(phase).encode(), 1)
+                    return _compress_document(request, HTMLResponse(retained, headers={**headers,
+                        'X-Sentinel-Panel-Status': 'LAST_KNOWN'}))
                 return HTMLResponse(
                     '<!doctype html><html><head><meta charset="utf-8">'
                     '<meta name="viewport" content="width=device-width,initial-scale=1">'
                     '<meta http-equiv="refresh" content="5"><title>Status unavailable</title>'
                     '</head><body><h1>Status unavailable</h1><p>' + message +
-                    '</p><p>This page will retry automatically.</p></body></html>',
+                    '</p>' + deployment_progress_html(phase) +
+                    '<p>This page will retry automatically.</p></body></html>',
                     status_code=503, headers=headers)
             return JSONResponse({"status": "UNKNOWN", "detail": message},
                                 status_code=503, headers=headers)
@@ -237,9 +253,12 @@ def panel(request: Request = None) -> HTMLResponse:
     state_dir, dsn = _config()
     p = _read_panel()
     html = render(p, refresh_seconds=REFRESH_SECONDS)
+    phase = install_progress.current()
+    if phase:
+        html = html.replace(deployment_progress_html(), deployment_progress_html(phase), 1)
     last_known.remember((state_dir, dsn), render(p, refresh_seconds=REFRESH_SECONDS,
                                               refresh_pending=True))
-    return _compress_document(request, HTMLResponse(html, headers={"Cache-Control": "no-store",
+    return _compress_document(request, HTMLResponse(html, headers={"Cache-Control": "no-store", **_progress_headers(phase),
                               'X-Sentinel-Panel-Status': 'CURRENT' if delivery.display_current(p) else 'PARTIAL'}))
 
 
@@ -249,7 +268,7 @@ def panel_json(request: Request = None) -> Response:
     p = _read_panel()
     return _compress_document(request, JSONResponse(
         public_payload(p),
-        headers={"Cache-Control": "no-store",
+        headers={"Cache-Control": "no-store", **_progress_headers(install_progress.current()),
                  'X-Sentinel-Panel-Status': 'CURRENT' if delivery.display_current(p) else 'PARTIAL'},
     ))
 

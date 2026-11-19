@@ -264,9 +264,11 @@ def build_parser() -> argparse.ArgumentParser:
     prep.add_argument('--policy-replacement-actor')
     prep.add_argument('--policy-replacement-reason')
     prep.add_argument('--confirm-unsent-policy-replacement', action='store_true')
-    sub.add_parser(
+    current_plan = sub.add_parser(
         "current-paper-plan",
         help="inspect the durable current paper plan; contacts no broker")
+    current_plan.add_argument("--for-dual-activation", action="store_true",
+        help="require current restore identity and reviewed dual reconciliation")
     execute = sub.add_parser(
         "execute-paper-plan",
         help="submit only the confirmed durable current plan to Alpaca paper")

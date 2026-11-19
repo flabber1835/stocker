@@ -134,6 +134,9 @@ def opening_schedule(cycle, events=()):
     return saved
 
 
+AWAITING_PLAN_ADOPTION = 'SAVED · AWAITING VERIFICATION'
+
+
 class OperationalFact(BaseModel):
     """Closed producer facts for human workflow health, independent of copy."""
     model_config = ConfigDict(extra='forbid', frozen=True, revalidate_instances='always')
@@ -1843,7 +1846,9 @@ def automation_cycle_row(*, installed: Optional[bool],
                required_current=bool(enabled), recovery=recovery,
                valid_until=(recovery.deadline if recovery is not None
                             and recovery.phase == 'AUTOMATION_CLOSING_DATA' else funding_deadline),
-               operational_fact=(OperationalFact(kind='AUTOMATION_CYCLE', state=normalized, schedule=schedule)
+               operational_fact=(OperationalFact(kind='AUTOMATION_CYCLE', state=normalized,
+                   session=decision_session if normalized in {'DISCOVERED', 'REFRESHING_DATA', 'PREPARING'} else None,
+                   schedule=schedule)
                    if normalized in {'DISCOVERED', 'REFRESHING_DATA', 'PREPARING', 'PLAN_READY',
                        'WAITING_OPEN', 'EXECUTING', 'RECONCILING', 'RETRY_WAIT', 'SUCCEEDED',
                        'BLOCKED', 'MISSED_STATE_ONLY', 'SUPERSEDED'} else None))

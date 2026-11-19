@@ -442,6 +442,11 @@ def _detail_sections(panel: Panel) -> str:
         for title, content in sections)
 
 
+def deployment_progress_html(phase=None):
+    return ('<p id="deployment-progress" role="status" aria-live="polite"'
+            + ('>'+_esc(phase) if phase else ' hidden>') + '</p>')
+
+
 def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
            refresh_pending: bool = False) -> str:
     now = panel.now
@@ -590,9 +595,9 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   {reason_html}
   <span id="dashboard-heartbeat" class="heartbeat" role="status"
         aria-live="polite">{'Refreshing status · last known observation ' + _esc(stamp) if refresh_pending else _esc(heartbeat_label)}</span>
+  {deployment_progress_html()}
 </header>
 {errs}
-{review_html}
 <div id="portfolio-overview">{overview}</div>
 <details id="system-details" data-detail-key="system-details"><summary>System details</summary><div class="detail-body system-detail-body">
 <section id="push-card" class="push-card" hidden aria-label="Notifications">
@@ -604,6 +609,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   </div>
 </section>
 {rows}{details}
+{review_html}
 </div></details>
 </div>
 <script>
@@ -651,6 +657,10 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   var resumeTimer = null;
   var ageTimer;
   var refreshTimer;
+  function setDeploymentProgress(text){{
+    var phase = document.getElementById('deployment-progress');
+    if (phase) {{ phase.textContent = text; phase.hidden = !text; }}
+  }}
   function validBudget(value){{
     return Number.isFinite(value) && value > 0 && value <= maximumBudget;
   }}
@@ -719,9 +729,13 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     var deadline = setTimeout(function(){{ controller.abort(); }}, 15000);
     var transportDelay = true;
     try {{
-      var response = await fetch(location.href, {{cache:"no-store", signal:controller.signal}});
+      var response = await fetch(location.href, {{cache:"no-store", headers:{{"X-Sentinel-Refresh":"1"}}, signal:controller.signal}});
       var status = response.headers.get("X-Sentinel-Panel-Status");
       if (!response.ok || !["CURRENT", "PARTIAL"].includes(status)){{
+        var sameOrigin = new URL(response.url || location.href, location.href).origin === location.origin;
+        var progress = response.status === 503 && sameOrigin && !pageAway && navigator.onLine
+          ? response.headers.get("X-Sentinel-Deployment-Progress") : null;
+        setDeploymentProgress(progress ? decodeURIComponent(progress) : "");
         transportDelay = response.status === 503 || response.headers.get("X-Sentinel-Panel-Status") === "LAST_KNOWN";
         throw new Error("Current dashboard is not ready");
       }}
@@ -752,6 +766,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       checkAge();
       armHeartbeat();
     }} catch (_error) {{
+      if (!response) {{ setDeploymentProgress(""); }}
       if (transportDelay && !invalidated && continuityCurrent()){{
         showResume();
       }} else if (transportDelay && !invalidated && originalCurrent()){{
@@ -898,6 +913,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   window.addEventListener("pagehide", function(){{
     wentToBackground = true;
     pageAway = true;
+    setDeploymentProgress("");
     if (Number.isFinite(generated)){{ showResume(); }}
   }});
   window.addEventListener("focus", function(){{
@@ -913,6 +929,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   document.addEventListener("visibilitychange", function(){{
     pageAway = document.visibilityState !== "visible";
     if (document.visibilityState === "hidden" && hasBeenVisible){{
+      setDeploymentProgress("");
       wentToBackground = true;
       if (Number.isFinite(generated)){{ showResume(); }}
     }} else if (document.visibilityState === "visible"){{
@@ -926,6 +943,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   }});
   window.addEventListener("offline", function(){{
     wentOffline = true;
+    setDeploymentProgress("");
     invalidate(false, true);
   }});
   if (wentOffline){{ invalidate(false, true); }}

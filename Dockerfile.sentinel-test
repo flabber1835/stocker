@@ -69,6 +69,7 @@ COPY scripts/sentinel_forward_run.py /work/scripts/sentinel_forward_run.py
 COPY scripts/sentinel_test_run.py /work/scripts/sentinel_test_run.py
 COPY Dockerfile.sentinel Dockerfile.sentinel-authorized Dockerfile.sentinel-test /work/
 COPY docker-compose.sentinel.yml docker-compose.sentinel-automation.yml docker-compose.sentinel-automation-standby.yml docker-compose.sentinel-backup.yml /work/
+COPY docker-compose.sentinel-install-progress.yml /work/
 COPY .dockerignore .gitattributes .env.example Makefile README.md /work/
 COPY deploy/sentinel-authorized-runtime-v1 deploy/sentinel-backup-policy-v1 /work/deploy/
 COPY docs/internal-state-harness.md /work/docs/internal-state-harness.md
@@ -96,6 +97,7 @@ COPY docker-compose.sentinel-automation.yml /work/repo/docker-compose.sentinel-a
 COPY docker-compose.sentinel-automation-standby.yml /work/repo/docker-compose.sentinel-automation-standby.yml
 COPY Dockerfile.sentinel-test /work/repo/Dockerfile.sentinel-test
 COPY docker-compose.sentinel-backup.yml /work/repo/docker-compose.sentinel-backup.yml
+COPY docker-compose.sentinel-install-progress.yml /work/repo/
 COPY .dockerignore /work/repo/.dockerignore
 COPY .gitattributes /work/repo/.gitattributes
 COPY .github/CODEOWNERS /work/repo/.github/CODEOWNERS

@@ -59,10 +59,12 @@ def sql(query, runner=run):
                             "-d", "sentinel", "-v", "ON_ERROR_STOP=1", "-Atc", query])
 
 
-def runtime_image(runner=run):
+def runtime_image(runner=run, *, release_image=None):
     pointer = ROOT / "artifacts/sentinel/deployment/validated-runtime.env"
     value = os.environ.get("SENTINEL_RUNTIME_IMAGE_REF", "")
-    if pointer.exists():
+    if release_image is not None:
+        value = release_image
+    elif pointer.exists():
         raw = pointer.read_text(encoding="ascii")
         prefix = "SENTINEL_RUNTIME_IMAGE_REF="
         if not raw.startswith(prefix) or len(raw.splitlines()) != 1:

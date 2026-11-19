@@ -296,15 +296,62 @@ class MaintenanceProof(BaseModel):
         return self
 
 
+def _selected_proof(conn, base_backup, system_identifier, wal_segment_bytes, observed_frontier,
+                    trace, *, release_check, prior=None):
+    operation = 'release common WAL integrity' if release_check else 'maintenance common WAL integrity'
+    try:
+        result = authority.require(conn, operation=operation, allow_continuity=False, maintenance_refresh=not release_check)
+    except authority.BackupHorizonExceeded:
+        if release_check:
+            # GO can create a new base for this reason. A refusal about a
+            # different physical selection must never grant that action.
+            end, size = authority._archive_frontier(conn, operation=operation)
+            if (authority.current_system_id(conn) != system_identifier or size != wal_segment_bytes
+                    or end[:8] != observed_frontier[:8] or end < observed_frontier
+                    or authority._published_base(conn, system_id=system_identifier) != base_backup):
+                raise authority.BackupRuntimeRefused('oversized horizon differs from selected media') from None
+        raise
+    trace.mark('RESULT')
+    size = conn.execute("SELECT pg_size_bytes(current_setting('wal_segment_size'))").fetchone()[0]
+    if (result.get('enabled') is not True or result.get('system_identifier') != system_identifier
+            or size != wal_segment_bytes
+            or result.get('recoverable_through_wal', '')[:8] != observed_frontier[:8]
+            or result.get('recoverable_through_wal', '') < observed_frontier):
+        raise authority.BackupRuntimeRefused('shared maintenance proof differs from selected media')
+    current_base = result.get('base_backup')
+    if (type(current_base) is not str
+            or re.fullmatch(r'base-[0-9]{8}T[0-9]{6}Z', current_base) is None):
+        raise authority.BackupRuntimeRefused('shared maintenance returned malformed base identity')
+    if current_base != base_backup:
+        raise authority.BackupIntegritySelectionMoved('proved runtime base selection moved')
+    owner = reuse.Owner(conn, dict(system_id=system_identifier, base=base_backup,
+        start=result['recoverable_from_wal'], segment_size=size))
+    if owner.proof is None and owner.expired_window is not None:
+        raise authority.BackupIntegrityProofExpired(
+            completed_uptime=owner.expired_window[0], observed_uptime=owner.expired_window[1])
+    if owner.proof is None or owner.proof.end != result['recoverable_through_wal']:
+        raise authority.BackupRuntimeRefused('shared maintenance completed receipt unavailable')
+    if prior is not None:
+        # Bind the report and both original clocks to the exact signed bytes
+        # observed on entry even if the active owner publishes during this call.
+        prior.require_unchanged()
+        if owner.raw != prior.raw:
+            raise authority.BackupIntegrityBusy('release receipt changed during proof')
+    return MaintenanceProof.model_validate(dict(result,
+        schema='sentinel.maintenance-integrity/1', wal_segment_bytes=size,
+        integrity_completed_uptime=owner.proof.completed_uptime,
+        integrity_observed_uptime=owner.uptime))
+
+
 def prove(conn, *, base_backup: str, system_identifier: str,
-          wal_segment_bytes: int, observed_frontier: str, wait_seconds: float = 20,
+          wal_segment_bytes: int, observed_frontier: str, wait_seconds: float = 20, release_check: bool = False,
           _trace: _Trace | None = None) -> MaintenanceProof:
     """Join existing ownership before work; never renew a hit's original clock."""
     trace = _trace or _Trace()
     trace.mark('ADMISSION')
     if (not reuse.selected() or not authority.enabled() or not conn.autocommit
-            or type(wait_seconds) not in (int, float)
-            or not math.isfinite(wait_seconds) or not 0 <= wait_seconds <= 20
+            or type(release_check) is not bool or type(wait_seconds) not in (int, float)
+            or not math.isfinite(wait_seconds) or not 0 <= wait_seconds <= (300 if release_check else 20)
             or type(wal_segment_bytes) is not int
             or not 1024**2 <= wal_segment_bytes <= 1024**3
             or wal_segment_bytes & (wal_segment_bytes-1)
@@ -319,6 +366,7 @@ def prove(conn, *, base_backup: str, system_identifier: str,
         raise authority.BackupRuntimeRefused('shared maintenance observed frontier geometry is invalid')
     deadline = time.monotonic()+wait_seconds
     acquired = False
+    try_completed = release_check
     try:
         trace.mark('OWNER_WAIT')
         while True:
@@ -326,39 +374,27 @@ def prove(conn, *, base_backup: str, system_identifier: str,
             if acquired:
                 trace.lock_cleanup = 'UNKNOWN'
                 break
+            if try_completed:
+                try_completed = False
+                trace.mark('PROOF')
+                try:
+                    with conn.transaction():
+                        start = authority._manifest_end_wal(conn, base_backup, segment_size=wal_segment_bytes)
+                        prior = reuse.Owner(conn, dict(system_id=system_identifier, base=base_backup,
+                            start=start, segment_size=wal_segment_bytes), read_only=True)
+                        if prior.proof is not None and prior.proof.end >= observed_frontier:
+                            return _selected_proof(conn, base_backup, system_identifier, wal_segment_bytes,
+                                observed_frontier, trace, release_check=True, prior=prior)
+                except (authority.BackupIntegrityBusy, authority.BackupIntegrityProofExpired):
+                    pass  # The active owner may publish while we inspect its prior receipt.
+                trace.mark('OWNER_WAIT')
             if time.monotonic() >= deadline:
                 raise authority.BackupIntegrityBusy('shared maintenance proof owner wait expired')
             time.sleep(min(.1, max(0, deadline-time.monotonic())))
         trace.mark('PROOF')
         with conn.transaction(), _capture_failure(trace):
-            # The inner owner reacquires this session lock and releases exactly
-            # its own count. The outer count serializes the entire admission.
-            result = authority.require(conn, operation='maintenance common WAL integrity',
-                                       allow_continuity=False, maintenance_refresh=True)
-            trace.mark('RESULT')
-            size = conn.execute("SELECT pg_size_bytes(current_setting('wal_segment_size'))").fetchone()[0]
-            if (result.get('enabled') is not True or result.get('system_identifier') != system_identifier
-                    or size != wal_segment_bytes
-                    or result.get('recoverable_through_wal', '')[:8] != observed_frontier[:8]
-                    or result.get('recoverable_through_wal', '') < observed_frontier):
-                raise authority.BackupRuntimeRefused('shared maintenance proof differs from selected media')
-            current_base = result.get('base_backup')
-            if (type(current_base) is not str
-                    or re.fullmatch(r'base-[0-9]{8}T[0-9]{6}Z', current_base) is None):
-                raise authority.BackupRuntimeRefused('shared maintenance returned malformed base identity')
-            if current_base != base_backup:
-                raise authority.BackupIntegritySelectionMoved('proved runtime base selection moved')
-            owner = reuse.Owner(conn, dict(system_id=system_identifier, base=base_backup,
-                start=result['recoverable_from_wal'], segment_size=size))
-            if owner.proof is None and owner.expired_window is not None:
-                raise authority.BackupIntegrityProofExpired(
-                    completed_uptime=owner.expired_window[0], observed_uptime=owner.expired_window[1])
-            if owner.proof is None or owner.proof.end != result['recoverable_through_wal']:
-                raise authority.BackupRuntimeRefused('shared maintenance completed receipt unavailable')
-            return MaintenanceProof.model_validate(dict(result,
-                schema='sentinel.maintenance-integrity/1', wal_segment_bytes=size,
-                integrity_completed_uptime=owner.proof.completed_uptime,
-                integrity_observed_uptime=owner.uptime))
+            return _selected_proof(conn, base_backup, system_identifier, wal_segment_bytes,
+                                   observed_frontier, trace, release_check=release_check)
     except BaseException as exc:
         trace.remember(exc)
         raise
@@ -383,6 +419,7 @@ def main():
     parser.add_argument('--wal-segment-bytes', required=True, type=int)
     parser.add_argument('--observed-frontier', required=True)
     parser.add_argument('--timeout-seconds', type=int, default=540)
+    parser.add_argument('--release-check', action='store_true')
     args = parser.parse_args()
     budget = args.timeout_seconds
     del args.timeout_seconds
@@ -399,7 +436,8 @@ def main():
     try:
         with psycopg.connect(os.environ['SENTINEL_DATABASE_URL'], autocommit=True,
                              connect_timeout=5, options='-c statement_timeout=120000') as conn:
-            result = prove(conn, **vars(args), _trace=trace)
+            wait = min(300, budget) if args.release_check else 20
+            result = prove(conn, **vars(args), wait_seconds=wait, _trace=trace)
         print(result.model_dump_json())
     except Exception as exc:
         try:
