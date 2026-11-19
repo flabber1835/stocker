@@ -341,6 +341,34 @@ def _canonical_state(conn):
     }
 
 
+def _saved_plan_adoption(conn, cycle_id):
+    """Existence only. Targets require the current generation's adopted plan ID."""
+    rows = conn.execute("""SELECT p.created_at,c.execute_at
+        FROM sentinel_automation_cycles c
+        JOIN sentinel_automation_control a ON a.id=1 AND a.enabled AND NOT a.kill_switch_engaged
+          AND (a.generation,a.deployment_id,a.broker,a.broker_account_id,a.takeover_epoch,
+               a.certificate_sha256,a.config_sha256,a.rollout_mode,a.rollout_version)
+            = (c.control_generation,c.deployment_id,c.broker,c.broker_account_id,c.takeover_epoch,
+               c.certificate_sha256,c.config_sha256,c.rollout_mode,c.rollout_version)
+        JOIN sentinel_execution_plans p ON (p.deployment_id,p.broker,p.broker_account_id,
+               p.takeover_epoch,p.decision_session,p.effective_session,p.rollout_mode,p.rollout_version)
+            = (c.deployment_id,c.broker,c.broker_account_id,c.takeover_epoch,
+               c.decision_session,c.effective_session,c.rollout_mode,c.rollout_version)
+        JOIN sentinel_rollout_state r ON r.id=1 AND r.mode=p.rollout_mode AND r.version=p.rollout_version
+          AND r.certificate_sha256 IS NOT DISTINCT FROM p.rollout_certificate_sha256
+          AND (r.mode='PINNED_1_00' OR r.certificate_sha256=c.certificate_sha256)
+        WHERE c.cycle_id=%s AND c.state IN ('DISCOVERED','REFRESHING_DATA','PREPARING')
+          AND a.authority_verdict='PASS' AND NOT c.historical_state_only
+          AND c.plan_id IS NULL AND c.failure_code IS NULL AND c.failure_detail IS NULL
+          AND (c.data_version IS NULL OR c.data_version=p.data_version::text)
+          AND (c.publication_fingerprint IS NULL OR c.publication_fingerprint=p.publication_fingerprint)
+          AND c.execute_at>statement_timestamp() AND p.created_at<=statement_timestamp()
+          AND p.superseded_by IS NULL LIMIT 2""", (cycle_id,)).fetchall()
+    if len(rows) > 1:
+        raise ValueError('multiple matching saved plans awaiting adoption')
+    return rows[0] if rows else None
+
+
 def _current_plan(conn):
     with conn.cursor() as cur:
         cur.execute(
@@ -4121,8 +4149,18 @@ def _runtime_projection(database_url: str, *, include_book=True,
         from sentinel.panel.intent_memo import read as dated_intent
         preview, preview_error = _read(conn, lambda c: paper_plan_preview.read(
             c, authority_loader=dated_intent), STATEMENT_TIMEOUT_MS, default=None)
+        adopting = None
+        if (preview is None and not preview_error and recovery_cycle
+                and recovery_cycle.get('state') in {'DISCOVERED', 'REFRESHING_DATA', 'PREPARING'}
+                and not recovery_cycle.get('plan_id')):
+            adopting, preview_error = _read(conn, lambda c: _saved_plan_adoption(c, recovery_cycle['cycle_id']),
+                STATEMENT_TIMEOUT_MS, default=None)
         if preview_error:
             plan_row = model.Row('paper_plan','Next paper plan','UNAVAILABLE',model.UNKNOWN,detail=preview_error)
+        elif adopting is not None:
+            plan_row = model.Row('paper_plan', 'Next paper plan', model.AWAITING_PLAN_ADOPTION, model.PENDING,
+                detail='The saved plan matches this cycle. Verification for scheduled execution is pending.',
+                as_of=_utc(adopting[0]), valid_until=_utc(adopting[1]))
         elif preview is None:
             plan_row = model.Row('paper_plan','Next paper plan','NOT PREPARED',model.PENDING,
                 detail='No current next-open plan is ready. Historical plans are not shown as tomorrow’s trades.')
@@ -4265,6 +4303,11 @@ def build_panel(*, state_dir: Path, database_url: str,
     now = now or datetime.now(timezone.utc)
     errors: list[str] = []
     financial_error_owners = {}
+    from sentinel import local_paper
+    try:
+        local_mode = local_paper.enabled()
+    except (RuntimeError, ValueError):
+        local_mode = False  # Existing runtime/account error rows remain visible.
 
     mode = os.environ.get(
         "SENTINEL_REVIEWED_DEPLOYMENT_MODE", "").strip().lower()
@@ -4274,6 +4317,11 @@ def build_panel(*, state_dir: Path, database_url: str,
                 error_owners=financial_error_owners) if mode == "dual" else
             _bounded_dual_authority_rows(database_url, now=now, include_paper=False,
                 error_owners=financial_error_owners))
+    elif local_mode and not mode:
+        financial_rows = [model.Row('financial_activation', 'PAPER financial activation',
+            'ACTIVATION PENDING', model.PENDING, required_current=True,
+            detail='The deployment has not selected a reviewed financial mode.')]
+        trial_details, trial_history, financial_errs = {}, [], []
     else:
         financial_rows, trial_details, trial_history, financial_errs = (
             _trial_rows(database_url, now=now))
@@ -4294,6 +4342,11 @@ def build_panel(*, state_dir: Path, database_url: str,
     errors.extend(runtime_errs)
     automation_rows, automation_errs = _automation_rows(database_url)
     errors.extend(automation_errs)
+    if (local_mode and not mode and any(row.key == 'authority' and row.operational_fact is not None
+            and row.operational_fact.state == 'ACTIVATION_VERDICT_WITHDRAWN' for row in automation_rows)):
+        financial_rows = [replace(financial_rows[0], value='DISABLED · KILL ENGAGED',
+            detail='The installed PAPER runtime has withdrawn its financial verdict. '
+                   'Automation is disabled with the kill switch engaged.')]
     operator_rows, operator_errs = _operator_evidence_rows(
         database_url, now=now)
     errors.extend(operator_errs)
@@ -4313,11 +4366,6 @@ def build_panel(*, state_dir: Path, database_url: str,
         *automation_rows[2:],
     ]
     completed_at = fixed_now or datetime.now(timezone.utc)
-    from sentinel import local_paper
-    try:
-        local_mode = local_paper.enabled()
-    except (RuntimeError, ValueError):
-        local_mode = False  # Existing runtime/account error rows remain visible.
     return model.Panel(rows=[_utc_row(row) for row in rows], now=completed_at,
                        source_errors=errors, financial_source_errors=financial_error_owners,
                        trial_details={**trial_details, **worker_diagnostics},

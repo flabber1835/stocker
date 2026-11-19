@@ -72,3 +72,37 @@ def test_removed_native_admission_is_detected(pg,monkeypatch):
     monkeypatch.setattr(gate,'admitted',missing)
     with pytest.raises(AssertionError):
         test_native_admission_serializes_and_acquires_snapshot_after_wait(pg)
+
+
+def test_discretionary_occupancy_is_bound_to_database_namespace_and_owner(pg):
+    from sentinel.execution.journal import WRITER_LOCK_KEY
+    with (psycopg.connect(pg.sync_dsn) as reader, psycopg.connect(pg.sync_dsn) as other,
+          psycopg.connect(pg.sync_dsn.rsplit('/', 1)[0]+'/postgres') as foreign):
+        reader.execute('SELECT pg_advisory_lock(%s)', (gate.LOCK_KEY,))
+        foreign.execute('SELECT pg_advisory_lock(%s)', (WRITER_LOCK_KEY,))
+        other.execute('SELECT pg_advisory_lock(%s,%s)', (0, WRITER_LOCK_KEY))
+        assert not gate.occupied(reader)
+        assert gate.occupied(other)
+        reader.execute('SELECT pg_advisory_unlock(%s)', (gate.LOCK_KEY,))
+        assert not gate.occupied(other)
+        other.execute('SELECT pg_advisory_lock(%s)', (WRITER_LOCK_KEY,))
+        assert gate.occupied(reader)
+        other.execute('SELECT pg_advisory_unlock(%s)', (WRITER_LOCK_KEY,))
+        assert not gate.occupied(reader)
+
+
+def test_standing_scan_waiter_reserves_foreground_while_shared_lock_holder_is_excluded(pg):
+    with psycopg.connect(pg.sync_dsn) as holder, psycopg.connect(pg.sync_dsn) as worker:
+        holder.execute('SELECT pg_advisory_lock_shared(%s)', (gate.LOCK_KEY,))
+        assert not gate.occupied(holder)
+        thread = Thread(target=lambda:worker.execute('SELECT pg_advisory_lock(%s)', (gate.LOCK_KEY,)))
+        thread.start()
+        try:
+            deadline = time.monotonic()+2
+            while not gate.occupied(holder) and time.monotonic()<deadline:
+                time.sleep(.01)
+            assert gate.occupied(holder)
+        finally:
+            holder.execute('SELECT pg_advisory_unlock_shared(%s)', (gate.LOCK_KEY,))
+            thread.join(3)
+        assert not thread.is_alive()

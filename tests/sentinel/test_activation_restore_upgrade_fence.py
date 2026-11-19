@@ -89,3 +89,48 @@ def test_removed_native_upgrade_guard_is_detected(conn, tmp_path, monkeypatch):
     with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
         with pytest.raises(core.DeployRefused, match='read command or owned cleanup failed'):
             run_reconciliation(conn, tmp_path, monkeypatch, remove_guard=True)
+
+
+@pytest.mark.parametrize('condition', ['missing-anchor', 'wrong-mode', 'ready', 'pin-busy', 'other-busy'])
+def test_combined_activation_cli_checks_native_restore_once_and_types_only_exact_pin(
+        conn, monkeypatch, capsys, condition):
+    import asyncio
+    import json
+    from sentinel import automation_runtime, paper
+    from sentinel.cli import paper as cli
+    from sentinel.feed.publication import CorpusLockUnavailable
+    from sentinel.feed.runtime_schema import require_feed_schema
+    import sentinel_activation_read as protocol
+    # This module's historical fixture installs its feed schema on first
+    # validation. Install it explicitly and restore the production reader.
+    store.migrate_schema(conn)
+    monkeypatch.setattr(store, 'require_feed_schema', require_feed_schema)
+    monkeypatch.setenv('SENTINEL_REVIEWED_DEPLOYMENT_MODE', 'paper' if condition=='wrong-mode' else 'dual')
+    monkeypatch.setattr(automation_runtime, 'shadow_config_from_env', lambda: (True,'primary',50000))
+    if condition != 'missing-anchor':
+        alpaca.database_incarnation(conn)
+    calls = []
+    class OtherBusy(CorpusLockUnavailable):
+        pass
+    def inspect(connection, **kwargs):
+        calls.append(connection)
+        assert connection.execute('SHOW transaction_read_only').fetchone() == ('on',)
+        assert connection.execute('SHOW transaction_isolation').fetchone() == ('repeatable read',)
+        if condition in ('pin-busy','other-busy'):
+            raise (CorpusLockUnavailable if condition=='pin-busy' else OtherBusy)('fixture')
+        return {'database_authorities_match': True}
+    monkeypatch.setattr(paper, 'current_paper_plan', inspect)
+    cfg = SimpleNamespace(database_url=conn.info.dsn, base_url='https://paper-api.alpaca.markets')
+    status = asyncio.run(cli._current_paper_plan(cfg, SimpleNamespace(for_dual_activation=True)))
+    out = capsys.readouterr()
+    if condition == 'missing-anchor':
+        assert status != 0 and 'adopt-restored-account' in out.err and not calls
+    elif condition == 'wrong-mode':
+        assert status != 0 and 'reviewed dual mode' in out.err and not calls
+    elif condition == 'ready':
+        assert status == 0 and json.loads(out.out)['activation_restore_checked'] is True
+    elif condition == 'pin-busy':
+        assert status == protocol.WAIT_EXIT and out.out.strip() == protocol.WAIT_OUTPUT and not out.err
+    else:
+        assert status not in (0,protocol.WAIT_EXIT) and protocol.WAIT_MARKER not in out.out
+    assert all(connection.closed for connection in calls)

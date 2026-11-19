@@ -1,5 +1,9 @@
 # Sentinel current operating contract
 
+[PAPER installation progress](paper-install-observation.md) describes the
+live host phase visible during a dashboard handoff and the checks that bind
+runtime selection to the signed image and the fenced database.
+
 [November 18 close qualification](nov18-close-shadow-health.md) describes the
 SHADOW health handoff during a committed daily publication and the source
 inventory required to upgrade from the locally installed patch.
@@ -91,6 +95,8 @@ November 11 receipt, dashboard, account evidence and opening work corrections.
 [WAL proof refresh overlap](backup-proof-refresh-overlap.md) defines how backed
 PAPER can use a current completed receipt during an exclusive maintenance scrub,
 with renewal scheduled from the original byte-proof clock.
+[Release WAL verification](release-wal-integrity.md) explains how activation
+and GO check the archived suffix against that same proof.
 
 [Market close root corrections](market-close-root-corrections.md) records the
 November 10 retry, verification, exposure and diagnostic corrections and their

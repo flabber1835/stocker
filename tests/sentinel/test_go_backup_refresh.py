@@ -39,6 +39,8 @@ class FakeRunner:
     def run(self, argv, *, env=None, cwd=None):
         command = tuple(str(item) for item in argv)
         self.calls.append((command, dict(env or {})))
+        if command[2:5] == ('--release-integrity', '--release-image', RUNTIME_REF):
+            command = command[:2]+command[5:]
         if command == ("git", "rev-parse", "HEAD"):
             return subprocess.CompletedProcess(command, 0, stdout=COMMIT + "\n", stderr="")
         if command == ("git", "status", "--porcelain=v1", "--untracked-files=all"):
@@ -429,7 +431,7 @@ def test_overlay_requires_exact_capability_and_machine_status_contract():
     assert "WAL_ARCHIVE_UNRESOLVED_FAILURE" in source
     assert "BASE_BACKUP_RECOVERY_MARKER_MISSING" in source
     assert "BACKUP_REFRESH_CALL_CONTRACT_INVALID" in source
-    assert "scripts/sentinel-backup-status.sh" in source
+    assert backup.release_status_command({}) == ["bash", "scripts/sentinel-backup-status.sh"]
     assert "scripts/sentinel-base-backup.sh" in source
 
 
@@ -599,3 +601,31 @@ def test_renewal_proxy_preserves_pre_child_authority_diagnostics(monkeypatch):
         runner, env=_env(), commit=COMMIT, runtime_ref=RUNTIME_REF)
     assert not result.complete and not runner.preparations
     assert "FEED_BINDING_UNAVAILABLE" in runner.last_preparation_output
+
+
+def test_backed_go_requires_common_proof_and_uses_the_certified_image():
+    env = dict(_env(), SENTINEL_LOCAL_PAPER_BACKUP_POLICY='REQUIRED_V1')
+    runner = FakeRunner(_cp(0, out='backup_ready:true'))
+    with pytest.raises(backup.BackupRefreshRefused) as error:
+        backup.ensure_recent_verified_base_backup(runner, env=env, commit=COMMIT, runtime_ref=RUNTIME_REF)
+    assert error.value.reason_code == 'BASE_BACKUP_SHARED_INTEGRITY_REFUSED'
+    assert runner.calls[-1][0][2:] == ('--release-integrity', '--release-image', RUNTIME_REF)
+    assert all('ALPACA_SECRET_KEY' not in values for _, values in runner.calls)
+
+
+def test_backed_go_rechecks_exact_new_base_after_repair_with_the_same_checker():
+    env = dict(_env(), SENTINEL_LOCAL_PAPER_BACKUP_POLICY='REQUIRED_V1')
+    wal = '000000010000000000000003'
+    proof = dict(schema='sentinel.maintenance-integrity/1', enabled=True, system_identifier='123',
+        base_backup=Path(BACKUP_PATH).name, recoverable_from_wal=wal, recovery_marker_wal=wal,
+        recoverable_through_wal=wal, wal_segments=1, timeline_history=None, wal_integrity='sha256-sidecar-v1',
+        integrity_objects_hashed=2, integrity_full_scrub=True, integrity_read_passes=2,
+        integrity_max_reuse_seconds=300, wal_segment_bytes=16*1024**2,
+        integrity_completed_uptime=1000., integrity_observed_uptime=1001.)
+    runner = FakeRunner(_status('BASE_BACKUP_RUNTIME_HORIZON_EXCEEDED', 'horizon exceeded'), _cp(0, out=REFRESH_OUT),
+        _cp(0, out='shared_integrity_proof:'+json.dumps(proof)))
+    result = backup.ensure_recent_verified_base_backup(runner, env=env, commit=COMMIT, runtime_ref=RUNTIME_REF)
+    assert result.refreshed and result.post_refresh_exact_path_verified
+    calls = [a for a, _ in runner.calls if a[:2] == ('bash', 'scripts/sentinel-backup-status.sh')]
+    assert calls == [('bash', 'scripts/sentinel-backup-status.sh', '--release-integrity', '--release-image',
+                      RUNTIME_REF)+extra for extra in [(), ('--backup', BACKUP_PATH)]]

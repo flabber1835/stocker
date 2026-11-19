@@ -128,6 +128,10 @@ def _plan_html(panel: Panel, *, current: bool = True) -> str:
     # the overview nor a retained response can promote an expired plan.
     admitted = row is not None and row.can_show_paper_plan(panel.now)
     if not admitted:
+        if row is not None and row.awaiting_plan_adoption(panel.now):
+            return ('<section class="overview-card next-plan" aria-labelledby="next-plan-title">'
+                    '<h2 id="next-plan-title">Next trading plan</h2>'
+                    '<p>Plan saved · awaiting verification for scheduled execution.</p></section>')
         current = _run_html(panel)
         if current:
             return current
@@ -190,7 +194,7 @@ def _plan_html(panel: Panel, *, current: bool = True) -> str:
 
 def _preparation_html(panel: Panel, *, refresh_pending: bool = False) -> str:
     planned = panel.row('paper_plan')
-    if planned is not None and planned.can_show_paper_plan(panel.now):
+    if planned is not None and (planned.awaiting_plan_adoption(panel.now) or planned.can_show_paper_plan(panel.now)):
         return ''
     work = visible_preparation(panel)
     if work is None:

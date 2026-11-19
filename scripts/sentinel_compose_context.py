@@ -8,7 +8,7 @@ import shlex
 FILES = ('scripts/sentinel_compose_context.py','scripts/sentinel-compose.sh','scripts/sentinel-env.sh','scripts/sentinel_env.py',
     'scripts/sentinel_postgres_helpers.py','scripts/sentinel_host_capabilities.py',
     'scripts/sentinel_strip_cpu_limits.py','docker-compose.sentinel.yml',
-    'docker-compose.sentinel-backup.yml','.env',
+    'docker-compose.sentinel-backup.yml','docker-compose.sentinel-install-progress.yml','.env',
     'artifacts/compose/docker-compose.sentinel.nocpu.yml',
     'artifacts/compose/docker-compose.sentinel.postgres-helpers.yml',
     'artifacts/sentinel/deployment/validated-runtime.env')
@@ -29,6 +29,9 @@ def _bytes(path):
 def _context(root, env):
     root = Path(root).resolve()
     records = []
+    progress = root / (env.get('SENTINEL_AUTHORITY_ARTIFACTS_DIR') or
+                       'artifacts/sentinel/authority') / 'operator-progress'
+    records.append(('operator-progress mount', progress.is_dir() and not progress.is_symlink()))
     for name in FILES:
         raw = _bytes(root/name)
         records.append((name,hashlib.sha256(raw).hexdigest() if raw is not None else None))

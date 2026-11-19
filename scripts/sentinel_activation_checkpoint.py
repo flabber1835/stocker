@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import sys
@@ -12,6 +13,7 @@ import uuid
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sentinel.backup_archive_names import archive_kind
 import sentinel_backup_maintenance as maintenance
+from sentinel_backup_integrity_report import release_status_command
 from sentinel_backup_deadlines import CHAIN_STATUS_SECONDS
 
 ARCHIVE_SECONDS = 60
@@ -188,8 +190,8 @@ def reuse(root, command):
     # Arrival and traversal have separate existing budgets. The enclosing
     # milestone still bounds every command and the complete invocation.
     archive_deadline = None
-    status = command(['bash', 'scripts/sentinel-backup-status.sh', '--backup', backup],
-                     CHAIN_STATUS_SECONDS)
+    status_command = release_status_command(os.environ, image=image)
+    status = command([*status_command, '--backup', backup], CHAIN_STATUS_SECONDS)
     after = maintenance.observe_primary(runner)
     current = maintenance.worker('observe', image, str(root), after, runner)
     if current != selected or after['system_id'] != before['system_id'] or after['timeline'] != before['timeline']:
@@ -199,6 +201,8 @@ def reuse(root, command):
     if maintenance.renewal_due(selected, after):
         raise RuntimeError('activation checkpoint exhausted renewal headroom')
     proof = maintenance.runtime_chain_proof(status, selected, after, str(root))
+    if '--release-integrity' in status_command and proof.get('schema') != 'sentinel.maintenance-integrity/1':
+        raise RuntimeError('backed PAPER activation requires the common physical integrity proof')
     require_coverage(proof, barrier, after)
     if verified_base:
         receipt = maintenance._base_chain_receipt(selected, after, proof)

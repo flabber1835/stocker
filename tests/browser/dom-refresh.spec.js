@@ -50,6 +50,41 @@ for (const residualMs of [3360,1550,670]) {
   });
 }
 
+test('a loaded mobile page receives installation progress without downloading retained HTML',async({page,request})=>{
+  const fixture=JSON.parse(fs.readFileSync(process.env.SENTINEL_DOM_FIXTURE,'utf8'));
+  const docs=fixture.review_documents;
+  const assets=await panelAssets(request,docs.initial);
+  const start=Date.parse(docs.initial.match(/data-generated-at="([^"]+)"/)[1]);
+  let polls=0;
+  const label='Software installation · checking stored authority';
+  await page.clock.install({time:new Date(start)});
+  await page.route('**/*',async route=>{
+    const req=route.request();
+    const path=new URL(req.url()).pathname;
+    if(assets.has(path))return route.fulfill({status:200,...assets.get(path)});
+    if(path!=='/')return route.fulfill({status:404,body:''});
+    if(req.isNavigationRequest())return route.fulfill({status:200,contentType:'text/html',
+      headers:{'X-Sentinel-Panel-Status':'CURRENT'},body:docs.initial});
+    expect(req.headers()['x-sentinel-refresh']).toBe('1');
+    polls++;
+    return route.fulfill({status:503,headers:polls===1?
+      {'Retry-After':'5','X-Sentinel-Deployment-Progress':encodeURIComponent(label)}:{'Retry-After':'5'},body:''});
+  });
+  await page.goto('http://127.0.0.1:18947/');
+  const progress=page.locator('#deployment-progress');
+  const details=page.locator('#system-details');
+  await expect(progress).toBeHidden();
+  await expect(details.locator('#operator-review')).toBeHidden();
+  await page.clock.runFor(5000);
+  await expect(progress).toHaveText(label);
+  await expect(progress).toBeVisible();
+  await expect(page.locator('body')).toHaveAttribute('data-generated-at',new Date(start).toISOString().replace('.000Z','+00:00'));
+  await expect(page.locator('#review-acknowledge')).toHaveCount(0);
+  await page.clock.runFor(5000);
+  await expect(progress).toBeHidden();
+  await expect(details).toHaveJSProperty('open',false);
+});
+
 test('near-expiry PARTIAL renews its current book card with bounded reads',async({page,request})=>{
   const fixture=JSON.parse(fs.readFileSync(process.env.SENTINEL_DOM_FIXTURE,'utf8'));
   const documents=fixture.short_partial;

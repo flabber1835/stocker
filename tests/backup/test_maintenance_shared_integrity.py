@@ -194,7 +194,7 @@ a._hash_objects=count
 assert r.selected() and a.enabled()
 with psycopg.connect(dsn,autocommit=True) as c:
     try:
-        result=(m.prove(c,**v,wait_seconds=0).model_dump() if kind=='maintenance'
+        result=(m.prove(c,**v,wait_seconds=0,release_check=kind=='release').model_dump() if kind!='application'
                 else a.require(c,operation='private child',allow_continuity=False))
         print(json.dumps({'ok':True,'result':result,'reads':len(reads)}))
     except (a.BackupRuntimeRefused,a.BackupRuntimeUnavailable) as e:
@@ -564,13 +564,13 @@ def test_malformed_returned_base_cannot_be_classified_as_selection_movement(medi
 
 
 def test_removed_returned_base_shape_guard_has_an_executed_falsifier(media, monkeypatch):
-    source = inspect.getsource(maintenance.prove)
+    source = inspect.getsource(maintenance._selected_proof)
     guard = ("if (type(current_base) is not str\n"
-             "                    or re.fullmatch(r'base-[0-9]{8}T[0-9]{6}Z', current_base) is None):")
+             "            or re.fullmatch(r'base-[0-9]{8}T[0-9]{6}Z', current_base) is None):")
     assert source.count(guard) == 1
     namespace = vars(maintenance).copy()
     exec(compile(source.replace(guard, 'if False:'), '<removed base identity shape>', 'exec'), namespace)
-    monkeypatch.setattr(maintenance, 'prove', namespace['prove'])
+    monkeypatch.setattr(maintenance, '_selected_proof', namespace['_selected_proof'])
     with pytest.raises(authority.BackupIntegritySelectionMoved):
         test_malformed_returned_base_cannot_be_classified_as_selection_movement(media, monkeypatch, None)
 
@@ -606,7 +606,8 @@ def test_untrusted_receipt_never_grants_reuse(media, bad):
         media.prove()
 
 
-def test_same_metadata_corruption_is_caught_by_original_expiry(media, monkeypatch):
+@pytest.mark.parametrize('release_check', [False, True])
+def test_same_metadata_corruption_is_caught_by_original_expiry(media, monkeypatch, release_check):
     payload = media.namespace/media.start
     original_byte = payload.read_bytes()[:1]
     # pg_stat_file exposes second-resolution modification/change clocks. Bound
@@ -633,7 +634,7 @@ def test_same_metadata_corruption_is_caught_by_original_expiry(media, monkeypatc
     assert reads == []
     expire_proof_clock(monkeypatch)
     with pytest.raises(authority.BackupRuntimeRefused, match='SHA-256'):
-        media.prove()
+        media.prove(release_check=release_check)
     assert media.receipt()['proof']['outcome'] == 'INVALID'
 
 
@@ -654,9 +655,9 @@ def test_unselected_policy_cannot_use_maintenance_bridge(media, monkeypatch):
         media.prove()
 
 
-def test_removing_current_selection_argument_has_an_executed_falsifier(media):
-    source = inspect.getsource(maintenance.prove)
-    old = 'allow_continuity=False, maintenance_refresh=True'
+def test_removing_current_selection_argument_has_an_executed_falsifier(media, monkeypatch):
+    source = inspect.getsource(maintenance._selected_proof)
+    old = 'allow_continuity=False, maintenance_refresh=not release_check'
     assert source.count(old) == 1
     namespace = vars(maintenance).copy()
     exec(compile(source.replace(old, 'allow_continuity=False, base_backup=base_backup'),
@@ -669,7 +670,79 @@ def test_removing_current_selection_argument_has_an_executed_falsifier(media):
     # Substituting ordinary explicit-target admission incorrectly admits the
     # obsolete requested base. The real current-selection contract above
     # would therefore fail under mutation.
-    mutant = namespace['prove'](media.conn, base_backup=media.base,
-        system_identifier=media.system, wal_segment_bytes=SIZE,
-        observed_frontier=media.end, wait_seconds=0)
+    monkeypatch.setattr(maintenance, '_selected_proof', namespace['_selected_proof'])
+    mutant = maintenance.prove(media.conn, base_backup=media.base, system_identifier=media.system,
+        wal_segment_bytes=SIZE, observed_frontier=media.end, wait_seconds=0)
     assert mutant.base_backup == media.base
+
+
+def test_release_reuses_prefix_and_hashes_only_new_wal_during_renewal_headroom(media, monkeypatch):
+    producer = media.prove()
+    stamp = producer['integrity_completed_uptime']
+    expire_proof_clock(monkeypatch, offset=125)
+    with count_reads(monkeypatch) as reads:
+        assert media.prove(release_check=True)['integrity_objects_hashed'] == 0
+        assert reads == []
+        media.advance()
+        appended = media.prove(release_check=True)
+        assert reads == [media.end, media.end]
+    assert appended['integrity_completed_uptime'] == stamp
+    assert appended['recoverable_through_wal'] == media.end
+    # Only the maintenance owner renews the old clock in this interval.
+    with count_reads(monkeypatch) as reads:
+        renewal = media.prove()
+        assert reads == list(media.names) * 2
+    assert renewal['integrity_completed_uptime'] > stamp
+
+
+def test_release_with_competing_owner_requires_current_complete_proof(media):
+    first = media.prove()
+    media.conn.execute('SELECT pg_advisory_lock(%s)', (reuse.LOCK_KEY,))
+    try:
+        hit = media.child('release')
+        assert hit['ok'] and hit['reads'] == 0
+        assert hit['result']['integrity_completed_uptime'] == first['integrity_completed_uptime']
+        media.advance()
+        assert media.child('release') == {'ok': False, 'error': 'BackupIntegrityBusy', 'reads': 0}
+        assert media.receipt()['proof']['end'] == first['recoverable_through_wal']
+    finally:
+        media.conn.execute('SELECT pg_advisory_unlock(%s)', (reuse.LOCK_KEY,))
+    assert media.child('release')['reads'] == 2
+
+
+def test_removed_release_renewal_distinction_falsifies_measured_prefix_work(media, monkeypatch):
+    source = inspect.getsource(maintenance._selected_proof)
+    old = 'maintenance_refresh=not release_check'
+    assert source.count(old) == 1
+    namespace = vars(maintenance).copy()
+    exec(compile(source.replace(old, 'maintenance_refresh=True'), '<release always renews>', 'exec'), namespace)
+    monkeypatch.setattr(maintenance, '_selected_proof', namespace['_selected_proof'])
+    with pytest.raises(AssertionError):
+        test_release_reuses_prefix_and_hashes_only_new_wal_during_renewal_headroom(media, monkeypatch)
+
+
+def test_release_joins_existing_owner_and_extends_frontier_after_session_loss(media, monkeypatch):
+    first = media.prove()
+    media.advance()
+    waits = []
+    with psycopg.connect(media.server.sync_dsn, autocommit=True) as blocker:
+        blocker.execute('SELECT pg_advisory_lock(%s)', (reuse.LOCK_KEY,))
+        def owner_exits(delay):
+            waits.append(delay)
+            blocker.close()
+        monkeypatch.setattr(maintenance.time, 'sleep', owner_exits)
+        with count_reads(monkeypatch) as reads:
+            proof = media.prove(release_check=True, wait_seconds=3)
+    assert len(waits) == 1 and 0 < waits[0] <= .1
+    assert reads == [media.end, media.end]
+    assert proof['integrity_completed_uptime'] == first['integrity_completed_uptime']
+    assert media.conn.execute('SELECT pg_advisory_unlock(%s)', (reuse.LOCK_KEY,)).fetchone() == (False,)
+
+
+@pytest.mark.parametrize('override', [{}, {'system_identifier': '1'}, {'wal_segment_bytes': SIZE*2},
+    {'base_backup': 'base-20261110T235954Z'}, {'observed_frontier': '000000020000000000000002'}])
+def test_release_horizon_repair_requires_matching_physical_selection(media, monkeypatch, override):
+    monkeypatch.setattr(authority, 'RUNTIME_MAX_ARCHIVE_OBJECTS', 0)
+    with pytest.raises(authority.BackupRuntimeRefused) as caught:
+        media.prove(release_check=True, **override)
+    assert isinstance(caught.value, authority.BackupHorizonExceeded) == (not override)

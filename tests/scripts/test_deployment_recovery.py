@@ -261,32 +261,32 @@ def causal_timing():
             'remaining_ms': 0 if expired else 60_000}
 obj._causal_timing = causal_timing
 calls = []
-plan = {'plan': {'plan_id': 'local-plan', 'decision_session': '2026-09-14'},
+plan = {'plan': {'plan_id': 'sentinel-'+'d'*64, 'decision_session': '2026-09-14',
+                 'effective_session':'2026-09-15', 'shadow_snapshot_hash':'a'*64},
         'database_authorities_match': True}
 def command(args, **kwargs):
     calls.append(args)
-    return SimpleNamespace(stdout=json.dumps(plan), stderr='', returncode=0)
-obj._authorized_cli = command
-obj._base_cli = command
-obj._authorized_compose = lambda: ['simulated-compose']
-def run(args, **kwargs):
-    if 'sentinel-authorized-cli' in args:
-        assert kwargs.get('capture') is True
-        assert 'require_plan_matches_verified_shadow' in args[-1]
-        calls.append(['reconcile-shadow'])
+    result = dict(plan)
+    if args == ['current-paper-plan', '--for-dual-activation']:
+        assert kwargs.get('capture') is True and sys.argv[1] == 'dual'
         payload = {'schema': 'sentinel.dual-plan-shadow-reconciliation/1',
                    'verdict': 'MATCH', 'state_sha256': 'a' * 64,
                    'shadow_runtime_authority_sha256': 'b' * 64,
                    'sizing_authority_sha256': 'c' * 64,
-                   'plan_fingerprint': 'd' * 64}
+                   'plan_fingerprint': 'd' * 64, 'decision_session':'2026-09-14',
+                   'effective_session':'2026-09-15'}
         if sys.argv[3] == 'mismatch':
             payload['verdict'] = 'MISMATCH'
-        output = 'SENTINEL_DUAL_RECONCILIATION=' + json.dumps(payload)
+        result.update(activation_restore_checked=True, dual_reconciliation=payload)
         if sys.argv[3] == 'malformed':
-            output = 'SENTINEL_DUAL_RECONCILIATION={invalid-json'
+            return SimpleNamespace(stdout='{invalid-json', stderr='', returncode=0)
         elif sys.argv[3] == 'absent':
-            output = ''
-        return SimpleNamespace(stdout=output, stderr='', returncode=0)
+            del result['dual_reconciliation']
+    return SimpleNamespace(stdout=json.dumps(result), stderr='', returncode=0)
+obj._authorized_cli = command
+obj._base_cli = command
+obj._authorized_compose = lambda: ['simulated-compose']
+def run(args, **kwargs):
     assert args[-3:] == ['up', '-d', 'sentinel-automation']
     return SimpleNamespace(stdout='', stderr='', returncode=0)
 obj.runner = SimpleNamespace(run=run)
@@ -297,13 +297,13 @@ obj._automation_status = lambda: {'enabled': True, 'kill_switch_engaged': True,
 reconciliation_refused = (sys.argv[1] == 'dual' and sys.argv[3] != 'match'
                           and window != 'expired-before-plan')
 try:
-    assert obj.prepare_activate_start('local-certificate', '2026-09-14') == plan
+    assert obj.prepare_activate_start('local-certificate', '2026-09-14')['plan'] == plan['plan']
 except entry.core.DeployRefused as exc:
     if reconciliation_refused:
         expected_reason = {
             'mismatch': 'PAPER plan did not exactly match certified shadow intent',
-            'malformed': 'PAPER reconciliation is not valid UTF-8 JSON',
-            'absent': 'PAPER reconciliation did not return one successful result',
+            'malformed': 'current paper plan is not valid UTF-8 JSON',
+            'absent': 'PAPER plan did not exactly match certified shadow intent',
         }[sys.argv[3]]
         assert expected_reason in str(exc), str(exc)
     else:
@@ -313,8 +313,6 @@ else:
     assert window == 'valid', 'expired timing released paper automation'
     assert not reconciliation_refused, 'invalid reconciliation released paper automation'
 expected = ['prepare-paper-plan', 'current-paper-plan', 'activate-paper-automation']
-if sys.argv[1] == 'dual':
-    expected.insert(2, 'reconcile-shadow')
 if window == 'expired-before-plan':
     expected = []
     assert timing_checks == [1]

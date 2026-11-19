@@ -15,6 +15,39 @@ GOOD=dict(schema='sentinel.dual-plan-shadow-reconciliation/1',verdict='MATCH',
  sizing_authority_sha256='c'*64,plan_fingerprint='d'*64)
 MARKER='SENTINEL_DUAL_RECONCILIATION='
 
+def prepared_plan(decision, effective):
+    plan = dict(plan_id='sentinel-'+GOOD['plan_fingerprint'], decision_session=decision,
+                effective_session=effective, shadow_snapshot_hash=GOOD['state_sha256'])
+    return dict(plan=plan, database_authorities_match=True)
+
+def activation_read(prepared, *, verdict='MATCH'):
+    plan = prepared['plan']
+    witness = dict(GOOD, decision_session=plan['decision_session'],
+                   effective_session=plan['effective_session'], verdict=verdict)
+    return dict(prepared, activation_restore_checked=True, dual_reconciliation=witness)
+
+@pytest.mark.parametrize('field', ['plan_fingerprint','decision_session','effective_session',
+ 'state_sha256','missing-restore','wrong-authority'])
+def test_combined_host_read_rejects_unbound_or_missing_native_witness(tmp_path,field):
+    obj = install.InstallAnytimeDeploy(SimpleNamespace(), SimpleNamespace(env={}), tmp_path,
+                                       reviewed_validation=SimpleNamespace(mode='dual'))
+    prepared = prepared_plan('2026-10-08', '2026-10-09')
+    current = activation_read(prepared)
+    if field == 'missing-restore':
+        del current['activation_restore_checked']
+    elif field == 'wrong-authority':
+        current['database_authorities_match'] = 1
+    else:
+        current['dual_reconciliation'][field] = 'e'*64
+    reads = []
+    def read(args, **kwargs):
+        reads.append(args)
+        return SimpleNamespace(returncode=0, stdout=json.dumps(current))
+    obj._base_cli = read
+    with pytest.raises(install.core.DeployRefused):
+        obj._check_prepared_activation_plan(prepared, '2026-10-08')
+    assert reads == [['current-paper-plan', '--for-dual-activation']]
+
 def reader(raw):
  obj=install.InstallAnytimeDeploy(SimpleNamespace(),SimpleNamespace(env={}),Path('/tmp'))
  obj.phase=lambda *a:None
@@ -27,7 +60,7 @@ def test_exact_reconciliation_marker_is_accepted():
 
 @pytest.mark.parametrize('corruption',[
  'duplicate-verdict','nonfinite','duplicate-marker','malformed-then-valid',
- 'nonobject','malformed','wrong-fingerprint','mismatch'])
+ 'nonobject','malformed','wrong-fingerprint','numeric-digest','mismatch'])
 def test_remaining_reconciliation_wire_corruption_refuses(corruption):
  raw=json.dumps(GOOD)
  if corruption=='duplicate-verdict':raw=raw.replace('"verdict": "MATCH"','"verdict":"MISMATCH","verdict":"MATCH"')
@@ -37,6 +70,7 @@ def test_remaining_reconciliation_wire_corruption_refuses(corruption):
  elif corruption=='nonobject':raw='[]'
  elif corruption=='malformed':raw='{invalid'
  elif corruption=='wrong-fingerprint':raw=raw.replace('d'*64,'foreign')
+ elif corruption=='numeric-digest':raw=json.dumps(dict(GOOD,state_sha256=int('1'*64)))
  elif corruption=='mismatch':raw=raw.replace('MATCH','MISMATCH')
  with pytest.raises(install.core.DeployRefused):reader(MARKER+raw)
 

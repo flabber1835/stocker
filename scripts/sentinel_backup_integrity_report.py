@@ -5,6 +5,25 @@ import json
 from datetime import datetime, timezone, timedelta
 
 
+def release_status_command(values, *, image=None):
+    command = ['bash', 'scripts/sentinel-backup-status.sh']
+    if values.get('SENTINEL_LOCAL_PAPER_BACKUP_POLICY') == 'REQUIRED_V1':
+        command.append('--release-integrity')
+        if image is not None:
+            command.extend(['--release-image', image])
+    return command
+
+
+def release_proof(output):
+    prefix = 'shared_integrity_proof:'
+    if not isinstance(output, str) or len(output) > 65536:
+        raise ValueError('invalid release integrity output')
+    records = [line[len(prefix):] for line in output.splitlines() if line.startswith(prefix)]
+    if len(records) != 1:
+        raise ValueError('release requires a single common integrity proof')
+    return validate(json.loads(records[0], object_pairs_hook=_unique_object))
+
+
 FAILURE_PREFIX = 'shared_integrity_failure:'
 FAILURE_SCHEMA = 'sentinel.maintenance-integrity-failure/2'
 FAILURE_CODES = frozenset(('BUSY PROOF_WINDOW_EXPIRED SELECTION_MOVED POLICY_REFUSED PHYSICAL_UNAVAILABLE '

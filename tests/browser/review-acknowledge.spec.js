@@ -34,6 +34,11 @@ for(const outcome of ['accepted','refused']) {
     });
     await page.goto('http://127.0.0.1:18947/');
     const review=page.locator('#operator-review');
+    const systemDetails=page.locator('#system-details');
+    await expect(systemDetails.locator('#operator-review')).toHaveCount(1);
+    await expect(review).toBeHidden();
+    await systemDetails.locator(':scope > summary').focus();
+    await page.keyboard.press('Enter');
     await expect(review).toBeVisible();
     await expect(review.locator('h2')).toHaveText('Health history');
     await expect(review.locator('a[href="#system-details"]')).toBeVisible();
@@ -53,6 +58,8 @@ for(const outcome of ['accepted','refused']) {
       await expect.poll(()=>navigations).toBe(2);
       await expect(page.locator('body')).toHaveAttribute('data-health','green');
       await expect(page.locator('#review-acknowledge')).toHaveCount(0);
+      await expect(review).toBeHidden();
+      await systemDetails.locator(':scope > summary').click();
       await expect(review).toContainText('Expected operation');
     } else {
       await expect(button).toBeDisabled();

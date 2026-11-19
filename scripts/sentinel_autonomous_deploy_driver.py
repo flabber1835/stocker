@@ -641,24 +641,7 @@ c.rollback(); c.close()
         prepare_args += self._initial_paper_recovery_args()
         prepared, fee_deadline = self._prepare_activation_plan(
             prepare_args, certificate_sha256, decision_session, timing)
-        current = core._json_output(self._base_cli(
-            ["current-paper-plan"], capture=True), label="current paper plan")
-        prepared_plan = prepared.get("plan") or {}
-        current_plan = current.get("plan") or {}
-        if prepared_plan.get("decision_session") != decision_session:
-            raise core.DeployRefused(
-                "prepared plan decision session differs from signed warmup")
-        if current.get("database_authorities_match") is not True:
-            raise core.DeployRefused(
-                "current plan database authorities do not match")
-        if (not prepared_plan.get("plan_id")
-                or current_plan.get("plan_id") != prepared_plan.get("plan_id")
-                or current_plan.get("decision_session") != decision_session):
-            raise core.DeployRefused(
-                "current plan re-read is not the exact plan just prepared")
-        if (self.reviewed_validation is not None
-                and self.reviewed_validation.mode == "dual"):
-            self._verify_dual_plan_shadow_reconciliation()
+        current = self._check_prepared_activation_plan(prepared, decision_session)
 
         if fee_deadline:
             self._native_fee_wait_seconds(fee_deadline)

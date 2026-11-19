@@ -264,9 +264,12 @@ def test_actual_host_handoff_owns_processes_and_all_three_lock_boundaries(
                 control['enabled'] = True
             elif args[0] == 'release-paper-automation-kill-switch':
                 control['kill_switch_engaged'] = False
-            result = {'plan': {'plan_id': 'exact', 'decision_session': '2026-10-08'},
-                      'database_authorities_match': True}
+            from tests.sentinel.test_activation_completion_protocol import prepared_plan, activation_read
+            result = prepared_plan('2026-10-08', '2026-10-09')
             events.append(args[0])
+            if '--for-dual-activation' in args:
+                result = activation_read(result)
+                events.append('reconcile-plan')
             return SimpleNamespace(stdout=json.dumps(result), returncode=0)
         obj._authorized_cli = obj._base_cli = cli
         def restore():

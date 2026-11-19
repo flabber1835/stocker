@@ -179,35 +179,47 @@ def _result(conn, key, state, now, *, subject):
         events=store.recent(conn, key), token=token)
 
 
-def record_verification_failure_owned(conn, *, scope, attempt):
+def record_verification_failure_owned(conn, *, scope, attempt, episode):
     """Record a native historical incident; current active facts stay separate."""
     from sentinel.panel import observer_failure, review_schema
     store.require(scope in {'SHADOW', 'PAPER'}, 'verification review scope invalid')
     raw = (attempt.model_dump(mode='json', by_alias=True)
            if isinstance(attempt, observer_failure.Attempt) else attempt)
     current = observer_failure.Attempt.model_validate_json(store.canonical(raw))
-    if current.outcome != 'FAILED':
-        return False
+    store.require(current.outcome == 'FAILED', 'verification failure required')
     store.require(current.diagnostic is not None and current.diagnostic.outcome == 'FAILED',
                   'verification failure diagnostic missing')
     if not review_schema.require_schema(conn, allow_absent=True):
-        return False
+        return None, False
     key, now = store.scope(conn), store.database_now(conn)
     state = store.load_locked(conn, key, now)
     event_key = 'verification-failure:'+scope+':'+current.attempt_id
-    if store.has_event(conn, key, event_key):
-        return False
-    store.append(conn, key, state, kind='REVIEW', event_key=event_key,
-        details={'component': 'verifier', 'reason': 'Verification attempt failed',
-                 'conditions': ['shadow_verification' if scope == 'SHADOW' else 'paper_reconciliation'],
-                 'verification_scope': scope,
-                 'attempt': current.model_dump(mode='json', by_alias=True)}, now=now)
+    archive = hashlib.sha256(store.canonical(
+        ['sentinel.verification-repeat-history/1', key, scope])).hexdigest()
+    if store.has_event(conn, key, event_key) or store.has_event(conn, archive, event_key):
+        return episode, False
+    details = {'component': 'verifier', 'reason': 'Verification attempt failed',
+               'conditions': ['shadow_verification' if scope == 'SHADOW' else 'paper_reconciliation'],
+               'verification_scope': scope, 'attempt': current.model_dump(mode='json', by_alias=True)}
+    continuing = (episode is not None and episode.subject_sha256 == current.subject_sha256
+                  and episode.diagnostic == current.diagnostic and conn.execute(
+                      f'SELECT 1 FROM {review_schema.EVENTS} WHERE scope_sha256=%s AND event_key=%s '
+                      'AND sequence>%s', (key, 'verification-failure:'+scope+':'+episode.attempt_id,
+                                         state['reviewed_head'])).fetchone() is not None)
+    if continuing:
+        # Preserve every original failure while the same outstanding review stays actionable.
+        details['first_attempt_id'] = episode.attempt_id
+        key = archive
+        state = store.load_locked(conn, archive, now)
+    else:
+        episode = current
+    store.append(conn, key, state, kind='REVIEW', event_key=event_key, details=details, now=now)
     if not state['view_sha256']:
         state['view_sha256'] = hashlib.sha256(store.canonical(
             {'schema': 'sentinel.unobserved-operational-view/1',
              'scope': key, 'attempt_id': current.attempt_id})).hexdigest()
     store.save(conn, key, state, now)
-    return True
+    return episode, True
 
 
 class Recorder:

@@ -598,10 +598,13 @@ def test_public_dual_activation_reconciles_before_enabling_automation(
         SimpleNamespace(env={}), tmp_path,
         reviewed_validation=SimpleNamespace(mode="dual"))
     events = []
-    plan = {"plan": {"plan_id": "exact", "decision_session": "2026-08-14"},
-            "database_authorities_match": True}
+    from tests.sentinel.test_activation_completion_protocol import prepared_plan, activation_read
+    plan = prepared_plan('2026-08-14', '2026-08-17')
     def cli(args, **kwargs):
         events.append(args[0])
+        if '--for-dual-activation' in args:
+            payload = activation_read(plan, verdict='MATCH' if reconciliation_passes else 'MISMATCH')
+            return SimpleNamespace(stdout=json.dumps(payload), stderr='', returncode=0)
         return SimpleNamespace(stdout=json.dumps(plan), stderr="", returncode=0)
     obj._authorized_cli = obj._base_cli = cli
     obj.quiesce_activation_writers = lambda: None
@@ -619,23 +622,19 @@ def test_public_dual_activation_reconciles_before_enabling_automation(
             raise core.DeployRefused('restore qualification refused')
         return '/backups/base/base-20261007T060000Z'
     obj._post_deploy_backup = recovery
-    def reconcile():
-        events.append("reconcile-shadow")
-        if not reconciliation_passes:
-            raise core.DeployRefused("shadow intent mismatch")
-    obj._verify_dual_plan_shadow_reconciliation = reconcile
+    obj._verify_dual_plan_shadow_reconciliation = lambda: pytest.fail("duplicate pre-enable proof")
     if reconciliation_passes and backup_ready:
         obj.prepare_activate_start("certificate", "2026-08-14")
         assert events == ["prepare-paper-plan", "current-paper-plan",
-            "reconcile-shadow", "activate-paper-automation",
+            "activate-paper-automation",
             "verify-services", 'verify-recovery', "release-paper-automation-kill-switch", "resume-runtime"]
     else:
-        with pytest.raises(core.DeployRefused, match="shadow intent mismatch|restore qualification refused"):
+        with pytest.raises(core.DeployRefused, match="certified shadow intent|restore qualification refused"):
             obj.prepare_activate_start("certificate", "2026-08-14")
         if not reconciliation_passes:
-            assert events == ["prepare-paper-plan", "current-paper-plan", "reconcile-shadow"]
+            assert events == ["prepare-paper-plan", "current-paper-plan"]
         else:
-            assert events == ['prepare-paper-plan', 'current-paper-plan', 'reconcile-shadow',
+            assert events == ['prepare-paper-plan', 'current-paper-plan',
                 'activate-paper-automation', 'verify-services', 'verify-recovery']
         assert 'release-paper-automation-kill-switch' not in events
 

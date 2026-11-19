@@ -36,9 +36,16 @@ MAX_AGE_HOURS="$((10#$MAX_AGE_HOURS))"
 
 EXPECTED=""
 SHARED_INTEGRITY=0
-if [ "${1:-}" = "--shared-integrity" ]; then
+RELEASE_ARGS=()
+if [ "${1:-}" = "--shared-integrity" ] || [ "${1:-}" = "--release-integrity" ]; then
+  if [ "$1" = "--release-integrity" ]; then RELEASE_ARGS=(--release-check); fi
   SHARED_INTEGRITY=1
   shift
+fi
+if [ "${#RELEASE_ARGS[@]}" -eq 1 ] && [ "${1:-}" = "--release-image" ]; then
+  [ "$#" -ge 2 ] || refuse "USAGE_INVALID" 2 "release image is missing"
+  RELEASE_ARGS+=(--release-image "$2")
+  shift 2
 fi
 if [ "$SHARED_INTEGRITY" -eq 1 ] && [ "${1:-}" = "--timeout-seconds" ]; then
   [ "$#" -ge 2 ] || refuse "USAGE_INVALID" 2 "shared integrity timeout is missing"
@@ -51,7 +58,7 @@ fi
 if [ "$#" -gt 0 ]; then
   [ "$#" -eq 2 ] && [ "$1" = "--backup" ] ||
     refuse "USAGE_INVALID" 2 \
-      "usage: sentinel-backup-status.sh [--shared-integrity [--timeout-seconds N]] [--backup PATH]"
+      "usage: sentinel-backup-status.sh [--shared-integrity|--release-integrity [--release-image REF]] [--timeout-seconds N] [--backup PATH]"
   EXPECTED="$2"
 fi
 
@@ -207,12 +214,16 @@ if [ "$SHARED_INTEGRITY" -eq 1 ]; then
   if CHAIN="$("$PYTHON" scripts/sentinel_backup_shared_integrity.py \
       --base-backup "$NAME" --system-identifier "$SYSTEM_ID" \
       --wal-segment-bytes "$WAL_BYTES" --observed-frontier "$LAST_WAL" \
-      --timeout-seconds "$SHARED_REMAINING")"; then
+      --timeout-seconds "$SHARED_REMAINING" "${RELEASE_ARGS[@]}")"; then
     :
   else
     shared_rc=$?
     # Only the typed host record admits a transient. Preserve its actual exit
     # for the coordinator, which independently validates that closed record.
+    if [ "$shared_rc" -eq 5 ] && [ "${#RELEASE_ARGS[@]}" -gt 0 ] &&
+        [ "$CHAIN" = 'SENTINEL_BACKUP_CHAIN_REASON=RUNTIME_HORIZON_EXCEEDED' ]; then
+      refuse "BASE_BACKUP_RUNTIME_HORIZON_EXCEEDED" 4 "selected base exceeds the runtime restore-horizon budget"
+    fi
     if [ "$shared_rc" -ne 75 ]; then shared_rc=4; fi
     refuse "BASE_BACKUP_SHARED_INTEGRITY_REFUSED" "$shared_rc" \
       "common two-pass WAL proof failed; legacy verification is not a fallback"

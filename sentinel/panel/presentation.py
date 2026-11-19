@@ -913,6 +913,9 @@ def preparation_stage(panel) -> str | None:
             return 'Publishing closing data'
         if phases & {'SHADOW_ATTESTATION', 'AUTOMATION_SHADOW_ATTESTATION', 'READINESS_HANDOFF'}:
             return 'Preparing strategy verification'
+    saved_plan = panel.row('paper_plan')
+    if saved_plan is not None and saved_plan.awaiting_plan_adoption(panel.now):
+        return 'Plan saved · awaiting verification for scheduled execution'
     work = visible_preparation(panel)
     if work is not None:
         if work.active_at(panel.now):

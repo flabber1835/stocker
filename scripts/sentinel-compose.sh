@@ -132,6 +132,13 @@ HELPER_GRAPH="$("$PYTHON" scripts/sentinel_postgres_helpers.py \
   --output artifacts/compose/docker-compose.sentinel.postgres-helpers.yml)" || exit 2
 if [ -n "$HELPER_GRAPH" ]; then COMPOSE_ARGS+=(-f "$HELPER_GRAPH"); fi
 
+# The host publishes only finite diagnostic phases in this dedicated directory.
+# Standalone Compose users have no requirement to provision release telemetry.
+progress_dir="${SENTINEL_AUTHORITY_ARTIFACTS_DIR:-./artifacts/sentinel/authority}/operator-progress"
+if [ -d "$progress_dir" ] && [ ! -L "$progress_dir" ]; then
+  COMPOSE_ARGS+=(-f docker-compose.sentinel-install-progress.yml)
+fi
+
 if [ "$RUN" -eq 1 ]; then
   . scripts/sentinel-backup-lib.sh
   if [ "${SENTINEL_BACKUP_OUTAGE_POLICY:-}" = BOUNDED_30H_V1 ]; then

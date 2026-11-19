@@ -860,11 +860,13 @@ def test_signed_install_selects_exact_runtime_only_after_durable_fence(monkeypat
                         lambda obj: calls.append('migrated'))
     def metadata(command, **kwargs):
         assert 'review_schema import install_quiescent' in command[-1]
-        assert kwargs == {'timeout':150} and fenced
+        assert kwargs == {'timeout':150}
+        if 'install_quiescent(c)' in command[-1] and not fenced:
+            raise core.DeployRefused('quiescent schema installation requires disabled control and kill')
         calls.append('presentation-schema')
     obj = install.InstallationDeploy(SimpleNamespace(), SimpleNamespace(env={},run=metadata), tmp_path)
     obj.runtime_repo_digest = IMAGE
-    obj._automation_status = lambda: {'enabled': not fenced, 'kill_switch_engaged': fenced}
+    obj._automation_status = lambda: pytest.fail('duplicated the transactional fence read')
     if fenced:
         obj.quiesce_backup_and_migrate()
         assert selection._pointer_digest(selection.POINTER) == IMAGE

@@ -134,6 +134,9 @@ def opening_schedule(cycle, events=()):
     return saved
 
 
+AWAITING_PLAN_ADOPTION = 'SAVED · AWAITING VERIFICATION'
+
+
 class OperationalFact(BaseModel):
     """Closed producer facts for human workflow health, independent of copy."""
     model_config = ConfigDict(extra='forbid', frozen=True, revalidate_instances='always')
@@ -713,6 +716,11 @@ class Row:
             and (run.intent.cycle_id, run.intent.plan_id) == (opening.cycle_id, opening.plan_id)
             and run.updated_at == self.as_of == opening.started_at
             and self.valid_until == opening.deadline and opening.started_at <= now < opening.deadline)
+
+    def awaiting_plan_adoption(self, now: datetime) -> bool:
+        return (self.key == 'paper_plan' and self.status == PENDING and self.value == AWAITING_PLAN_ADOPTION
+                and self.paper_plan is None and self.as_of is not None and self.valid_until is not None
+                and self.as_of <= now < self.valid_until)
 
     def can_show_paper_plan(self, now: datetime) -> bool:
         """A saved future intent is distinct from today's execution evidence."""
@@ -1843,7 +1851,9 @@ def automation_cycle_row(*, installed: Optional[bool],
                required_current=bool(enabled), recovery=recovery,
                valid_until=(recovery.deadline if recovery is not None
                             and recovery.phase == 'AUTOMATION_CLOSING_DATA' else funding_deadline),
-               operational_fact=(OperationalFact(kind='AUTOMATION_CYCLE', state=normalized, schedule=schedule)
+               operational_fact=(OperationalFact(kind='AUTOMATION_CYCLE', state=normalized,
+                   session=decision_session if normalized in {'DISCOVERED', 'REFRESHING_DATA', 'PREPARING'} else None,
+                   schedule=schedule)
                    if normalized in {'DISCOVERED', 'REFRESHING_DATA', 'PREPARING', 'PLAN_READY',
                        'WAITING_OPEN', 'EXECUTING', 'RECONCILING', 'RETRY_WAIT', 'SUCCEEDED',
                        'BLOCKED', 'MISSED_STATE_ONLY', 'SUPERSEDED'} else None))
@@ -2132,6 +2142,7 @@ def automation_step_rows(
                  'WAITING_OPEN', 'EXECUTING', 'RECONCILING', 'RETRY_WAIT', 'SUCCEEDED',
                  'BLOCKED', 'MISSED_STATE_ONLY', 'SUPERSEDED'}:
         rows = [replace(row, operational_fact=OperationalFact(kind='AUTOMATION_CYCLE', state=state,
+                    session=cycle.get('decision_session') if state in {'DISCOVERED', 'REFRESHING_DATA', 'PREPARING'} else None,
                     schedule=schedule if row.required_current else None))
                 for row in rows]
     return rows

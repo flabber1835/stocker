@@ -249,7 +249,17 @@ class Campaign:
             with journal.writer_lock(self.c): journal.adopt_current_plan(self.c, self.plan)
         if cmd in {'prepare-paper-plan','current-paper-plan'}:
             current = journal.latest_plan(self.c); self.c.rollback()
-            payload = dict(plan=dict(plan_id=current.plan_id,decision_session=current.decision_session.isoformat()),database_authorities_match=True)
+            payload = dict(plan=current.to_dict(), database_authorities_match=True)
+            if '--for-dual-activation' in args:
+                self.events.append('reconciliation')
+                from tests.sentinel.test_activation_completion_protocol import GOOD
+                witness = dict(GOOD, state_sha256=self.state.state_hash,
+                               plan_fingerprint=current.fingerprint(),
+                               decision_session=current.decision_session.isoformat(),
+                               effective_session=current.effective_session.isoformat())
+                if self.failure == 'reconciliation':
+                    witness['verdict'] = 'MISMATCH'
+                payload.update(activation_restore_checked=True, dual_reconciliation=witness)
             if self.failure == 'plan-mismatch' and cmd == 'current-paper-plan': payload['plan']['plan_id']='foreign'
             if self.failure == 'plan-json' and cmd == 'prepare-paper-plan': return self.result('{"plan":{},"plan":{}}')
             return self.result(json.dumps(payload))

@@ -335,8 +335,10 @@ post-close verification or authorizes an order. Human health remains amber
 while recorded incidents await explicit operator review; green requires a
 current signed review acknowledgement and every current proof above.
 
-Render the health-history review on the ordinary page with the recorded event
-list and an accessible link to current system details. Show its acknowledgement
+Place the complete Health history card at the bottom of the System details
+disclosure. Keep the disclosure closed on first load and preserve its open state
+across in-place refresh. Include the recorded event list and an accessible link
+to the current checks. Show its acknowledgement
 button only for a strict current page with a server-issued eligible token. A
 button introduced by in-place refresh must work without a page reload. The
 click sends the existing same-origin, exact-view action once; only the server

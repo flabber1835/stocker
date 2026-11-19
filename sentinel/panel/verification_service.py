@@ -470,6 +470,7 @@ def _financial_publication(conn, database_url, scope, value, previous, *, now):
 
 def _refresh_readers(conn, readers, database_url, owner_id, previous, stopped, deadline,
                      *, on_publication=None):
+    from sentinel import local_paper, snapshot_scan_admission
     from sentinel.panel import attempt_store
     for scope, reader in readers.items():
         if stopped.is_set():
@@ -479,16 +480,25 @@ def _refresh_readers(conn, readers, database_url, owner_id, previous, stopped, d
                 conn, reader, database_url, owner_id, previous, deadline,
                 on_publication=on_publication):
             continue
-        reserve = None
-        if reader.completed is not None:
-            from sentinel import local_paper
-            if local_paper.enabled():
-                with conn.transaction(force_rollback=True):
-                    now = datetime.now(timezone.utc)
+        options = {}
+        if local_paper.enabled():
+            with conn.transaction(force_rollback=True):
+                now = datetime.now(timezone.utc)
+                # A long observation may finish between polls and be due for
+                # a retry as soon as read() consumes it. Sample before admission
+                # even on the first completed result. Reader owns eligibility.
+                if snapshot_scan_admission.occupied(conn):
+                    options.update(scan_occupied=True,
+                                   defer_refresh_until=now+timedelta(seconds=OWNER_POLL_SECONDS))
+                elif reader.completed is not None:
                     reserve = _opening_scan_reserve(conn, now) if scope == 'SHADOW' else None
                     reserve = reserve or _closing_scan_reserve(conn, now)
-        options = {} if reserve is None else {'defer_refresh_until': reserve}
+                    if reserve is not None:
+                        options['defer_refresh_until'] = reserve
         result = reader.read(database_url, include_paper=scope == 'PAPER', **options)
+        if stopped.is_set():
+            conn.rollback()
+            return
         value = snapshot(reader, result, scope=scope, now=datetime.now(timezone.utc))
         financial_changed = False
         current = previous.get(scope)
@@ -518,6 +528,9 @@ def _refresh_readers(conn, readers, database_url, owner_id, previous, stopped, d
                 scope=scope, attempt=attempt, now=datetime.now(timezone.utc)) or diagnostic_changed
         if financial_changed or diagnostic_changed or retained is not None:
             _require_iteration_time(deadline)
+            if stopped.is_set():
+                conn.rollback()
+                return
             conn.commit()
             if on_publication is not None:
                 on_publication()
@@ -612,12 +625,14 @@ def run(*, stopped=None):
                     and time.monotonic() < owner['deadline'])
         slot = BoundedSemaphore(1)
         from functools import partial
+        from sentinel import supervisor_io
         from sentinel.panel.mirror_history import ClassificationMemo
         try:
             paper_observer = partial(diagnosed_observe, history_memo=ClassificationMemo())
         except (OSError, MemoryError):
             paper_observer = diagnosed_observe
         readers = {scope:financial.Reader(evidence_reader=read_projection.subject_for,
+            runner=partial(supervisor_io.run, cancelled=stopped.is_set),
             observer=paper_observer if scope == 'PAPER' else diagnosed_observe,
             expected_keys=read_projection.PAPER_KEYS if scope == 'PAPER' else read_projection.SHADOW_KEYS,
             unknown_factory=paper_unknown if scope == 'PAPER' else None,execution_slot=slot,

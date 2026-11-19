@@ -87,6 +87,10 @@ def test_installed_entry_keeps_one_fenced_lineage_read(monkeypatch,tmp_path,faul
         assert json.loads((tmp_path/'activation-result.json').read_text())['activation_state']=='ACTIVE'
     assert software_calls==[True]
     assert quiesces==[True,True]
+    assert events.count('git') == 1  # Initial admission before GO.
+    git_calls = [argv for argv, _ in host.calls if argv[0] == 'git']
+    assert [argv[1] for argv in git_calls] == ['status', 'symbolic-ref', 'rev-parse', 'rev-parse']
+    assert git_calls[-2:] == [['git', 'rev-parse', 'HEAD'], ['git', 'rev-parse', 'origin/main']]
 
 
 def test_removed_final_fenced_guard_is_detected(monkeypatch,tmp_path):

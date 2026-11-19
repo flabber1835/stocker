@@ -66,6 +66,7 @@ class History(BaseModel):
     scope: Scope
     context_sha256: str = Field(pattern=r'^[a-f0-9]{64}$')
     latest: observer_failure.Attempt
+    open_review: observer_failure.Attempt | None = None
     failures: tuple[FailedAttempt, ...] = Field(max_length=MAX_FAILURES)
     recorded_at: datetime
     valid_until: datetime
@@ -73,6 +74,11 @@ class History(BaseModel):
 
     @model_validator(mode='after')
     def consistent(self):
+        if self.open_review is not None and (
+                self.open_review.outcome != 'FAILED' or self.open_review.diagnostic is None
+                or self.open_review.subject_sha256 != self.latest.subject_sha256
+                or self.latest.outcome in {'VERIFIED', 'SUPERSEDED'}):
+            raise ValueError('verification review episode is inconsistent')
         if (any(value.utcoffset() != timedelta(0) for value in (self.recorded_at, self.valid_until))
                 or self.valid_until-self.recorded_at != timedelta(seconds=OBSERVATION_SECONDS)
                 or len({item.first.attempt_id for item in self.failures}) != len(self.failures)
@@ -161,8 +167,15 @@ def publish_owned(conn, *, owner_id, scope, attempt, now):
     _require(owner is not None, 'DIAGNOSTIC_OWNER_LOST')
     bound = context(conn)
     previous = _read_owned(conn, scope=scope, context_sha256=bound, now=now, lock=True)
-    if previous is not None and previous.latest == current and previous.runtime == runtime:
-        return record_verification_failure_owned(conn, scope=scope, attempt=current)
+    episode = previous.open_review if (previous is not None and previous.runtime == runtime
+        and previous.latest.subject_sha256 == current.subject_sha256
+        and current.outcome not in {'VERIFIED', 'SUPERSEDED'}) else None
+    inserted = False
+    if current.outcome == 'FAILED':
+        episode, inserted = record_verification_failure_owned(conn, scope=scope, attempt=current, episode=episode)
+    if (previous is not None and previous.latest == current and previous.runtime == runtime
+            and previous.open_review == episode):
+        return inserted
     failures = list(previous.failures) if previous is not None else []
     matched = False
     for index, item in enumerate(failures):
@@ -176,7 +189,7 @@ def publish_owned(conn, *, owner_id, scope, attempt, now):
         failures.append(FailedAttempt.model_validate(dict(first=current, latest=current,
             first_recorded_at=now, last_recorded_at=now, runtime=runtime)))
     value = History.model_validate(dict(schema=SCHEMA, scope=scope_key(scope),
-        context_sha256=bound, latest=current, failures=tuple(failures[-MAX_FAILURES:]),
+        context_sha256=bound, latest=current, open_review=episode, failures=tuple(failures[-MAX_FAILURES:]),
         recorded_at=now, valid_until=now+timedelta(seconds=OBSERVATION_SECONDS), runtime=runtime))
     encoded = value.model_dump(mode='json', by_alias=True)
     _canonical(encoded)
@@ -198,5 +211,4 @@ def publish_owned(conn, *, owner_id, scope, attempt, now):
         # snapshot. Version the locked owner on first insert, preserving its lease.
         conn.execute(f'UPDATE {schema.OWNER} SET expires_at=expires_at '
                      'WHERE id=1 AND owner_id=%s', (owner_id,))
-    record_verification_failure_owned(conn, scope=scope, attempt=current)
     return True

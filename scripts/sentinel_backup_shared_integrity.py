@@ -82,7 +82,10 @@ def observe(args, *, values=None, runner=None, bounded=run_bounded):
         remaining(120)
         child = environment(values)
         stage = 'HOST_IMAGE'
-        image = runtime_image(runner)
+        release_image = getattr(args, 'release_image', None)
+        if release_image is not None and not args.release_check:
+            raise Refused('an explicit release image requires release admission')
+        image = runtime_image(runner) if release_image is None else runtime_image(runner, release_image=release_image)
         stage = 'HOST_POSTGRES'
         container = runner(COMPOSE+['ps', '-q', 'sentinel-postgres'])
         if re.fullmatch(r'[0-9a-f]{64}', container) is None:
@@ -103,6 +106,8 @@ def observe(args, *, values=None, runner=None, bounded=run_bounded):
         command += ['--entrypoint', 'python', image, '-m', 'sentinel.backup_maintenance_integrity',
             '--base-backup', args.base_backup, '--system-identifier', args.system_identifier,
             '--wal-segment-bytes', str(args.wal_segment_bytes), '--observed-frontier', args.observed_frontier]
+        if getattr(args, 'release_check', False):
+            command.append('--release-check')
         transport = {key: values[key] for key in ('PATH', 'HOME', 'LANG') if key in values}
         transport.update(child)
         stage = 'HOST_WORKER'
@@ -179,6 +184,8 @@ def main():
     parser.add_argument('--wal-segment-bytes', type=int, required=True)
     parser.add_argument('--observed-frontier', required=True)
     parser.add_argument('--timeout-seconds', type=int, default=580)
+    parser.add_argument('--release-check', action='store_true')
+    parser.add_argument('--release-image')
     args = parser.parse_args()
     try:
         proof = observe(args)
@@ -190,6 +197,12 @@ def main():
         print(PREFIX+json.dumps(proof, sort_keys=True, separators=(',', ':'), allow_nan=False))
     except IntegrityFailure as exc:
         print(FAILURE_PREFIX+json.dumps(exc.record, sort_keys=True, separators=(',', ':'), allow_nan=False), file=sys.stderr)
+        if (args.release_check and exc.record['code'] == 'INTEGRITY_REFUSED'
+                and exc.record['stage'] == 'PROOF' and exc.record['cause_type'] == 'BackupHorizonExceeded'
+                and exc.record['exception_chain'][0]['type'] == 'BackupHorizonExceeded'
+                and exc.record['cleanup'] == dict(proof_lock='RELEASED', worker_container='REMOVED')):
+            print('SENTINEL_BACKUP_CHAIN_REASON=RUNTIME_HORIZON_EXCEEDED')
+            return 5
         return 75 if exc.record['retryable'] else 4
     except Exception:
         record = failure(origin='HOST', code='INTERNAL_FAILURE', stage='HOST_VALIDATE', cause_type='UNCLASSIFIED')
