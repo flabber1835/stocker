@@ -13,7 +13,7 @@ import sentinel_installation_phase as install
 import sentinel_runtime_selection as selection
 
 
-@pytest.mark.parametrize('state', ['fenced', 'enabled', 'kill_released', 'lease_held'])
+@pytest.mark.parametrize('state', ['fenced', 'enabled', 'kill_released', 'lease_held', 'missing_control'])
 def test_public_selector_obeys_current_transactional_fence(conn, monkeypatch, tmp_path, state):
     monkeypatch.setenv('SENTINEL_PUBLICATION_RECEIPT_KEY', 'disposable-selector-qualification-'+'x'*32)
     schema.ensure_schema(conn)
@@ -28,17 +28,17 @@ def test_public_selector_obeys_current_transactional_fence(conn, monkeypatch, tm
     elif state == 'lease_held':
         conn.execute("UPDATE sentinel_automation_lease SET holder_id='prior-owner',control_generation=1,"
                      "acquired_at=now(),heartbeat_at=now(),expires_at=now()+interval '1 minute'")
+    elif state == 'missing_control':
+        conn.execute("DELETE FROM sentinel_automation_control WHERE id=1")
     conn.commit()
     monkeypatch.setattr(selection, 'POINTER', tmp_path/'runtime.env')
     old, new = ('sha256:' + char*64 for char in ('1', '2'))
     selection._write_pointer(old)
     monkeypatch.setattr(install.bootstrap.BootstrapDeploy, 'quiesce_backup_and_migrate', lambda _self: None)
-    from sentinel.feed import store
-    monkeypatch.setenv('SENTINEL_DATABASE_URL', 'private-fixture')
-    monkeypatch.setattr(store, 'connect', lambda *args, **kwargs: conn)
+    monkeypatch.setenv('SENTINEL_DATABASE_URL', conn.info.dsn)
 
     def run(argv, **kwargs):
-        # Execute the real installer entrypoint with only its connection redirected.
+        # The actual installer opens its own connection to the disposable database.
         assert argv[-3:-1] == ['sentinel', '-c'] and kwargs['timeout'] == 150
         exec(compile(argv[-1], '<installer>', 'exec'), {})
 
@@ -51,3 +51,5 @@ def test_public_selector_obeys_current_transactional_fence(conn, monkeypatch, tm
         with pytest.raises((deployment_fence.DeploymentFenceRefused, operational_schema.OperationalSchemaRefused)):
             deploy.quiesce_backup_and_migrate()
         assert selection._pointer_digest(selection.POINTER) == old
+    present = conn.execute("SELECT to_regclass('public.sentinel_dashboard_review_events') IS NOT NULL").fetchone()[0]
+    assert present is (state == 'fenced')
