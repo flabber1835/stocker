@@ -189,6 +189,144 @@ def lab(tmp_path,monkeypatch):
     return FakeSystemd(tmp_path,monkeypatch)
 
 
+@pytest.fixture
+def certified(lab, monkeypatch):
+    from sentinel_autonomous_deploy_ci_runtime import SoftwareVerification
+    tree = '1'*40
+    registry_digest = 'sha256:'+'5'*64
+    registry = 'ghcr.io/flabber1835/stocker/sentinel@'+registry_digest
+    git = module.qualification.git
+    monkeypatch.setattr(module.qualification,'git',lambda source,*args:
+        tree if args == ('rev-parse','HEAD^{tree}') else git(source,*args))
+    inspect = lab.inspect_image
+    monkeypatch.setattr(lab,'inspect_image',lambda ref:
+        dict(inspect(IMAGE),RepoDigests=[registry]) if ref == registry else inspect(ref))
+    root = lab.deployment/'artifacts/sentinel/authority/deployments'
+    folder = root/('20261119T060929Z-'+NEW[:12])
+    active = root/('20261119T061825Z-'+NEW[:12])/'activation-receipt.json'
+    lab.qualification = folder/'ci-certified-runtime.json'
+    lab.receipt = folder/'installation-receipt.json'
+    cert = dict(schema='sentinel.software-certification/3',source_commit=NEW,source_tree=tree,
+        certified_image=registry,image_digest=registry_digest,software_certification='VERIFIED',required_ci_jobs='PASS')
+    dump(lab.qualification,cert)
+    def verify(self,*,root,commit,env):
+        assert root == lab.new and commit == NEW
+        return cert
+    monkeypatch.setattr(SoftwareVerification,'verify',verify)
+    runtime = dict(deployment_id='paper-fixture',git_commit=NEW,runtime_image=registry,test_image=registry,
+        paper_account_id='PAFICTIONAL')
+    dump(lab.receipt,dict(runtime,schema='sentinel.installation-receipt/1',requested_mode='dual',
+        installation_state='INSTALLED',activation_state='FENCED',automation_enabled=False,kill_switch_engaged=True))
+    source, config = '1'*64, '2'*64
+    dump(active,dict(runtime,schema='sentinel.activation-receipt/1',activation_mode='dual',operational_ready=True,
+        control_generation=22,certificate_sha256='3'*64,validated_source_identity_sha256=source,
+        validated_shadow_config_sha256=config))
+    req = folder/'activation-requests/request-test/activation-request.json'
+    identity = dict(source_commit=NEW,mode='dual',installation_sha256=module.file_sha(lab.receipt))
+    dump(req,dict(identity,schema='sentinel.activation-request/1',checkout=str(lab.deployment),
+        installation_receipt=str(lab.receipt)))
+    result = req.with_name('activation-result.json')
+    dump(result,dict(identity,schema='sentinel.activation-result/1',activation_state='ACTIVE',receipt=str(active)))
+    for target in (lab.new,lab.deployment):
+        env = module.sentinel_env.load(target/'.env',required=True)
+        env.update(SENTINEL_VALIDATED_SOURCE_IDENTITY_SHA256=source if target==lab.new else '',
+                   SENTINEL_VALIDATED_SHADOW_CONFIG_SHA256=config if target==lab.new else '')
+        if target==lab.deployment:
+            env.update(SENTINEL_RUNTIME_IMAGE_REF=registry,SENTINEL_RUNTIME_IMAGE_DIGEST=registry_digest,
+                       SENTINEL_DEPLOYMENT_ID='paper-fixture')
+        write_env(target/'.env',env)
+    def run(args):
+        assert args[:4] == ['docker','exec','sentinel-sentinel-postgres-1','psql']
+        assert 'BEGIN READ ONLY' in args[-1] and 'NOT c.kill_switch_engaged' in args[-1]
+        return '1234567|22|'+'3'*64
+    monkeypatch.setattr(lab,'run',run)
+    return lab, req, result, active
+
+
+def test_certified_install_handover_rechecks_active_database_and_pinned_evidence(certified,monkeypatch):
+    from sentinel_autonomous_deploy_ci_runtime import SoftwareVerification
+    lab, _, _, _ = certified
+    prepared = lab.prepare()
+    assert len(prepared['request']['certified_evidence_sha256']) == 64
+    monkeypatch.setattr(SoftwareVerification,'verify',lambda self,**kw:pytest.fail('resume repeated network verification'))
+    value = lab.operation.resume()
+    assert value['phase']=='VERIFIED' and lab.root==str(lab.new)
+
+
+@pytest.mark.parametrize('fault,reason', [
+    ('unsigned','PROTECTED_CERTIFICATION_CHANGED'),('foreign_tree','CERTIFIED_IMAGE_CHANGED'),
+    ('wrong_image','CERTIFIED_IMAGE_CHANGED'),('wrong_checkout','ACTIVATION_BINDING_CHANGED'),
+    ('wrong_install','ACTIVATION_BINDING_CHANGED'),('other_account','ACTIVE_RELEASE_CHANGED'),
+    ('missing_receipt','ACTIVATION_BINDING_CHANGED'),('malformed','CERTIFIED_DOCUMENT_INVALID'),
+    ('wrong_activation','ACTIVATION_LOCATION_CHANGED'),('unready','ACTIVE_RELEASE_CHANGED'),
+    ('ambiguous','COMPLETED_DUAL_ACTIVATION_REQUIRED'),('fenced','ACTIVE_DATABASE_CHANGED'),
+    ('changed_after_prepare','CERTIFIED_ARTIFACT_CHANGED')])
+def test_certified_evidence_faults_refuse_before_stop(certified,monkeypatch,fault,reason):
+    from sentinel_autonomous_deploy_ci_runtime import SoftwareVerification
+    lab, req, result, active = certified
+    if fault=='unsigned':
+        monkeypatch.setattr(SoftwareVerification,'verify',lambda self,**kw:{})
+    elif fault=='foreign_tree':
+        git=module.qualification.git
+        monkeypatch.setattr(module.qualification,'git',lambda root,*args:
+            '0'*40 if args==('rev-parse','HEAD^{tree}') else git(root,*args))
+    elif fault=='wrong_image':
+        inspect=lab.inspect_image
+        monkeypatch.setattr(lab,'inspect_image',lambda image:
+            {'Id':OLD_IMAGE} if '@' in image else inspect(image))
+    elif fault=='malformed':
+        result.write_text('[')
+    elif fault=='ambiguous':
+        dump(result.parent.parent/'request-other'/result.name,module.read_json(result))
+    elif fault=='fenced':
+        monkeypatch.setattr(lab,'run',lambda _: '')
+    else:
+        if fault=='changed_after_prepare':
+            lab.prepare()
+        path, change = {
+            'wrong_checkout':(req,dict(checkout=str(lab.old))),
+            'missing_receipt':(result,dict(receipt=None)),
+            'wrong_install':(result,dict(installation_sha256='0'*64)),
+            'other_account':(active,dict(paper_account_id='PAOTHER')),
+            'wrong_activation':(result,dict(receipt=str(lab.old/'activation-receipt.json'))),
+            'unready':(active,dict(operational_ready=False)),
+            'changed_after_prepare':(active,dict(completed_at='different bytes')),
+        }[fault]
+        dump(path,{**module.read_json(path),**change})
+    with pytest.raises(DeliveryRefused,match=reason):
+        lab.operation.resume() if fault=='changed_after_prepare' else lab.prepare()
+    assert lab.calls == [] and lab.root==str(lab.old)
+
+
+def test_certified_failed_start_restores_old_reader_after_financial_fence(certified,monkeypatch):
+    from sentinel_autonomous_deploy_ci_runtime import SoftwareVerification
+    lab, _, _, _ = certified
+    before = {p:p.read_bytes() for p in (lab.old/'.env',lab.host_selector,lab.deployment_selector)}
+    lab.prepare()
+    monkeypatch.setattr(SoftwareVerification,'verify',lambda *a,**kw:pytest.fail('unexpected network verification'))
+    lab.fail_start = True
+    control = lab.control
+    def fenced_start(command):
+        if command == 'start' and lab.root == str(lab.new):
+            monkeypatch.setattr(lab,'run',lambda _: '')
+        control(command)
+    monkeypatch.setattr(lab,'control',fenced_start)
+    with pytest.raises(DeliveryRefused,match='INJECTED_START_FAILURE'):
+        lab.operation.resume()
+    assert lab.operation.read()['phase'] == 'ROLLED_BACK' and lab.root == str(lab.old)
+    assert all(path.read_bytes() == original for path,original in before.items())
+
+
+def test_removing_current_control_guard_admits_stale_activation(certified,monkeypatch):
+    lab, _, _, _ = certified
+    monkeypatch.setattr(lab,'run',lambda _: '')
+    with pytest.raises(DeliveryRefused,match='ACTIVE_DATABASE_CHANGED'):
+        lab.prepare()
+    assert not lab.operation.path.exists() and not lab.calls
+    monkeypatch.setattr(lab,'require_active_control',lambda active,system: None)
+    assert lab.prepare()['phase'] == 'PREPARED'
+
+
 def test_success_selects_source_then_starts_immediate_normal_loop(lab):
     old_bytes = (lab.old/'.env').read_bytes()
     initial = lab.prepare()

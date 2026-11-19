@@ -166,7 +166,7 @@ def qualified_host(executable, report_path, report_sha256, application_commit):
         qualification=str(report_path),qualification_sha256=report_sha256)
 
 
-def environment_transition(old, new, app, commit, image):
+def environment_transition(old, new, app, commit, image, *, application_digest=None):
     """Preserve every non-provenance value, including secret and media policy."""
     require({k:v for k,v in old.items() if k not in ALLOWED_ENV}
         == {k:v for k,v in new.items() if k not in ALLOWED_ENV}, 'READER_ENV_POLICY_CHANGED')
@@ -184,7 +184,7 @@ def environment_transition(old, new, app, commit, image):
     require(new.get('SENTINEL_GIT_COMMIT') == app.get('SENTINEL_GIT_COMMIT') == commit
         and all(new.get(k) == image for k in ('SENTINEL_RUNTIME_IMAGE_DIGEST',
             'SENTINEL_TEST_IMAGE_DIGEST', 'SENTINEL_RUNTIME_IMAGE_REF', 'SENTINEL_LOCAL_PAPER_IMAGE'))
-        and app.get('SENTINEL_RUNTIME_IMAGE_DIGEST') == image
+        and app.get('SENTINEL_RUNTIME_IMAGE_DIGEST') == (application_digest or image)
         and new.get('SENTINEL_IMAGE_SOURCE_REVISION', commit) == commit
         and ('SENTINEL_IMAGE_SOURCE_REVISION' not in old
             or new.get('SENTINEL_IMAGE_SOURCE_REVISION') == commit),
@@ -366,6 +366,113 @@ class Native:
             require(runtime_pointer(Path(root),sentinel_env.load(Path(root)/'.env',required=True))[1]
                 == request[key], 'READER_RUNTIME_POINTER_CHANGED')
 
+        if 'certified_evidence_sha256' in request and not restoring:
+            deployment = Path(request['deployment'])
+            active, _ = self.protected_release(request, deployment, Path(request['source']),
+                sentinel_env.load(deployment/'.env',required=True))
+            self.require_active_control(active, request['system'])
+
+    def protected_release(self, spec, deployment, source, app):
+        """Bind the completed main release to the dedicated reader tree and registry image."""
+        from sentinel_autonomous_deploy_ci_runtime import CertifiedInstallRefused, SoftwareVerification
+
+        commit = spec['commit']
+        installation = safe_path(spec['application_receipt'])
+        authority = safe_path(app.get('SENTINEL_AUTHORITY_ARTIFACTS_DIR') or
+                              deployment/'artifacts/sentinel/authority')/'deployments'
+        directory = installation.parent
+        require(directory.parent == authority and re.fullmatch(
+            r'[0-9]{8}T[0-9]{6}Z-'+commit[:12]+r'(?:-[0-9]+)?',directory.name),
+            'READER_INSTALLATION_LOCATION_CHANGED')
+        cert_path = directory/'ci-certified-runtime.json'
+        require(safe_path(spec['qualification']) == cert_path, 'READER_CERTIFICATION_PATH_CHANGED')
+        files = {}
+        def document(path):
+            raw = raw_file(path)
+            files[str(path)] = hashlib.sha256(raw).hexdigest()
+            try:
+                value = json.loads(raw)
+            except (ValueError, UnicodeError) as exc:
+                raise DeliveryRefused('READER_CERTIFIED_DOCUMENT_INVALID') from exc
+            require(isinstance(value,dict), 'READER_CERTIFIED_DOCUMENT_INVALID')
+            return value
+
+        installed = document(installation)
+        cert = document(cert_path)
+        require(files[str(cert_path)] == spec['qualification_sha256']
+            and files[str(installation)] == spec['application_receipt_sha256'],
+            'READER_CERTIFIED_ARTIFACT_CHANGED')
+        require(source != deployment and qualification.git(source,'rev-parse','HEAD') == commit
+            and not qualification.git(source,'status','--porcelain')
+            and qualification.git(deployment,'rev-parse','HEAD') == commit
+            and not qualification.git(deployment,'status','--porcelain','--untracked-files=no'),
+            'READER_CERTIFIED_CHECKOUT_CHANGED')
+        if 'certified_evidence_sha256' not in spec:
+            try:
+                verified = SoftwareVerification().verify(root=source,commit=commit,env=app)
+            except CertifiedInstallRefused as exc:
+                raise DeliveryRefused('READER_PROTECTED_CERTIFICATION_REFUSED') from exc
+            require(cert == verified, 'READER_PROTECTED_CERTIFICATION_CHANGED')
+        ref = cert.get('certified_image')
+        require(cert.get('source_commit') == commit and cert.get('source_tree') ==
+            qualification.git(source,'rev-parse','HEAD^{tree}') and cert.get('software_certification') == 'VERIFIED'
+            and cert.get('required_ci_jobs') == 'PASS' and isinstance(ref,str)
+            and re.fullmatch(r'ghcr\.io/flabber1835/stocker/sentinel@sha256:[0-9a-f]{64}',ref)
+            and ref.rsplit('@',1)[1] == cert.get('image_digest')
+            and runtime_pointer(deployment,app)[0] == ref,
+            'READER_CERTIFIED_IMAGE_CHANGED')
+        local = self.inspect_image(ref)
+        require(local.get('Id') == spec['image'] and ref in (local.get('RepoDigests') or []),
+            'READER_CERTIFIED_IMAGE_CHANGED')
+        account = app.get('SENTINEL_LOCAL_PAPER_ACCOUNT_ID')
+        require(bool(account) and installed.get('schema') == 'sentinel.installation-receipt/1'
+            and bool(app.get('SENTINEL_DEPLOYMENT_ID'))
+            and installed.get('deployment_id') == app['SENTINEL_DEPLOYMENT_ID'] and installed.get('git_commit') == commit
+            and installed.get('runtime_image') == ref and installed.get('test_image') == ref
+            and installed.get('paper_account_id') == account and installed.get('requested_mode') == 'dual'
+            and installed.get('installation_state') == 'INSTALLED' and installed.get('activation_state') == 'FENCED'
+            and installed.get('automation_enabled') is False and installed.get('kill_switch_engaged') is True,
+            'READER_FENCED_INSTALLATION_REQUIRED')
+        results = list((directory/'activation-requests').glob('*/activation-result.json'))
+        require(len(results) == 1, 'READER_COMPLETED_DUAL_ACTIVATION_REQUIRED')
+        result = document(results[0])
+        request = document(results[0].with_name('activation-request.json'))
+        require(request.get('schema') == 'sentinel.activation-request/1'
+            and result.get('schema') == 'sentinel.activation-result/1' and result.get('activation_state') == 'ACTIVE'
+            and isinstance(result.get('receipt'),str)
+            and request.get('checkout') == str(deployment) and request.get('installation_receipt') == str(installation)
+            and request.get('mode') == result.get('mode') == 'dual'
+            and request.get('source_commit') == result.get('source_commit') == commit
+            and request.get('installation_sha256') == result.get('installation_sha256') == files[str(installation)],
+            'READER_ACTIVATION_BINDING_CHANGED')
+        active_path = safe_path(result['receipt'])
+        require(active_path.name == 'activation-receipt.json' and active_path.parent.parent == authority
+            and active_path.parent != directory and re.fullmatch(
+                r'[0-9]{8}T[0-9]{6}Z-'+commit[:12]+r'(?:-[0-9]+)?',active_path.parent.name),
+            'READER_ACTIVATION_LOCATION_CHANGED')
+        active = document(active_path)
+        require(active.get('schema') == 'sentinel.activation-receipt/1'
+            and active.get('deployment_id') == installed['deployment_id'] and active.get('git_commit') == commit
+            and active.get('operational_ready') is True and active.get('activation_mode') == 'dual'
+            and active.get('runtime_image') == active.get('test_image') == ref
+            and active.get('paper_account_id') == account and type(active.get('control_generation')) is int
+            and active['control_generation'] > 0 and isinstance(active.get('certificate_sha256'),str)
+            and re.fullmatch('[0-9a-f]{64}',active['certificate_sha256']), 'READER_ACTIVE_RELEASE_CHANGED')
+        fingerprint = digest(files)
+        require(spec.get('certified_evidence_sha256',fingerprint) == fingerprint, 'READER_CERTIFIED_ARTIFACT_CHANGED')
+        return active, fingerprint
+
+    def require_active_control(self, active, system):
+        sql = ("BEGIN READ ONLY; SET LOCAL statement_timeout='5000ms'; "
+               "SELECT s.system_identifier,c.generation,a.active_certificate_sha256 "
+               "FROM pg_control_system() s CROSS JOIN sentinel_automation_control c "
+               "CROSS JOIN sentinel_execution_authority_state a WHERE c.id=1 AND a.id=1 "
+               "AND c.enabled AND NOT c.kill_switch_engaged; COMMIT;")
+        row = self.run(['docker','exec','sentinel-sentinel-postgres-1','psql','-XqAt',
+            '-v','ON_ERROR_STOP=1','-U','sentinel','-d','sentinel','-c',sql])
+        require(row.split('|') == [system,str(active['control_generation']),active['certificate_sha256']],
+            'READER_ACTIVE_DATABASE_CHANGED')
+
     def assets(self, spec, *, restoring=False):
         """Authenticate immutable staged inputs and the already VERIFIED app."""
         from sentinel_backed_local_patch import predecessor_witness
@@ -377,7 +484,9 @@ class Native:
         commit, image = spec['commit'], spec['image']
         require(re.fullmatch('[0-9a-f]{40}',commit) and re.fullmatch('sha256:[0-9a-f]{64}',image),
             'READER_CANDIDATE_INVALID')
-        environment_transition(old,new,app,commit,image)
+        protected = Path(spec['application_receipt']).name == 'installation-receipt.json'
+        if not protected:
+            environment_transition(old,new,app,commit,image)
         require(file_sha(old_root/'.env') == spec['old_environment_sha256'], 'READER_OLD_ENV_CHANGED')
         require(qualification.git(old_root,'rev-parse','HEAD') == spec['old_commit']
             and not qualification.git(old_root,'status','--porcelain','--untracked-files=no')
@@ -385,30 +494,44 @@ class Native:
             'READER_OLD_SOURCE_CHANGED')
         require(file_sha(spec['application_receipt']) == spec['application_receipt_sha256'],
             'READER_APPLICATION_RECEIPT_CHANGED')
-        witness = predecessor_witness(Path(spec['application_receipt']), inspect_image=self.inspect_image)
-        record = read_json(spec['application_receipt'])
-        app_request = read_json(Path(spec['application_receipt']).parent/'request.json')
-        require(record.get('stage') == 'VERIFIED' and app_request['deployment'] == str(deployment)
-            and witness['git_commit'] == commit and witness['runtime_image'] == image,
-            'READER_VERIFIED_APPLICATION_REQUIRED')
-        identity = app_request['candidate']['source_identity']
-        require(app.get('SENTINEL_VALIDATED_SOURCE_IDENTITY_SHA256') == identity['source']
-            and app.get('SENTINEL_VALIDATED_SHADOW_CONFIG_SHA256') == identity['shadow_config'],
-            'READER_APPLICATION_SOURCE_IDENTITY_CHANGED')
-        report = read_json(spec['qualification'])
-        require(report.get('schema') == qualification.OPERATIONAL_SCHEMA
-            and report.get('source_scope') == qualification.OPERATIONAL_SCOPE,
-            'READER_QUALIFICATION_SCOPE_REQUIRED')
-        qualification.validate_report(spec['qualification'], spec['qualification_sha256'], source,
-            commit, report.get('predecessor_commit'))
-        required = {'scripts/sentinel_maintenance_reader_handover.py',
-            'scripts/sentinel_backup_maintenance.py', 'scripts/sentinel_backup_shared_integrity.py',
-            'scripts/sentinel_backup_integrity_report.py', 'sentinel/backup_maintenance_integrity.py'}
-        require(required <= report['source_files'].keys(), 'READER_QUALIFICATION_INPUTS_MISSING')
         host_tool = self.host_tool(commit,spec['host_tool']['qualification'],spec['host_tool']['qualification_sha256'])
-        if host_tool['commit'] == commit:
-            require(host_tool['qualification_sha256'] == spec['qualification_sha256']
-                == app_request['qualification']['report_sha256'], 'READER_APPLICATION_TOOL_REPORT_CHANGED')
+        extra = {}
+        if protected:
+            active, evidence = self.protected_release(spec, deployment, source, app)
+            for key, field in (('SENTINEL_VALIDATED_SOURCE_IDENTITY_SHA256','validated_source_identity_sha256'),
+                               ('SENTINEL_VALIDATED_SHADOW_CONFIG_SHA256','validated_shadow_config_sha256')):
+                approved = active.get(field)
+                require(isinstance(approved,str) and re.fullmatch('[0-9a-f]{64}',approved)
+                    and app.get(key,'') in ('',approved), 'READER_APPLICATION_SOURCE_IDENTITY_CHANGED')
+                # The certified installer may publish the effective identities in the receipt.
+                app[key] = approved
+            environment_transition(old,new,app,commit,image,
+                application_digest=active['runtime_image'].rsplit('@',1)[1])
+            extra['certified_evidence_sha256'] = evidence
+        else:
+            witness = predecessor_witness(Path(spec['application_receipt']), inspect_image=self.inspect_image)
+            record = read_json(spec['application_receipt'])
+            app_request = read_json(Path(spec['application_receipt']).parent/'request.json')
+            require(record.get('stage') == 'VERIFIED' and app_request['deployment'] == str(deployment)
+                and witness['git_commit'] == commit and witness['runtime_image'] == image,
+                'READER_VERIFIED_APPLICATION_REQUIRED')
+            identity = app_request['candidate']['source_identity']
+            require(app.get('SENTINEL_VALIDATED_SOURCE_IDENTITY_SHA256') == identity['source']
+                and app.get('SENTINEL_VALIDATED_SHADOW_CONFIG_SHA256') == identity['shadow_config'],
+                'READER_APPLICATION_SOURCE_IDENTITY_CHANGED')
+            report = read_json(spec['qualification'])
+            require(report.get('schema') == qualification.OPERATIONAL_SCHEMA
+                and report.get('source_scope') == qualification.OPERATIONAL_SCOPE,
+                'READER_QUALIFICATION_SCOPE_REQUIRED')
+            qualification.validate_report(spec['qualification'], spec['qualification_sha256'], source,
+                commit, report.get('predecessor_commit'))
+            required = {'scripts/sentinel_maintenance_reader_handover.py',
+                'scripts/sentinel_backup_maintenance.py', 'scripts/sentinel_backup_shared_integrity.py',
+                'scripts/sentinel_backup_integrity_report.py', 'sentinel/backup_maintenance_integrity.py'}
+            require(required <= report['source_files'].keys(), 'READER_QUALIFICATION_INPUTS_MISSING')
+            if host_tool['commit'] == commit:
+                require(host_tool['qualification_sha256'] == spec['qualification_sha256']
+                    == app_request['qualification']['report_sha256'], 'READER_APPLICATION_TOOL_REPORT_CHANGED')
         inspected = self.inspect_image(image)
         require(inspected['Id'] == image
             and inspected['Config']['Labels']['org.opencontainers.image.revision'] == commit,
@@ -420,15 +543,19 @@ class Native:
         require(self.inspect_image(old_image)['Config']['Labels']['org.opencontainers.image.revision']
             == spec['old_commit'], 'READER_OLD_IMAGE_REVISION_CHANGED')
         runtime = self.runtime_facts(image,require_healthy=not restoring)
-        require(runtime['postgres'] == witness['postgres'] and runtime['system'] == witness['system'],
-            'READER_POSTGRES_CHANGED')
+        if protected:
+            if not restoring:
+                self.require_active_control(active, runtime['system'])
+        else:
+            require(runtime['postgres'] == witness['postgres'] and runtime['system'] == witness['system'],
+                'READER_POSTGRES_CHANGED')
         lock = _lock_path(dict(old,SENTINEL_BASE_BACKUP_LOCK_ROOT=old.get('SENTINEL_BACKUP_DIR','')))
         require(lock is not None, 'READER_PASS_TARGET_UNAVAILABLE')
         return dict(deployment_environment_sha256=file_sha(deployment/'.env'),
             new_environment_sha256=file_sha(source/'.env'), new_script_sha256=file_sha(
                 source/'scripts/sentinel_backup_maintenance.py'), pass_lock=str(lock),
             old_runtime_pointer_sha256=old_pointer,new_runtime_pointer_sha256=new_pointer,
-            host_tool=host_tool,**runtime)
+            host_tool=host_tool,**runtime,**extra)
 
 
 def render_dropin(root, argv):
@@ -461,11 +588,17 @@ class Handover:
         value = envelope['value']
         require(isinstance(value,dict) and set(value) == {'schema','request','phase','history','reader'}
             and value['schema'] == SCHEMA and value['phase'] in PHASES
-            and isinstance(value['request'],dict) and set(value['request']) == REQUEST_FIELDS
+            and isinstance(value['request'],dict)
+            and set(value['request']) in (REQUEST_FIELDS, REQUEST_FIELDS | {'certified_evidence_sha256'})
             and isinstance(value['request']['host_tool'],dict)
             and set(value['request']['host_tool']) == HOST_TOOL_FIELDS
             and isinstance(envelope['signature'],str) and hmac.compare_digest(envelope['signature'],
                 signed(value,self.key(value['request']['deployment']))), 'READER_JOURNAL_SIGNATURE')
+        request = value['request']
+        protected = Path(request['application_receipt']).name == 'installation-receipt.json'
+        require(('certified_evidence_sha256' in request) == protected and (not protected or
+            isinstance(request['certified_evidence_sha256'],str) and re.fullmatch(
+                '[0-9a-f]{64}',request['certified_evidence_sha256'])), 'READER_CERTIFIED_JOURNAL_INVALID')
         history = value['history']
         require(isinstance(history,list) and 1 <= len(history) <= 32, 'READER_JOURNAL_HISTORY')
         prior = digest(value['request'])
