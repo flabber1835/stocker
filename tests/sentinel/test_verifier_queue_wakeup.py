@@ -192,6 +192,7 @@ def test_verifier_shutdown_reaps_active_child_and_refuses_queued_child_before_ow
     import signal
     import time
     from tests.sentinel.test_operational_read_projection import install_projection
+    monkeypatch.setenv('SENTINEL_PUBLICATION_RECEIPT_KEY', 'private-verifier-retirement-'+'x'*32)
     install_projection(conn)
     monkeypatch.setenv('SENTINEL_DATABASE_URL', conn.info.dsn)
     monkeypatch.delenv('ALPACA_API_KEY', raising=False)

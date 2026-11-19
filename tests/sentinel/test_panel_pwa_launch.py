@@ -47,7 +47,7 @@ def test_removed_worker_launch_guard_reproduces_network_gated_first_paint():
 
 
 @pytest.mark.parametrize('kind', ['fresh', 'partial', 'wrong-current-marker',
-                                 'wrong-partial-marker', 'missing-marker', 'busy', 'cached', 'incomplete', 'pending',
+                                 'wrong-partial-marker', 'missing-marker', 'busy', 'busy-progress', 'cached', 'incomplete', 'pending',
                                  'stale', 'exact-expiry', 'future', 'invalid-date', 'budget', 'foreign',
                                  'hidden', 'deadline', 'offline'])
 def test_launch_installs_only_complete_fresh_same_origin_visible_responses(kind):

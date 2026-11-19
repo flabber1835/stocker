@@ -56,6 +56,21 @@ async function launch() {
   if(input.kind==='offline') {assert.equal(reads.length,0);assert.match(status.textContent,/OFFLINE/);return;}
   assert.equal(reads.length,1);
   assert.equal(reads[0].options.cache,'no-store');
+  if(input.kind==='busy-progress') {
+    assert.equal(reads[0].options.headers['X-Sentinel-Refresh'],'1');
+    const phase='Software installation · verifying completion';
+    reads[0].resolve({ok:false,status:503,url:context.location.href,
+      headers:{get:key=>key==='X-Sentinel-Deployment-Progress'?encodeURIComponent(phase):null},
+      text:()=>{throw new Error('retry downloaded a retained document');}});
+    for(let i=0;i<12;i++)await Promise.resolve();
+    assert(detail.textContent.includes(phase));
+    assert.equal(writes.length,0);
+    const pending=[...timers.values()].filter(t=>t.delay===5000);
+    assert.equal(pending.length,1);
+    pending[0].fn();
+    assert.equal(reads.length,2,'an unsigned launch refreshes automatically');
+    return;
+  }
   listeners.retry();listeners.retry();assert.equal(reads.length,1,'only one read in flight');
   if(input.kind==='hidden') {document.visibilityState='hidden';listeners.visibilitychange();}
   if(input.kind==='deadline') {const timer=[...timers.values()].find(t=>t.delay===15000);assert(timer);timer.fn();}
