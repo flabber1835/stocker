@@ -31,6 +31,14 @@ If a PAPER change still needs a new composition, the operator can inspect
 the dated, explicitly last-recorded run within the authenticated display
 window. The strict JSON payload continues to withhold unproved run progress.
 
+The dashboard's PAPER subject includes the automation lease holder, fence
+and control generation. Financial revision counters exclude this lease.
+Evaluate its native expiry in the same read transaction and bound delivery
+by the earlier of the recorded and current deadlines. Renewal by the same
+holder under the same fence preserves the existing display window. Release,
+expiry or replacement withdraws the dependent rows and strict acknowledgement.
+The independent financial receipt continues to use its original subject.
+
 Decision 2026-11-09, recorded before implementation. The owner authorized a
 local PAPER patch and a second architectural review. Preserve strict financial
 subjects, canonical economics, command identity, UNKNOWN outcomes, original

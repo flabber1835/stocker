@@ -1593,9 +1593,10 @@ async def test_split_projected_book_is_converged_after_execute(
 @pytest.mark.parametrize('change', [
     'unchanged', 'actionable', 'control', 'writer', 'scope', 'cancel', 'plan'])
 async def test_operational_completion_reenters_owned_proof_with_fresh_fences(
-        monkeypatch, change) -> None:
+        monkeypatch, caplog, change) -> None:
     from contextlib import contextmanager
     from sentinel import structural_verification
+    caplog.set_level('INFO', logger=automation_runtime.opening_stage_log.LOGGER_NAME)
 
     cfg = config()
     current_plan = plan(target="1")
@@ -1724,6 +1725,11 @@ async def test_operational_completion_reenters_owned_proof_with_fresh_fences(
                                else [True, False])
     assert ('deltas' in trace) == (change in {'unchanged', 'actionable', 'cancel'})
     assert len(plan_reads) == (1 if change in {'writer', 'control'} else 2)
+    prefix = 'automation_preflight_stage stage='
+    assert [message.removeprefix(prefix).split()[0] for message in caplog.messages
+            if message.startswith(prefix)] == [
+                'connection_schema', 'observation_integrity', 'cycle_authority', 'operational_inputs',
+                'plan_pin', 'broker_adapter']
 
 
 @async_test

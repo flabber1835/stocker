@@ -682,6 +682,15 @@ def read(database_url, *, display=False):
         panel = postclose_feed_wait.project_panel(panel, now=now,
             subject=current_basis.get('native', {}).get('SHADOW'), prepare_witness=prepare_witness)
         finished = review.store.database_now(conn)
+        lease = current_basis.get('automation_lease')
+        lease_expiry = datetime.fromisoformat(lease[3]) if lease else None
+        if lease_expiry is not None and finished >= lease_expiry:
+            if not display:
+                raise snapshots.SnapshotUnavailable('automation lease expired during read')
+            changed = tuple(scope for scope in ('SHADOW','PAPER') if scope == 'PAPER' or scope in changed)
+            panel = replace(panel, observation_current=False, observation_display_current=False,
+                            observation_changed_scopes=changed, observation_display_keys=account_keys)
+            reusable = False
         if display:
             display_until = value.generated_at + timedelta(seconds=snapshots.MAX_SECONDS)
             if not value.generated_at <= finished < display_until:
@@ -702,6 +711,8 @@ def read(database_url, *, display=False):
                         panel = replace(panel, observation_display_current=True,
                             observation_display_keys=handoff,
                             observation_valid_until=min(display_until, owner[0]))
+            if lease_expiry is not None and finished < lease_expiry:
+                panel = replace(panel, observation_valid_until=min(panel.observation_valid_until, lease_expiry))
         elif finished >= value.valid_until:
             raise snapshots.SnapshotUnavailable('operational snapshot expired during read')
         panel = replace(panel, now=finished)
@@ -720,6 +731,7 @@ def guard_acknowledgement(conn, panel, database_url):
     if owner is None:
         raise review.store.ReviewRefused('operational owner unavailable during acknowledgement')
     lock_inputs(conn)
+    conn.execute('SELECT id FROM sentinel_automation_lease WHERE id=1 FOR SHARE').fetchone()
     now = review.store.database_now(conn)
     if _with_activation_fee_wait(conn, panel, now=now).activation_fee_wait is not None:
         raise review.store.ReviewRefused('PAPER activation is still waiting for Alpaca')

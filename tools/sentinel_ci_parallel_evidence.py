@@ -30,6 +30,7 @@ LANES = SUITE_LANES
 DEPENDENCIES = {"runtime-build", "parallel-certification"}
 REQUIRED_FILES = {
     **{lane: {f"{lane}.xml", "summary.txt"} for lane in MAIN_LANES},
+    "sentinel-status": {"sentinel-status.xml", "verifier-cgroup.xml", "summary.txt"},
     "sentinel-warmup": {"sentinel-warmup.xml", "summary.txt"},
     "sentinel-automation": {"sentinel-automation.xml", "summary.txt"},
     "champion": {"champion.xml", "summary.txt"},

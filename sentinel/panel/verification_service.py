@@ -488,7 +488,7 @@ def _financial_publication(conn, database_url, scope, value, previous, *, now):
             return retained[0], receipt_authentication.sign(retained[0])
     if not read_projection.reusable_paper_outcome(rows, now=now):
         return value
-    basis = display_dependencies.capture(conn, database_url)
+    basis = display_dependencies.capture(conn, database_url, dashboard=False)
     if (basis['native']['PAPER'] != document['subject_sha256']
             or basis['account_anchor'] is None):
         return value

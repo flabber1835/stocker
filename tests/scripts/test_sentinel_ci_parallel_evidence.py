@@ -105,6 +105,28 @@ ET.ElementTree(suite).write(target)
                               output / "sentinel-complete.xml") == len(modules)
 
 
+def test_verifier_cgroup_gate_requires_the_installed_limit_and_propagates_failure(tmp_path):
+    workflow = yaml.safe_load((Path(__file__).resolve().parents[2] /
+        '.github/workflows/sentinel-safety.yml').read_text(encoding='utf-8'))
+    step, = [s for s in workflow['jobs']['parallel-certification']['steps']
+             if 'SENTINEL_QUALIFY_VERIFIER_CGROUP=1' in s.get('run', '')]
+    assert step['if'] == "${{ matrix.lane == 'sentinel-status' }}"
+    fake = tmp_path / 'docker'
+    fake.write_text(f'#!{sys.executable}\n' + """
+import sys
+args = sys.argv[1:]
+assert {'--network','none','--cpus=1','--memory=1g','--memory-swap=1g',
+        'SENTINEL_QUALIFY_VERIFIER_CGROUP=1','--junitxml=/evidence/verifier-cgroup.xml',
+        'tests/sentinel/test_verifier_queue_wakeup.py::test_financial_children_share_working_memory_and_retire_before_owner_release'} <= set(args)
+raise SystemExit(7)
+""")
+    fake.chmod(0o755)
+    command = step['run'].replace('/tmp/sentinel-lane-evidence', str(tmp_path))
+    env = {**os.environ, 'PATH': str(tmp_path) + os.pathsep + os.environ['PATH']}
+    assert subprocess.run(['bash', '-c', command], env=env).returncode == 7
+    assert 'verifier-cgroup.xml' in evidence.REQUIRED_FILES['sentinel-status']
+
+
 def test_minimum_host_lane_reserves_checkout_margin_without_weakening_evidence():
     workflow = yaml.safe_load((Path(__file__).resolve().parents[2] /
                               '.github/workflows/sentinel-safety.yml').read_text(encoding='utf-8'))
