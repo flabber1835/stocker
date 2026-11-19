@@ -229,8 +229,8 @@ def rebase_completed_paper(conn, database_url, stored, *, now, facts=None,
         return None
     if not reusable_paper_outcome(rows, now=now):
         return None
-    current = (display_dependencies.capture(conn, database_url, facts=facts)
-               if current_basis is None else current_basis)
+    current = (display_dependencies.capture(conn, database_url, facts=facts, dashboard=False)
+               if current_basis is None else display_dependencies.valuation_basis(current_basis))
     if current['native']['PAPER'] == value['subject_sha256']:
         return value, rows
     if (before['native']['SHADOW'] != current['native']['SHADOW']

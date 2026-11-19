@@ -382,6 +382,17 @@ jobs:
             sentinel-test:ci tests/sentinel/test_status_memory.py -vv -ra \
             --junitxml=/evidence/sentinel-status.xml \
             2>&1 | tee /tmp/sentinel-lane-evidence/summary.txt
+      - name: Qualify the verifier under the installed memory limit
+        if: ${{ matrix.lane == 'sentinel-status' }}
+        run: |
+          set -euo pipefail
+          docker run --rm --network none --cpus=1 --memory=1g --memory-swap=1g \
+            -v /tmp/sentinel-lane-evidence:/evidence \
+            -e SENTINEL_QUALIFY_VERIFIER_CGROUP=1 \
+            sentinel-test:ci \
+            tests/sentinel/test_verifier_queue_wakeup.py::test_financial_children_share_working_memory_and_retire_before_owner_release \
+            -q -s --tb=short --junitxml=/evidence/verifier-cgroup.xml \
+            2>&1 | tee -a /tmp/sentinel-lane-evidence/summary.txt
 
       - name: Run the complete million-row warmup module with one shared fixture
         if: ${{ matrix.lane == 'sentinel-warmup' }}

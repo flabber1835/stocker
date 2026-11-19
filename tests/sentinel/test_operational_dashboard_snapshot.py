@@ -13,6 +13,7 @@ import pytest
 
 from sentinel.panel import model, operational_snapshot as snapshot, review_store
 from sentinel.paper_plan_preview import PlanPreview, PlannedLeg
+from tests.sentinel.test_operational_read_projection import conn as projection_conn, install_projection
 from tests.support.postgres import _EphemeralPostgres
 
 NOW = datetime(2031, 4, 21, 20, tzinfo=timezone.utc)
@@ -290,14 +291,20 @@ def test_database_metadata_tampering_is_rejected(conn):
         snapshot.read_owned(conn, context_sha256=CONTEXT, now=NOW)
 
 
-def test_same_native_subject_receipt_replacement_invalidates_only_its_scope(conn, monkeypatch):
-    monkeypatch.setattr(snapshot.schema, 'require_schema', lambda *_: True)
-    monkeypatch.setattr(snapshot.read_projection, '_subject_facts', lambda *_: ())
-    monkeypatch.setattr(snapshot.read_projection, '_subject',
-                        lambda _c, _d, scope, **_: SUBJECTS[scope])
+def test_receipt_only_schema_cannot_supply_dashboard_subjects(conn):
+    from sentinel.operational_catalog import OperationalCatalogRefused
+
+    with pytest.raises(OperationalCatalogRefused, match='OPERATIONAL_CATALOG_PARTIAL'):
+        snapshot.subjects(conn, conn.info.dsn)
+
+
+def test_same_native_subject_receipt_replacement_invalidates_only_its_scope(projection_conn):
+    conn = projection_conn
+    install_projection(conn)
+    native_paper = snapshot.read_projection.subject(conn, conn.info.dsn, 'PAPER')
     initial = snapshot.subjects(conn, conn.info.dsn)
     conn.execute(f'INSERT INTO {snapshot.schema.RECEIPTS} VALUES (%s,%s,%s,%s,%s,%s)',
-        ('PAPER', SUBJECTS['PAPER'], NOW, NOW+timedelta(seconds=20),
+        ('PAPER', native_paper, NOW, NOW+timedelta(seconds=20),
          psycopg.types.json.Jsonb({'negative': False}), 'original-signature'))
     conn.commit()
     positive = snapshot.subjects(conn, conn.info.dsn)
@@ -313,6 +320,7 @@ def test_same_native_subject_receipt_replacement_invalidates_only_its_scope(conn
     conn.commit()
     changed = snapshot.subjects(conn, conn.info.dsn)
     assert changed['SHADOW'] == negative['SHADOW'] and changed['PAPER'] != negative['PAPER']
+    assert snapshot.read_projection.subject(conn, conn.info.dsn, 'PAPER') == native_paper
 
 
 def test_exact_read_lock_serializes_acknowledgement_against_snapshot_publication(conn):

@@ -527,6 +527,7 @@ class CycleContext(_FrozenModel):
 
 class PrepareResult(_FrozenModel):
     plan_id: str = Field(min_length=1)
+    clean_observation_id: StrictInt | None = Field(default=None, gt=0)
     data_version: str | None = None
     publication_fingerprint: str | None = None
     state_fingerprint: str | None = None

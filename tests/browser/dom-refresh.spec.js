@@ -1,8 +1,65 @@
 const {test,expect}=require('@playwright/test');
 const fs=require('node:fs');
-const {panelAssets}=require('./panel-assets.cjs');
+const http=require('node:http');
+const {panelAssets,servePanelAsset}=require('./panel-assets.cjs');
+const {startCapture,finishCapture}=require('./support/dashboard-journey-capture.cjs');
 
 test.use({serviceWorkers:'block'});
+test('opening recorder follows the rendered page through both renewals and detects a late grey border',async({page,request})=>{
+  test.setTimeout(55000);
+  const fixture=JSON.parse(fs.readFileSync(process.env.SENTINEL_DOM_FIXTURE,'utf8'));
+  const assets=await panelAssets(request,fixture.green);
+  const epoch=Date.now();
+  const fixtureAt=Date.parse(fixture.now);
+  const stamp=ms=>new Date(epoch+ms).toISOString();
+  const start=Date.now();
+  let polls=0;
+  let bell,execute,completed,shadow;
+  const server=http.createServer((req,res)=>{
+    const path=new URL(req.url,'http://127.0.0.1').pathname;
+    if (assets.has(path)) return servePanelAsset(res,assets.get(path));
+    const now=stamp(Date.now()-start);
+    if (path==='/panel.json') {
+      polls++;
+      if (polls===1) { bell=stamp(Date.now()-start+1); execute=stamp(Date.now()-start+2); }
+      if (polls===3) completed=now;
+      if (polls===4) shadow=now;
+      const state=polls===1 ? 'WAITING_OPEN' : polls===2 ? 'EXECUTING' : 'SUCCEEDED';
+      const verified=at=>({latest:{outcome:'VERIFIED',completed_at:at}});
+      res.setHeader('content-type','application/json');
+      return res.end(JSON.stringify({as_of:now,observation:{strict_current:true},
+        rows:[{key:'trading_run',current:true,trading_run:{state,completed_at:completed,
+          intent:{cycle_id:'recorder-cycle',plan_id:'recorder-plan',execution_open_at:bell,execute_at:execute}}}],
+        verification_attempts:{PAPER:verified(polls>=3 ? completed : stamp(-1000)),
+          SHADOW:verified(shadow || stamp(-1000))}}));
+    }
+    if (path!=='/') { res.writeHead(404);return res.end(); }
+    res.writeHead(200,{'content-type':'text/html','cache-control':'no-store','x-sentinel-panel-status':'CURRENT'});
+    const received=Date.parse(now);
+    res.end(fixture.green.replace(/\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:\+00:00|Z)/g,
+      original=>new Date(received+Date.parse(original)-fixtureAt).toISOString()));
+  });
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  let capture;
+  try {
+    const url='http://127.0.0.1:'+server.address().port+'/';
+    capture=await startCapture(page,{url,opening:true,project:'recorder-replay'});
+    await page.goto(url);
+    await expect.poll(()=>capture.report.responses.filter(item=>item.document).length,{timeout:20000}).toBeGreaterThanOrEqual(3);
+    await page.locator('body').evaluate(body=>{body.dataset.health='neutral';});
+    await expect.poll(()=>capture.report.events.some(e=>e.meaningful_visible && e.healthy_border===false)).toBe(true);
+    await page.locator('body').evaluate(body=>{body.dataset.health='green';});
+    await capture.waitForCompletion();
+    const report=await finishCapture(capture);
+    expect(report.opening.displayed_at).toBeTruthy();
+    expect(report.capture.reasons).toEqual([]);
+    expect(report.acceptance.findings.map(f=>f.code)).toContain('HEALTHY_REFRESH_FLICKER');
+  } finally {
+    if (capture) await finishCapture(capture);
+    server.closeAllConnections();
+    await new Promise(resolve=>server.close(resolve));
+  }
+});
 for (const residualMs of [3360,1550,670]) {
   test(`mobile receipt with ${residualMs}ms remaining requests evidence before expiry`,async({page,request})=>{
     const fixture=JSON.parse(fs.readFileSync(process.env.SENTINEL_DOM_FIXTURE,'utf8'));

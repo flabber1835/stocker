@@ -1,5 +1,44 @@
 # Dashboard dependency ownership and coherent handoff
 
+## November 19 opening
+
+During five partial responses, one PAPER revision withdrew eighteen rows
+including the leader and today's saved intent. A dashboard reader should
+apply the proof it has to each row. One expired or unclassified row prevents
+a fully current page. Independently proved rows keep their original evidence
+and deadline until the owner, review head or signed observation expires.
+
+A complete, empty-order broker observation appended by the journal writes two
+guarded inputs in the same transaction, the observation and its unique
+broker-observation cursor. Normal reconciliation commits a third revision
+when it finalizes that exact observation in a second transaction. The three
+immutable observation, provenance and cursor insert records identify the
+original transaction. A payload edit breaks that sequence. Use the existing
+PAPER revision to account for the entire change. The signed display basis records the prior
+maximum observation sequence and physical row identity. Check the exact old
+row, one new observation, its account provenance, its corresponding cursor,
+transaction identities, unchanged positions and the original database,
+configuration and invalidation context. Reuse only human display evidence
+for a clean renewal. The financial receipt still follows the strict subject,
+and any changed economic fact, concurrent guarded write or expiry requires
+fresh evidence. Legacy signed bases continue to validate under their original
+contract.
+
+The active run owns the dated intent once scheduled execution begins. The
+next-plan row names the following trading session when the current dated run
+is available. A delayed or historical run cannot supply today's session.
+If a PAPER change still needs a new composition, the operator can inspect
+the dated, explicitly last-recorded run within the authenticated display
+window. The strict JSON payload continues to withhold unproved run progress.
+
+The dashboard's PAPER subject includes the automation lease holder, fence
+and control generation. Financial revision counters exclude this lease.
+Evaluate its native expiry in the same read transaction and bound delivery
+by the earlier of the recorded and current deadlines. Renewal by the same
+holder under the same fence preserves the existing display window. Release,
+expiry or replacement withdraws the dependent rows and strict acknowledgement.
+The independent financial receipt continues to use its original subject.
+
 Decision 2026-11-09, recorded before implementation. The owner authorized a
 local PAPER patch and a second architectural review. Preserve strict financial
 subjects, canonical economics, command identity, UNKNOWN outcomes, original

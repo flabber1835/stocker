@@ -1,7 +1,7 @@
 'use strict';
 const test=require('node:test');
 const assert=require('node:assert/strict');
-const {assessCapture,serverDocument}=require('./support/dashboard-journey-capture.cjs');
+const {assessCapture,serverDocument,observeOpening}=require('./support/dashboard-journey-capture.cjs');
 const generation=index=>new Date(Date.parse('2026-10-31T00:00:00Z')+index*5000).toISOString();
 
 function healthy() {
@@ -33,6 +33,49 @@ test('negative server evidence is separate and cannot be masked by browser green
 test('even a short healthy amber mutation remains an acceptance failure',()=>{
   const report=healthy();report.events.push({type:'badge-transition',generated_at:generation(0),headline_class:'state warn'});
   assert.ok(assessCapture(report).findings.some(item=>item.code==='HEALTHY_REFRESH_FLICKER'));
+});
+test('grey headline or border on a healthy generation fails even after two refreshes',()=>{
+  for (const state of [{headline_class:'state neutral'}, {headline_class:'state ok',healthy_border:false}]) {
+    const report=healthy();
+    report.events.push({type:'visible-state',generated_at:generation(2),meaningful_visible:true,...state});
+    assert.ok(assessCapture(report).findings.some(item=>item.code==='HEALTHY_REFRESH_FLICKER'));
+  }
+});
+
+test('opening needs the same run before the bell, in execution and after both renewals',()=>{
+  const progress={};
+  function panel(index,state,verified=0,plan='plan') {
+    const attempt={latest:{outcome:'VERIFIED',completed_at:generation(verified)}};
+    return {as_of:generation(index),observation:{strict_current:true},verification_attempts:{PAPER:attempt,SHADOW:attempt},
+      rows:[{key:'trading_run',current:true,trading_run:{intent:{cycle_id:'cycle',plan_id:plan,
+        execution_open_at:generation(1),execute_at:generation(2)},state,completed_at:generation(4)}}]};
+  }
+  observeOpening(progress,panel(4,'SUCCEEDED',4));
+  observeOpening(progress,panel(1,'WAITING_OPEN'));
+  assert.deepEqual(progress,{});
+  observeOpening(progress,panel(0,'WAITING_OPEN'));
+  observeOpening(progress,panel(2,'EXECUTING',0,'other-plan'));
+  assert.equal(progress.executing_at,undefined);
+  observeOpening(progress,panel(2,'EXECUTING'));
+  const terminal=panel(5,'SUCCEEDED',3);
+  observeOpening(progress,terminal);
+  assert.equal(progress.completed_at,generation(4));
+  assert.equal(progress.PAPER,undefined);
+  const partial=panel(6,'SUCCEEDED',6);
+  partial.observation.strict_current=false;
+  observeOpening(progress,partial);
+  assert.equal(progress.SHADOW,undefined);
+  const renewing=panel(6,'SUCCEEDED',6);
+  renewing.verification_attempts.SHADOW={latest:{outcome:'FAILED',completed_at:generation(6)}};
+  observeOpening(progress,renewing);
+  assert.equal(progress.PAPER,generation(6));
+  assert.equal(progress.SHADOW,undefined);
+  assert.deepEqual(progress.verifier_failure,{scope:'SHADOW',completed_at:generation(6)});
+  const finished=panel(7,'SUCCEEDED',7);
+  finished.rows[0].key='completed_trading_run';
+  observeOpening(progress,finished);
+  assert.equal(progress.SHADOW,generation(7));
+  assert.ok(assessCapture({...healthy(),opening:progress}).findings.some(item=>item.code==='OPENING_VERIFIER_FAILED'));
 });
 test('unattributed status, expired green and a blank document cannot pass',()=>{
   for (const event of [

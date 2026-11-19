@@ -7,11 +7,12 @@ if __name__ == '__main__' and sys.argv[1:] == ['--health']:
     from sentinel.panel.verification_health import health
     raise SystemExit(health())
 
+from collections import deque
 from datetime import datetime, timedelta, timezone
 import json
 import os
 import signal
-from threading import BoundedSemaphore, Event
+from threading import Condition, Event
 import time
 import uuid
 
@@ -29,6 +30,34 @@ OWNER_POLL_SECONDS = 15
 CLOSE_RESERVATION_LEAD_SECONDS = 90 + OWNER_POLL_SECONDS
 RETRY_SECONDS = 20
 RETRY_POLL_SECONDS = .5
+
+
+class _ObserverSlot:
+    """One physical child allocation, in arrival order across financial readers."""
+
+    def __init__(self):
+        self.condition = Condition()
+        self.waiting = deque()
+        self.occupied = False
+
+    def acquire(self, *, timeout):
+        ticket = object()
+        with self.condition:
+            self.waiting.append(ticket)
+            try:
+                if not self.condition.wait_for(
+                        lambda: not self.occupied and self.waiting[0] is ticket, timeout):
+                    return False
+                self.occupied = True
+                return True
+            finally:
+                self.waiting.remove(ticket)
+                self.condition.notify_all()
+
+    def release(self):
+        with self.condition:
+            self.occupied = False
+            self.condition.notify_all()
 
 
 def _queued_subject(database_url, include_paper, owner_id):
@@ -459,7 +488,7 @@ def _financial_publication(conn, database_url, scope, value, previous, *, now):
             return retained[0], receipt_authentication.sign(retained[0])
     if not read_projection.reusable_paper_outcome(rows, now=now):
         return value
-    basis = display_dependencies.capture(conn, database_url)
+    basis = display_dependencies.capture(conn, database_url, dashboard=False)
     if (basis['native']['PAPER'] != document['subject_sha256']
             or basis['account_anchor'] is None):
         return value
@@ -630,16 +659,19 @@ def run(*, stopped=None):
             paper_observer = partial(diagnosed_observe, history_memo=ClassificationMemo())
         except (OSError, MemoryError):
             paper_observer = diagnosed_observe
+        observer_slot = _ObserverSlot()
+        supervise = partial(supervisor_io.run, cancelled=stopped.is_set, unreaped=[],
+                            memory_events='/sys/fs/cgroup/memory.events.local')
         readers = {scope:financial.Reader(evidence_reader=read_projection.subject_for,
-            runner=partial(supervisor_io.run, cancelled=stopped.is_set, unreaped=[]),
+            runner=supervise,
             observer=paper_observer if scope == 'PAPER' else diagnosed_observe,
             expected_keys=read_projection.PAPER_KEYS if scope == 'PAPER' else read_projection.SHADOW_KEYS,
-            unknown_factory=paper_unknown if scope == 'PAPER' else None, execution_slot=BoundedSemaphore(1),
+            unknown_factory=paper_unknown if scope == 'PAPER' else None, execution_slot=observer_slot,
             retain_failed_attempt=True,
             completion=wakeup, work_allowed=work_allowed,
             queued_evidence_reader=lambda url,paper: _queued_subject(url,paper,owner_id),
             scope_label='paper alignment verification' if scope == 'PAPER' else 'retained portfolio verification')
-            for scope in ('SHADOW','PAPER')}
+            for scope in ('PAPER','SHADOW')}
         previous = _restore_readers(conn,readers,database_url,now=datetime.now(timezone.utc))
         from sentinel.panel.projection_service import Publisher
         publisher = Publisher(database_url, owner_id, stopped=stopped, wake_on_publication=True)

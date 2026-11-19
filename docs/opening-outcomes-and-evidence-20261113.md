@@ -36,6 +36,21 @@ Present zero orders explicitly and keep the original intent inspectable.
 
 ## Opening evidence and valuation
 
+On November 19 the cycle kept preflight observation 586 after preparation
+committed clean observation 587. The opening collector requires the latest
+journal observation to match the cycle's last clean reconciliation. None of
+the three pre-open samples could confirm that anchor.
+
+Preparation returns the positive journal sequence from its clean reconciliation
+to the scheduler. The fenced transition to PLAN_READY records that sequence
+together with the plan and its fingerprint. Existing-plan adoption goes through
+the same preparation result. A restricted reconciliation can prepare an eligible
+plan while leaving the last clean anchor at its previous value. Legacy callbacks
+without a clean sequence also preserve the previous anchor. Historical events
+retain their recorded values. The opening collector still requires a fresh
+native observation and the exact latest clean anchor for the same plan, account,
+control generation and leader fence.
+
 Bring exact PAPER broker evidence current shortly before the normal open
 using the existing bounded GET-only observer and current waiting plan scope.
 Keep scheduler ownership and all final order, cash, time and source checks.

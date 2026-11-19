@@ -178,64 +178,236 @@ def test_early_negative_retry_guard_has_executed_falsifier(monkeypatch):
         test_occupied_scan_keeps_fresh_negative_visible_and_bounds_retry('same')
 
 
-def _slow_read_only_observer(directory, paper, _subject):
+_OBSERVER_RENDEZVOUS_SECONDS = 30
+
+
+def _loaded_observer(database_url, paper, subject, *, directory, observe, mib):
     import os
     import time
     from pathlib import Path
-    (Path(directory)/('paper' if paper else 'shadow')).write_text(str(os.getpid()))
-    time.sleep(10)
+
+    # Commit resident anonymous pages across an actual private database check.
+    # The barrier makes overlap deterministic without exhausting the CI host.
+    marker = Path(directory) / ('PAPER' if paper else 'SHADOW')
+    if mib == 525:
+        # The opt-in private cgroup experiment targets its disposable observers.
+        Path('/proc/self/oom_score_adj').write_text('800')
+    marker.with_suffix('.pid').write_text(str(os.getpid()))
+    working_set = bytearray(mib * 1024 * 1024)
+    working_set[::4096] = b'x' * len(working_set[::4096])
+    result = observe(database_url, paper, subject)
+    assert 'rows' in result, result
+    marker.write_text(str(os.getpid()))
+    # Allow the parent to start the second native observer and collect its
+    # result before withdrawing the first process's resident pages.
+    deadline = time.monotonic() + 2 * _OBSERVER_RENDEZVOUS_SECONDS
+    while not marker.with_suffix('.release').exists():
+        if time.monotonic() >= deadline:
+            raise TimeoutError('observer qualification barrier expired')
+        time.sleep(.02)
+    assert working_set[-4096] == ord('x')
+    return result
 
 
-@pytest.mark.parametrize('restore_shared_slot', [False, True], ids=['scope-isolation', 'shared-slot-falsifier'])
-def test_paper_progresses_during_shadow_and_shutdown_reaps_both_before_owner_release(
-        conn, tmp_path, monkeypatch, restore_shared_slot):
+def _wait_for(predicate, *, timeout=12, diagnostic=None):
+    import time
+    deadline = time.monotonic() + timeout
+    while not predicate():
+        if time.monotonic() >= deadline:
+            detail = f' · {diagnostic()}' if diagnostic is not None else ''
+            pytest.fail('financial work did not reach its expected state'+detail)
+        time.sleep(.01)
+
+
+def _wait_for_loaded(marker, instance):
+    _wait_for(lambda: marker.exists() or instance.attempt_state()['outcome'] == 'FAILED',
+              timeout=_OBSERVER_RENDEZVOUS_SECONDS, diagnostic=lambda: (marker.name, instance.attempt_state()))
+    assert marker.exists(), (marker.name, instance.attempt_state())
+
+
+def test_waiting_observer_cannot_be_overtaken_and_expired_ticket_is_removed():
+    from threading import Thread
+    slot = service._ObserverSlot()
+    assert slot.acquire(timeout=1)
+    grants = []
+
+    def observe(label):
+        assert slot.acquire(timeout=5)
+        grants.append(label)
+        slot.release()
+
+    def waiting_count():
+        with slot.condition:
+            return len(slot.waiting)
+
+    workers = []
+    try:
+        for name in ('waiting scope', 'repeat'):
+            worker = Thread(target=observe, args=(name,))
+            worker.start()
+            workers.append(worker)
+            _wait_for(lambda: waiting_count() == len(workers))
+            assert not slot.acquire(timeout=0)
+    finally:
+        slot.release()
+        for worker in workers:
+            worker.join(timeout=5)
+    assert grants == ['waiting scope', 'repeat']
+    assert waiting_count() == 0
+
+
+def _killed_observer(events, contents):
     import os
     import signal
-    import time
+    if contents is not None:
+        events.write_text(contents)
+    os.kill(os.getpid(), signal.SIGKILL)
+
+
+@pytest.mark.parametrize('before,after,expected', [
+    ('oom_kill 2', 'oom_kill 3', 'ChildSigkillDuringCgroupOOM'),
+    ('oom_kill 2', 'oom_kill 2', 'ChildSigkill'),
+    (None, 'oom_kill 1', 'ChildSigkill'),
+    ('oom_kill 2', 'malformed', 'ChildSigkill'),
+])
+def test_unexpected_sigkill_keeps_only_observed_cgroup_evidence(tmp_path, before, after, expected):
+    from sentinel import supervisor_io
+    from sentinel.panel import observer_failure
+    events = tmp_path/'memory.events.local'
+    if before is not None:
+        events.write_text(before)
+    with pytest.raises(supervisor_io.ChildSigkill) as caught:
+        supervisor_io.run(_killed_observer, events, after, memory_events=events, timeout=3)
+    diagnostic = observer_failure.classify(caught.value, transport=True)
+    assert (diagnostic.code, diagnostic.exception_type) == ('TRANSPORT_FAILED', expected)
+
+
+def _assert_cgroup_outcomes(attempts, kills, *, independent_slots):
+    assert set(attempts) == {'PAPER', 'SHADOW'}
+    assert all(attempt['outcome'] in {'COMPLETED', 'FAILED'} for attempt in attempts.values())
+    failures = [attempt['diagnostic'] for attempt in attempts.values()
+                if attempt['outcome'] == 'FAILED']
+    if independent_slots:
+        assert 1 <= len(failures) <= kills
+        for failure in failures:
+            assert (failure['code'], failure['exception_type']) == (
+                'TRANSPORT_FAILED', 'ChildSigkillDuringCgroupOOM')
+    else:
+        assert not failures and kills == 0
+
+
+def test_both_oom_victims_require_a_corresponding_typed_diagnostic():
+    failed = {'outcome': 'FAILED', 'diagnostic': {
+        'code': 'TRANSPORT_FAILED', 'exception_type': 'ChildSigkillDuringCgroupOOM'}}
+    attempts = {'PAPER': failed, 'SHADOW': failed}
+    _assert_cgroup_outcomes(attempts, 2, independent_slots=True)
+    with pytest.raises(AssertionError):
+        _assert_cgroup_outcomes(attempts, 1, independent_slots=True)
+    attempts['SHADOW'] = {'outcome': 'FAILED', 'diagnostic': {
+        'code': 'TRANSPORT_FAILED', 'exception_type': 'EOFError'}}
+    with pytest.raises(AssertionError):
+        _assert_cgroup_outcomes(attempts, 2, independent_slots=True)
+
+
+@pytest.mark.parametrize('independent_slots', [False, True], ids=['one-budget', 'old-lanes-falsifier'])
+def test_financial_children_share_working_memory_and_retire_before_owner_release(
+        conn, tmp_path, monkeypatch, independent_slots):
+    import os
+    import signal
+    from functools import partial
+    from pathlib import Path
     from tests.sentinel.test_operational_read_projection import install_projection
     monkeypatch.setenv('SENTINEL_PUBLICATION_RECEIPT_KEY', 'private-verifier-retirement-'+'x'*32)
+    monkeypatch.setenv('SENTINEL_REVIEWED_DEPLOYMENT_MODE', 'dual')
     install_projection(conn)
     monkeypatch.setenv('SENTINEL_DATABASE_URL', conn.info.dsn)
     monkeypatch.delenv('ALPACA_API_KEY', raising=False)
     monkeypatch.delenv('ALPACA_SECRET_KEY', raising=False)
     monkeypatch.setattr(service, 'HEARTBEAT', tmp_path/'heartbeat')
-    # Real native owner, semaphore, supervised subprocess and shutdown. Replace
-    # only the expensive read body and stable fixture subject.
-    monkeypatch.setattr(service, '_restore_readers', lambda *a, **k: {})
-    if restore_shared_slot:
-        shared_slot = BoundedSemaphore(1)
-        monkeypatch.setattr(service, 'BoundedSemaphore', lambda _: shared_slot)
     stopped = Event()
-    times, pids = [], []
-    def before_shutdown(owner, readers, *args, **kwargs):
+    pids = []
+    terminal_attempts = {}
+    exercise_limit = os.environ.get('SENTINEL_QUALIFY_VERIFIER_CGROUP') == '1'
+    if exercise_limit:
+        cgroup = Path('/sys/fs/cgroup')
+        assert (cgroup/'memory.max').read_text().strip() == str(1024**3)
+        assert (cgroup/'memory.swap.max').read_text().strip() == '0'
+        events = cgroup/'memory.events.local'
+        from sentinel import supervisor_io
+        initial_kills = supervisor_io._oom_kills(events)
+        assert initial_kills is not None
+
+    def check_resident_work(owner, readers, database_url, *args, **kwargs):
+        assert list(readers) == ['PAPER', 'SHADOW']
+        # A child blocked in kernel I/O after SIGKILL must exclude the other
+        # scope's spawn too, even after its Python reader released the slot.
+        unreaped = readers['PAPER'].runner.keywords['unreaped']
+        unreaped.append(SimpleNamespace(is_alive=lambda: True))
+        try:
+            with pytest.raises(TimeoutError, match='not reaped'):
+                readers['SHADOW'].runner(None)
+        finally:
+            unreaped.clear()
+        if independent_slots:
+            readers['SHADOW'].execution_slot = service._ObserverSlot()
         for scope, instance in readers.items():
-            instance.observer = _slow_read_only_observer
-            instance.evidence_reader = instance.queued_evidence_reader = lambda *_: 'a'*64
-            instance.read(str(tmp_path), include_paper=scope=='PAPER')
-            marker = tmp_path/scope.lower()
-            deadline = time.monotonic()+5
-            while not marker.exists() and time.monotonic()<deadline:
-                time.sleep(.02)
-            assert marker.exists(), f'{scope} did not start independently'
-            pids.append(int(marker.read_text()))
-        assert len(set(pids)) == 2
+            instance.observer = partial(_loaded_observer, directory=tmp_path, observe=instance.observer,
+                                        mib=525 if exercise_limit else 48)
+            instance.read(database_url, include_paper=scope=='PAPER')
+            if scope == 'PAPER':
+                _wait_for_loaded(tmp_path/scope, instance)
+                pids.append(int((tmp_path/scope).read_text()))
+        paper, shadow = readers.values()
+        slot = shadow.execution_slot
+
+        def shadow_waiting_or_running():
+            with slot.condition:
+                return bool(slot.waiting) or shadow.attempt_state()['work_started_at'] is not None
+
+        _wait_for(shadow_waiting_or_running)
+        if independent_slots and exercise_limit:
+            _wait_for(lambda: any(r.attempt_state()['outcome'] == 'FAILED' for r in readers.values()),
+                      timeout=_OBSERVER_RENDEZVOUS_SECONDS)
+            for scope in readers:
+                (tmp_path/f'{scope}.release').touch()
+            _wait_for(lambda: all(r.attempt_state()['outcome'] in {'COMPLETED', 'FAILED'}
+                                  for r in readers.values()), timeout=_OBSERVER_RENDEZVOUS_SECONDS)
+            pids.append(int((tmp_path/'SHADOW.pid').read_text()))
+        else:
+            if independent_slots:
+                _wait_for_loaded(tmp_path/'SHADOW', shadow)
+                pids.append(int((tmp_path/'SHADOW').read_text()))
+            assert shadow.attempt_state()['work_started_at'] is None, 'financial working sets overlap'
+            assert shadow.attempt_state()['outcome'] == 'QUEUED'
+            (tmp_path/'PAPER.release').touch()
+            _wait_for_loaded(tmp_path/'SHADOW', shadow)
+            pids.append(int((tmp_path/'SHADOW').read_text()))
+            assert paper.attempt_state()['outcome'] == 'COMPLETED'
+            if exercise_limit:
+                (tmp_path/'SHADOW.release').touch()
+                _wait_for(lambda: shadow.attempt_state()['outcome'] == 'COMPLETED')
+        if exercise_limit:
+            terminal_attempts.update({scope: r.attempt_state() for scope, r in readers.items()})
         assert not conn.execute('SELECT pg_try_advisory_lock(%s,%s)', service.OWNER_LOCK).fetchone()[0]
-        times.append(time.monotonic())
         signal.raise_signal(signal.SIGTERM)
-    monkeypatch.setattr(service, '_run_owned_loop', before_shutdown)
+
+    monkeypatch.setattr(service, '_run_owned_loop', check_resident_work)
     previous = {signum: signal.getsignal(signum) for signum in (signal.SIGTERM,signal.SIGINT)}
     try:
-        if restore_shared_slot:
-            with pytest.raises(AssertionError, match='PAPER did not start independently'):
+        if independent_slots and not exercise_limit:
+            with pytest.raises(AssertionError, match='financial working sets overlap'):
                 service.run(stopped=stopped)
         else:
             assert service.run(stopped=stopped) == 0
     finally:
         for signum, handler in previous.items():
             signal.signal(signum, handler)
-    assert stopped.is_set()
-    if not restore_shared_slot:
-        assert time.monotonic()-times[0]<4
+    assert stopped.is_set() and len(set(pids)) == 2
+    if exercise_limit:
+        kills = supervisor_io._oom_kills(events) - initial_kills
+        _assert_cgroup_outcomes(terminal_attempts, kills, independent_slots=independent_slots)
+        print(f"independent_slots={independent_slots} oom_kills={kills} "
+              f"peak_bytes={(cgroup/'memory.peak').read_text().strip()}")
     for pid in pids:
         with pytest.raises(ProcessLookupError):
             os.kill(pid, 0)

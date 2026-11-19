@@ -2,18 +2,16 @@
 const http=require('node:http');
 const crypto=require('node:crypto');
 const {performance}=require('node:perf_hooks');
+const {setTimeout:delay}=require('node:timers/promises');
 const MAX_BODY=2*1024*1024;
 const SAFE_HEADERS=['content-type','cache-control','x-sentinel-panel-status','retry-after',
   'service-worker-allowed','content-security-policy','x-content-type-options','referrer-policy',
   'expires','pragma','date','age','etag','vary'];
 
-function hold(ms,signal) {
-  return new Promise((resolve,reject)=>{
-    if (signal.aborted) { reject(new Error('OWNED_REQUEST_ABORTED')); return; }
-    const abort=()=>{clearTimeout(timer);reject(new Error('OWNED_REQUEST_ABORTED'));};
-    const timer=setTimeout(()=>{signal.removeEventListener('abort',abort);resolve();},ms);
-    signal.addEventListener('abort',abort,{once:true});
-  });
+async function holdUntil(deadline,signal,now=()=>performance.now(),wait=delay) {
+  for (let remaining=deadline-now(); remaining>0; remaining=deadline-now()) {
+    await wait(Math.ceil(remaining),undefined,{signal});
+  }
 }
 
 async function startJourneyTransport({upstreamUrl,refreshFloorMs}) {
@@ -69,7 +67,8 @@ async function startJourneyTransport({upstreamUrl,refreshFloorMs}) {
       if (record) Object.assign(record,{http_status:result.status,panel_status:result.headers.get('x-sentinel-panel-status'),
         cache_control:result.headers.get('cache-control'),sha256:crypto.createHash('sha256').update(body).digest('hex'),upstream_ms:upstreamMs});
       if (record?.kind==='refresh') {
-        const before=performance.now();await hold(Math.max(0,refreshFloorMs-upstreamMs),controller.signal);
+        const before=performance.now();
+        await holdUntil(started+refreshFloorMs,controller.signal);
         record.hold_ms=performance.now()-before;
       }
       if (controller.signal.aborted || closed) throw new Error('OWNED_REQUEST_ABORTED');
@@ -110,6 +109,8 @@ function bindTransport(report,profile) {
   if (upstream.length!==3 || captured.length!==3) errors.push('RESPONSE_COUNT_MISMATCH');
   for (let index=0;index<3;index++) {
     const source=upstream[index],observed=captured[index];
+    if (source?.kind==='refresh' && (!Number.isFinite(source.total_ms) || source.total_ms<profile.refresh_floor_ms))
+      errors.push(`REFRESH_FLOOR_MISSED_${index+1}`);
     if (!source || !observed || source.kind!==observed.kind || source.sha256!==observed.document?.sha256 ||
         source.http_status!==observed.http_status || source.panel_status!==observed.panel_status ||
         source.cache_control!==observed.cache_control) errors.push(`ENTITY_OR_VERDICT_MISMATCH_${index+1}`);
@@ -117,4 +118,4 @@ function bindTransport(report,profile) {
   }
   return {matched:errors.length===0,pairs,errors};
 }
-module.exports={startJourneyTransport,bindTransport};
+module.exports={startJourneyTransport,bindTransport,holdUntil};

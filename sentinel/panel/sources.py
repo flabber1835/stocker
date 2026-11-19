@@ -776,6 +776,21 @@ def _opening_cutoff_current_status(row, next_plan, cycle, *, now):
     return replace(row, status=model.WARN if admitted else model.FAIL)
 
 
+def _pending_next_plan(trading_row, *, now):
+    from sentinel.feed import calendar
+
+    value = 'AWAITING NEXT PLAN'
+    detail = 'The next saved plan will appear after preparation.'
+    if (trading_row is not None and trading_row.effective_status(now) not in {model.FAIL, model.UNKNOWN}
+            and trading_row.can_show_trading_run(now)
+            and trading_row.trading_run.intent.execute_at <= now
+            and trading_row.trading_run.state in {'EXECUTING', 'RECONCILING', 'SUCCEEDED'}):
+        session = trading_row.trading_run.intent.effective_session
+        value = f'{calendar.next_session(session)} · awaiting plan'
+        detail = f'The {session} saved plan and its progress appear under today’s trading run.'
+    return model.Row('paper_plan', 'Next paper plan', value, model.PENDING, detail=detail)
+
+
 def _completed_opening_skips(conn, run_plan, plan, commands):
     """Match a zero-share outcome to its retained protected plan and broker proof."""
     from sentinel.execution import journal, protected_limits, target_reprojection
@@ -4162,8 +4177,7 @@ def _runtime_projection(database_url: str, *, include_book=True,
                 detail='The saved plan matches this cycle. Verification for scheduled execution is pending.',
                 as_of=_utc(adopting[0]), valid_until=_utc(adopting[1]))
         elif preview is None:
-            plan_row = model.Row('paper_plan','Next paper plan','NOT PREPARED',model.PENDING,
-                detail='No current next-open plan is ready. Historical plans are not shown as tomorrow’s trades.')
+            plan_row = _pending_next_plan(trading_row or completed_row, now=now or datetime.now(timezone.utc))
         else:
             plan_row = model.Row('paper_plan','Next paper plan',
                 (f'{preview.effective_session} · changes unavailable' if any(leg.action == 'UNAVAILABLE' for leg in preview.legs)

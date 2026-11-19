@@ -371,6 +371,26 @@ def test_dual_surface_keeps_today_run_through_full_panel_assembly(monkeypatch,st
     assert 'Next trading plan pending.' in render(broken)
 
 
+def test_active_run_and_next_session_use_only_their_own_display_evidence():
+    current = model.Row('trading_run','Today’s paper trading','EXECUTING',model.WARN,
+        as_of=NOW, valid_until=NOW+timedelta(minutes=5), trading_run=run())
+    next_plan = sources._pending_next_plan(current, now=NOW)
+    assert next_plan.value == '2026-10-26 · awaiting plan' and '2026-10-23' in next_plan.detail
+    for then in (NOW+timedelta(minutes=6), NOW+timedelta(days=3)):
+        assert sources._pending_next_plan(current, now=then).value == 'AWAITING NEXT PLAN'
+    page=model.Panel(now=NOW,rows=[current,next_plan], observation_current=False,
+        observation_changed_scopes=('PAPER',), observation_display_keys=('trading_run',))
+    html=overview.overview_html(page)
+    assert '<section data-current="true" class="overview-card current-trades"' in html
+    assert 'Next trading plan pending.' not in html
+    partial=replace(page, observation_display_keys=(), observation_generated_at=NOW-timedelta(seconds=1),
+                    observation_valid_until=NOW+timedelta(seconds=5))
+    html=overview.overview_html(partial)
+    assert 'Last recorded trading run' in html and 'Trading in progress at the last update' in html
+    assert '<section data-current="false" class="overview-card scope-not-current current-trades"' in html
+    assert 'Last recorded trading run' not in overview.overview_html(replace(partial,now=NOW+timedelta(seconds=6)))
+
+
 def completed_history(*, status=model.OK):
     recorded=run().model_copy(update={'state':'SUCCEEDED','completed_at':NOW})
     return model.Row('completed_trading_run','Today’s recorded completed run','SUCCEEDED',

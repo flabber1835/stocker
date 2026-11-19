@@ -246,8 +246,9 @@ def test_active_or_unattributable_successor_refuses(path, value):
         fixture.evidence.snapshot(host)
 
 
-def panel():
-    now = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=-8)))
+def panel(now=None):
+    if now is None:
+        now = datetime(2026,11,18,10,15,tzinfo=timezone(timedelta(hours=-8)))
     stamp, until = now.isoformat(), (now+timedelta(seconds=25)).isoformat()
     keys = ('authority','runtime_identity','broker','alpaca_account','backup_restore','book','exposure',
             'terminals','shadow_verification','shadow_nav','shadow_return','shadow_worker','feed',
@@ -262,7 +263,7 @@ def panel():
                   effective='2026-11-18',retained_incidents={'a'*64:{},'b'*64:{}})
     rows['completed_trading_run']['trading_run']=dict(state='SUCCEEDED',completed_at=stamp,intent=dict(
         cycle_id='completed',plan_id='original',decision_session=expected['decision'],effective_session=expected['effective']))
-    rows['paper_plan'].update(status='pending',color='amber',value='NOT PREPARED',required_current=False)
+    rows['paper_plan'].update(status='pending',color='amber',value='NOT PREPARED',required_current=False,paper_plan=None)
     for key,value in (('automation_cycle','WAITING FOR NEXT DECISION'),('automation_step_discovery','WAITING FOR CYCLE')):
         rows[key].update(status='warn',color='amber',value=value,recovery=dict(
             phase='AUTOMATION_DISCOVERY',automatic=True,operator_required=False,active=True,deadline=until))
@@ -277,16 +278,38 @@ def panel():
     return page,rows,expected,now
 
 
-def test_strict_software_observation_preserves_historical_review_and_uses_the_finite_real_expiry():
-    page,_,expected,now=panel()
+@pytest.mark.parametrize('producer', ['predecessor', 'current'])
+def test_strict_software_observation_preserves_historical_review_and_uses_the_finite_real_expiry(producer):
+    from sentinel.panel import model as panel_model, sources
+    from sentinel.paper_plan_preview import PlanPreview
+
+    page,rows,expected,now=panel()
+    if producer=='current':
+        completed=rows['completed_trading_run']['trading_run']
+        intent=PlanPreview(**completed['intent'],execute_at=now-timedelta(hours=2),
+            created_at=now-timedelta(days=1),observation_at=None,legs=[])
+        run=panel_model.TradingRun(intent=intent,state='SUCCEEDED',updated_at=now,completed_at=now,orders=[])
+        history=panel_model.Row('completed_trading_run','Completed','SUCCEEDED',panel_model.OK,as_of=now,trading_run=run)
+        pending=sources._pending_next_plan(history,now=now)
+        assert pending.value=='2026-11-19 · awaiting plan'
+        rows['paper_plan'].update(value=pending.value,status=pending.status,paper_plan=pending.paper_plan)
     result=reactivated.verified_panel(page,'CURRENT',expected,now)
     assert result['operational_ready'] is False and result['completed_plan']=='original'
     assert result['current_plan']=='current' and result['installation_panel_valid_until']==page['observation']['valid_until']
     compile(checks.panel_program(MODE,observed=True),'<strict-observed>','exec')
 
 
+@pytest.mark.parametrize('label',['NOT PREPARED','2026-11-19 · awaiting plan'])
+def test_current_handoff_sample_can_be_read_across_new_york_midnight(label):
+    sampled=datetime(2026,11,19,4,59,55,tzinfo=timezone.utc)
+    page,rows,expected,_=panel(sampled)
+    rows['completed_trading_run']['trading_run']['completed_at']='2026-11-18T15:10:00+00:00'
+    rows['paper_plan']['value']=label
+    assert reactivated.verified_panel(page,'CURRENT',expected,sampled+timedelta(seconds=10))['completed_plan']=='original'
+
+
 def test_bounded_panel_wait_accepts_renewal_and_refuses_an_adverse_subject():
-    page,rows,expected,now=panel()
+    page,rows,expected,now=panel(datetime.now(timezone.utc))
     expected['handoff_mode']=MODE
     func=next(n for n in ast.parse(readiness.PANEL_WAIT).body if isinstance(n,ast.FunctionDef) and n.name=='pending')
     namespace=dict(expected=expected, datetime=datetime, timezone=timezone, timedelta=timedelta,
@@ -307,7 +330,8 @@ def test_bounded_panel_wait_accepts_renewal_and_refuses_an_adverse_subject():
 
 
 @pytest.mark.parametrize('fault', ['foreign_completion','unknown_cash','active_warning','expired','partial','unrelated_warning',
-                                  'current_cycle','wrong_plan','dead_leader','sender_failed','changed_count'])
+                                  'current_cycle','wrong_plan','wrong_date','generic_wait','adoption','attached_plan',
+                                  'previous_session','dead_leader','sender_failed','changed_count'])
 def test_software_panel_refuses_unproven_or_current_failures(fault):
     page,rows,expected,now=panel()
     if fault=='foreign_completion': rows['completed_trading_run']['trading_run']['intent']['plan_id']='new'
@@ -318,6 +342,19 @@ def test_software_panel_refuses_unproven_or_current_failures(fault):
     if fault=='unrelated_warning': rows['broker'].update(status='warn',color='amber')
     if fault=='current_cycle': rows['automation_cycle']['value']='EXECUTING'
     if fault=='wrong_plan': rows['paper_plan']['status']='ok'
+    if fault=='wrong_date': rows['paper_plan']['value']='2026-11-20 · awaiting plan'
+    if fault=='generic_wait': rows['paper_plan']['value']='AWAITING NEXT PLAN'
+    if fault=='adoption':
+        from sentinel.panel.model import AWAITING_PLAN_ADOPTION
+        rows['paper_plan']['value']=AWAITING_PLAN_ADOPTION
+    if fault=='attached_plan': rows['paper_plan']['paper_plan']={'plan_id':'new'}
+    if fault=='previous_session':
+        expected['decision'],expected['effective']='2026-11-16','2026-11-17'
+        rows['completed_trading_run']['trading_run']['intent'].update(
+            decision_session=expected['decision'],effective_session=expected['effective'])
+        rows['paper_plan']['value']='2026-11-18 · awaiting plan'
+        rows['feed']['value']=expected['decision']+' · 0 sessions behind'
+        rows['shadow_verification']['value']='SHADOW VERIFIED THROUGH '+expected['decision']
     if fault=='dead_leader': rows['automation_leader']['as_of']=(now-timedelta(minutes=1)).isoformat()
     if fault=='sender_failed': rows['alert_dispatcher']['status']='fail'
     if fault=='changed_count': expected['retained_incidents'].clear()

@@ -95,6 +95,8 @@ def subjects(conn, database_url, *, facts=None):
     subject. Receipt signature and physical row version must invalidate that old
     display too; these tokens are invalidation hints, never financial authority.
     """
+    from sentinel.panel import display_dependencies
+
     schema.require_schema(conn)
     facts = read_projection._subject_facts(conn) if facts is None else facts
     result = {}
@@ -102,7 +104,8 @@ def subjects(conn, database_url, *, facts=None):
         native = read_projection._subject(conn, database_url, scope, facts=facts)
         receipt = conn.execute(f'SELECT signature,xmin::text,ctid::text FROM {schema.RECEIPTS} '
                                'WHERE scope=%s', (scope,)).fetchone()
-        result[scope] = hashlib.sha256(review_store.canonical([native, receipt])).hexdigest()
+        lease = display_dependencies.automation_lease(conn) if scope == 'PAPER' else None
+        result[scope] = display_dependencies.dashboard_subject(scope, native, receipt, lease)
     return result
 
 

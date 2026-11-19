@@ -181,6 +181,145 @@ def test_receipt_only_renewal_does_not_withdraw_native_display_rows(operational,
     assert 'paper_reconciliation' in current.observation_revalidated_keys
 
 
+def record_clean_observation(c, *, quantity='15', future=False, disposition='finalized'):
+    from decimal import Decimal
+    from sentinel.execution import journal
+    from sentinel.execution.contract import BrokerAccountIdentity, BrokerInstrument, BrokerObservation, BrokerPosition
+
+    stamp = datetime.now(timezone.utc) + timedelta(minutes=2 if future else 0)
+    observation = BrokerObservation(
+        observed_at=stamp, started_at=stamp-timedelta(seconds=1),
+        account_identity=BrokerAccountIdentity('alpaca', 'paper-qualified'),
+        positions=(BrokerPosition(BrokerInstrument('s', 'TEST', 'asset'), Decimal(quantity)),))
+    seq = journal.record_observation(c, observation, 'RUNNING' if disposition=='direct' else 'RECONCILING')
+    c.commit()
+    if disposition=='finalized':
+        journal.finalize_observation_runtime(c, seq, 'RUNNING')
+    return seq
+
+
+@pytest.mark.parametrize('change',['renewal','direct','unfinalized','position','mixed_control','mixed_direct',
+                                   'future','legacy','unknown_command'])
+def test_real_journal_renewal_preserves_only_proved_display(operational,monkeypatch,change):
+    c,_,_=operational
+    c.execute("UPDATE sentinel_account_binding SET established_at=clock_timestamp()-interval '1 day' WHERE id=1")
+    c.commit()
+    if change=='unknown_command':
+        from sentinel.execution.identity import CommandIdentity, DeploymentIdentity
+        owner=DeploymentIdentity('private','alpaca','paper-qualified',1)
+        key=CommandIdentity(owner,'private-plan','s').client_key
+        c.execute("INSERT INTO sentinel_commands(client_key,plan_id,security_id,deployment_id,broker,"
+            "broker_account_id,takeover_epoch,symbol,side,quantity,state) "
+            "VALUES (%s,'private-plan','s','private','alpaca','paper-qualified',1,'TEST','BUY',1,'UNKNOWN')", (key,))
+        c.commit()
+    record_clean_observation(c)
+    c,_=primed(operational,monkeypatch)
+    original=producer.read(c.info.dsn)
+    if change in {'mixed_control','mixed_direct'}:
+        c.execute('UPDATE sentinel_automation_control SET generation=generation+1 WHERE id=1')
+    disposition = ('direct' if change in {'direct','mixed_direct'} else
+                   'unfinalized' if change=='unfinalized' else 'finalized')
+    seq=record_clean_observation(c,quantity='16' if change=='position' else '15',
+        future=change=='future', disposition=disposition)
+    if change=='renewal':
+        assert c.execute('SELECT o.xmin<>p.xmin,p.xmin=w.xmin FROM sentinel_observations o '
+            'JOIN sentinel_observation_provenance p ON p.observation_seq=o.seq '
+            "JOIN sentinel_processed_sessions w ON w.cursor_name='broker-observation:v4:'||o.seq "
+            'WHERE o.seq=%s',(seq,)).fetchone()==(True,True)
+    if change=='legacy':
+        old=dict(original.display_basis)
+        old['schema']=deps._LEGACY
+        old.pop('observation_anchor')
+        old.pop('automation_lease')
+        deps.validate_basis(old)
+        assert not deps.clean_observation_advance(c,c.info.dsn,old,basis(c),
+            facts=read_projection._subject_facts(c),now=datetime.now(timezone.utc))
+        return
+    current=producer.read(c.info.dsn,display=True)
+    assert not current.observation_current
+    assert current.observation_changed_scopes==('PAPER',)
+    assert delivery.display_current(current) is (change in {'renewal','direct'})
+    assert delivery.row_current(current,current.row('broker')) is (change in {'renewal','direct'})
+    with pytest.raises(review_store.ReviewRefused):
+        producer.guard_acknowledgement(c,current,c.info.dsn)
+
+
+def test_removing_observation_revision_budget_admits_concurrent_control(operational,monkeypatch):
+    source=textwrap.dedent(inspect.getsource(deps.clean_observation_advance))
+    check='2+(n.xmin<>p.xmin)::int=%s'
+    assert source.count(check)==1
+    scope=dict(vars(deps));exec(source.replace(check,'2+(n.xmin<>p.xmin)::int<=%s'),scope)
+    monkeypatch.setattr(deps,'clean_observation_advance',scope['clean_observation_advance'])
+    with pytest.raises(AssertionError):
+        test_real_journal_renewal_preserves_only_proved_display(operational,monkeypatch,'mixed_direct')
+
+
+@pytest.mark.parametrize('lease_change',['renew','release','replace','generation','expiry'])
+def test_display_and_ack_follow_native_automation_term(operational,monkeypatch,lease_change):
+    from sentinel.automation import store
+    from tests.sentinel.test_automation_store import enable
+
+    c,_,_=operational
+    enable(c)
+    permit=store.acquire_lease(c,holder_id='first',lease_seconds=120)
+    c,_=primed(operational,monkeypatch)
+    original=producer.read(c.info.dsn,display=True)
+    before=basis(c)
+    if lease_change in {'release','replace'}:
+        store.release_lease(c,permit=permit)
+        if lease_change=='replace':
+            store.acquire_lease(c,holder_id='replacement',lease_seconds=120)
+    elif lease_change=='generation':
+        c.execute('UPDATE sentinel_automation_lease SET control_generation=control_generation+1 WHERE id=1')
+        c.commit()
+    elif lease_change=='expiry':
+        c.execute("UPDATE sentinel_automation_lease SET expires_at=clock_timestamp()-interval '1 microsecond' WHERE id=1")
+        c.commit()
+    else:
+        store.acquire_lease(c,holder_id='first',lease_seconds=180)
+    after=basis(c)
+    assert after['native']==before['native'] and after['paper_revision']==before['paper_revision']
+    assert (deps.combined_subjects(after)==deps.combined_subjects(before)) is (lease_change=='renew')
+    if lease_change!='renew':
+        with pytest.raises(review_store.ReviewRefused):
+            producer.guard_acknowledgement(c,original,c.info.dsn)
+        c.rollback()
+    account(c,equity='103')
+    current=producer.read(c.info.dsn,display=True)
+    assert not current.observation_current
+    assert delivery.display_current(current) is (lease_change=='renew')
+    assert delivery.row_current(current,current.row('automation_leader')) is (lease_change=='renew')
+
+
+def test_removing_native_lease_match_reuses_released_automation(operational,monkeypatch):
+    monkeypatch.setattr(deps,'same_automation_term',lambda *args:True)
+    with pytest.raises(AssertionError):
+        test_display_and_ack_follow_native_automation_term(operational,monkeypatch,'release')
+
+
+def test_shortened_automation_lease_bounds_response_and_expires_during_read(operational,monkeypatch):
+    from sentinel.automation import store
+    from tests.sentinel.test_automation_store import enable
+
+    c,_,_=operational
+    enable(c)
+    store.acquire_lease(c,holder_id='first',lease_seconds=120)
+    c,_=primed(operational,monkeypatch)
+    renewed=store.acquire_lease(c,holder_id='first',lease_seconds=10)
+    current=producer.read(c.info.dsn,display=True)
+    assert current.observation_current and current.observation_valid_until <= renewed.expires_at
+    def cross_expiry():
+        clocks=iter((renewed.expires_at-timedelta(seconds=1),renewed.expires_at))
+        monkeypatch.setattr(review_store,'database_now',lambda c:next(clocks))
+    cross_expiry()
+    page=producer.read(c.info.dsn,display=True)
+    assert not page.observation_current and not delivery.display_current(page)
+    assert not delivery.row_current(page,page.row('automation_leader'))
+    cross_expiry()
+    with pytest.raises(snapshots.SnapshotUnavailable,match='automation lease expired'):
+        producer.read(c.info.dsn)
+
+
 @pytest.mark.parametrize('negative',[False,True])
 def test_new_signed_snapshot_restores_strict_read_after_receipt_handoff(
         operational,monkeypatch,negative):
@@ -248,7 +387,7 @@ def test_unknown_required_row_never_earns_global_display_currentness(operational
     current=producer.read(c.info.dsn,display=True)
     assert not delivery.display_current(current)
     assert not delivery.row_current(current,current.row('unclassified_required'))
-    assert not delivery.row_current(current,current.row('alpaca_account'))
+    assert delivery.row_current(current,current.row('alpaca_account'))
 
 
 def test_expired_producer_cannot_earn_display_currentness(operational,monkeypatch):
@@ -263,7 +402,7 @@ def test_expired_producer_cannot_earn_display_currentness(operational,monkeypatc
 
 @pytest.mark.parametrize('expiry',['owner','row'])
 @pytest.mark.parametrize('unknown',[False,True])
-def test_finished_clock_revokes_all_positive_keys_after_owner_or_row_expiry(operational,monkeypatch,expiry,unknown):
+def test_finished_clock_expires_the_owner_or_only_the_due_row(operational,monkeypatch,expiry,unknown):
     extra=[model.Row('unclassified_required','Unknown','CURRENT',model.OK,required_current=True)] if unknown else []
     c,_=primed(operational,monkeypatch,extra=extra,short_book=expiry=='row')
     account(c,equity='103')
@@ -275,8 +414,12 @@ def test_finished_clock_revokes_all_positive_keys_after_owner_or_row_expiry(oper
     clocks=iter([first,final]);monkeypatch.setattr(review_store,'database_now',lambda _c:next(clocks))
     current=producer.read(c.info.dsn,display=True)
     assert not delivery.display_current(current)
-    assert not current.observation_display_keys
-    assert not delivery.row_current(current,current.row('alpaca_account'))
+    if expiry=='owner':
+        assert not current.observation_display_keys
+        assert not delivery.row_current(current,current.row('alpaca_account'))
+    else:
+        assert not delivery.row_current(current,current.row('book'))
+        assert delivery.row_current(current,current.row('alpaca_account'))
 
 
 def test_fast_publication_reuses_composition_for_account_and_receipt_handoffs(operational,monkeypatch,tmp_path):

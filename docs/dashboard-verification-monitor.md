@@ -202,12 +202,52 @@ rule or ten-minute proof lifetime is removed.
 
 ## Idle scope isolation and health history
 
-The broker-free owner admits one supervised observer per financial scope.
-A PAPER mirror read can proceed during a retained SHADOW reconstruction.
-Both retain their native resource and database guards, owner and subject
-rechecks, wall-clock deadlines, and stop/reap supervision. Periodic SHADOW
-evidence still requires its own canonical verification before it expires.
-The independent lanes supersede the earlier shared process slot.
+At the November 19 open the verifier reached its 1 GiB memory limit while
+PAPER and SHADOW observers overlapped. Linux killed the SHADOW child. The
+parent received EOF, while the container stayed healthy and PAPER finished.
+The prior two-child test replaced the actual work with sleep.
+
+Both financial readers retain their independent evidence, deadlines, and
+signed attempts. One first-in, first-out admission queue covers the physical
+memory budget for spawned financial observers in this container. Consider
+PAPER first when both scopes are due on an owner poll. A waiting scope gets
+the next free slot before a repeat can run. A previously authenticated
+valuation-only PAPER rebind can still proceed while SHADOW works. Other
+PAPER observations wait for at most the existing queue deadline. Recheck
+the subject and owner after admission and preserve the original deadlines.
+A child awaiting kernel reap occupies the same resource across both scopes.
+The projector and other services retain their own supervision.
+
+On unexpected SIGKILL report the signal in the closed transport diagnostic.
+If the container-local OOM kill count also advanced during the observation,
+include that fact in its classification. A SIGKILL alone cannot identify OOM.
+This diagnostic confers no financial authority. Under the installed resource
+limit, qualify simultaneous demands from both scopes, completion or
+cancellation, and the refusal to spawn after an unreaped child.
+
+The verifier queue regression runs both native observers against a private
+PostgreSQL fixture while each observer holds touched memory pages. Its
+ordinary test profile uses 48 MiB per observer. In an isolated Linux test
+container with one CPU, 1 GiB of memory and zero swap, run the cgroup
+falsifier with
+
+```sh
+SENTINEL_QUALIFY_VERIFIER_CGROUP=1 python -m pytest -q -s --tb=short \
+  -p no:cacheprovider \
+  tests/sentinel/test_verifier_queue_wakeup.py::test_financial_children_share_working_memory_and_retire_before_owner_release
+```
+
+The Sentinel status CI lane runs this profile in a dedicated container.
+It uses 525 MiB per child. Both observers must finish under shared admission
+with zero kernel OOM kills. With independent slots, wait for the first failed
+observer, release any survivor, and collect both terminal attempts before
+shutdown. At least one observer must record a transport SIGKILL during a
+cgroup OOM. Each failed observer must have that diagnostic, and the cgroup
+kill count must cover those deaths. The kernel may kill either or both
+observers. Verify that the owner releases both child processes and the private
+database remains usable. The test reports the cgroup peak and kill counts.
+The page load qualifies physical
+admission; it does not reproduce the size of a particular retained book.
 
 During an authenticated valuation-only display handoff the public review
 record follows the signed display evidence. Return its original history and

@@ -58,6 +58,18 @@ def test_stage_vocabulary_and_cardinality_are_bounded():
         trace.mark('arbitrary-broker-payload')
 
 
+def test_preflight_times_a_refusal_and_preserves_its_exception(monkeypatch, caplog):
+    ticks = iter((5_000_000, 17_250_000))
+    monkeypatch.setattr(opening_stage_log, 'perf_counter_ns', lambda: next(ticks))
+    refusal = RuntimeError('private detail')
+    with caplog.at_level(logging.INFO, logger=opening_stage_log.LOGGER_NAME):
+        with pytest.raises(RuntimeError) as caught:
+            with opening_stage_log.preflight('cycle_authority'):
+                raise refusal
+    assert caught.value is refusal
+    assert caplog.messages == ['automation_preflight_stage stage=cycle_authority elapsed_ms=12']
+
+
 def test_terminal_transition_timer_preserves_result_and_failure(monkeypatch, caplog):
     ticks = iter((0, 2_700_000, 4_000_000, 7_100_000))
     monkeypatch.setattr(automation_service.time, 'perf_counter_ns',

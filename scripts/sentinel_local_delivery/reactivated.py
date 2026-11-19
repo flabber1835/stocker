@@ -67,6 +67,8 @@ def require_lineage(state, *, startup_alert_id=None):
 
 def verified_panel(page, header, expected, now):
     from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    from sentinel.feed.calendar import next_session
     from sentinel.panel.review_model import OperatorReview
 
     def clock(raw):
@@ -103,7 +105,11 @@ def verified_panel(page, header, expected, now):
     assert run['state'] == 'SUCCEEDED' and clock(run['completed_at']) <= now
     assert intent['cycle_id'] == expected['cycle_id'] and intent['plan_id'] == expected['original_plan'] != expected['plan']
     assert intent['decision_session'] == expected['decision'] and intent['effective_session'] == expected['effective']
-    assert rows['paper_plan']['status'] == 'pending' and rows['paper_plan']['value'] == 'NOT PREPARED'
+    plan = rows['paper_plan']
+    assert plan['status'] == 'pending' and plan['paper_plan'] is None
+    if plan['value'] != 'NOT PREPARED':
+        assert intent['effective_session'] == observed.astimezone(ZoneInfo('America/New_York')).date().isoformat()
+        assert plan['value'] == f"{next_session(intent['effective_session'])} · awaiting plan"
     recovery_values = {'automation_cycle':'WAITING FOR NEXT DECISION', 'automation_step_discovery':'WAITING FOR CYCLE'}
     for key, value in recovery_values.items():
         row = rows[key]
