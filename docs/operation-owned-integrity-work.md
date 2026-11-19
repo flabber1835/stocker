@@ -202,3 +202,29 @@ image/source parity with the VERIFIED application, unchanged physical database
 and policy, and the common checker implementation. Host qualification replaces
 only the erroneous requirement that a host tool's bytes equal an unexecuted copy
 inside the maintained runtime package. It lends no runtime or financial authority.
+
+## Protected-main PAPER reader handover
+
+The native backup service can outlive multiple signed application releases.
+For a completed dual PAPER release, use its immutable installation receipt as
+`--application-receipt` and its sibling `ci-certified-runtime.json` and digest
+as `--qualification` and `--qualification-sha256`. Stage the reader in its own
+clean checkout at the installed commit. Keep its original non-runtime environment
+and independent media policy. The host tool still requires its separately
+qualified clean checkout and report.
+
+Before changing the unit, independently verify the protected publication for
+the exact source tree and resolve its registry digest to the running image ID.
+Authenticate the installation directory against the deployment's authority root.
+Require one completed activation result bound to that installation, the same
+checkout, account, software and active dual receipt. Compare the live database
+control generation and certificate to that receipt. Pin the immutable evidence
+in the signed handover journal, alongside the existing physical PostgreSQL,
+container, environment and source identities. Resume rechecks those bytes and
+live bindings. Rollback rechecks the pinned physical installation and evidence
+without requiring continued trading authority or a network download.
+
+The reader remains a backup-only service. The existing exclusive pass lock,
+signed selectors, systemd ownership checks and resumable rollback govern the
+switch. After a reviewed handover, verify a scheduled RUNTIME_CHAIN publication
+reports the installed scrub policy and actual segment reads.
