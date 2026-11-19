@@ -178,6 +178,9 @@ def test_early_negative_retry_guard_has_executed_falsifier(monkeypatch):
         test_occupied_scan_keeps_fresh_negative_visible_and_bounds_retry('same')
 
 
+_OBSERVER_RENDEZVOUS_SECONDS = 30
+
+
 def _loaded_observer(database_url, paper, subject, *, directory, observe, mib):
     import os
     import time
@@ -195,7 +198,9 @@ def _loaded_observer(database_url, paper, subject, *, directory, observe, mib):
     result = observe(database_url, paper, subject)
     assert 'rows' in result, result
     marker.write_text(str(os.getpid()))
-    deadline = time.monotonic() + 30
+    # Allow the parent to start the second native observer and collect its
+    # result before withdrawing the first process's resident pages.
+    deadline = time.monotonic() + 2 * _OBSERVER_RENDEZVOUS_SECONDS
     while not marker.with_suffix('.release').exists():
         if time.monotonic() >= deadline:
             raise TimeoutError('observer qualification barrier expired')
@@ -204,13 +209,20 @@ def _loaded_observer(database_url, paper, subject, *, directory, observe, mib):
     return result
 
 
-def _wait_for(predicate):
+def _wait_for(predicate, *, timeout=12, diagnostic=None):
     import time
-    deadline = time.monotonic() + 12
+    deadline = time.monotonic() + timeout
     while not predicate():
         if time.monotonic() >= deadline:
-            pytest.fail('financial work did not reach its expected state')
+            detail = f' · {diagnostic()}' if diagnostic is not None else ''
+            pytest.fail('financial work did not reach its expected state'+detail)
         time.sleep(.01)
+
+
+def _wait_for_loaded(marker, instance):
+    _wait_for(lambda: marker.exists() or instance.attempt_state()['outcome'] == 'FAILED',
+              timeout=_OBSERVER_RENDEZVOUS_SECONDS, diagnostic=lambda: (marker.name, instance.attempt_state()))
+    assert marker.exists(), (marker.name, instance.attempt_state())
 
 
 def test_waiting_observer_cannot_be_overtaken_and_expired_ticket_is_removed():
@@ -270,6 +282,33 @@ def test_unexpected_sigkill_keeps_only_observed_cgroup_evidence(tmp_path, before
     assert (diagnostic.code, diagnostic.exception_type) == ('TRANSPORT_FAILED', expected)
 
 
+def _assert_cgroup_outcomes(attempts, kills, *, independent_slots):
+    assert set(attempts) == {'PAPER', 'SHADOW'}
+    assert all(attempt['outcome'] in {'COMPLETED', 'FAILED'} for attempt in attempts.values())
+    failures = [attempt['diagnostic'] for attempt in attempts.values()
+                if attempt['outcome'] == 'FAILED']
+    if independent_slots:
+        assert 1 <= len(failures) <= kills
+        for failure in failures:
+            assert (failure['code'], failure['exception_type']) == (
+                'TRANSPORT_FAILED', 'ChildSigkillDuringCgroupOOM')
+    else:
+        assert not failures and kills == 0
+
+
+def test_both_oom_victims_require_a_corresponding_typed_diagnostic():
+    failed = {'outcome': 'FAILED', 'diagnostic': {
+        'code': 'TRANSPORT_FAILED', 'exception_type': 'ChildSigkillDuringCgroupOOM'}}
+    attempts = {'PAPER': failed, 'SHADOW': failed}
+    _assert_cgroup_outcomes(attempts, 2, independent_slots=True)
+    with pytest.raises(AssertionError):
+        _assert_cgroup_outcomes(attempts, 1, independent_slots=True)
+    attempts['SHADOW'] = {'outcome': 'FAILED', 'diagnostic': {
+        'code': 'TRANSPORT_FAILED', 'exception_type': 'EOFError'}}
+    with pytest.raises(AssertionError):
+        _assert_cgroup_outcomes(attempts, 2, independent_slots=True)
+
+
 @pytest.mark.parametrize('independent_slots', [False, True], ids=['one-budget', 'old-lanes-falsifier'])
 def test_financial_children_share_working_memory_and_retire_before_owner_release(
         conn, tmp_path, monkeypatch, independent_slots):
@@ -287,6 +326,7 @@ def test_financial_children_share_working_memory_and_retire_before_owner_release
     monkeypatch.setattr(service, 'HEARTBEAT', tmp_path/'heartbeat')
     stopped = Event()
     pids = []
+    terminal_attempts = {}
     exercise_limit = os.environ.get('SENTINEL_QUALIFY_VERIFIER_CGROUP') == '1'
     if exercise_limit:
         cgroup = Path('/sys/fs/cgroup')
@@ -315,37 +355,39 @@ def test_financial_children_share_working_memory_and_retire_before_owner_release
                                         mib=525 if exercise_limit else 48)
             instance.read(database_url, include_paper=scope=='PAPER')
             if scope == 'PAPER':
-                _wait_for((tmp_path/scope).exists)
+                _wait_for_loaded(tmp_path/scope, instance)
                 pids.append(int((tmp_path/scope).read_text()))
         paper, shadow = readers.values()
         slot = shadow.execution_slot
 
         def shadow_waiting_or_running():
             with slot.condition:
-                return bool(slot.waiting) or shadow.attempt_state()['outcome'] == 'RUNNING'
+                return bool(slot.waiting) or shadow.attempt_state()['work_started_at'] is not None
 
         _wait_for(shadow_waiting_or_running)
-        if independent_slots:
-            if exercise_limit:
-                _wait_for(lambda: any(r.attempt_state()['outcome'] == 'FAILED' for r in readers.values()))
-                failures = [r.attempt_state()['diagnostic'] for r in readers.values()
-                            if r.attempt_state()['outcome'] == 'FAILED']
-                assert len(failures) == 1
-                assert failures[0]['exception_type'] == 'ChildSigkillDuringCgroupOOM'
-                pids.append(int((tmp_path/'SHADOW.pid').read_text()))
-                signal.raise_signal(signal.SIGTERM)
-                return
-            _wait_for((tmp_path/'SHADOW').exists)
+        if independent_slots and exercise_limit:
+            _wait_for(lambda: any(r.attempt_state()['outcome'] == 'FAILED' for r in readers.values()),
+                      timeout=_OBSERVER_RENDEZVOUS_SECONDS)
+            for scope in readers:
+                (tmp_path/f'{scope}.release').touch()
+            _wait_for(lambda: all(r.attempt_state()['outcome'] in {'COMPLETED', 'FAILED'}
+                                  for r in readers.values()), timeout=_OBSERVER_RENDEZVOUS_SECONDS)
+            pids.append(int((tmp_path/'SHADOW.pid').read_text()))
+        else:
+            if independent_slots:
+                _wait_for_loaded(tmp_path/'SHADOW', shadow)
+                pids.append(int((tmp_path/'SHADOW').read_text()))
+            assert shadow.attempt_state()['work_started_at'] is None, 'financial working sets overlap'
+            assert shadow.attempt_state()['outcome'] == 'QUEUED'
+            (tmp_path/'PAPER.release').touch()
+            _wait_for_loaded(tmp_path/'SHADOW', shadow)
             pids.append(int((tmp_path/'SHADOW').read_text()))
-        assert shadow.attempt_state()['work_started_at'] is None, 'financial working sets overlap'
-        assert shadow.attempt_state()['outcome'] == 'QUEUED'
-        (tmp_path/'PAPER.release').touch()
-        _wait_for((tmp_path/'SHADOW').exists)
-        pids.append(int((tmp_path/'SHADOW').read_text()))
-        assert paper.attempt_state()['outcome'] == 'COMPLETED'
+            assert paper.attempt_state()['outcome'] == 'COMPLETED'
+            if exercise_limit:
+                (tmp_path/'SHADOW.release').touch()
+                _wait_for(lambda: shadow.attempt_state()['outcome'] == 'COMPLETED')
         if exercise_limit:
-            (tmp_path/'SHADOW.release').touch()
-            _wait_for(lambda: shadow.attempt_state()['outcome'] == 'COMPLETED')
+            terminal_attempts.update({scope: r.attempt_state() for scope, r in readers.items()})
         assert not conn.execute('SELECT pg_try_advisory_lock(%s,%s)', service.OWNER_LOCK).fetchone()[0]
         signal.raise_signal(signal.SIGTERM)
 
@@ -363,7 +405,7 @@ def test_financial_children_share_working_memory_and_retire_before_owner_release
     assert stopped.is_set() and len(set(pids)) == 2
     if exercise_limit:
         kills = supervisor_io._oom_kills(events) - initial_kills
-        assert kills == int(independent_slots)
+        _assert_cgroup_outcomes(terminal_attempts, kills, independent_slots=independent_slots)
         print(f"independent_slots={independent_slots} oom_kills={kills} "
               f"peak_bytes={(cgroup/'memory.peak').read_text().strip()}")
     for pid in pids:

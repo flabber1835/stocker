@@ -238,10 +238,15 @@ SENTINEL_QUALIFY_VERIFIER_CGROUP=1 python -m pytest -q -s --tb=short \
 ```
 
 The Sentinel status CI lane runs this profile in a dedicated container.
-It uses 525 MiB per child. Both observers must finish
-under shared admission. Restoring independent slots must trigger exactly
-one kernel OOM kill and preserve its cause in the failed attempt. The test
-reports the cgroup peak and kill counts. The page load qualifies physical
+It uses 525 MiB per child. Both observers must finish under shared admission
+with zero kernel OOM kills. With independent slots, wait for the first failed
+observer, release any survivor, and collect both terminal attempts before
+shutdown. At least one observer must record a transport SIGKILL during a
+cgroup OOM. Each failed observer must have that diagnostic, and the cgroup
+kill count must cover those deaths. The kernel may kill either or both
+observers. Verify that the owner releases both child processes and the private
+database remains usable. The test reports the cgroup peak and kill counts.
+The page load qualifies physical
 admission; it does not reproduce the size of a particular retained book.
 
 During an authenticated valuation-only display handoff the public review
