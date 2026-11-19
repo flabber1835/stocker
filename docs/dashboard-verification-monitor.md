@@ -199,3 +199,23 @@ retry after a failed check. This describes why new work was admitted without
 inventing a historical dependency mutation or persisting private configuration.
 No invalidating dependency, independent scope, authentication check, single-owner
 rule or ten-minute proof lifetime is removed.
+
+## Idle scope isolation and health history
+
+The broker-free owner admits one supervised observer per financial scope.
+A PAPER mirror read can proceed during a retained SHADOW reconstruction.
+Both retain their native resource and database guards, owner and subject
+rechecks, wall-clock deadlines, and stop/reap supervision. Periodic SHADOW
+evidence still requires its own canonical verification before it expires.
+The independent lanes supersede the earlier shared process slot.
+
+During an authenticated valuation-only display handoff the public review
+record follows the signed display evidence. Return its original history and
+head with a null acknowledgement token. Strict financial currency remains
+mandatory for an acknowledgement. A changed review head, expired evidence
+or a missing review has no such display entitlement.
+
+For a display-only PAPER handoff, the public JSON review also requires the
+current active-condition and warning sets to match the signed review record.
+An older clean review cannot describe newly detected conditions. An outstanding
+acknowledgement can still be displayed when both condition sets agree.

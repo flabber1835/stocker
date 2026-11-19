@@ -90,7 +90,7 @@ def test_metadata_hits_do_not_rewrite_receipt_or_renew_expiry(world):
     admit(world);raw=world.receipt.read_bytes();world.uptime+=250
     assert admit(world)['integrity_objects_hashed']==0
     assert world.receipt.read_bytes()==raw and world.publications==1
-    world.uptime+=50
+    world.uptime += reuse.MAX_AGE - 250
     assert admit(world)['integrity_objects_hashed']==8
 
 
@@ -99,7 +99,7 @@ def test_new_tail_hashes_only_new_bytes_and_preserves_original_scrub_clock(world
     world.uptime+=200;world.media.segment(6);world.frontier=wal_name(6)
     assert admit(world)['integrity_objects_hashed']==2
     assert json.loads(world.receipt.read_bytes())['proof']['completed_uptime']==stamp
-    world.uptime+=100
+    world.uptime += reuse.MAX_AGE - 200
     assert admit(world)['integrity_objects_hashed']==10
 
 
@@ -108,7 +108,7 @@ def test_proactive_scrub_makes_the_extended_frontier_readable_first(world, monke
     admit(world)
     original = authority._hash_objects
     predecessor = json.loads(world.receipt.read_bytes())['proof']
-    world.uptime += 125
+    world.uptime += reuse.MAX_AGE - reuse.REFRESH_LEAD_SECONDS + 5
     world.media.segment(6)
     world.frontier = wal_name(6)
     if case == 'old_object_changed':
@@ -131,7 +131,7 @@ def test_proactive_scrub_makes_the_extended_frontier_readable_first(world, monke
                     assert published['end'] == wal_name(6)
                     assert published['completed_uptime'] == predecessor['completed_uptime']
                     if case == 'expired':
-                        world.uptime = predecessor['completed_uptime'] + 300
+                        world.uptime = predecessor['completed_uptime'] + reuse.MAX_AGE
                         with pytest.raises(authority.BackupIntegrityBusy):
                             admit(world)
                     else:
@@ -163,7 +163,7 @@ def test_foreign_or_expired_receipt_never_grants_reuse(world,monkeypatch,changed
     elif changed=='boot':world.boot='87654321-1234-1234-1234-123456789abc'
     elif changed=='implementation':monkeypatch.setattr(reuse,'implementation',lambda:'different-implementation')
     elif changed=='rollback':world.uptime-=1
-    else:world.uptime+=300
+    else:world.uptime += reuse.MAX_AGE
     assert admit(world)['integrity_objects_hashed']==8
 
 
@@ -179,8 +179,8 @@ def test_forged_receipt_refuses_and_never_takes_account_ownership(world):
 @pytest.mark.parametrize('omit_frontier', [False, True])
 def test_retry_wakes_only_after_authenticated_fresh_completion(world, monkeypatch, omit_frontier):
     admit(world)
-    refused_at=NOW+timedelta(seconds=151)
-    world.uptime+=152
+    refused_at=NOW+timedelta(seconds=reuse.MAX_AGE-149)
+    world.uptime += reuse.MAX_AGE-148
     assert not backup_retry._completed_since(world, refused_at)
     authority.require(world, operation='private proactive scrub', maintenance_refresh=True)
     world.uptime+=1
@@ -199,7 +199,7 @@ def test_retry_wakes_only_after_authenticated_fresh_completion(world, monkeypatc
     world.frontier=wal_name(6)
     assert backup_retry._completed_since(world, refused_at) is omit_frontier
     world.frontier=wal_name(5)
-    world.uptime+=300
+    world.uptime += reuse.MAX_AGE
     assert not backup_retry._completed_since(world, NOW+timedelta(seconds=440))
 
 
@@ -226,7 +226,7 @@ def test_same_metadata_corruption_is_found_at_original_expiry(world,monkeypatch)
                     objects=tuple(wal_name(i) for i in range(2,6)))
     monkeypatch.setattr(authority,'_archive_metadata',lambda *a,**k:stable)
     with (world.media.namespace/wal_name(4)).open('r+b') as stream:stream.write(b'corruption')
-    world.uptime+=299
+    world.uptime += reuse.MAX_AGE - 1
     assert admit(world)['integrity_objects_hashed']==0
     world.uptime+=1
     with pytest.raises(authority.BackupRuntimeRefused,match='SHA-256'):
@@ -244,7 +244,7 @@ def test_a_failed_full_proof_invalidates_the_shared_positive(world,monkeypatch):
     original=authority._hash_objects
     monkeypatch.setattr(authority,'_hash_objects',lambda *a,**k:(_ for _ in ()).throw(
         authority.BackupRuntimeUnavailable('synthetic archive read failed')))
-    world.uptime+=300
+    world.uptime += reuse.MAX_AGE
     with pytest.raises(authority.BackupRuntimeUnavailable,match='synthetic'):
         admit(world)
     assert json.loads(world.receipt.read_bytes())['proof']['outcome']=='INVALID'
@@ -260,3 +260,32 @@ def test_removed_receipt_authentication_has_executed_falsifier(world,monkeypatch
     monkeypatch.setattr(reuse.Owner,'__init__',namespace['__init__'])
     with pytest.raises((AssertionError,pytest.fail.Exception)):
         test_forged_receipt_refuses_and_never_takes_account_ownership(world)
+
+
+def test_idle_maintenance_hashes_only_the_new_wal(world, monkeypatch):
+    assert admit(world)['integrity_max_reuse_seconds'] == 86400
+    original_stamp = json.loads(world.receipt.read_bytes())['proof']['completed_uptime']
+    original = authority._hash_objects
+    reads = []
+
+    def counted(conn, *, root, objects, sizes):
+        reads.extend(objects)
+        return original(conn, root=root, objects=objects, sizes=sizes)
+
+    monkeypatch.setattr(authority, '_hash_objects', counted)
+    for i in range(6, 13):
+        world.uptime += 300
+        world.media.segment(i)
+        world.frontier = wal_name(i)
+        report = authority.require(world, operation='idle publication', maintenance_refresh=True)
+        assert report['integrity_objects_hashed'] == 2
+        assert not report['integrity_full_scrub']
+        assert reads == [wal_name(i)] * 2
+        reads.clear()
+    assert json.loads(world.receipt.read_bytes())['proof']['completed_uptime'] == original_stamp
+
+
+def test_restoring_the_five_minute_scrub_is_detected(world, monkeypatch):
+    monkeypatch.setattr(reuse.Owner, 'refresh_due', lambda owner: owner.proof is not None)
+    with pytest.raises(AssertionError):
+        test_idle_maintenance_hashes_only_the_new_wal(world, monkeypatch)

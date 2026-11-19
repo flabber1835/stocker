@@ -72,7 +72,7 @@ def current_checkpoint_advancement(
                       and 'integrity_max_reuse_seconds' not in value)
         runtime_shape=(producer=='checkpoint' and type(full) is bool
                        and type(value.get('integrity_max_reuse_seconds')) is int
-                       and value['integrity_max_reuse_seconds']==300
+                       and value['integrity_max_reuse_seconds'] in (300, 86400)
                        and type(hashed) is int and 0<=hashed<=2*objects and hashed%2==0
                        and type(passes) is int and passes==(2 if hashed else 0)
                        and (not full or hashed==2*objects))

@@ -25,7 +25,7 @@ def _completed_since(conn, failed_at: datetime) -> bool:
     # Map the optional wake threshold onto the PostgreSQL host that owns the
     # receipt uptime. Only an authenticated fresh, exact proof can wake.
     observed_at = conn.execute("SELECT clock_timestamp()").fetchone()[0]
-    if not 0 < (elapsed := (observed_at - failed_at).total_seconds()) < backup_integrity_reuse.MAX_AGE:
+    if not 0 < (elapsed := (observed_at - failed_at).total_seconds()) < 300:
         return False
     system_id = backup_runtime_authority.current_system_id(conn)
     base = backup_runtime_authority._published_base(conn, system_id=system_id)

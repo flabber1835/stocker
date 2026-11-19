@@ -100,3 +100,18 @@ runtime inventory as an exact predecessor of the reviewed renewal change.
 Preserve the existing history and economic mappings. Install the same qualified
 source for the application and the native maintenance reader. Observe a
 scheduled renewal that publishes before the previous byte proof expires.
+
+## Idle PAPER checks and the silent-corruption deadline
+
+Keep the five-minute maintenance publication cadence and ten-minute publication
+expiry. Check the actual current volume, base, frontier, file and sidecar
+metadata, and alias guards on admission. Verify new segments twice before
+extending coverage. Changed metadata, a cold start without matching authenticated
+proof, a different base, or a different physical/implementation identity requires
+a full two-pass proof. A matching receipt for backed PAPER permits reuse of
+unchanged bytes for at most 24 hours after the completed full proof, measured
+on the database host's boot clock. Neither appending WAL nor publishing current
+health moves this deadline. Start renewal three minutes early. Same-metadata
+corruption introduced just after a full proof can go undetected until the next
+full check. The old five-minute deep-scrub interval still applies to the
+process-local fallback. Private restore qualification remains independent.

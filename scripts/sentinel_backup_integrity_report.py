@@ -209,10 +209,10 @@ def validate(value):
             or not 0 <= reads <= 2*(count+(history is not None)) or reads % 2
             or value['integrity_read_passes'] != (2 if reads else 0)
             or value['integrity_full_scrub'] and reads != 2*(count+(history is not None))
-            or value['integrity_max_reuse_seconds'] != 300):
+            or value['integrity_max_reuse_seconds'] not in (300, 86400)):
         raise ValueError('common integrity interval or work counts are invalid')
     stamps = [value[k] for k in ('integrity_completed_uptime', 'integrity_observed_uptime')]
     if (any(type(s) not in (int, float) or not math.isfinite(s) or s < 0 for s in stamps)
-            or not 0 <= stamps[1]-stamps[0] < 300):
+            or not 0 <= stamps[1]-stamps[0] < value['integrity_max_reuse_seconds']):
         raise ValueError('common integrity original clock is invalid')
     return value

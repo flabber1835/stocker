@@ -266,7 +266,7 @@ class MaintenanceProof(BaseModel):
     integrity_objects_hashed: int = Field(ge=0, le=2050)
     integrity_full_scrub: bool
     integrity_read_passes: Literal[0, 2]
-    integrity_max_reuse_seconds: Literal[300]
+    integrity_max_reuse_seconds: Literal[300, 86400]
     wal_segment_bytes: int
     integrity_completed_uptime: float = Field(ge=0)
     integrity_observed_uptime: float = Field(ge=0)
@@ -291,7 +291,7 @@ class MaintenanceProof(BaseModel):
                 or count % 2 or count > 2*objects
                 or self.integrity_read_passes != (2 if count else 0)
                 or self.integrity_full_scrub and count != 2*objects
-                or not 0 <= self.integrity_observed_uptime-self.integrity_completed_uptime < 300):
+                or not 0 <= self.integrity_observed_uptime-self.integrity_completed_uptime < self.integrity_max_reuse_seconds):
             raise ValueError('contradictory maintenance integrity proof')
         return self
 

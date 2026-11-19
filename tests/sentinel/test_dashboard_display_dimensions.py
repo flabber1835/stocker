@@ -76,6 +76,28 @@ def _brand_border(html, *, browser_state=None, css=CSS):
     return winner[1]
 
 
+def test_valuation_handoff_retains_review_history_and_withholds_the_action_token():
+    page = display_page()
+    review = page.operator_review.model_copy(update={'status':'REVIEW', 'token':'old-action-secret'})
+    handoff = replace(page, operator_review=review)
+    assert serialization.public_payload(replace(handoff, observation_current=True))['operator_review']['token'] == review.token
+    assert serialization.public_payload(handoff)['operator_review'] == {**review.model_dump(mode='json'), 'token':None}
+    assert review.token not in render(handoff)
+
+
+@pytest.mark.parametrize('status,record', [
+    ('FAILED', {'active': ['broker']}),
+    ('REVIEW', {'warnings': ['paper_reconciliation']}),
+])
+def test_display_handoff_withdraws_review_when_a_recorded_condition_clears(status, record):
+    page = display_page()
+    review = page.operator_review.model_copy(update={'status': status, **record})
+    payload = serialization.public_payload(replace(page, operator_review=review))
+    assert payload['dashboard_health']['active_conditions'] == []
+    assert payload['dashboard_health']['review_conditions'] == []
+    assert payload['operator_review'] is None
+
+
 def test_proved_display_is_current_without_strict_machine_or_ack_currentness(monkeypatch):
     page = display_page()
     assert dashboard_health(page)['color']=='green'
@@ -83,7 +105,12 @@ def test_proved_display_is_current_without_strict_machine_or_ack_currentness(mon
     assert payload['observation']['current'] is True
     assert payload['observation']['display_current'] is True
     assert payload['observation']['strict_current'] is False
-    assert payload['operational']==model.UNKNOWN and payload['operator_review'] is None
+    assert payload['operational'] == model.UNKNOWN
+    assert payload['operator_review'] == {**page.operator_review.model_dump(mode='json'), 'token': None}
+    for withdrawn in (replace(page, observation_display_current=False),
+                      replace(page, observation_retained=True),
+                      replace(page, observation_changed_scopes=('SHADOW',))):
+        assert serialization.public_payload(withdrawn)['operator_review'] is None
     assert all(row['current'] for row in payload['rows'])
     html = render(page)
     assert 'data-observation-current="true"' in html

@@ -114,11 +114,12 @@ def test_post_activation_valuation_handoff_preserves_only_proven_human_health(fa
             delivery.row_current(page, row) for row in page.rows))
     payload = serialization.public_payload(page)
     assert payload['observation']['strict_current'] is False
-    assert payload['operator_review'] is None
     assert payload['operational'] == model.UNKNOWN
     if fault:
+        assert payload['operator_review'] is None
         assert payload['dashboard_health']['color'] != 'green'
     else:
+        assert payload['operator_review'] == {**clean.model_dump(mode='json'), 'token': None}
         assert payload['dashboard_health']['color'] == 'green'
         assert payload['dashboard_health']['review_conditions'] == []
 

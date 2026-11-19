@@ -76,13 +76,13 @@ def test_original_expiry_is_typed_only_at_original_clock_guard(world, monkeypatc
     body = json.loads(world.receipt.read_bytes())['proof']
     context = {k: body['context'][k] for k in ('system_id', 'base', 'start', 'segment_size')}
     owner = reuse.Owner(world, context)
-    world.uptime += 300
+    world.uptime += reuse.MAX_AGE
     with pytest.raises(authority.BackupIntegrityProofExpired) as failure:
         owner.publish(owner.cached(), full_scrub=False)
-    assert failure.value.observed_uptime-failure.value.completed_uptime == 300
+    assert failure.value.observed_uptime-failure.value.completed_uptime == reuse.MAX_AGE
     expired = reuse.Owner(world, context)
     assert expired.proof is None and expired.cached() is None
-    assert expired.expired_window == (1000., 1300.)
+    assert expired.expired_window == (1000., 1000. + reuse.MAX_AGE)
     world.boot = '87654321-1234-1234-1234-123456789abc'
     foreign = reuse.Owner(world, context)
     assert foreign.proof is None and foreign.expired_window is None

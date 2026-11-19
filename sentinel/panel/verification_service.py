@@ -623,7 +623,6 @@ def run(*, stopped=None):
         def work_allowed():
             return (owner['active'] and not stopped.is_set() and not conn.closed and not conn.broken
                     and time.monotonic() < owner['deadline'])
-        slot = BoundedSemaphore(1)
         from functools import partial
         from sentinel import supervisor_io
         from sentinel.panel.mirror_history import ClassificationMemo
@@ -632,10 +631,10 @@ def run(*, stopped=None):
         except (OSError, MemoryError):
             paper_observer = diagnosed_observe
         readers = {scope:financial.Reader(evidence_reader=read_projection.subject_for,
-            runner=partial(supervisor_io.run, cancelled=stopped.is_set),
+            runner=partial(supervisor_io.run, cancelled=stopped.is_set, unreaped=[]),
             observer=paper_observer if scope == 'PAPER' else diagnosed_observe,
             expected_keys=read_projection.PAPER_KEYS if scope == 'PAPER' else read_projection.SHADOW_KEYS,
-            unknown_factory=paper_unknown if scope == 'PAPER' else None,execution_slot=slot,
+            unknown_factory=paper_unknown if scope == 'PAPER' else None, execution_slot=BoundedSemaphore(1),
             retain_failed_attempt=True,
             completion=wakeup, work_allowed=work_allowed,
             queued_evidence_reader=lambda url,paper: _queued_subject(url,paper,owner_id),
