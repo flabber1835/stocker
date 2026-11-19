@@ -8,10 +8,9 @@ markers and a contiguous external WAL chain from the published base backup's exa
 manifest End-LSN through the archiver's latest successful segment.
 
 Each archived object carries an atomically published SHA-256 sidecar. Runtime
-performs two bounded byte scrubs on first use and at least every five minutes.
-Within that interval unchanged objects reuse the proof; backed owner PAPER can
-authenticate a PostgreSQL-host-scoped receipt across disposable processes.
-Other callers retain their private process scope. New or changed objects
+performs two byte passes on first use. For unchanged media, backed PAPER can
+reuse an authenticated PostgreSQL-host receipt for up to one day across
+disposable processes. Other callers retain a five-minute process-local bound. New or changed objects
 are hashed immediately. Coarse timestamps cannot prove immutability, so expiry
 forces a full scrub even if metadata is unchanged. Reuse never extends expiry.
 The PostgreSQL OS identity also lstat-checks every required object so a symlink or

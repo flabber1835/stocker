@@ -186,8 +186,9 @@ def _slow_read_only_observer(directory, paper, _subject):
     time.sleep(10)
 
 
+@pytest.mark.parametrize('restore_shared_slot', [False, True], ids=['scope-isolation', 'shared-slot-falsifier'])
 def test_paper_progresses_during_shadow_and_shutdown_reaps_both_before_owner_release(
-        conn, tmp_path, monkeypatch):
+        conn, tmp_path, monkeypatch, restore_shared_slot):
     import os
     import signal
     import time
@@ -201,6 +202,9 @@ def test_paper_progresses_during_shadow_and_shutdown_reaps_both_before_owner_rel
     # Real native owner, semaphore, supervised subprocess and shutdown. Replace
     # only the expensive read body and stable fixture subject.
     monkeypatch.setattr(service, '_restore_readers', lambda *a, **k: {})
+    if restore_shared_slot:
+        shared_slot = BoundedSemaphore(1)
+        monkeypatch.setattr(service, 'BoundedSemaphore', lambda _: shared_slot)
     stopped = Event()
     times, pids = [], []
     def before_shutdown(owner, readers, *args, **kwargs):
@@ -221,11 +225,17 @@ def test_paper_progresses_during_shadow_and_shutdown_reaps_both_before_owner_rel
     monkeypatch.setattr(service, '_run_owned_loop', before_shutdown)
     previous = {signum: signal.getsignal(signum) for signum in (signal.SIGTERM,signal.SIGINT)}
     try:
-        assert service.run(stopped=stopped) == 0
+        if restore_shared_slot:
+            with pytest.raises(AssertionError, match='PAPER did not start independently'):
+                service.run(stopped=stopped)
+        else:
+            assert service.run(stopped=stopped) == 0
     finally:
         for signum, handler in previous.items():
             signal.signal(signum, handler)
-    assert stopped.is_set() and time.monotonic()-times[0]<4
+    assert stopped.is_set()
+    if not restore_shared_slot:
+        assert time.monotonic()-times[0]<4
     for pid in pids:
         with pytest.raises(ProcessLookupError):
             os.kill(pid, 0)

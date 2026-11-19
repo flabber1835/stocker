@@ -163,6 +163,9 @@ def test_account_handoff_is_human_current_but_strict_machine_and_ack_stay_closed
     assert delivery.row_current(current,current.row('alpaca_account'))
     assert current.row('alpaca_account').paper_account==original.row('alpaca_account').paper_account
     assert current.row('alpaca_account').as_of==original.row('alpaca_account').as_of
+    from sentinel.panel.serialization import public_payload
+    assert public_payload(current)['operator_review'] == {
+        **original.operator_review.model_dump(mode='json'), 'token': None}
     with pytest.raises(review_store.ReviewRefused):
         producer.guard_acknowledgement(c,current,c.info.dsn)
 
