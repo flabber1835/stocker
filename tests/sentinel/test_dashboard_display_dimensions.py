@@ -85,6 +85,19 @@ def test_valuation_handoff_retains_review_history_and_withholds_the_action_token
     assert review.token not in render(handoff)
 
 
+@pytest.mark.parametrize('status,record', [
+    ('FAILED', {'active': ['broker']}),
+    ('REVIEW', {'warnings': ['paper_reconciliation']}),
+])
+def test_display_handoff_withdraws_review_when_a_recorded_condition_clears(status, record):
+    page = display_page()
+    review = page.operator_review.model_copy(update={'status': status, **record})
+    payload = serialization.public_payload(replace(page, operator_review=review))
+    assert payload['dashboard_health']['active_conditions'] == []
+    assert payload['dashboard_health']['review_conditions'] == []
+    assert payload['operator_review'] is None
+
+
 def test_proved_display_is_current_without_strict_machine_or_ack_currentness(monkeypatch):
     page = display_page()
     assert dashboard_health(page)['color']=='green'
