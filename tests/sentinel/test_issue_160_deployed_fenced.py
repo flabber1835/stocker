@@ -64,7 +64,7 @@ def test_quiesced_review_failure_precedes_mode_persistence_and_runtime_start(tmp
         SimpleNamespace(), SimpleNamespace(env={}), tmp_path,
         reviewed_validation=reviewed)
     events = []
-    obj.git_preflight = lambda: events.append("git")
+    obj.git_preflight = lambda: pytest.fail("repeated Git preflight at the same reviewed boundary")
     obj.verify_reviewed_preflight = lambda: events.append("initial-review")
     obj.check_paper_account_deployment_integrity = lambda: events.append(
         "broker-integrity")
@@ -90,7 +90,7 @@ def test_quiesced_review_failure_precedes_mode_persistence_and_runtime_start(tmp
         obj.run_activation()
 
     assert events == [
-        "git", "initial-review", "broker-integrity", "build", "quiesce", "disabled-fence",
+        "initial-review", "broker-integrity", "build", "quiesce", "disabled-fence",
         "durable-integrity", "quiesced-review", "fail-close"]
 
 
