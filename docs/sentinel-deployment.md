@@ -95,6 +95,8 @@ November 11 receipt, dashboard, account evidence and opening work corrections.
 [WAL proof refresh overlap](backup-proof-refresh-overlap.md) defines how backed
 PAPER can use a current completed receipt during an exclusive maintenance scrub,
 with renewal scheduled from the original byte-proof clock.
+[Release WAL verification](release-wal-integrity.md) explains how activation
+and GO check the archived suffix against that same proof.
 
 [Market close root corrections](market-close-root-corrections.md) records the
 November 10 retry, verification, exposure and diagnostic corrections and their

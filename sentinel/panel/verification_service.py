@@ -470,6 +470,7 @@ def _financial_publication(conn, database_url, scope, value, previous, *, now):
 
 def _refresh_readers(conn, readers, database_url, owner_id, previous, stopped, deadline,
                      *, on_publication=None):
+    from sentinel import local_paper, snapshot_scan_admission
     from sentinel.panel import attempt_store
     for scope, reader in readers.items():
         if stopped.is_set():
@@ -480,17 +481,18 @@ def _refresh_readers(conn, readers, database_url, owner_id, previous, stopped, d
                 on_publication=on_publication):
             continue
         options = {}
-        if reader.completed is not None:
-            from sentinel import local_paper, snapshot_scan_admission
-            if local_paper.enabled():
-                with conn.transaction(force_rollback=True):
-                    now = datetime.now(timezone.utc)
-                    if snapshot_scan_admission.occupied(conn):
-                        options['scan_occupied'] = True
-                        reserve = now+timedelta(seconds=OWNER_POLL_SECONDS)
-                    else:
-                        reserve = _opening_scan_reserve(conn, now) if scope == 'SHADOW' else None
-                        reserve = reserve or _closing_scan_reserve(conn, now)
+        if local_paper.enabled():
+            with conn.transaction(force_rollback=True):
+                now = datetime.now(timezone.utc)
+                # A long observation may finish between polls and be due for
+                # a retry as soon as read() consumes it. Sample before admission
+                # even on the first completed result. Reader owns eligibility.
+                if snapshot_scan_admission.occupied(conn):
+                    options.update(scan_occupied=True,
+                                   defer_refresh_until=now+timedelta(seconds=OWNER_POLL_SECONDS))
+                elif reader.completed is not None:
+                    reserve = _opening_scan_reserve(conn, now) if scope == 'SHADOW' else None
+                    reserve = reserve or _closing_scan_reserve(conn, now)
                     if reserve is not None:
                         options['defer_refresh_until'] = reserve
         result = reader.read(database_url, include_paper=scope == 'PAPER', **options)
