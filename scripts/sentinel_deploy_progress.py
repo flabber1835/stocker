@@ -98,10 +98,17 @@ class GoStages:
             if part.endswith('\n'):
                 line = self.pending.rstrip('\r\n')
                 self.pending = ''
+                # GO can explicitly enable its normal terminal colors on a pipe.
+                if line.endswith('\033[0m'):
+                    line = line[:-4]
+                    for prefix in ('\033[36m\033[1m', '\033[36m'):
+                        if line.startswith(prefix):
+                            line = line[len(prefix):]
+                            break
                 stage = _GO_STAGES.get(line)
-                if re.fullmatch(r'\[RUN\]  verify database backup health \(deadline [0-9.]+s\)', line):
+                if re.fullmatch(r'\[RUN\]  verify database backup health \(deadline [0-9]+(?:\.[0-9]+)?s\)', line):
                     stage = 'backup_check'
-                elif re.fullmatch(r'\[RUN\]  certified financial preparation \(deadline [0-9.]+s\)', line):
+                elif re.fullmatch(r'\[RUN\]  certified financial preparation \(deadline [0-9]+(?:\.[0-9]+)?s\)', line):
                     stage = 'preparation'
                 if stage:
                     publish(stage)

@@ -42,6 +42,10 @@ def test_host_and_panel_observe_only_the_active_owner(tmp_path, record):
             assert panel.current().endswith('checking backup health')
             parser.consume('=== PHASE D2 - MARKET DATA READINESS ===\r\n')
             assert panel.current() == 'Activation · checking market data'
+            parser.consume('\x1b[36m\x1b[1m\n=== PHASE D1 - WEALTH CORE PARITY ===\x1b[0m\n')
+            assert panel.current() == 'Activation · verifying strategy parity'
+            parser.consume('\x1b[36m[RUN]  verify database backup health (deadline 23s)\x1b[0m\n')
+            assert panel.current() == 'Activation · checking backup health'
             raise InterruptedError
         assert panel.current() is None
     finally:
