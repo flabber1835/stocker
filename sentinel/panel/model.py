@@ -234,6 +234,8 @@ class PreparationWork(BaseModel):
                    'READY', 'RETRY_WAIT', 'PUBLISHED']
     rows_done: int = Field(ge=0, le=2**63-1, strict=True)
     components_done: int = Field(ge=0, le=2**31-1, strict=True)
+    source_rows_done: int | None = Field(default=None, ge=0, le=2**63-1, strict=True)
+    final_price_batch_recorded: bool = Field(default=False, strict=True)
     created_at: datetime
     updated_at: datetime
     last_progress_at: datetime
@@ -246,6 +248,8 @@ class PreparationWork(BaseModel):
 
     @model_validator(mode='after')
     def coherent_progress(self):
+        if self.components_done == 0 and (self.source_rows_done or self.final_price_batch_recorded):
+            raise ValueError('source progress requires a recorded component')
         clocks = (self.created_at, self.updated_at, self.last_progress_at,
                   self.observed_at, self.deadline, self.lease_until, self.next_retry)
         if any(value is not None and value.utcoffset() is None for value in clocks):
@@ -277,6 +281,18 @@ class PreparationWork(BaseModel):
     def active_at(self, now: datetime) -> bool:
         bound = self.active_until
         return self.visible_at(now) and bound is not None and now < bound
+
+    def recorded_counts(self) -> str:
+        source_rows = self.source_rows_done
+        if source_rows is None and self.state == 'ACQUIRING':
+            source_rows = self.rows_done
+        parts = []
+        if source_rows is not None:
+            parts.append(f'{source_rows:,} source records checkpointed')
+        parts.append(f'{self.components_done:,} source components recorded')
+        if self.state == 'STAGING':
+            parts.append(f'{self.rows_done:,} rows staged')
+        return ' · '.join(parts)
 
 
 class ShadowHolding(BaseModel):

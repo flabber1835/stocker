@@ -964,10 +964,11 @@ def preparation_stage(panel) -> str | None:
     work = visible_preparation(panel)
     if work is not None:
         if work.active_at(panel.now):
-            return {'ACQUIRING': 'Downloading closing data',
+            return {'ACQUIRING': ('Preparing closing snapshot · final price batch recorded'
+                                  if work.final_price_batch_recorded else 'Preparing closing snapshot'),
                     'STAGING': 'Preparing downloaded data',
                     'VALIDATING': 'Validating market data',
-                    'READY': 'Waiting to publish validated data'}[work.state]
+                    'READY': 'Candidate sealed · preparing publication'}[work.state]
         if work.state == 'PUBLISHED':
             plan = panel.row('paper_plan')
             saved = plan is not None and plan.can_show_paper_plan(panel.now)
@@ -994,6 +995,27 @@ def _matching_close_step(row, cycle):
             and _CLOSE_STEPS.get(cycle.operational_fact.state) == (row.key, row.recovery.phase))
 
 
+def _attestation_retry_boundary(panel, cycle, opened):
+    from sentinel.panel.delivery import row_current
+    recovery = cycle.recovery
+    schedule = cycle.operational_fact.schedule
+    step, feed = panel.row('automation_step_data'), panel.row('feed')
+    if (recovery.phase == 'AUTOMATION_SHADOW_ATTESTATION'
+            and schedule is not None and schedule.market_open == opened
+            and type(recovery.attempt) is int and recovery.attempt >= 1
+            and _aware(recovery.next_attempt_at)
+            and panel.now < recovery.next_attempt_at <= recovery.deadline <= opened
+            and step is not None and row_current(panel, step) and step.required_current
+            and step.status == step.effective_status(panel.now) == 'warn'
+            and step.as_of == cycle.as_of and step.recovery == recovery
+            and step.operational_fact == cycle.operational_fact
+            and feed is not None and feed.feed_readiness == 'AWAITING_VERDICT'
+            and is_closing_data_preparation(feed, feed.effective_status(panel.now))
+            and feed.recovery.phase == 'READINESS_HANDOFF' and feed.recovery.active(panel.now)):
+        return recovery.next_attempt_at
+    return None
+
+
 def _close_check_work(panel):
     """Attribute a dated check to the rows waiting for it, with no readiness promotion."""
     from sentinel.panel.delivery import row_current
@@ -1016,19 +1038,27 @@ def _close_check_work(panel):
     opened = calendar.session_window(next_session)[0]
     closed = calendar.session_window(session)[1]
     state = cycle.operational_fact.state
-    step = _CLOSE_STEPS.get(state)
-    if (step is None or not _workflow(cycle, state) or not _aware(cycle.as_of)
+    if (not _workflow(cycle, state) or not _aware(cycle.as_of)
             or not closed <= cycle.as_of <= panel.now < opened
             or cycle.status != cycle.effective_status(panel.now) or cycle.status != 'warn'
-            or not cycle.required_current or cycle.recovery.phase != 'AUTOMATION_'+state
+            or not cycle.required_current
             or not cycle.recovery.active(panel.now) or not _aware(cycle.recovery.deadline)):
+        return None, ()
+    step = _CLOSE_STEPS.get(state)
+    if state == 'RETRY_WAIT':
+        retry_until = _attestation_retry_boundary(panel, cycle, opened)
+        if retry_until is None:
+            return None, ()
+        until = min(until, retry_until)
+    elif step is None or cycle.recovery.phase != 'AUTOMATION_'+state:
         return None, ()
     if state == 'WAITING_OPEN':
         if (not plan.can_show_paper_plan(panel.now) or str(plan.paper_plan.decision_session) != session
                 or str(plan.paper_plan.effective_session) != next_session
                 or cycle.recovery.deadline < plan.paper_plan.execute_at):
             return None, ()
-    elif plan.status != 'pending' or plan.paper_plan is not None or cycle.recovery.deadline != opened:
+    elif (plan.status != 'pending' or plan.paper_plan is not None
+            or state != 'RETRY_WAIT' and cycle.recovery.deadline != opened):
         return None, ()
     keys = {'shadow_verification', 'book', 'exposure', 'terminals'}
     for key in keys:
@@ -1040,9 +1070,12 @@ def _close_check_work(panel):
                 or row.is_future(panel.now) or row.is_stale(panel.now)):
             return None, ()
     keys.add('automation_cycle')
-    active_step = panel.row(step[0])
-    if _matching_close_step(active_step, cycle) and active_step.recovery.active(panel.now):
-        keys.add(active_step.key)
+    if state == 'RETRY_WAIT':
+        keys.add('automation_step_data')
+    else:
+        active_step = panel.row(step[0])
+        if _matching_close_step(active_step, cycle) and active_step.recovery.active(panel.now):
+            keys.add(active_step.key)
     paper = panel.row('paper_reconciliation')
     if state == 'WAITING_OPEN' and _historical_schedule_evidence(panel, paper, plan):
         keys.add(paper.key)

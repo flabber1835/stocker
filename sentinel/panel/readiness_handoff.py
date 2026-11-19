@@ -78,7 +78,7 @@ def _active_attempt(attempt, *, published, now):
         and attempt.diagnostic is None and attempt.latched_failure is None
         and published <= attempt.admitted_at <= now < attempt.deadline
         and (attempt.supersession_started_at is None
-             or (published <= attempt.supersession_started_at <= attempt.admitted_at
+             or (attempt.supersession_started_at <= attempt.admitted_at
                  and now < attempt.supersession_deadline))
         and (attempt.work_started_at is None
              or attempt.admitted_at <= attempt.work_started_at <= now < attempt.work_deadline)
@@ -130,6 +130,7 @@ def close_check_deadline(panel, *, now):
 def _superseded_attempt(attempt, *, subject, published, worker, now):
     return (attempt.subject_sha256 != subject and attempt.outcome == 'RUNNING'
         and attempt.supersession_started_at is not None
+        and published <= attempt.supersession_started_at
         and worker.operational_fact is not None
         and worker.operational_fact.state == 'ACTIVE_WORKER'
         and published <= worker.as_of <= now

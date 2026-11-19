@@ -51,3 +51,24 @@ not expired. The saved successor must be the independently expected, current
 next-session WAITING_OPEN plan. The current panel, health, account, broker,
 authority, backup, worker and operator review requirements still govern the
 handoff. The cutoff card does not authorize execution or acknowledge review.
+
+## Supersession across the publication commit
+
+Decision 2026-11-19. For a verifier attempt authenticated against the current
+SHADOW subject, compare its admission and work-start clocks to the committed
+publication. Its uninterrupted supersession budget may have started on the
+previous publication. Keep the original chain deadline, including time already
+spent there. A started-before-commit attempt, expired budget, diagnostic,
+negative verdict or missing publication/job lineage cannot explain readiness.
+An attempt from a different subject still needs the existing independent
+post-publication rollover proof and a supersession chain that began after commit.
+This explains a current verification in progress and supplies no READY verdict.
+
+During the next-session close, the scheduler can record its typed shadow
+attestation retry while the independent verifier is still checking the new
+publication. The prior refresh and this retry own the same pending portfolio
+rows. Attribute them to the bounded check only when the data step and cycle
+share the exact retry, clock and next-session schedule, the unsaved plan is
+pending, and the current publication supplies its authenticated handoff.
+The checking headline remains amber. An unrelated retry, expired clock,
+failed worker or active negative evidence still requires review.

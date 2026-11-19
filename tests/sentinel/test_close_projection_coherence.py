@@ -166,13 +166,45 @@ def test_current_attempt_can_explain_original_publication_rollover(metadata):
     attempt.update(supersession_started_at=started.isoformat(),
                    supersession_deadline=(started+timedelta(minutes=10)).isoformat())
     assert capture((conn, original)) is not None
-    started -= timedelta(microseconds=1)
+    # The current attempt's admission binds it to this publication. Its inherited
+    # chain can be older, but its clock must still apply to the entire display.
+    started = NOW - timedelta(minutes=10) + timedelta(seconds=1)
     attempt.update(supersession_started_at=started.isoformat(),
                    supersession_deadline=(started+timedelta(minutes=10)).isoformat())
-    assert capture((conn, original)) is None
+    proof = capture((conn, original))
+    assert datetime.fromisoformat(proof['deadline']) == NOW + timedelta(seconds=1)
+    assert handoff.capture(conn, original, subject=SUBJECT, owner_expiry=NOW+timedelta(minutes=5),
+                           now=NOW+timedelta(seconds=1)) is None
 
 
-@pytest.mark.parametrize('fault', [None, 'no_rollover', 'worker_idle', 'older_attempt', 'work_expired'])
+def test_november_19_commit_during_supersession_starts_a_new_matching_attempt(metadata):
+    conn, original = metadata
+    # Exact offsets from the first stored red page at 21:13:42.766077Z.
+    published = NOW - timedelta(seconds=8, microseconds=117589)
+    header = published - timedelta(seconds=40, microseconds=228708)
+    chain = published - timedelta(seconds=16, microseconds=308139)
+    admitted = published + timedelta(microseconds=835641)
+    working = published + timedelta(microseconds=989056)
+    conn.execute('UPDATE sentinel_corpus_publications SET published_at=%s', (header,))
+    conn.execute('UPDATE sentinel_snapshot_jobs SET updated_at=%s', (published,))
+    attempt = original.trial_details['verification_attempts']['SHADOW']['latest']
+    attempt.update(admitted_at=admitted.isoformat(), deadline=(working+timedelta(minutes=5)).isoformat(),
+        work_started_at=working.isoformat(), work_deadline=(working+timedelta(minutes=5)).isoformat(),
+        supersession_started_at=chain.isoformat(), supersession_deadline=(chain+timedelta(minutes=10)).isoformat())
+    panel = replace(original, rows=[replace(r, as_of=published) if r.key=='feed' else r for r in original.rows])
+    proof = capture((conn, panel))
+    assert proof and proof['attempt_id']==attempt['attempt_id'] and proof['subject_sha256']==SUBJECT
+    signed = replace(panel,trial_details={**panel.trial_details,'readiness_handoff':proof})
+    result = waiting.project_panel(signed, now=NOW, subject=SUBJECT)
+    assert result.row('feed').as_of == published and result.row('feed').effective_status(NOW) == model.WARN
+    assert result.row('feed').operational_fact.state == 'AWAITING_VERDICT'
+    assert handoff.deadline(signed, subject=SUBJECT, now=datetime.fromisoformat(proof['deadline'])) is None
+    attempt['admitted_at'] = (published-timedelta(microseconds=1)).isoformat()
+    assert capture((conn, panel)) is None
+
+
+@pytest.mark.parametrize('fault', [None, 'no_rollover', 'worker_idle', 'older_attempt',
+                                   'chain_before_publication', 'work_expired'])
 def test_running_prior_subject_can_explain_published_readiness_rollover(metadata, fault):
     conn, original = metadata
     published = original.row('feed').as_of
@@ -192,6 +224,10 @@ def test_running_prior_subject_can_explain_published_readiness_rollover(metadata
     elif fault == 'older_attempt':
         conn.execute('UPDATE sentinel_corpus_publications SET published_at=%s', (admitted,))
         attempt['supersession_started_at'] = published.isoformat()
+    elif fault == 'chain_before_publication':
+        chain = published - timedelta(microseconds=1)
+        attempt.update(supersession_started_at=chain.isoformat(),
+                       supersession_deadline=(chain+timedelta(minutes=10)).isoformat())
     elif fault == 'work_expired':
         attempt['work_deadline'] = NOW.isoformat()
     # The composite feed may sample the exact published frontier after the
@@ -211,6 +247,17 @@ def test_running_prior_subject_can_explain_published_readiness_rollover(metadata
     assert result.row('feed').operational_fact.state == 'AWAITING_VERDICT'
     deadline = NOW+timedelta(seconds=15)
     assert waiting.project_panel(signed, now=deadline, subject=SUBJECT).row('feed').effective_status(deadline) == model.FAIL
+
+
+def test_foreign_attempt_publication_guard_has_an_executed_falsifier(metadata, monkeypatch):
+    source = inspect.getsource(handoff._superseded_attempt)
+    guard = 'and published <= attempt.supersession_started_at'
+    assert source.count(guard) == 1
+    scope = dict(vars(handoff))
+    exec(compile(source.replace(guard, ''),'<unbound foreign attempt>','exec'),scope)
+    monkeypatch.setattr(handoff,'_superseded_attempt',scope['_superseded_attempt'])
+    with pytest.raises(AssertionError):
+        test_running_prior_subject_can_explain_published_readiness_rollover(metadata,'chain_before_publication')
 
 
 def test_committed_close_can_bridge_only_the_original_verifier_admission_gap(metadata):
