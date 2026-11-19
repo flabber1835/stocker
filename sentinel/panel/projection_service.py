@@ -183,7 +183,7 @@ def _financial_receipt_overlay(conn, database_url, panel, *, now, changed, facts
 
 
 def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False,
-                 *, shadow_observer=None, candidate_memo=None):
+                 *, shadow_observer=None):
     from sentinel.feed import store
     from sentinel.panel import attempt_store, composition, operational_snapshot as snapshots, review, sources
     from sentinel.panel import display_dependencies, read_projection, delivery, postclose_feed_wait
@@ -254,11 +254,13 @@ def publish_once(database_url, owner_id, state_dir, instance, prior_failed=False
             raise CollectionSuperseded('composition expired before publication')
         diagnostics = {scope: attempt_store.read_owned(conn, scope=scope, now=now)
                        for scope in ('SHADOW', 'PAPER')}
-        panel = replace(panel, now=now, trial_details={**panel.trial_details,
+        details = dict(panel.trial_details)
+        prepared = details.pop('composition_candidate', None)
+        panel = replace(panel, now=now, trial_details={**details,
             'verification_attempts': {key: value for key, value in diagnostics.items() if value is not None}})
         from sentinel.panel import readiness_handoff
         progress = readiness_handoff.capture(conn, panel, subject=current_basis['native']['SHADOW'],
-            owner_expiry=owner[1], now=now, candidate_memo=candidate_memo)
+            owner_expiry=owner[1], now=now, prepared_candidate=prepared)
         panel = replace(panel, trial_details={**panel.trial_details, 'readiness_handoff': progress})
         # Fresh receipt/native overlays enter after build_panel's producer
         # boundary. Apply the same known-instant contract to this final handoff.
@@ -339,7 +341,7 @@ def publish_failure(database_url, owner_id, instance, diagnostic, *, context=Non
 
 
 def collect_result(database_url, owner_id, state_dir, instance, prior_failed=False,
-                   *, shadow_observer=None, candidate_memo=None):
+                   *, shadow_observer=None):
     """Classify child refusals before the generic process wrapper loses type."""
     from psycopg.errors import LockNotAvailable, QueryCanceled, SerializationFailure
     from sentinel.panel import composition
@@ -356,7 +358,7 @@ def collect_result(database_url, owner_id, state_dir, instance, prior_failed=Fal
             try:
                 return {'outcome':'PUBLISHED', **publish_once(
                     database_url, owner_id, state_dir, instance, prior_failed,
-                    shadow_observer=shadow_observer, candidate_memo=candidate_memo)}
+                    shadow_observer=shadow_observer)}
             except (QueryCanceled, LockNotAvailable):
                 # One fresh read attempt, never a new transport/call allowance.
                 # COMMIT/REVIEW failures and unknown outcomes are not replayed.
@@ -416,11 +418,19 @@ class Collector:
 
 
 class CompositionCollector(Collector):
+    def __init__(self):
+        super().__init__()
+        self.candidate_memo = None
+
     def __call__(self,database_url,owner_id,state_dir,instance,prior_failed=False):
         from sentinel.panel import composition
         observer = self.observer_for(state_dir)
+        if self.candidate_memo is None:
+            from sentinel.panel.readiness_handoff import CandidateMemo
+            self.candidate_memo = CandidateMemo()
         try:
-            return composition.collect(database_url,owner_id,state_dir,instance,shadow_observer=observer)
+            return composition.collect(database_url,owner_id,state_dir,instance,shadow_observer=observer,
+                candidate_memo=self.candidate_memo)
         except CollectionSuperseded:
             return {'outcome':'SUPERSEDED'}
         except Exception as exc:
@@ -429,17 +439,10 @@ class CompositionCollector(Collector):
 
 
 class FastCollector(Collector):
-    def __init__(self):
-        super().__init__()
-        self.candidate_memo = None
-
     def __call__(self,database_url,owner_id,state_dir,instance,prior_failed=False):
         observer = self.observer_for(state_dir)
-        if self.candidate_memo is None:
-            from sentinel.panel.readiness_handoff import CandidateMemo
-            self.candidate_memo = CandidateMemo()
         return collect_result(database_url,owner_id,state_dir,instance,prior_failed,
-            shadow_observer=observer,candidate_memo=self.candidate_memo)
+            shadow_observer=observer)
 
 
 class Publisher:

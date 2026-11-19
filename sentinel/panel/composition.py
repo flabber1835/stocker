@@ -83,13 +83,17 @@ def failure(owner_id, instance, exc):
         diagnostic=observer_failure.classify(exc).model_dump(mode='json',by_alias=True)))
 
 
-def collect(database_url, owner_id, state_dir, instance, *, shadow_observer=None):
-    from sentinel.panel import projection_service as producer, segment_disclosure, sources
+def collect(database_url, owner_id, state_dir, instance, *, shadow_observer=None, candidate_memo=None):
+    from sentinel.panel import projection_service as producer, readiness_handoff, segment_disclosure, sources
     from sentinel.panel.serialization import preflight
     context,subjects,basis = producer._display_coordinates(database_url)
     panel = segment_disclosure.disclose(sources.build_panel(state_dir=Path(state_dir),
         database_url=database_url,shadow_observer=shadow_observer),database_url)
     panel = replace(panel, display_basis=basis)
+    witness = readiness_handoff.compose_candidate(database_url, owner_id, panel,
+        memo=candidate_memo if candidate_memo is not None else readiness_handoff.CandidateMemo())
+    if witness is not None:
+        panel = replace(panel, trial_details={**panel.trial_details, 'composition_candidate':witness})
     if producer._coordinates(database_url) != (context,subjects):
         raise producer.CollectionSuperseded('composition inputs changed')
     preflight(panel)

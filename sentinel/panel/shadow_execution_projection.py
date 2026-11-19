@@ -5,6 +5,18 @@ from datetime import timedelta
 from sentinel.panel import model
 
 
+def book_with_plan_pricing(book, plan):
+    """Add the saved decision's pricing risk without clearing any signed book risk."""
+    if plan is None or plan['decision_session'] != book.shadow_projection.session:
+        return book
+    unpriced = len(plan['unpriced_securities'])
+    if not unpriced:
+        return book
+    warning = f'UNPRICED {unpriced}'
+    detail = ' · '.join(filter(None, (book.detail, warning))) if book.status != model.OK else warning
+    return replace(book, status=model.UNKNOWN if book.status == model.UNKNOWN else model.FAIL, detail=detail)
+
+
 def project(conn, rows, *, observed_at, valid_until, now):
     from sentinel.panel import sources
     selected = {row.key: row for row in rows}
@@ -29,12 +41,12 @@ def project(conn, rows, *, observed_at, valid_until, now):
         state_error=None, plan_error=None, rollout_error=None, valid_until=valid_until)
     selected['exposure'] = replace(exposure, as_of=now, required_current=True,
         valid_until=valid_until)
-    current = model.book_row(available=True, slots_used=basis.slots_used,
-        slots_total=basis.slots_total, nav=float(basis.nav), cash=float(basis.cash),
-        blocked=basis.blocked, unresolved_terminals=basis.unresolved,
-        pending_actions=basis.pending,
-        unpriced_securities=len(plan['unpriced_securities']) if plan else None,
-        as_of=book.as_of)
-    selected['book'] = replace(book, value=current.value, status=current.status,
-        detail=current.detail, operational_fact=current.operational_fact)
+    if book.status == model.OK:
+        current = model.book_row(available=True, slots_used=basis.slots_used,
+            slots_total=basis.slots_total, nav=float(basis.nav), cash=float(basis.cash),
+            blocked=basis.blocked, unresolved_terminals=basis.unresolved,
+            pending_actions=basis.pending, as_of=book.as_of)
+        book = replace(book, value=current.value, status=current.status,
+            detail=current.detail, operational_fact=current.operational_fact)
+    selected['book'] = book_with_plan_pricing(book, plan)
     return [selected[row.key] for row in rows]

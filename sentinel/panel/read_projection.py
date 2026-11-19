@@ -439,7 +439,7 @@ def read_owned(conn, database_url, *, include_paper=True, now=None, only_scope=N
             if scope == 'SHADOW':
                 failure_site = 'SHADOW_PROJECTION'
                 from sentinel.panel.sources import PlanRolloutMismatch
-                from sentinel.panel.shadow_execution_projection import project
+                from sentinel.panel.shadow_execution_projection import book_with_plan_pricing, project
                 try:
                     projected = project(conn, result[0], observed_at=row[1], valid_until=row[2], now=instant)
                 except PlanRolloutMismatch as mismatch:
@@ -450,7 +450,9 @@ def read_owned(conn, database_url, *, include_paper=True, now=None, only_scope=N
                         exposure = model.Row('exposure', 'Exposure', 'CURRENT PLAN NOT ADOPTED', model.UNKNOWN, detail,
                             as_of=instant, required_current=True, valid_until=row[2])
                         result[3].append('current plan adoption: '+detail)
-                    projected = [exposure if item.key == 'exposure' else item for item in result[0]]
+                    replacements = {'exposure': exposure, 'book': book_with_plan_pricing(
+                        next(item for item in result[0] if item.key == 'book'), mismatch.plan)}
+                    projected = [replacements.get(item.key, item) for item in result[0]]
                 result = (projected, result[1], result[2], result[3])
             if scope == 'PAPER':
                 failure_site = 'PAPER_ACTIVATION'

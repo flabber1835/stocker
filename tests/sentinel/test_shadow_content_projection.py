@@ -103,6 +103,49 @@ def test_changed_rollout_cannot_reuse_old_plan_adoption(monkeypatch):
         execution.project(None,proof_rows(),observed_at=NOW,valid_until=NOW+timedelta(seconds=600),now=NOW)
 
 
+@pytest.mark.parametrize('native_status,native_detail', [
+    (model.OK, ''), (model.FAIL, 'UNRESOLVED TERMINALS 2'), (model.UNKNOWN, 'book unreadable')])
+def test_rollout_change_keeps_the_matching_plans_unpriced_warning_and_book_clock(
+        conn, monkeypatch, native_status, native_detail):
+    from sentinel import activation_fee_wait
+    install_projection(conn)
+    subject = projection.subject(conn, conn.info.dsn, 'SHADOW')
+    rows = [replace(row,status=native_status,detail=native_detail) if row.key=='book' else row
+            for row in proof_rows()]
+    value, signature = projection.make('SHADOW',subject,rows,['retained source warning'],observed_at=NOW)
+    expiry = NOW + timedelta(seconds=600)
+    conn.execute('INSERT INTO sentinel_operational_verification_receipts VALUES (%s,%s,%s,%s,%s,%s)',
+                 ('SHADOW',subject,NOW,expiry,Jsonb(value),signature))
+    insert_plan = """INSERT INTO sentinel_execution_plans
+        (plan_id,decision_session,effective_session,target_exposure,unpriced_securities,
+         rollout_mode,rollout_version,rollout_certificate_sha256,created_at)
+        VALUES (%s,%s,%s,0.65,%s,'CONTROLLER',62,%s,%s)"""
+    conn.execute(insert_plan, ('same-session',NOW.date(),NOW.date()+timedelta(days=1),
+                               Jsonb(['UNPRICED_FIXTURE']),'b'*64,NOW))
+    conn.commit()
+    rollout = dict(mode='CONTROLLER',version=62,certificate_sha256='b'*64)
+    monkeypatch.setattr(sources,'_rollout_state',lambda _:rollout)
+    monkeypatch.setattr(activation_fee_wait,'read_owned',lambda *_args,**_kwargs:None)
+    for version in (62,63):
+        rollout['version'] = version
+        result, _, _, errors = projection.read(conn.info.dsn,only_scope='SHADOW',now=NOW+timedelta(seconds=1))
+        book, exposure = (next(row for row in result if row.key==key) for key in ('book','exposure'))
+        assert book.status == (model.UNKNOWN if native_status==model.UNKNOWN else model.FAIL)
+        assert 'UNPRICED 1' in book.detail and native_detail in book.detail
+        assert book.as_of == NOW and book.freshness == timedelta(seconds=600)
+        assert exposure.status == (model.OK if version==62 else model.UNKNOWN)
+        assert 'retained source warning' in errors
+        assert any('rollout authority disagree' in error for error in errors) == (version==63)
+    conn.execute("UPDATE sentinel_execution_plans SET superseded_by='other-session' WHERE plan_id='same-session'")
+    conn.execute(insert_plan, ('other-session',NOW.date()-timedelta(days=1),NOW.date(),
+                               Jsonb(['OLD_FIXTURE']),'b'*64,NOW-timedelta(days=1)))
+    conn.commit()
+    result, _, _, errors = projection.read(conn.info.dsn,only_scope='SHADOW',now=NOW+timedelta(seconds=2))
+    book, exposure = (next(row for row in result if row.key==key) for key in ('book','exposure'))
+    assert book.status == native_status and native_detail in book.detail and 'UNPRICED' not in book.detail
+    assert exposure.operational_fact.state == 'NOT_ADOPTED' and errors == ['retained source warning']
+
+
 @pytest.mark.parametrize('defect', [None, 'no_wait', 'wrong_certificate',
     'missing_predecessor', 'different_mode', 'different_exposure'])
 def test_fee_wait_withdraws_only_adoption_and_retains_authenticated_shadow(conn, monkeypatch, defect):
@@ -129,7 +172,8 @@ def test_fee_wait_withdraws_only_adoption_and_retains_authenticated_shadow(conn,
     conn.commit()
     plan = dict(plan_id='prior', decision_session=session, effective_session=calendar.next_session(session),
         target_exposure=Decimal('0.60' if defect == 'different_exposure' else '0.65'),
-        rollout_mode='CONTROLLER', rollout_version=2, rollout_certificate_sha256=prior)
+        rollout_mode='CONTROLLER', rollout_version=2, rollout_certificate_sha256=prior,
+        unpriced_securities=['UNPRICED_FIXTURE'] if defect is None else [])
     monkeypatch.setattr(sources,'_current_plan',lambda _:plan)
     monkeypatch.setattr(sources,'_rollout_state',lambda _:dict(mode='CONTROLLER',version=3,
         certificate_sha256=successor))
@@ -140,7 +184,10 @@ def test_fee_wait_withdraws_only_adoption_and_retains_authenticated_shadow(conn,
     result, _, _, errors, scoped = projection.read(conn.info.dsn,only_scope='SHADOW',now=instant,with_error_scopes=True)
     rows = {row.key: row for row in result}
     signed, _, _, _ = projection.decode(value,signature,current_subject=key,scope='SHADOW',now=instant)
-    assert all(rows[row.key] == row for row in signed if row.key != 'exposure')
+    signed_book = next(row for row in signed if row.key=='book')
+    assert all(rows[row.key] == row for row in signed if row.key not in {'exposure','book'})
+    assert rows['book'] == (replace(signed_book,status=model.FAIL,detail='UNPRICED 1')
+                            if defect is None else signed_book)
     assert rows['exposure'].status == model.UNKNOWN
     if defect is None:
         assert not errors

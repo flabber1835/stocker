@@ -57,6 +57,16 @@ The existing collector may retain one positive checkpoint witness by exact
 native verification subject and publication digest. Reuse samples the same
 original clocks and liveness. A changed subject discards the witness.
 
+The November 19 close hit the five-second dashboard publisher deadline when a
+candidate first needed authentication. The 20-second composition worker owns
+the cold checkpoint and daily input read, including old supported encodings.
+It carries a positive result inside the existing owner-authenticated
+composition for the exact publication digest, native subject and verifier
+attempt. The fast publisher rechecks the live owner, worker, publication/job
+lineage, attempt and original deadline. It consumes only that bounded result
+and never expands an archived daily input. Missing or stale evidence cannot
+earn a progress record. An actual publisher deadline is still recorded.
+
 Process liveness and verified readiness are separate signals. The banner
 can show finite owned work when the worker is live and the evidence matches
 its original deadline. Strict financial and installation checks continue to

@@ -53,6 +53,14 @@ Confirm the current receipt subject, signature, expiry and consistent book
 basis before making this distinction. Other receipt and projection errors
 retain their existing failure handling.
 
+The signed book records canonical valuation and risk. The current saved plan
+also reports securities that execution could not price. A rollout change can
+withdraw plan adoption while that same decision's saved plan still has
+unpriced securities. Keep that warning on the book through both ordinary
+adoption and a rollout disagreement, including a verified activation fee
+wait. Preserve the signed book's original clock and any existing negative
+evidence. A plan for another decision session contributes no book warning.
+
 The execution-free historical producer emits a dated historical controller
 allocation with the same finite SOURCE_FRONTIER recovery as its book. It has
 no current plan-adoption fact. The normal current SHADOW receipt still resolves
