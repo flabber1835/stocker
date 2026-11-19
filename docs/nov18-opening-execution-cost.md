@@ -78,3 +78,12 @@ control/cancellation, current-plan replacement, projection mismatch and
 remaining actionable shares.
 Measure elapsed times in isolated tests and retain production-sized latency as
 an installed-open qualification to be observed later.
+
+On November 19 the cycle took 175.1 seconds. The gateway took 114.7 seconds
+and completion took 4.3 seconds. Measure connection and schema admission,
+observation integrity, cycle authority, operational inputs, and plan, pin and
+adapter setup individually from callback entry. Emit the duration of a stage
+even if it raises. Use the existing bounded timing sink and monotonic clock.
+The difference from the durable EXECUTING transition to callback entry also
+includes scheduling and process startup. These measurements confer no trading
+authority and never change which checks execute.

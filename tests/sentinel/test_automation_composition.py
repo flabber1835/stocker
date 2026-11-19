@@ -116,6 +116,83 @@ def tick(assembly, worker):
         return asyncio.run(worker.service.tick(conn, now=assembly.clock[0]))
 
 
+@pytest.mark.parametrize("drop_prepared_anchor", [False, True], ids=["prepared", "preflight-only-falsifier"])
+def test_prepare_to_opening_observation(assembly, monkeypatch, request, drop_prepared_anchor):
+    """Run the real scheduler, gateway, journal and pre-open reader across a restart."""
+    from psycopg import sql
+    from sentinel.execution import opening_display
+
+    # The assembly uses August business time. Move its private PostgreSQL clock
+    # alongside it so the opening collector exercises its original SQL window.
+    database = sql.Identifier(assembly.pg.dbname)
+    with feed_store.connect(assembly.pg.sync_dsn) as conn:
+        conn.execute("CREATE SCHEMA opening_clock")
+        conn.execute(sql.SQL("ALTER DATABASE {} SET search_path TO public,opening_clock,pg_catalog")
+                     .format(database))
+
+    def restore_database_clock():
+        with feed_store.connect(assembly.pg.sync_dsn) as conn:
+            conn.execute(sql.SQL("ALTER DATABASE {} RESET search_path").format(database))
+            conn.execute("DROP SCHEMA opening_clock CASCADE")
+    request.addfinalizer(restore_database_clock)
+
+    def set_time(at):
+        assembly.clock[0] = assembly.broker.now = at
+        offset = at - dt.datetime.now(dt.timezone.utc)
+        with feed_store.connect(assembly.pg.sync_dsn) as conn:
+            conn.execute(sql.SQL("""CREATE OR REPLACE FUNCTION opening_clock.clock_timestamp()
+                RETURNS timestamptz LANGUAGE sql VOLATILE RETURN pg_catalog.clock_timestamp() + {}""")
+                         .format(sql.Literal(offset)))
+
+    if drop_prepared_anchor:
+        prepare = runtime.ProductionAutomation.prepare
+        async def old_result(owner, context):
+            result = await prepare(owner, context)
+            return result.model_copy(update={"clean_observation_id": None})
+        monkeypatch.setattr(runtime.ProductionAutomation, "prepare", old_result)
+
+    set_time(assembly.clock[0])
+    with feed_store.connect(assembly.pg.sync_dsn) as conn:
+        # The shared fixture bound its simulated account at the real wall
+        # clock. Its private history must predate these August observations.
+        conn.execute("UPDATE sentinel_account_binding SET established_at=%s WHERE id=1",
+                     (assembly.clock[0] - dt.timedelta(days=1),))
+        store.activate(conn, binding=assembly.control, actor="fixture", reason="opening observation")
+        store.release_kill(conn, expected_binding=assembly.control, actor="fixture", reason="opening observation")
+    worker = assembly.create()
+    recovered = tick(assembly, worker)
+    assert recovered.action is TickAction.RECOVERED
+    assert tick(assembly, worker).action is TickAction.REFRESHED
+    prepared = tick(assembly, worker)
+    assert prepared.action is TickAction.PREPARED
+    evidence = prepared.cycle.diagnostic["preparation_reconciliation"]
+    assert evidence["clean"] and str(evidence["observation_id"]) != recovered.cycle.last_clean_reconciliation_id
+
+    # Restart the worker at the scheduled pre-open observation boundary.
+    set_time(prepared.cycle.execute_at - dt.timedelta(minutes=2))
+    waiting = tick(assembly, assembly.create())
+    assert waiting.cycle.state is CycleState.WAITING_OPEN
+    with feed_store.connect(assembly.pg.sync_dsn) as conn:
+        owner = fixture.binding.require(conn)
+        bound = (owner.deployment_id, owner.broker, owner.broker_account_id, owner.takeover_epoch)
+        event_anchor, = conn.execute("""SELECT detail->>'last_clean_reconciliation_id'
+            FROM sentinel_automation_cycle_events WHERE cycle_id=%s AND to_state='PLAN_READY'""",
+            (waiting.cycle.cycle_id,)).fetchone()
+        assert event_anchor == waiting.cycle.last_clean_reconciliation_id
+        receipt = asyncio.run(opening_display.collect(conn, reader=assembly.broker, bound=bound))
+        if drop_prepared_anchor:
+            assert waiting.cycle.last_clean_reconciliation_id == recovered.cycle.last_clean_reconciliation_id
+            assert receipt is None
+        else:
+            assert receipt is not None
+            assert receipt.scope.reconciliation == evidence["observation_id"]
+            assert opening_display.confirm(conn, bound, receipt) is not None
+            # Even an identical newer observation displaces the proven anchor.
+            journal.record_observation(conn, asyncio.run(assembly.broker.observe()), "RUNNING")
+            assert opening_display.confirm(conn, bound, receipt) is None
+        assert not fixture._mutations(assembly.broker)
+
+
 @pytest.mark.parametrize("fault", [
     "acknowledged", "accepted-response-lost", "kill-before-open", "missing-preopen",
 ])

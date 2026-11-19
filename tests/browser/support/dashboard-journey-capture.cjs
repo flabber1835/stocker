@@ -49,6 +49,7 @@ function installRecorder({binding}) {
   }
   function state() {
     const badge = document.getElementById('operational-state');
+    const brand = document.querySelector('.brand');
     const card = document.querySelector('.next-plan') || document.querySelector('#portfolio-overview .overview-card');
     const image=document.querySelector('.brand img[data-banner-src]') || document.querySelector('.brand img');
     let bannerPath=null;
@@ -64,7 +65,9 @@ function installRecorder({binding}) {
       headline_class:badge?.className || null, headline_label:badge?.textContent.trim().slice(0, 300) || null,
       preparation_label:document.getElementById('preparation-stage')?.textContent.trim().slice(0, 200) || null,
       plan_readiness_label:document.getElementById('plan-readiness')?.textContent.trim().slice(0, 200) || null,
-      meaningful_visible:visible(badge) && visible(card), root_number:rootNumber,
+      meaningful_visible:visible(brand || badge) && visible(card), root_number:rootNumber,
+      healthy_border:brand && badge?.classList.contains('ok')
+        ? getComputedStyle(brand).borderTopColor===getComputedStyle(badge).color : null,
       visibility:document.visibilityState, online:navigator.onLine,
       refreshing:document.documentElement?.classList.contains('refreshing-status') || false,
       not_current:document.documentElement?.classList.contains('not-current') || false,
@@ -145,7 +148,7 @@ function installRecorder({binding}) {
   });
   // Observe Document itself: document.open/write replaces its descendants.
   observer.observe(document, {subtree:true,childList:true,attributes:true,attributeOldValue:true,
-    attributeFilter:['class','hidden','src','data-generated-at','data-max-age-seconds']});
+    attributeFilter:['class','hidden','src','data-health','data-generated-at','data-max-age-seconds']});
   try {
     new PerformanceObserver(list => list.getEntries().forEach(item => send({type:'paint', name:item.name,
       start_ms:item.startTime, duration_ms:item.duration}))).observe({type:'paint',buffered:true});
@@ -158,6 +161,7 @@ function assessCapture(report) {
   const add = (code, detail, fields={}) => findings.push({code,detail,...fields});
   if (!report.capture?.complete || report.capture.status!=='COMPLETE') add('INCOMPLETE_CAPTURE','The journey recorder did not complete.');
   if (report.capture?.event_overflow) add('EVENT_OVERFLOW','The finite event limit was exceeded.');
+  if (report.opening?.verifier_failure) add('OPENING_VERIFIER_FAILED','A verifier recorded a failure during the observed opening.',report.opening.verifier_failure);
   const responses = report.responses || [];
   const events = report.events || [];
   const initial = responses.find(item => item.kind==='navigation');
@@ -208,8 +212,9 @@ function assessCapture(report) {
       if (!seen.has('UNATTRIBUTED_STATUS')) { seen.add('UNATTRIBUTED_STATUS'); add('UNATTRIBUTED_STATUS','A browser headline has no matching original response document.'); }
       continue;
     }
-    if (source.document.headline_class==='state ok' && event.headline_class==='state warn') {
-      if (!seen.has('HEALTHY_REFRESH_FLICKER')) { seen.add('HEALTHY_REFRESH_FLICKER'); add('HEALTHY_REFRESH_FLICKER','A healthy original server document became amber during the journey.',{request_id:source.request_id}); }
+    if (source.document.headline_class==='state ok' && (['state warn','state neutral'].includes(event.headline_class)
+        || event.meaningful_visible && event.healthy_border===false)) {
+      if (!seen.has('HEALTHY_REFRESH_FLICKER')) { seen.add('HEALTHY_REFRESH_FLICKER'); add('HEALTHY_REFRESH_FLICKER','A healthy document lost its green headline or border during refresh.',{request_id:source.request_id}); }
     }
     if (source.document.headline_class!=='state ok' && event.headline_class==='state ok') add('NEGATIVE_PRECEDENCE_LOST','Browser green masked original negative server evidence.');
     if (event.headline_class==='state ok' && Number.isFinite(event.wall_time_ms) &&
@@ -226,15 +231,54 @@ function assessCapture(report) {
     targets:{...TARGETS},physical_home_screen:'NOT_RUN'};
 }
 
+// The public JSON establishes run identity and verification times. The HTML
+// responses and DOM events independently establish what the operator saw.
+function observeOpening(progress, panel) {
+  if (!panel?.observation?.strict_current || panel.observation.retained) return;
+  const run=panel.rows?.find(row=>['trading_run','completed_trading_run'].includes(row.key)
+      && row.current && row.trading_run)?.trading_run;
+  if (!run?.intent?.cycle_id || !run.intent.plan_id) return;
+  const identity=crypto.createHash('sha256').update(JSON.stringify([run.intent.cycle_id,run.intent.plan_id])).digest('hex');
+  const now=Date.parse(panel.as_of);
+  if (!Number.isFinite(now) || (progress.identity && progress.identity!==identity)) return;
+  if (progress.waiting_at) {
+    for (const scope of ['PAPER','SHADOW']) {
+      const latest=panel.verification_attempts?.[scope]?.latest;
+      const ended=Date.parse(latest?.completed_at);
+      if (latest?.outcome==='FAILED' && ended>=Date.parse(progress.waiting_at) && ended<=now)
+        progress.verifier_failure ??= {scope,completed_at:latest.completed_at};
+    }
+  }
+  if (!progress.waiting_at && run.state==='WAITING_OPEN' && now<Date.parse(run.intent.execution_open_at)) {
+    Object.assign(progress,{identity,waiting_at:panel.as_of});
+  } else if (progress.waiting_at && !progress.executing_at && run.state==='EXECUTING'
+      && now>=Date.parse(run.intent.execute_at) && now>=Date.parse(progress.waiting_at)) {
+    progress.executing_at=panel.as_of;
+  } else if (progress.executing_at && run.state==='SUCCEEDED') {
+    const completed=Date.parse(run.completed_at);
+    if (!(Date.parse(progress.executing_at)<=completed && completed<=now)) return;
+    progress.completed_at=run.completed_at;
+    for (const scope of ['PAPER','SHADOW']) {
+      const attempt=panel.verification_attempts?.[scope]?.latest;
+      const verified=Date.parse(attempt?.completed_at);
+      if (attempt?.outcome==='VERIFIED' && verified>=completed && verified<=now)
+        progress[scope]=attempt.completed_at;
+      else delete progress[scope];
+    }
+  }
+}
+
 async function startCapture(page, options) {
   const target = new URL(options.url);
   if (!['http:','https:'].includes(target.protocol) || target.username || target.password || target.search || target.hash) throw new Error('A plain HTTP(S) dashboard URL without secrets is required');
-  const maxEvents = Math.min(options.maxEvents || 300,300);
-  const maxDuration = Math.min(options.maxDurationMs || 110000,110000);
+  const opening=options.opening ? {} : null;
+  const maxEvents = opening ? 12000 : Math.min(options.maxEvents || 300,300);
+  const maxDuration = opening ? 20*60*1000 : Math.min(options.maxDurationMs || 110000,110000);
   const started = performance.now();
   const report = {schema:SCHEMA,project:options.project,target_origin:target.origin,
     capture:{status:'INCOMPLETE',complete:false,reasons:[],duration_ms:0,event_count:0,event_overflow:false,expected_html_responses:3},
     responses:[],events:[],screenshots:[],physical_home_screen:{status:'NOT_RUN',reason:'Desktop browser capture is not physical iOS evidence'}};
+  if (opening) report.opening=opening;
   const nodeTime = () => performance.now()-started;
   let closed = false, done = false, resolveDone, screenshotCount=0;
   const pending = new Set(), requests = new Map(), bannerRequests=new Map(), listeners=[];
@@ -247,6 +291,16 @@ async function startCapture(page, options) {
     report.events.push({...event,node_ms:nodeTime()});
     if (event.type==='meaningful-content') takeScreenshot('content');
     if (event.type==='badge-transition' && event.headline_class==='state warn') takeScreenshot('amber');
+    if (opening) {
+      if (['meaningful-content','html-response'].includes(event.type) && opening.PAPER && opening.SHADOW &&
+          Date.parse(event.generated_at)>=Math.max(Date.parse(opening.PAPER),Date.parse(opening.SHADOW)) &&
+          report.responses.some(item=>item.document?.generated_at===event.generated_at) &&
+          report.events.some(item=>item.type==='meaningful-content' && item.generated_at===event.generated_at)) {
+        opening.displayed_at=event.generated_at;
+        finishWaiting();
+      }
+      return;
+    }
     const docs = report.responses.filter(item => item.document);
     if (docs.length>=3 && report.events.some(item => item.type==='meaningful-content' && item.generated_at===docs[2].document.generated_at)) {
       const last=docs[2].document;
@@ -319,12 +373,30 @@ async function startCapture(page, options) {
     if (item) { item.completed_ms=nodeTime(); item.transport_failed=true; add({type:'request-failed',request_id:item.request_id}); }
   });
   listen('pageerror', () => { mark('BROWSER_SCRIPT_ERROR'); add({type:'script-error'}); });
+  let polling=false;
+  async function pollOpening() {
+    if (closed || polling) return;
+    polling=true;
+    try {
+      const response=await page.request.get(new URL('/panel.json',target).href,{timeout:4500,maxRedirects:0});
+      try {
+        if (!response.ok()) throw new Error('unavailable');
+        const panel=await response.json();
+        if (!closed) observeOpening(opening,panel);
+      } finally { await response.dispose(); }
+    } catch (_) { if (!closed) mark('OPENING_STATUS_READ_FAILED'); }
+    finally { polling=false; }
+  }
+  const openingTimer=opening ? setInterval(pollOpening,5000) : null;
+  if (opening) void pollOpening();
   const timer=setTimeout(() => { mark('CAPTURE_DEADLINE'); finishWaiting(); },maxDuration);
   const controller={report,waitForCompletion:() => completion,recordFailure:mark};
   controller.finishCapture=async () => {
     if (closed) return report;
     closed=true;
     clearTimeout(timer);
+    clearInterval(openingTimer);
+    if (opening && !opening.displayed_at) mark('MISSING_OPENING_PHASES');
     for (const [name,callback] of listeners) page.off(name,callback);
     let settledTimer;
     const settled=await Promise.race([Promise.allSettled([...pending]).then(()=>true),
@@ -350,4 +422,4 @@ async function startCapture(page, options) {
 }
 async function finishCapture(controller) { return controller.finishCapture(); }
 
-module.exports={SCHEMA,TARGETS,startCapture,finishCapture,assessCapture,serverDocument};
+module.exports={SCHEMA,TARGETS,startCapture,finishCapture,assessCapture,serverDocument,observeOpening};

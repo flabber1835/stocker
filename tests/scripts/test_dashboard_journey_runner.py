@@ -89,6 +89,22 @@ class DashboardJourneyRunnerContract(unittest.TestCase):
         self.assertEqual(outcome['status'], 'PASSED_DESKTOP')
         self.assertEqual(outcome['physical_home_screen']['status'], 'NOT_RUN')
 
+    def test_short_green_capture_cannot_qualify_an_opening(self):
+        report = observed_report(PROJECTS[0])
+        def status():
+            return self.runner.assess_run(0, [report], [PROJECTS[0]], opening=True)['status']
+        self.assertEqual(status(), 'INCOMPLETE')
+        dates = [f'2026-11-19T14:{minute}:00+00:00' for minute in (29, 31, 34, 35, 36, 37)]
+        report['opening'] = dict(zip(
+            ('waiting_at', 'executing_at', 'completed_at', 'PAPER', 'SHADOW', 'displayed_at'), dates))
+        report['opening']['identity'] = 'a' * 64
+        report['responses'][-1] = {'document': {'generated_at': dates[-1]}}
+        self.assertEqual(status(), 'INCOMPLETE')
+        report['events'].append({'type': 'meaningful-content', 'generated_at': dates[-1]})
+        self.assertEqual(status(), 'PASSED_DESKTOP')
+        report['opening']['SHADOW'] = dates[0]
+        self.assertEqual(status(), 'INCOMPLETE')
+
     def test_a_captured_product_failure_is_observed_failure_not_incomplete_or_success(self):
         evidence = reports()
         evidence[1] = observed_report(PROJECTS[1], product_failure=True)
@@ -163,6 +179,20 @@ class DashboardJourneyRunnerContract(unittest.TestCase):
         original = deepcopy(raw)
         self.assertTrue(self.runner.playwright_matches(raw, reports(), PROJECTS, 'capture'))
         self.assertEqual(raw, original)
+
+    def test_integrity_requires_each_registered_case_once_per_browser(self):
+        raw = raw_playwright()
+        group = raw['suites'][0]['suites'][0]
+        group['title'] = 'Recorder integrity'
+        first = group['specs'][0]
+        group['specs'] = [dict(deepcopy(first), title=title) for title in (
+            'records actual banner decoding and accepts a valid PNG',
+            'records actual banner decoding and refuses an interrupted PNG',
+            'retains a short amber transition and document.open replacement')]
+        raw['stats']['expected'] = 6
+        self.assertTrue(self.runner.playwright_matches(raw, [], PROJECTS, 'integrity'))
+        group['specs'][0]['title'] = group['specs'][1]['title']
+        self.assertFalse(self.runner.playwright_matches(raw, [], PROJECTS, 'integrity'))
 
     def test_a_true_product_failure_matches_one_actual_failed_browser_case(self):
         evidence, raw = reports(), raw_playwright()

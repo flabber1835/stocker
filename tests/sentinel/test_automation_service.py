@@ -493,7 +493,8 @@ async def test_changed_runtime_config_durably_kills_and_cannot_silently_resume(
 
 
 @pytest.mark.asyncio
-async def test_prepare_restart_and_execution_use_durable_boundaries(conn, caplog) -> None:
+@pytest.mark.parametrize("prepare_evidence", [{}, {"clean_observation_id": 587}])
+async def test_prepare_restart_and_execution_use_durable_boundaries(conn, caplog, prepare_evidence) -> None:
     cfg = config()
     enable(conn, cfg)
     prepared_calls = []
@@ -501,7 +502,7 @@ async def test_prepare_restart_and_execution_use_durable_boundaries(conn, caplog
 
     def prepare(context):
         prepared_calls.append(context.cycle.cycle_id)
-        return prepare_result(context)
+        return {**prepare_result(context), **prepare_evidence}
 
     def execute(context):
         executed_calls.append(context.cycle.plan_id)
@@ -520,6 +521,8 @@ async def test_prepare_restart_and_execution_use_durable_boundaries(conn, caplog
     waiting = await restarted.tick(conn, now=THURSDAY_BEFORE_OPEN)
     assert waiting.action is TickAction.WAITING
     assert waiting.cycle.state is CycleState.WAITING_OPEN
+    expected_anchor = ("587" if prepare_evidence else recovered.cycle.last_clean_reconciliation_id)
+    assert waiting.cycle.last_clean_reconciliation_id == expected_anchor
     assert prepared_calls == [prepared.cycle.cycle_id]
     assert executed_calls == []
     from sentinel.panel import model, sources

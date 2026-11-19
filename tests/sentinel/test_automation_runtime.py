@@ -43,6 +43,7 @@ from sentinel.automation.model import (
     LeaderPermit,
     NonRetryableCallbackRefused,
     PreflightPublicationPinUnavailable,
+    PrepareResult,
     SoftwareDefect,
     StaleLeaderRefused,
     TickAction,
@@ -102,6 +103,12 @@ def test_transport_evidence_never_claims_clean_success():
     with pytest.raises(ValueError, match="clean reconciliation identity"):
         ExecuteResult(disposition=ExecuteDisposition.SUCCEEDED,
                       transport_reconciliation_id="12")
+
+
+@pytest.mark.parametrize("invalid", [0, -1, True, "587"])
+def test_preparation_observation_is_a_positive_journal_sequence(invalid):
+    with pytest.raises(ValueError, match="clean_observation_id"):
+        PrepareResult(plan_id="plan", clean_observation_id=invalid)
 
 
 @pytest.mark.parametrize("invalid", [
@@ -982,9 +989,10 @@ async def test_dual_refresh_never_races_the_shadow_publication_writer(
     assert conn.closed == 1
 
 
+@pytest.mark.parametrize("restricted", [False, True])
 @async_test
 async def test_dual_prepare_bypasses_legacy_paper_catchup_lineage(
-        monkeypatch) -> None:
+        monkeypatch, restricted) -> None:
     """An upgraded dual NAS must not synthesize legacy PAPER gap cycles."""
     cfg = config()
     ctx = context(cfg, state=CycleState.PREPARING)
@@ -1017,10 +1025,13 @@ async def test_dual_prepare_bypasses_legacy_paper_catchup_lineage(
 
     async def prepare_current(**kwargs):
         calls.append(kwargs)
+        rec = ReconciliationResult(runtime_state=RuntimeState.RUNNING,
+            observation=await SimulatedBroker().observe(), observation_id=587,
+            restricted_securities={"SEC-AAA": "pending"} if restricted else {})
         return paper.PreparationResult(
             plan=current_plan, sessions_replayed=0, warmup_sessions=0,
             state_fingerprint="state", publication_version=1,
-            frontier=DECISION.isoformat(), reconciliation=DictEvidence())
+            frontier=DECISION.isoformat(), reconciliation=rec)
 
     monkeypatch.setattr(paper, "prepare_paper_plan", prepare_current)
     monkeypatch.setattr(
@@ -1030,6 +1041,7 @@ async def test_dual_prepare_bypasses_legacy_paper_catchup_lineage(
     result = await runtime.prepare(ctx)
 
     assert result.plan_id == current_plan.plan_id
+    assert result.clean_observation_id == (None if restricted else 587)
     assert result.missed_sessions == ()
     assert calls[0]["dual_shadow_observation_id"] == "shadow-observation"
     assert calls[0]["dual_shadow_starting_cash"] == Decimal("1000")

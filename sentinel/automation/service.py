@@ -2007,6 +2007,8 @@ class AutomationService:
                 conn, permit=permit, cycle_id=cycle.cycle_id,
                 to_state=CycleState.PLAN_READY,
                 plan_id=result.plan_id, data_version=result.data_version,
+                last_clean_reconciliation_id=(str(result.clean_observation_id)
+                    if result.clean_observation_id is not None else cycle.last_clean_reconciliation_id),
                 publication_fingerprint=result.publication_fingerprint,
                 state_fingerprint=result.state_fingerprint,
                 plan_fingerprint=result.plan_fingerprint,

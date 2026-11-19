@@ -1,5 +1,29 @@
 # Dashboard journey evidence
 
+## Full opening qualification
+
+On November 19 five partial responses and a verifier child death occurred
+after the first two refreshes. The opening capture must follow one dated plan
+from waiting, through execution, to completion and subsequent successful PAPER
+and SHADOW observations. Read phase and verifier timestamps from the public
+status feed. Attribute each rendered state to its own HTML response. A missed
+phase, incomplete capture, missing verifier renewal, or neutral paint on a
+healthy foreground dashboard fails the opening check. The ordinary short
+launch diagnostic keeps its two-refresh bound.
+
+Use one real browser per opening capture on a private rehearsal or on a
+passively observed PAPER open. A fixed twenty-minute deadline bounds the
+capture. Replay the acceptance rules off-hours with expired proofs, same-cycle
+and foreign-cycle outcomes, and real browser styling. Production-size timing
+and resource results require their own measurements.
+
+Start with `python scripts/sentinel_dashboard_journey.py --phase opening
+--project chromium-pwa --url https://YOUR-PRIVATE-DASHBOARD/
+--dependency-cache /existing/node_modules` before the bell. Select
+`webkit-iphone` for a WebKit run. The capture reads the status feed at most
+once every five seconds and ends after the first displayed HTML generation
+covering both post-completion verifications.
+
 Decision, 2026-10-31, before implementation: qualify the observed launch and
 refresh journey separately from the existing mocked, virtual-clock guard tests.
 This changes test observation and acceptance only. It changes no production

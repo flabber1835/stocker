@@ -13,7 +13,7 @@ from html import escape
 from zoneinfo import ZoneInfo
 
 from sentinel.panel.model import FAIL, MARKET_BUY_OBSERVATION, OK, UNKNOWN, Panel, PaperOrderOutcome, ShadowSlot
-from sentinel.panel.presentation import describe, dashboard_health, opening_wait_label, preparation_stage, visible_preparation
+from sentinel.panel.presentation import describe, opening_wait_label, preparation_stage, visible_preparation
 
 
 def _esc(value) -> str:
@@ -132,9 +132,6 @@ def _plan_html(panel: Panel, *, current: bool = True) -> str:
             return ('<section class="overview-card next-plan" aria-labelledby="next-plan-title">'
                     '<h2 id="next-plan-title">Next trading plan</h2>'
                     '<p>Plan saved · awaiting verification for scheduled execution.</p></section>')
-        current = _run_html(panel)
-        if current:
-            return current
         unavailable = any(item is not None and item.effective_status(panel.now) in {FAIL, UNKNOWN}
                           for item in (row, panel.row('trading_run'),
                                        panel.row('completed_trading_run')))
@@ -222,17 +219,7 @@ def _preparation_html(panel: Panel, *, refresh_pending: bool = False) -> str:
         +_stamp(work.last_progress_at, label='Last recorded progress:')+retry+'</section>')
 
 
-def _plan_readiness_html(panel: Panel, *, refresh_pending: bool = False) -> str:
-    readiness = dashboard_health(panel)['plan_readiness']
-    value = {'ready': 'Next trading plan: saved for scheduled execution.',
-             'pending': 'Next trading plan: not ready yet.',
-             'unavailable': 'Next trading plan: unavailable; see System details.'}[readiness]
-    if refresh_pending:
-        value = 'Last known · '+value
-    return '<p id="plan-readiness" class="overview-note">'+_esc(value)+'</p>'
-
-
-def _run_html(panel: Panel) -> str:
+def _run_html(panel: Panel, *, last_known=False) -> str:
     row = panel.row('trading_run')
     historical = row is None
     if historical:
@@ -254,6 +241,9 @@ def _run_html(panel: Panel) -> str:
                  panel.now if not historical else None, run.intent.execution_open_at, run.intent.execute_at)}[run.state]
     if run.unsent_at_cutoff:
         stage = 'Opening window closed'
+    if last_known:
+        heading = 'Last recorded trading run'
+        stage = f'{stage} at the last update'
     rows = []
     for leg in run.intent.legs:
         allocation = next((item for item in run.purchase_allocations if item.security_id == leg.security_id), None)
@@ -455,18 +445,23 @@ def overview_html(panel: Panel, *, refresh_pending: bool = False) -> str:
             and original_plan.can_show_paper_plan(panel.observation_generated_at)):
         plan_view = replace(safe, now=panel.observation_generated_at,
             rows=[original_plan if row.key == 'paper_plan' else row for row in safe.rows])
-    plan = section(_plan_html(plan_view, current=plan_current),
-                   ('paper_plan', 'trading_run', 'completed_trading_run'))
     saved = plan_view.row('paper_plan')
-    run = safe.row('trading_run') or safe.row('completed_trading_run')
+    run = panel.row('trading_run') or panel.row('completed_trading_run')
+    last_known = bool(run is not None and not delivery.row_current(panel, run)
+                      and panel.observation_generated_at is not None
+                      and panel.observation_valid_until is not None and panel.now < panel.observation_valid_until
+                      and run.can_show_trading_run(panel.now))
     same_intent = (saved is not None and saved.can_show_paper_plan(safe.now)
                    and run is not None and run.trading_run is not None
                    and run.trading_run.state in {'PLAN_READY', 'WAITING_OPEN'}
                    and not run.trading_run.orders
                    and run.effective_status(safe.now) not in {FAIL, UNKNOWN}
                    and run.trading_run.intent.plan_id == saved.paper_plan.plan_id)
-    runs = (_run_html(safe) if saved is not None
-            and saved.can_show_paper_plan(safe.now) and not same_intent else '')
+    runs = (section(_run_html(panel if last_known else safe, last_known=last_known), (run.key,))
+            if run is not None and not same_intent else '')
+    has_plan = saved is not None and (saved.can_show_paper_plan(plan_view.now)
+                                      or saved.awaiting_plan_adoption(plan_view.now))
+    plan = section(_plan_html(plan_view, current=plan_current), ('paper_plan',)) if has_plan or not runs else ''
     account_view = panel
     account_row = panel.row('alpaca_account')
     if (panel.observation_retained and panel.observation_generated_at is not None
@@ -493,5 +488,5 @@ def overview_html(panel: Panel, *, refresh_pending: bool = False) -> str:
             '<p class="overview-withdrawn">Last known overview · status is not current.</p>'
             +retained
             +section(_preparation_html(plan_view, refresh_pending=refresh_pending), ('ingest',))
-            +plan+section(runs, ('trading_run', 'completed_trading_run'))
+            +plan+runs
             +account+section(slots, ('book', 'exposure'))+'</main>')

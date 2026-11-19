@@ -7,6 +7,8 @@ const {startJourneyTransport,bindTransport}=require('./support/dashboard-journey
 
 test.describe('Unmodified dashboard journey', () => {
   test('records cold navigation and two actual HTML refreshes',async ({page},testInfo) => {
+    const opening=process.env.SENTINEL_JOURNEY_OPENING==='1';
+    if (opening) test.setTimeout(21*60*1000);
     await fs.mkdir(testInfo.outputDir,{recursive:true});
     const upstreamUrl=process.env.SENTINEL_JOURNEY_BASE_URL;
     const floor=process.env.SENTINEL_JOURNEY_REFRESH_FLOOR_MS;
@@ -15,7 +17,7 @@ test.describe('Unmodified dashboard journey', () => {
     let capture,report;
     try {
       const url=transport ? transport.url : upstreamUrl;
-      capture=await startCapture(page,{url,outputDir:testInfo.outputDir,project:testInfo.project.name,maxDurationMs:110000,maxEvents:300});
+      capture=await startCapture(page,{url,outputDir:testInfo.outputDir,project:testInfo.project.name,opening,maxDurationMs:110000,maxEvents:300});
       try {
         await page.goto(url,{waitUntil:'domcontentloaded',timeout:105000});
         await capture.waitForCompletion();

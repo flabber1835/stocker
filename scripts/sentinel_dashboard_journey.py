@@ -22,6 +22,11 @@ import uuid
 
 PROJECTS = ('webkit-iphone', 'chromium-pwa')
 MAX_BYTES = 20 * 1024 * 1024
+INTEGRITY_CASES = frozenset({
+    'records actual banner decoding and accepts a valid PNG',
+    'records actual banner decoding and refuses an interrupted PNG',
+    'retains a short amber transition and document.open replacement',
+})
 INPUTS = (
     'tests/browser/support/dashboard-journey-capture.cjs',
     'tests/browser/support/dashboard-journey-transport.cjs',
@@ -50,7 +55,7 @@ def validate_url(value):
     return urlunsplit((selected.scheme, selected.netloc, '/', '', ''))
 
 
-def assess_run(exit_code, reports, expected_projects, timed_out=False):
+def assess_run(exit_code, reports, expected_projects, timed_out=False, *, opening=False):
     """Classify capture completeness independently of the product's verdict."""
     expected = set(expected_projects)
     problems = []
@@ -85,6 +90,8 @@ def assess_run(exit_code, reports, expected_projects, timed_out=False):
             problems.append('INCOMPLETE_CAPTURE_EVIDENCE')
         if not isinstance(physical, dict) or physical.get('status') != 'NOT_RUN':
             problems.append('UNSUPPORTED_PHYSICAL_DEVICE_CLAIM')
+        if opening and not complete_opening(report):
+            problems.append('MISSING_OPENING_PHASES')
         if (not isinstance(acceptance, dict) or acceptance.get('status') not in {'PASS', 'FAIL'}
                 or not isinstance(acceptance.get('findings'), list)
                 or any(not isinstance(item, dict) or not isinstance(item.get('code'), str)
@@ -102,12 +109,29 @@ def assess_run(exit_code, reports, expected_projects, timed_out=False):
                 physical_home_screen=dict(status='NOT_RUN', reason='Desktop capture only'))
 
 
+def complete_opening(report):
+    progress = report.get('opening') or {}
+    try:
+        if not isinstance(progress['identity'], str) or len(progress['identity']) != 64:
+            return False
+        waiting, executing, completed, paper, shadow, displayed = (
+            datetime.fromisoformat(progress[key]) for key in (
+                'waiting_at', 'executing_at', 'completed_at', 'PAPER', 'SHADOW', 'displayed_at'))
+        return (all(t.utcoffset() is not None for t in (waiting, executing, completed, paper, shadow, displayed))
+                and waiting < executing <= completed <= min(paper, shadow) <= max(paper, shadow) <= displayed
+                and any(item.get('document', {}).get('generated_at') == progress['displayed_at']
+                        for item in report['responses'])
+                and any(event.get('type') == 'meaningful-content'
+                        and event.get('generated_at') == progress['displayed_at'] for event in report['events']))
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return False
+
+
 def playwright_matches(data, reports, projects, phase):
     """A report cannot hide extra, skipped, retried or infrastructure cases."""
     if not isinstance(data, dict) or data.get('errors'):
         return False
-    expected_case = ('retains a short amber transition and document.open replacement'
-                     if phase == 'integrity' else 'records cold navigation and two actual HTML refreshes')
+    cases = INTEGRITY_CASES if phase == 'integrity' else {'records cold navigation and two actual HTML refreshes'}
     expected_group = 'Recorder integrity' if phase == 'integrity' else 'Unmodified dashboard journey'
     observed = []
     def collect(suites, parents=()):
@@ -118,7 +142,7 @@ def playwright_matches(data, reports, projects, phase):
             collect(suite.get('suites', []), names)
     try:
         collect(data['suites'])
-        if len(observed) != len(projects):
+        if len(observed) != len(projects) * len(cases):
             return False
         expected = {report['project']: report['acceptance']['status'] for report in reports}
         if phase == 'integrity':
@@ -128,11 +152,11 @@ def playwright_matches(data, reports, projects, phase):
         seen = set()
         for groups, title, item in observed:
             project = item['projectName']
-            if (project not in expected or project in seen or expected_group not in groups
-                    or title != expected_case or item['expectedStatus'] != 'passed'
+            if (project not in expected or (project, title) in seen or expected_group not in groups
+                    or title not in cases or item['expectedStatus'] != 'passed'
                     or len(item['results']) != 1):
                 return False
-            seen.add(project)
+            seen.add((project, title))
             result = item['results'][0]
             passing = expected[project] == 'PASS'
             if (item['status'] != ('expected' if passing else 'unexpected')
@@ -142,7 +166,7 @@ def playwright_matches(data, reports, projects, phase):
                 return False
         failed = sum(value == 'FAIL' for value in expected.values())
         stats = data['stats']
-        return (seen == set(projects) and stats['expected'] == len(projects)-failed
+        return (len(seen) == len(observed) and stats['expected'] == len(observed)-failed
                 and stats['unexpected'] == failed and stats['skipped'] == 0 and stats['flaky'] == 0)
     except (KeyError, TypeError, AttributeError):
         return False
@@ -175,7 +199,7 @@ def write_new(path, value):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--url', required=True)
-    parser.add_argument('--phase', choices=('integrity', 'capture'), default='capture')
+    parser.add_argument('--phase', choices=('integrity', 'capture', 'opening'), default='capture')
     parser.add_argument('--profile', choices=('direct', 'slow-refresh'), default='direct')
     parser.add_argument('--dependency-cache', type=Path, required=True,
                         help='Existing node_modules containing Playwright; never downloaded')
@@ -200,6 +224,8 @@ def main():
     if args.channel not in {'chromium', 'msedge', 'chrome'}:
         raise ValueError('Use an installed Chromium channel; no download attempted')
     projects = args.project or list(PROJECTS)
+    if args.phase == 'opening' and (len(projects) != 1 or args.profile != 'direct'):
+        raise ValueError('Use one --project and the direct profile per foreground opening capture')
     if len(set(projects)) != len(projects):
         raise ValueError('Duplicate project')
     before = {name: digest(source / name) for name in INPUTS}
@@ -215,6 +241,8 @@ def main():
                        SENTINEL_BROWSER_CHANNEL=args.channel, NO_COLOR='1', CI='1')
     if args.profile == 'slow-refresh':
         environment['SENTINEL_JOURNEY_REFRESH_FLOOR_MS'] = '6400'
+    if args.phase == 'opening':
+        environment['SENTINEL_JOURNEY_OPENING'] = '1'
     command = [node, str(cli), 'test', '--config', str(source / 'tests/browser/dashboard-journey.config.js'),
                '--grep', 'Recorder integrity' if args.phase == 'integrity' else 'Unmodified dashboard journey',
                '--workers', '1', '--retries', '0', '--reporter', 'json', '--output', str(root / 'artifacts')]
@@ -234,7 +262,7 @@ def main():
                                       else {'start_new_session': True}))
         try:
             while process.poll() is None:
-                if time.monotonic() - started > 280:
+                if time.monotonic() - started > (1280 if args.phase == 'opening' else 280):
                     timed_out = True
                     break
                 if sum(path.stat().st_size for path in root.rglob('*') if path.is_file()) > MAX_BYTES:
@@ -278,7 +306,8 @@ def main():
         data = {}
     reports, report_files = [], []
     for path in sorted((root / 'artifacts').rglob('journey.json')):
-        if path.is_symlink() or path.stat().st_size > 2 * 1024 * 1024:
+        report_limit = (10 if args.phase == 'opening' else 2) * 1024 * 1024
+        if path.is_symlink() or path.stat().st_size > report_limit:
             raise ValueError('Journey report unsafe or larger than its budget')
         reports.append(read_json(path))
         report_files.append(dict(path=str(path.relative_to(root)), sha256=digest(path)))
@@ -287,12 +316,12 @@ def main():
     if args.phase == 'integrity':
         stats = data.get('stats', {})
         passed = (raw_matches and process.returncode == 0 and not timed_out and not budget_exceeded and not changed
-                  and stats.get('expected') == len(projects)
+                  and stats.get('expected') == len(projects)*len(INTEGRITY_CASES)
                   and all(stats.get(key) == 0 for key in ('skipped', 'unexpected', 'flaky')))
         verdict = dict(status='RECORDER_VERIFIED' if passed else 'INCOMPLETE',
                        physical_home_screen='NOT_RUN')
     else:
-        verdict = assess_run(process.returncode, reports, projects,
+        verdict = assess_run(process.returncode, reports, projects, opening=args.phase == 'opening',
                              timed_out=timed_out or budget_exceeded or changed or not raw_matches)
     result = dict(schema='sentinel.dashboard-journey-run/1', source_head=head,
                   phase=args.phase, profile=args.profile, source_files=before, source_files_unchanged=not changed,

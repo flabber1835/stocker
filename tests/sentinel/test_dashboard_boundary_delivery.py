@@ -229,7 +229,7 @@ def test_removed_signed_review_negative_guard_is_detected(operational,monkeypatc
 
 @pytest.mark.parametrize('boundary,change',[
  ('decode',"< snapshot.generated_at + timedelta(seconds=MAX_SECONDS)"),
- ('current',"return boundary is not None and panel.now < boundary")])
+ ('current',"return _within_display_bounds(panel, row)")])
 def test_executed_omission_controls_preserve_window_and_per_row_expiry(monkeypatch,boundary,change):
     if boundary=='decode':
         source=textwrap.dedent(inspect.getsource(snapshots.decode_display));assert change in source

@@ -1773,6 +1773,8 @@ class ProductionAutomation:
                 conn, result.plan, pending_is_retryable=True)
             return PrepareResult(
                 plan_id=result.plan.plan_id,
+                clean_observation_id=(result.reconciliation.observation_id
+                                      if result.reconciliation.clean else None),
                 data_version=str(result.plan.data_version),
                 publication_fingerprint=result.plan.publication_fingerprint,
                 state_fingerprint=result.state_fingerprint,
@@ -2150,25 +2152,31 @@ class ProductionAutomation:
         conn = None
         input_scope = ExitStack()
         try:
-            conn = self.connect()
-            feed_store.require_feed_schema(conn)
-            schema.require_runtime_schema(conn)
-            require_observation_integrity(conn)
-            cycle, control = self._assert_cycle_authority(
-                conn, context, operation_scope="EXECUTE")
-            self._require_operational_inputs(conn)
-            if self._dual_run_enabled or getattr(self, "_live_run_enabled", False):
-                current_plan = journal.latest_plan(conn)
-                if (current_plan is None
-                        or current_plan.plan_id != cycle.plan_id
-                        or current_plan.fingerprint()
-                        != cycle.plan_fingerprint):
-                    raise NonRetryableCallbackRefused(
-                        "automation execution cycle does not name the durable "
-                        "current PAPER plan")
-            if getattr(self, '_operational_source_only', False):
-                input_scope.enter_context(feed_inputs.pinned(conn, commit=False))
-            broker = self._broker(conn, cycle.effective_session.isoformat())
+            with opening_stage_log.preflight("connection_schema"):
+                conn = self.connect()
+                feed_store.require_feed_schema(conn)
+                schema.require_runtime_schema(conn)
+            with opening_stage_log.preflight("observation_integrity"):
+                require_observation_integrity(conn)
+            with opening_stage_log.preflight("cycle_authority"):
+                cycle, control = self._assert_cycle_authority(
+                    conn, context, operation_scope="EXECUTE")
+            with opening_stage_log.preflight("operational_inputs"):
+                self._require_operational_inputs(conn)
+            with opening_stage_log.preflight("plan_pin"):
+                if self._dual_run_enabled or getattr(self, "_live_run_enabled", False):
+                    current_plan = journal.latest_plan(conn)
+                    if (current_plan is None
+                            or current_plan.plan_id != cycle.plan_id
+                            or current_plan.fingerprint()
+                            != cycle.plan_fingerprint):
+                        raise NonRetryableCallbackRefused(
+                            "automation execution cycle does not name the durable "
+                            "current PAPER plan")
+                if getattr(self, '_operational_source_only', False):
+                    input_scope.enter_context(feed_inputs.pinned(conn, commit=False))
+            with opening_stage_log.preflight("broker_adapter"):
+                broker = self._broker(conn, cycle.effective_session.isoformat())
             gateway_started_ns = time.perf_counter_ns()
             try:
                 context.require_active()

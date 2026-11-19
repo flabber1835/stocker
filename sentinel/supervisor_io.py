@@ -52,6 +52,23 @@ class DependencyError(RuntimeError):
         super().__init__('supervisor dependency failed: '+diagnostic['exception_type']+suffix)
 
 
+class ChildSigkill(ChildProcessError):
+    """The supervised process exited on SIGKILL."""
+
+
+class ChildSigkillDuringCgroupOOM(ChildSigkill):
+    """The local cgroup recorded an OOM kill during this child's lifetime."""
+
+
+def _oom_kills(path):
+    try:
+        with open(path, 'rb') as source:
+            counters = dict(line.split() for line in source.read(4096).splitlines())
+        return int(counters[b'oom_kill'])
+    except (OSError, ValueError, KeyError):
+        return None
+
+
 def error_diagnostic(error: BaseException) -> ErrorDiagnostic:
     if isinstance(error, DependencyError):
         return _validate_diagnostic(error.diagnostic)
@@ -86,7 +103,8 @@ def _call(channel, function, args, parent_pid):
         channel.close()
 
 
-def run(function, *args, timeout=1.0, start_method='fork', cancelled=None, unreaped=None):
+def run(function, *args, timeout=1.0, start_method='fork', cancelled=None, unreaped=None,
+        memory_events=None):
     """Do not let a silent server socket disable the parent's kill deadline.
 
     Callers return small fixed-shape rows or None. The child finishes sending
@@ -108,6 +126,7 @@ def run(function, *args, timeout=1.0, start_method='fork', cancelled=None, unrea
     receiver, sender = context.Pipe(duplex=False)
     process = context.Process(target=_call, args=(sender, function, args, os.getpid()))
     try:
+        before = _oom_kills(memory_events) if memory_events is not None else None
         process.start()
         sender.close()
         deadline = time.monotonic()+timeout
@@ -122,6 +141,11 @@ def run(function, *args, timeout=1.0, start_method='fork', cancelled=None, unrea
             os.kill(process.pid, signal.SIGKILL)
             process.join(timeout=1)
             raise TimeoutError('supervisor dependency observation exceeded its wall-clock budget')
+        if memory_events is not None and process.exitcode == -signal.SIGKILL:
+            after = _oom_kills(memory_events) if before is not None else None
+            if after is not None and after > before:
+                raise ChildSigkillDuringCgroupOOM()
+            raise ChildSigkill()
         if not receiver.poll():
             raise RuntimeError('supervisor dependency observer exited without a result')
         status, value = receiver.recv()

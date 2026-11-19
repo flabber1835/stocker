@@ -27,6 +27,17 @@ def display_keys(panel):
                  if row.key in _KNOWN or row.key.startswith('automation_step_'))
 
 
+def finish_display_handoff(panel, *, now, owner_expiry, snapshot_expiry, account_keys):
+    """Expire each proved row independently, then determine whole-page currency."""
+    if owner_expiry <= now:
+        return replace(panel, observation_display_current=False, observation_display_keys=account_keys)
+    finished = replace(panel, now=now)
+    keys = tuple(row.key for row in finished.rows
+                 if row.key in finished.observation_display_keys and row_current(finished, row))
+    return replace(finished, observation_display_keys=keys,
+                   observation_display_current=now < snapshot_expiry and len(keys) == len(finished.rows))
+
+
 def opening_refresh_deadline(panel):
     """Bound an opening refresh label to the original signed display window."""
     from sentinel.panel.operational_snapshot import MAX_SECONDS
@@ -152,14 +163,7 @@ def row_current(panel, row):
         return True
     if row.key in panel.observation_display_keys and (
             row.key in _KNOWN or row.key.startswith('automation_step_')):
-        if row.status in {model.FAIL, model.UNKNOWN}:
-            return True
-        if row.is_future(panel.now) or row.is_stale(panel.now):
-            return False
-        from sentinel.panel.presentation import _row_boundary
-        boundary = _row_boundary(row)
-        return ((boundary is None or panel.now < boundary)
-                and (row.paper_plan is None or panel.now < row.paper_plan.execute_at))
+        return _within_display_bounds(panel, row)
     changed = set(panel.observation_changed_scopes)
     if (not changed and not panel.observation_retained) or changed - {'SHADOW', 'PAPER'}:
         return False
@@ -175,15 +179,19 @@ def row_current(panel, row):
                     or row.key.startswith('automation_step_'))))
     if not current or not panel.observation_retained:
         return current
-    if negative:
+    return _within_display_bounds(panel, row)
+
+
+def _within_display_bounds(panel, row):
+    if row.status in {model.FAIL, model.UNKNOWN}:
         return True
-    if row.is_future(panel.now):
+    if row.is_future(panel.now) or row.is_stale(panel.now):
         return False
     from sentinel.panel.presentation import _row_boundary
     boundary = _row_boundary(row)
     if row.paper_plan is not None:
         boundary = min(boundary, row.paper_plan.execute_at) if boundary else row.paper_plan.execute_at
-    return boundary is not None and panel.now < boundary
+    return panel.now < boundary if boundary is not None else not panel.observation_retained
 
 
 def row_status(panel, row):

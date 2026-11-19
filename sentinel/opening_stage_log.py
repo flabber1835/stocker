@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import logging
+from time import perf_counter_ns
 
 
 LOGGER_NAME = "sentinel.opening_stage"
@@ -13,6 +15,7 @@ _TEMPLATES = frozenset({
     "paper_execution_stage status=%s total_ms=%d last_stage=%s exception_type=%s",
     "automation_execution_stage stage=paper_gateway elapsed_ms=%d",
     "automation_execution_stage stage=completion_proof elapsed_ms=%d",
+    "automation_preflight_stage stage=%s elapsed_ms=%d",
     "automation_execution_stage stage=terminal_transition_and_commit "
     "path=%s returned=%s elapsed_ms=%d",
     "automation_idle_authority_stage outcome=%s stage=%s "
@@ -46,6 +49,17 @@ def info(template: str, *args: object) -> None:
         _LOGGER.info(template, *args)
     except Exception:
         return
+
+
+@contextmanager
+def preflight(stage: str):
+    """Time one callback admission step, including a step that refuses."""
+    start = perf_counter_ns()
+    try:
+        yield
+    finally:
+        elapsed = min(86_400_000, max(0, (perf_counter_ns() - start) // 1_000_000))
+        info("automation_preflight_stage stage=%s elapsed_ms=%d", stage, elapsed)
 
 
 def install_worker_sink() -> None:

@@ -656,12 +656,15 @@ def read(database_url, *, display=False):
                 panel = replace(panel, observation_display_keys=account_keys)
         owner_expiry = None
         reusable = False
-        if display and changed and value.panel.display_basis and not retained and not head_changed:
+        if display and changed and value.panel.display_basis and not head_changed:
             owner = conn.execute(f'SELECT expires_at FROM {schema.OWNER} WHERE id=1').fetchone()
             owner_expiry = owner[0] if owner is not None else None
-            reusable = (owner_expiry is not None and owner_expiry > now
-                and display_dependencies.native_reuse(conn, database_url,
-                    value.panel.display_basis, current_basis, facts=facts))
+            if owner_expiry is not None and owner_expiry > now:
+                before = value.panel.display_basis
+                reusable = display_dependencies.native_reuse(conn, database_url, before, current_basis, facts=facts)
+                if not reusable and changed == ('PAPER',) and panel.local_paper_mode:
+                    reusable = display_dependencies.clean_observation_advance(
+                        conn, database_url, before, current_basis, facts=facts, now=now)
             if reusable:
                 panel = replace(panel, observation_display_keys=delivery.display_keys(panel))
         from sentinel.panel import postclose_feed_wait
@@ -688,11 +691,8 @@ def read(database_url, *, display=False):
                 observation_current=panel.observation_current and not retained,
                 observation_valid_until=display_until if retained else value.valid_until)
             if reusable:
-                finished_panel = replace(panel, now=finished)
-                allowed = (not retained and owner_expiry > finished and finished < value.valid_until
-                    and all(delivery.row_current(finished_panel,row) for row in panel.rows))
-                panel = replace(panel, observation_display_current=allowed,
-                    observation_display_keys=panel.observation_display_keys if allowed else account_keys)
+                panel = delivery.finish_display_handoff(panel, now=finished, owner_expiry=owner_expiry,
+                    snapshot_expiry=value.valid_until, account_keys=account_keys)
             if retained and not changed and not head_changed:
                 owner = conn.execute(f'SELECT expires_at FROM {schema.OWNER} WHERE id=1').fetchone()
                 if owner is not None and owner[0] is not None and owner[0] > finished:
