@@ -717,6 +717,11 @@ class Row:
             and run.updated_at == self.as_of == opening.started_at
             and self.valid_until == opening.deadline and opening.started_at <= now < opening.deadline)
 
+    def awaiting_plan_adoption(self, now: datetime) -> bool:
+        return (self.key == 'paper_plan' and self.status == PENDING and self.value == AWAITING_PLAN_ADOPTION
+                and self.paper_plan is None and self.as_of is not None and self.valid_until is not None
+                and self.as_of <= now < self.valid_until)
+
     def can_show_paper_plan(self, now: datetime) -> bool:
         """A saved future intent is distinct from today's execution evidence."""
         return (self.paper_plan is not None and self.effective_status(now) == OK
@@ -2137,6 +2142,7 @@ def automation_step_rows(
                  'WAITING_OPEN', 'EXECUTING', 'RECONCILING', 'RETRY_WAIT', 'SUCCEEDED',
                  'BLOCKED', 'MISSED_STATE_ONLY', 'SUPERSEDED'}:
         rows = [replace(row, operational_fact=OperationalFact(kind='AUTOMATION_CYCLE', state=state,
+                    session=cycle.get('decision_session') if state in {'DISCOVERED', 'REFRESHING_DATA', 'PREPARING'} else None,
                     schedule=schedule if row.required_current else None))
                 for row in rows]
     return rows
