@@ -6,6 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+PAGE_SIZE = 20
+
 
 class OperatorReview(BaseModel):
     model_config = ConfigDict(extra='forbid', frozen=True)
@@ -18,7 +20,7 @@ class OperatorReview(BaseModel):
     reviewed_at: datetime | None = None
     active: list[str] = Field(default_factory=list, max_length=64)
     warnings: list[str] = Field(default_factory=list, max_length=64)
-    events: list[dict] = Field(default_factory=list, max_length=20)
+    events: list[dict] = Field(default_factory=list, max_length=PAGE_SIZE)
     token: str | None = Field(default=None, max_length=8192)
     detail: str = ''
 

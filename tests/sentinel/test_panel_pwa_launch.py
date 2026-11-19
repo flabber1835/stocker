@@ -21,7 +21,7 @@ def execute(target, kind, *, broken=False, mutation=None):
     if mutation:
         guard, replacement = {
             'expiry': ('nextAge >= nextBudget', 'false'),
-            'origin': ('new URL(response.url || location.href, location.href).origin !== location.origin', 'false'),
+            'origin': ('new URL(response.url || location.href, location.href).origin === location.origin', 'true'),
             'late': ('active.signal.aborted || !visible()', 'false'),
             'single': ('if (busy) { again = true; return; }', 'if (false) { again = true; return; }'),
             'currentness': ('next.body.dataset.observationCurrent !== (status === "CURRENT" ? "true" : "false")', 'false'),
@@ -49,7 +49,9 @@ def test_removed_worker_launch_guard_reproduces_network_gated_first_paint():
 @pytest.mark.parametrize('kind', ['fresh', 'partial', 'wrong-current-marker',
                                  'wrong-partial-marker', 'missing-marker', 'busy', 'busy-progress', 'cached', 'incomplete', 'pending',
                                  'stale', 'exact-expiry', 'future', 'invalid-date', 'budget', 'foreign',
-                                 'hidden', 'deadline', 'offline'])
+                                 'hidden', 'deadline', 'offline', 'reset-recovery', 'timeout-recovery',
+                                 'backoff', 'pause-offline', 'pause-hidden', 'foreign-progress',
+                                 'malformed-progress'])
 def test_launch_installs_only_complete_fresh_same_origin_visible_responses(kind):
     result=execute('launch',kind)
     assert result.returncode==0, result.stderr

@@ -238,9 +238,10 @@ def _short(exc: Exception) -> str:
     operator seeing this at 23:00 needs to know it was slow, not which
     exception class libpq chose."""
     name = type(exc).__name__
-    if "timeout" in str(exc).lower() or "Cancel" in name:
+    if isinstance(exc, TimeoutError) or "timeout" in str(exc).lower() or "Cancel" in name:
         return "timed out"
-    return f"{name}: {str(exc).strip().splitlines()[0][:120]}"
+    reason = str(exc).strip().partition("\n")[0][:120]
+    return f"{name}: {reason}" if reason else name
 
 
 def _json_mapping(value, *, label: str) -> dict:
@@ -1035,16 +1036,22 @@ def _feed_status_snapshot(conn, *, clock=time.monotonic, sleep=time.sleep):
 
     deadline = clock() + FEED_PIN_RETRY_SECONDS
     last_error = None
-    while True:
-        # The preceding acquisition-status SELECT belongs to this display
-        # connection. End it before selecting repeatable-read metadata.
-        conn.rollback()
+    def limit_legacy_pin():
         remaining = deadline - clock()
         if remaining <= 0:
             raise CorpusLockUnavailable('panel source pin retry deadline expired') from last_error
         _set_statement_timeout(conn, max(1, int(remaining * 1000)))
+
+    while True:
+        # The preceding acquisition-status SELECT belongs to this display
+        # connection. End it before selecting repeatable-read metadata.
+        conn.rollback()
+        if last_error is not None and clock() >= deadline:
+            raise last_error
+        _set_statement_timeout(conn, STATEMENT_TIMEOUT_MS)
         try:
-            return feed_display.status_snapshot(conn, include_publication=True)
+            return feed_display.status_snapshot(conn, include_publication=True,
+                                                before_legacy=limit_legacy_pin)
         except CorpusLockUnavailable as exc:
             last_error = exc
         finally:

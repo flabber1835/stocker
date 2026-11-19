@@ -37,8 +37,9 @@ def test_reacquires_snapshot_and_keeps_negative_verdict_and_original_clock(monke
     original = ('2026-10-22', SimpleNamespace(ready=False,
         computed_at=datetime(2026, 10, 22, 22, tzinfo=timezone.utc)))
 
-    def attempt(_, *, include_publication=False):
+    def attempt(_, *, include_publication=False, before_legacy=None):
         assert include_publication is True
+        before_legacy()
         calls.append(True)
         if len(calls) == 1:
             raise CorpusLockUnavailable('publication owns the pin')
@@ -49,14 +50,16 @@ def test_reacquires_snapshot_and_keeps_negative_verdict_and_original_clock(monke
     assert sources._feed_status_snapshot(conn, clock=clock, sleep=clock.sleep) is original
     assert len(calls) == 2 and conn.rollbacks >= 3
     assert original[1].ready is False
-    assert timeouts[1] < timeouts[0] <= 2000
+    assert timeouts[::2] == [sources.STATEMENT_TIMEOUT_MS] * 2
+    assert timeouts[3] < timeouts[1] <= 2000
 
 
 def test_persistent_lock_expires_at_original_deadline(monkeypatch):
     clock, conn, timeouts = Clock(), Connection(), []
 
-    def busy(_, *, include_publication=False):
+    def busy(_, *, include_publication=False, before_legacy=None):
         assert include_publication is True
+        before_legacy()
         raise CorpusLockUnavailable('still owned')
 
     monkeypatch.setattr(readers, 'status_snapshot', busy)
@@ -64,15 +67,16 @@ def test_persistent_lock_expires_at_original_deadline(monkeypatch):
     with pytest.raises(CorpusLockUnavailable):
         sources._feed_status_snapshot(conn, clock=clock, sleep=clock.sleep)
     assert clock.now == sources.FEED_PIN_RETRY_SECONDS
-    assert conn.rollbacks >= len(timeouts) and len(timeouts) <= 21
-    assert all(0 < timeout <= 2000 for timeout in timeouts)
+    assert conn.rollbacks >= len(timeouts) and len(timeouts) <= 42
+    assert all(timeout == sources.STATEMENT_TIMEOUT_MS for timeout in timeouts[::2])
+    assert all(0 < timeout <= 2000 for timeout in timeouts[1::2])
 
 
 @pytest.mark.parametrize('error', [ValueError('bad publication receipt'), TimeoutError('slow read')])
 def test_integrity_and_timeouts_are_not_retried(monkeypatch, error):
     clock, conn, calls = Clock(), Connection(), []
 
-    def fail(_, *, include_publication=False):
+    def fail(_, *, include_publication=False, before_legacy=None):
         assert include_publication is True
         calls.append(True)
         raise error
@@ -84,14 +88,26 @@ def test_integrity_and_timeouts_are_not_retried(monkeypatch, error):
     assert len(calls) == 1 and clock.now == 0 and conn.rollbacks > 0
 
 
+@pytest.mark.parametrize('error, expected', [(TimeoutError(), 'timed out'), (ValueError(), 'ValueError')])
+def test_empty_exception_from_bounded_peer_wait_stays_a_scoped_read_error(monkeypatch, error, expected):
+    conn = Connection()
+    def fail(_):
+        raise error
+    monkeypatch.setattr(sources, '_set_statement_timeout', lambda *_: None)
+    value, detail = sources._read(conn, fail, sources.STATEMENT_TIMEOUT_MS)
+    assert value is None and detail == expected and conn.rollbacks == 1
+
+
 @pytest.mark.parametrize('persistent', [False, True])
 def test_full_feed_projection_recovers_or_stays_red_without_erasing_ingest(monkeypatch, persistent):
     conn, clock, calls = Connection(), Clock(), []
     now = datetime(2026, 10, 23, 14, tzinfo=timezone.utc)
     snapshot = SimpleNamespace(ready=True, checks_passed=7, checks_total=7, computed_at=now)
 
-    def attempt(_, *, include_publication=False):
+    def attempt(_, *, include_publication=False, before_legacy=None):
         assert include_publication is True
+        if before_legacy is not None:
+            before_legacy()
         calls.append(True)
         if persistent or len(calls) == 1:
             raise CorpusLockUnavailable('snapshot reader cannot pin during publication or retirement')
@@ -127,7 +143,8 @@ def _mutate(monkeypatch, before, after):
 
 
 def test_removing_deadline_breaks_its_falsifier(monkeypatch):
-    _mutate(monkeypatch, 'if remaining <= 0:', 'if False:')
+    _mutate(monkeypatch, 'deadline = clock() + FEED_PIN_RETRY_SECONDS',
+            'deadline = clock() + FEED_PIN_RETRY_SECONDS * 2')
     with pytest.raises(AssertionError):
         test_persistent_lock_expires_at_original_deadline(monkeypatch)
 

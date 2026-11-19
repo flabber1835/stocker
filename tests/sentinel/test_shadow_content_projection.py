@@ -136,18 +136,49 @@ def test_fee_wait_withdraws_only_adoption_and_retains_authenticated_shadow(conn,
     wait = SimpleNamespace(decision_session=NOW.date(),valid_until=NOW+timedelta(seconds=90),
         certificate_sha256=('c'*64 if defect == 'wrong_certificate' else successor))
     monkeypatch.setattr(activation_fee_wait,'read_owned',lambda *_a,**_k: None if defect == 'no_wait' else wait)
-    result, _, _, errors = projection.read(conn.info.dsn,only_scope='SHADOW',now=NOW+timedelta(seconds=30))
+    instant = NOW+timedelta(seconds=30)
+    result, _, _, errors, scoped = projection.read(conn.info.dsn,only_scope='SHADOW',now=instant,with_error_scopes=True)
     rows = {row.key: row for row in result}
+    signed, _, _, _ = projection.decode(value,signature,current_subject=key,scope='SHADOW',now=instant)
+    assert all(rows[row.key] == row for row in signed if row.key != 'exposure')
     assert rows['exposure'].status == model.UNKNOWN
     if defect is None:
         assert not errors
         assert rows['exposure'].valid_until == wait.valid_until
         assert rows['exposure'].operational_fact.state == 'ROLLOUT_RENEWAL_PENDING'
-        assert all(rows[k].status == model.OK and rows[k].as_of == NOW
-                   for k in projection.SHADOW_KEYS - {'exposure'})
     else:
-        assert errors and rows['shadow_verification'].status == model.UNKNOWN
+        assert errors == scoped['SHADOW'] == ['current plan adoption: current plan and rollout authority disagree']
+        assert rows['exposure'].value == 'CURRENT PLAN NOT ADOPTED'
+        assert rows['exposure'].effective_status(instant) == model.UNKNOWN
+        assert rows['exposure'].valid_until == expiry
         assert rows['exposure'].operational_fact is None
+    if defect == 'no_wait':
+        plan.update(rollout_version=3,rollout_certificate_sha256=successor,created_at=instant,unpriced_securities=[])
+        adopted, _, _, errors = projection.read(conn.info.dsn,only_scope='SHADOW',now=instant+timedelta(seconds=1))
+        assert not errors
+        exposure = next(row for row in adopted if row.key == 'exposure')
+        assert exposure.operational_fact.state == 'ADOPTED' and exposure.valid_until == expiry
+
+
+@pytest.mark.parametrize('defect', ['signature','old_subject','expiry','book_basis'])
+def test_rollout_mismatch_cannot_rescue_an_unproved_shadow_receipt(conn, monkeypatch, defect):
+    install_projection(conn)
+    key = projection.subject(conn, conn.info.dsn, 'SHADOW')
+    if defect == 'old_subject':
+        key = '0'*64
+    rows = proof_rows()
+    if defect == 'book_basis':
+        rows = [replace(row, shadow_projection=None) if row.key=='book' else row for row in rows]
+    value, signature = projection.make('SHADOW',key,rows,[],observed_at=NOW)
+    expiry = NOW+timedelta(seconds=600)
+    conn.execute('INSERT INTO sentinel_operational_verification_receipts VALUES (%s,%s,%s,%s,%s,%s)',
+        ('SHADOW',key,NOW,expiry,Jsonb(value),'0'*64 if defect=='signature' else signature))
+    conn.commit()
+    monkeypatch.setattr(sources, '_current_plan', lambda _:pytest.fail('unproved receipt consulted current plan'))
+    instant = expiry+timedelta(microseconds=1) if defect=='expiry' else NOW
+    result, _, _, errors = projection.read(conn.info.dsn,only_scope='SHADOW',now=instant)
+    assert errors and all(row.status != model.OK for row in result)
+    assert all(row.operational_fact is None for row in result)
 
 
 def test_wrong_fee_certificate_falsifies_removed_binding_guard(conn, monkeypatch):

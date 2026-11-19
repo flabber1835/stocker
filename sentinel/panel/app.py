@@ -27,7 +27,7 @@ from functools import wraps
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 from sentinel import install_progress, shadow_segments
@@ -36,10 +36,11 @@ from sentinel.operational_status import color
 from sentinel.panel import delivery, last_known, model, singleflight
 from sentinel.panel import operational_snapshot, projection_service
 from sentinel.panel.review import recorder
+from sentinel.panel import review_controls, review_store
 from sentinel.panel.review_store import ReviewRefused
 from sentinel.panel.pwa import LAUNCH_HTML, MANIFEST, SERVICE_WORKER
 from sentinel.panel.presentation import dashboard_health
-from sentinel.panel.render import REFRESH_SECONDS, STATIC_ASSETS, deployment_progress_html, render
+from sentinel.panel.render import REFRESH_SECONDS, STATIC_ASSETS, STYLE_ASSET, deployment_progress_html, render
 from sentinel.panel.push_enrollment import router as push_enrollment_router
 from sentinel.panel.segment_disclosure import disclose as _shadow_segment_disclosure
 from sentinel.panel.serialization import public_payload
@@ -271,6 +272,31 @@ def panel_json(request: Request = None) -> Response:
         headers={"Cache-Control": "no-store", **_progress_headers(install_progress.current()),
                  'X-Sentinel-Panel-Status': 'CURRENT' if delivery.display_current(p) else 'PARTIAL'},
     ))
+
+
+@app.get('/review/history', response_class=HTMLResponse)
+def review_history(scope: str = Query(pattern=r'^[a-f0-9]{64}$', max_length=64),
+                   head: int = Query(ge=1, le=2**63-1),
+                   reviewed_head: int = Query(ge=0, le=2**63-1),
+                   first: int = Query(ge=1, le=2**63-1)) -> HTMLResponse:
+    from psycopg import Error as DatabaseError
+    from sentinel.operational_catalog import OperationalCatalogRefused
+    configuration = _config()
+    try:
+        if not configuration[1]:
+            raise OperationalCatalogRefused('dashboard database unavailable')
+        events = review_store.outstanding_page(configuration[1], scope, head=head,
+                                               reviewed_head=reviewed_head, first=first)
+        if configuration != _config():
+            raise ReviewRefused('dashboard configuration changed during review')
+    except ReviewRefused:
+        message = 'The review changed or could not be verified. Reopen Health history from the dashboard.'
+        return HTMLResponse(review_controls.history_document('<p>'+message+'</p>', STYLE_ASSET), status_code=409)
+    except (DatabaseError, OperationalCatalogRefused):
+        message = 'Health history is temporarily unavailable. Reopen it from the dashboard.'
+        return HTMLResponse(review_controls.history_document('<p>'+message+'</p>', STYLE_ASSET), status_code=503)
+    return HTMLResponse(review_controls.history_page(events, scope=scope, head=head,
+                        reviewed_head=reviewed_head, first=first, stylesheet=STYLE_ASSET))
 
 
 def _acknowledge_review(token):

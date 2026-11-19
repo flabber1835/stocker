@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from psycopg.types.json import Jsonb
 
 from sentinel.panel import review_schema as schema
+from sentinel.panel.review_model import PAGE_SIZE
 
 SCHEMA = 'sentinel.operator-review-state/1'
 EVENT_SCHEMA = 'sentinel.operator-review-event/1'
@@ -63,10 +64,12 @@ def empty(now):
 
 
 @contextmanager
-def transaction(database_url):
+def transaction(database_url, *, read_only=False):
     from sentinel.feed import store
     conn = store.connect(database_url, connect_timeout=3, statement_timeout_ms=3000)
     try:
+        if read_only:
+            conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY')
         conn.execute("SET LOCAL lock_timeout='1000ms'")
         schema.require_schema(conn)
         yield conn
@@ -83,8 +86,15 @@ def load_locked(conn, key, now):
     conn.execute(f'INSERT INTO {schema.STATE}(scope_sha256,payload,signature) VALUES (%s,%s,%s) '
                  'ON CONFLICT (scope_sha256) DO NOTHING',
                  (key, Jsonb(initial), signature(dict(scope=key, state=initial), purpose=SCHEMA)))
-    payload, signed = conn.execute(f'SELECT payload,signature FROM {schema.STATE} '
-                                  'WHERE scope_sha256=%s FOR UPDATE', (key,)).fetchone()
+    return _read_state(conn, key, now, for_update=True)
+
+
+def _read_state(conn, key, now, *, for_update=False):
+    lock = ' FOR UPDATE' if for_update else ''
+    row = conn.execute(f'SELECT payload,signature FROM {schema.STATE} '
+                       'WHERE scope_sha256=%s' + lock, (key,)).fetchone()
+    require(row is not None, 'operator review state missing')
+    payload, signed = row
     require(isinstance(payload, dict) and set(payload) == FIELDS and payload['schema'] == SCHEMA,
             'operator review state malformed')
     authenticate(dict(scope=key, state=payload), signed, purpose=SCHEMA)
@@ -142,9 +152,13 @@ def save(conn, key, state, now):
                  signature(dict(scope=key, state=state), purpose=SCHEMA), now, key))
 
 
-def recent(conn, key, *, limit=20):
+def recent(conn, key, *, limit=PAGE_SIZE):
     rows = conn.execute(f'SELECT sequence,payload,signature FROM {schema.EVENTS} '
                         'WHERE scope_sha256=%s ORDER BY sequence DESC LIMIT %s', (key, limit)).fetchall()
+    return _events(key, rows)
+
+
+def _events(key, rows):
     result = []
     for sequence, value, signed in rows:
         authenticate(value, signed, purpose=EVENT_SCHEMA)
@@ -152,6 +166,25 @@ def recent(conn, key, *, limit=20):
                 'operator review event scope changed')
         result.append(dict(sequence=sequence, kind=value['kind'], at=value['at'], details=value['details']))
     return result
+
+
+def outstanding_page(database_url, key, *, head, reviewed_head, first):
+    """Authenticated keyset page from the outstanding range shown by the dashboard."""
+    require(0 <= reviewed_head < first <= head and (head-first) % PAGE_SIZE == 0,
+            'invalid operator review page')
+    with transaction(database_url, read_only=True) as conn:
+        require(scope(conn) == key, 'operator review scope changed')
+        state = _read_state(conn, key, database_now(conn))
+        require((state['head'], state['reviewed_head']) == (head, reviewed_head),
+                'operator review head changed')
+        last = max(reviewed_head + 1, first - PAGE_SIZE + 1)
+        rows = conn.execute(f'SELECT sequence,payload,signature FROM {schema.EVENTS} '
+                            'WHERE scope_sha256=%s AND sequence BETWEEN %s AND %s '
+                            'ORDER BY sequence DESC LIMIT %s',
+                            (key, last, first, PAGE_SIZE)).fetchall()
+        require([row[0] for row in rows] == list(range(first, last-1, -1)),
+                'operator review history incomplete')
+        return _events(key, rows)
 
 
 def database_now(conn):

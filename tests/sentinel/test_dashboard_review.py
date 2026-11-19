@@ -4,10 +4,13 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import inspect
 import json
+import re
 import textwrap
 import uuid
+from html import unescape
 
 import psycopg
+from fastapi.testclient import TestClient
 from psycopg import sql
 import pytest
 
@@ -77,6 +80,84 @@ def test_planned_restart_is_amber_until_explicit_acknowledgement(conn):
     assert owner.observe(panel(),conn.info.dsn).status == 'CLEAN'
     successor = review.Recorder().observe(panel(),conn.info.dsn)
     assert successor.status == 'REVIEW' and successor.token
+
+
+def test_dashboard_links_to_all_outstanding_signed_entries_and_refuses_stale_pages(conn, monkeypatch):
+    from sentinel.panel import app as dashboard
+    owner = review.Recorder()
+    baseline = clean(owner, conn)
+    now = store.database_now(conn)
+    state = store.load_locked(conn, baseline.scope, now)
+    for index in range(41):
+        store.append(conn, baseline.scope, state, kind='REVIEW', event_key=f'trace:{index}',
+                     details={'reason': f'Incident #{index:02}', 'code': '<private-test>'}, now=now)
+    store.save(conn, baseline.scope, state, now)
+    conn.commit()
+    current = panel()
+    value = owner.observe(current, conn.info.dsn)
+    assert len(value.events) == 20 and value.head == baseline.head + 41
+    monkeypatch.setattr(dashboard, '_config', lambda: (None, conn.info.dsn))
+    monkeypatch.setattr(dashboard, '_read_panel', lambda: replace(current, operator_review=value))
+    client = TestClient(dashboard.app)
+
+    def follow(page, label):
+        link = re.search(r'<a[^>]*href="([^"]+)"[^>]*>'+re.escape(label), page.text)
+        assert link is not None, label
+        return client.get(unescape(link[1]))
+
+    document = client.get('/?document=1')
+    assert '41 unreviewed entries' in document.text and 'Incident #00' not in document.text
+    first = follow(document, 'Review all 41 entries')
+    second = follow(first, 'Older entries')
+    last = follow(second, 'Older entries')
+    for result, start, end in ((first, 1, 20), (second, 21, 40), (last, 41, 41)):
+        assert result.status_code == 200 and result.headers['cache-control'] == 'no-store'
+        assert f'Showing {start}–{end} of 41 unreviewed entries' in result.text
+        assert result.text.count('<li>') == end-start+1
+        assert '<private-test>' not in result.text and '&lt;private-test&gt;' in result.text
+        assert value.token not in result.text and 'review-acknowledge' not in result.text
+    assert 'Incident #00' in last.text and 'Older entries' not in last.text
+    assert follow(last, 'Newer entries').text == second.text
+    assert follow(second, 'Newer entries').text == first.text
+    assert owner.observe(current, conn.info.dsn).reviewed_head == baseline.head
+    review.Recorder().observe(current, conn.info.dsn)
+    stale = client.get(last.request.url)
+    assert stale.status_code == 409 and 'Reopen Health history' in stale.text
+    with pytest.raises(store.ReviewRefused):
+        owner.acknowledge(current, conn.info.dsn, value.token, actor='operator')
+
+
+def test_history_page_refuses_invalid_range_foreign_scope_and_tampered_old_event(conn):
+    owner = review.Recorder()
+    value = owner.observe(panel(), conn.info.dsn)
+    args = dict(head=value.head, reviewed_head=0, first=value.head)
+    with pytest.raises(store.ReviewRefused, match='scope'):
+        store.outstanding_page(conn.info.dsn, '0'*64, **args)
+    with pytest.raises(store.ReviewRefused, match='page'):
+        store.outstanding_page(conn.info.dsn, value.scope, **{**args, 'first': 0})
+    with pytest.raises(store.ReviewRefused, match='head changed'):
+        store.outstanding_page(conn.info.dsn, value.scope, **{**args, 'head': 21, 'first': 21})
+    # Keep the head authentic while corrupting an earlier event on this private database.
+    newer = review.Recorder().observe(panel(), conn.info.dsn)
+    conn.execute(f'ALTER TABLE {review_schema.EVENTS} DISABLE TRIGGER USER')
+    conn.execute(f'UPDATE {review_schema.EVENTS} SET signature=%s WHERE sequence=%s',
+                 ('0'*64, value.head))
+    conn.execute(f'ALTER TABLE {review_schema.EVENTS} ENABLE TRIGGER USER')
+    conn.commit()
+    with pytest.raises(store.ReviewRefused, match='authentication failed'):
+        store.outstanding_page(conn.info.dsn, value.scope, head=newer.head, reviewed_head=0,
+                               first=newer.head)
+
+
+def test_removing_history_head_guard_fails_stale_navigation_regression(conn, monkeypatch):
+    source = inspect.getsource(store.outstanding_page)
+    guard = "(state['head'], state['reviewed_head']) == (head, reviewed_head)"
+    assert source.count(guard) == 1
+    namespace = dict(vars(store))
+    exec(compile(source.replace(guard, 'True'), '<removed history head guard>', 'exec'), namespace)
+    monkeypatch.setattr(store, 'outstanding_page', namespace['outstanding_page'])
+    with pytest.raises(AssertionError):
+        test_dashboard_links_to_all_outstanding_signed_entries_and_refuses_stale_pages(conn, monkeypatch)
 
 
 def test_active_failure_stays_red_and_recovery_stays_amber(conn):

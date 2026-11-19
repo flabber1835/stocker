@@ -64,6 +64,25 @@ async function fixture(request,{workerOnly=false,legacyWorker=false,partial=fals
 
 test.describe('First document before current evidence',()=>{
   test.use({serviceWorkers:'block'});
+  test('a visible cold launch recovers from a lost first status request',async({page,request})=>{
+    const f=await fixture(request);
+    let interrupted=false;
+    try {
+      await page.route(f.url,async route=>{
+        if (!interrupted && !route.request().isNavigationRequest()) {
+          interrupted=true;
+          return route.abort('connectionreset');
+        }
+        return route.continue();
+      });
+      await page.goto(f.url,{waitUntil:'domcontentloaded'});
+      await expect(page.locator('#launch-status')).toContainText('CONNECTION DELAYED');
+      expect(interrupted).toBe(true);
+      await expect(page.locator('#operational-state')).toHaveCount(0);
+      f.release();
+      await expect(page.locator('#operational-state')).toBeVisible({timeout:12000});
+    } finally {await page.goto('about:blank');await f.close();}
+  });
   test('a fresh partial response installs with explicit non-current observation metadata',async({page,request})=>{
     const f=await fixture(request,{partial:true});
     try {

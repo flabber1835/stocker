@@ -112,6 +112,16 @@ Reviewing a state never rewrites a trial verdict. Ordinary alert delivery and
 historical acknowledgement remain separate facts; explicitly reviewed legacy
 notifications may be acknowledged through their existing metadata contract.
 
+Decision 2026-11-19. The acknowledgment covers every event after the previous
+acknowledgment through the signed head. Health history displays that total.
+When the outstanding range exceeds the twenty entries in the dashboard, offer
+a read-only history view in a separate tab so readers can return to the dashboard.
+Page by sequence in batches of twenty under the original account scope, reviewed
+baseline and head. Each page authenticates the state and events in one database
+snapshot. A changed head or baseline asks the operator to reopen the view from
+the dashboard. Reading history has no acknowledgment side effects. The existing
+exact-view POST remains the sole action that advances the baseline.
+
 The additive presentation schema is optional for financial runtime admission and
 mandatory for a green dashboard. It has an exact catalog witness, append-only
 history guards and an explicit fenced installer; HTTP startup/reads never CREATE
@@ -391,8 +401,9 @@ navigations. Keep the manifest ID/start URL, all other routes and push behavior.
 The launch document fetches the existing root HTML as a non-navigation request,
 then installs it only after the same complete-document, original-clock and
 finite-age checks used by ordinary refresh. Share that parser with refresh.
-There is one request in flight and a finite abort bound; offline/failure stays
-neutral with an explicit retry. Hidden/late responses cannot install current
+There is one request in flight and a finite abort bound. Online launch failures
+remain neutral and retry automatically with bounded backoff. Reconnection and
+manual retry start a fresh attempt. Hidden/late responses cannot install current
 authority. Neither the worker nor the launch document stores HTML, review tokens,
 financial values or successful health in Cache Storage/local storage. The static
 launch response is CONNECTING, not CURRENT; offline launch can return that static

@@ -1,6 +1,9 @@
 """Display integrity reuse has an exact subject, a fixed age and no verdict."""
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 import inspect
+from threading import Event
 from types import SimpleNamespace
 
 import pytest
@@ -28,6 +31,9 @@ class Connection:
         self.reads+=1
         return SimpleNamespace(fetchone=lambda:self.row)
 
+    def transaction(self):
+        return nullcontext()
+
 
 def setup(monkeypatch):
     clocks=[0.0,0.0]
@@ -47,7 +53,7 @@ def test_hits_skip_actual_hashes_without_renewing_original_proof(monkeypatch):
     conn,clocks,calls=setup(monkeypatch)
     display._verify_evidence(conn,'a'*64,context=frame(conn))
     proof=next(iter(display._BYTE_PROOFS.values()))
-    clocks[:]=[599,599]
+    clocks[:]=[539,539]
     display._verify_evidence(conn,'a'*64,context=frame(conn))
     assert calls==['a'*64] and conn.reads==2
     assert next(iter(display._BYTE_PROOFS.values())) is proof
@@ -67,7 +73,7 @@ def test_subject_query_cannot_carry_a_proof_past_its_expiry(monkeypatch):
     conn,clocks,calls=setup(monkeypatch)
     display._verify_evidence(conn,'a'*64,context=frame(conn))
     original=conn.execute
-    clocks[:]=[599,599]
+    clocks[:]=[539,539]
     def slow(*args):
         clocks[:]=[601,601]
         return original(*args)
@@ -118,6 +124,86 @@ def test_failed_hash_is_never_cached(monkeypatch):
         with pytest.raises(rolling_store.SnapshotStorageRefused):
             display._verify_evidence(conn,'a'*64,context=frame(conn))
     assert len(calls)==2 and not display._BYTE_PROOFS
+
+
+def test_single_renewal_serves_current_peers_and_expired_peers_wait(monkeypatch):
+    _, clocks, calls = setup(monkeypatch)
+    key = 'a' * 64
+    def read():
+        conn = Connection()
+        display._verify_evidence(conn, key, context=frame(conn))
+    read()
+    original = next(iter(display._BYTE_PROOFS.values()))
+    clocks[:] = [545, 545]
+    entered, release, joined = Event(), Event(), Event()
+    def slow(_, identity):
+        calls.append(identity)
+        entered.set()
+        assert release.wait(5)
+    class ObservedFuture(display.Future):
+        def result(self, timeout=None):
+            assert timeout == 8
+            joined.set()
+            return super().result(timeout)
+    monkeypatch.setattr(rolling_store, 'verify_evidence', slow)
+    monkeypatch.setattr(display, 'Future', ObservedFuture)
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        owner = workers.submit(read)
+        try:
+            assert entered.wait(5)
+            read()
+            assert not joined.is_set() and next(iter(display._BYTE_PROOFS.values())) is original
+            clocks[:] = [600, 600]
+            peer = workers.submit(read)
+            assert joined.wait(5) and not peer.done()
+        finally:
+            release.set()
+        owner.result(timeout=5)
+        peer.result(timeout=5)
+    renewed = next(iter(display._BYTE_PROOFS.values()))
+    assert renewed.started == 545 and renewed.deadline == 1145
+    assert calls == [key, key] and not display._VERIFYING
+
+
+@pytest.mark.parametrize('outcome', ['current', 'expired', 'corrupt'])
+def test_early_renewal_failure_obeys_exact_original_expiry(monkeypatch, outcome):
+    conn, clocks, _ = setup(monkeypatch)
+    key = 'a' * 64
+    display._verify_evidence(conn, key, context=frame(conn))
+    original = next(iter(display._BYTE_PROOFS.values()))
+    clocks[:] = [550, 550]
+    def fail(*args):
+        if outcome == 'expired':
+            clocks[:] = [600, 600]
+        if outcome == 'corrupt':
+            raise rolling_store.SnapshotStorageRefused('corrupt')
+        raise display.QueryCanceled('statement timeout')
+    monkeypatch.setattr(rolling_store, 'verify_evidence', fail)
+    if outcome == 'current':
+        display._verify_evidence(conn, key, context=frame(conn))
+        assert next(iter(display._BYTE_PROOFS.values())) is original
+    else:
+        error = display.QueryCanceled if outcome == 'expired' else rolling_store.SnapshotStorageRefused
+        with pytest.raises(error):
+            display._verify_evidence(conn, key, context=frame(conn))
+        assert not display._BYTE_PROOFS
+    assert not display._VERIFYING
+
+
+def test_slow_first_measurement_cannot_return_expired_success(monkeypatch):
+    conn, clocks, _ = setup(monkeypatch)
+    def slow(*args):
+        clocks[:] = [601, 601]
+    monkeypatch.setattr(rolling_store, 'verify_evidence', slow)
+    with pytest.raises(TimeoutError, match='validity'):
+        display._verify_evidence(conn, 'a' * 64, context=frame(conn))
+    assert not display._BYTE_PROOFS and not display._VERIFYING
+
+
+def test_removing_early_renewal_misses_newly_detectable_corruption(monkeypatch):
+    monkeypatch.setattr(display, '_RENEW_SECONDS', 0)
+    with pytest.raises(pytest.fail.Exception):
+        test_early_renewal_failure_obeys_exact_original_expiry(monkeypatch, 'corrupt')
 
 
 def test_memory_is_bounded_and_eviction_requires_fresh_work(monkeypatch):
@@ -254,8 +340,8 @@ def test_removed_witness_requirement_has_an_executed_falsifier(monkeypatch):
 
 
 def test_pre_query_clock_cannot_substitute_for_current_expiry_check(monkeypatch):
-    _mutate_verification(monkeypatch,'if proof is not None and proof.current(_now(), time.monotonic()):',
-        'if proof is not None and proof.current(instant, started):')
+    _mutate_verification(monkeypatch, 'instant, clock = _now(), time.monotonic()',
+        'instant, clock = observed_at, started')
     with pytest.raises(AssertionError):test_subject_query_cannot_carry_a_proof_past_its_expiry(monkeypatch)
 
 
@@ -271,7 +357,7 @@ def test_removed_frame_owner_guard_has_an_executed_falsifier(monkeypatch):
 
 
 def test_removed_full_authentication_has_an_executed_falsifier(monkeypatch):
-    _mutate_verification(monkeypatch,'_authenticate_byte_context(conn, context)','None')
+    monkeypatch.setattr(display,'_authenticate_byte_context',lambda *args:None)
     with pytest.raises(pytest.fail.Exception):
         test_malformed_independent_context_refuses_instead_of_granting_reuse(monkeypatch)
 

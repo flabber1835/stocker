@@ -12,6 +12,14 @@ Both surfaces show the owner's current progress when available. The optional
 `X-Sentinel-Deployment-Progress` header carries the same URI-encoded phase on
 HTML and `/panel.json` responses, including a signed-status retry.
 
+A foreground launch recovers automatically from a connection reset, a request
+timeout, or an unavailable dashboard. It retries after five seconds and backs
+off to a maximum of thirty seconds between attempts. A same-origin 503 with
+deployment progress keeps the five-second cadence and names the phase. Going
+offline or hiding the page cancels the retry. Returning online, returning to
+the foreground, or pressing Retry starts a fresh attempt immediately. Only a
+validated, unexpired same-origin document can replace the launch screen.
+
 A ready feed from the preceding close cannot establish that new closing work
 is underway after the closing plan is scheduled. A verified local PAPER
 configuration with an empty reviewed deployment mode reports that financial

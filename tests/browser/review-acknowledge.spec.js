@@ -5,6 +5,44 @@ const {panelAssets}=require('./panel-assets.cjs');
 
 test.use({serviceWorkers:'block'});
 
+test('keyboard review of older entries leaves the dashboard and its baseline available', async({page,context,request})=>{
+  const documents=JSON.parse(fs.readFileSync(process.env.SENTINEL_DOM_FIXTURE,'utf8')).history_documents;
+  const assets=await panelAssets(request,documents.dashboard,documents.first);
+  const writes=[];
+  await page.clock.install({time:new Date(documents.dashboard.match(/data-generated-at="([^"]+)"/)[1])});
+  await context.route('**/*', async route=>{
+    const req=route.request();
+    const url=new URL(req.url());
+    if(req.method()!=='GET')writes.push(req.method());
+    if(assets.has(url.pathname))return route.fulfill({status:200,...assets.get(url.pathname)});
+    if(url.pathname==='/')return route.fulfill({contentType:'text/html',body:documents.dashboard});
+    if(url.pathname==='/review/history' && url.searchParams.get('head')==='22'
+        && url.searchParams.get('reviewed_head')==='1' && url.searchParams.get('scope')==='a'.repeat(64)){
+      const body={22:documents.first,2:documents.last}[url.searchParams.get('first')];
+      if(body)return route.fulfill({contentType:'text/html',body});
+    }
+    return route.fulfill({status:404,body:''});
+  });
+  await page.goto('http://127.0.0.1:18947/');
+  await page.locator('#system-details > summary').click();
+  const all=page.getByRole('link',{name:/Review all 21 entries/});
+  await all.focus();
+  const newTab=page.waitForEvent('popup');
+  await page.keyboard.press('Enter');
+  const history=await newTab;
+  await expect(history.getByRole('heading',{name:'Health history'})).toBeVisible();
+  await expect(history.locator('li')).toHaveCount(20);
+  await history.getByRole('link',{name:'Older entries'}).click();
+  await expect(history.locator('li')).toHaveCount(1);
+  await expect(history.locator('li')).toContainText('Opening verifier failure');
+  await expect(history.getByRole('link',{name:'Older entries'})).toHaveCount(0);
+  await history.getByRole('link',{name:'Newer entries'}).click();
+  await expect(history.locator('li')).toHaveCount(20);
+  await history.close();
+  await expect(page.locator('#review-acknowledge')).toBeEnabled();
+  expect(writes).toEqual([]);
+});
+
 for(const outcome of ['accepted','refused']) {
   test(`review action introduced by refresh is keyboard accessible and ${outcome}`,async({page,request})=>{
     const documents=JSON.parse(fs.readFileSync(process.env.SENTINEL_DOM_FIXTURE,'utf8')).review_documents;
