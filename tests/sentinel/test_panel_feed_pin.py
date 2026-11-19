@@ -88,8 +88,11 @@ def test_integrity_and_timeouts_are_not_retried(monkeypatch, error):
     assert len(calls) == 1 and clock.now == 0 and conn.rollbacks > 0
 
 
-@pytest.mark.parametrize('error, expected', [(TimeoutError(), 'timed out'), (ValueError(), 'ValueError')])
-def test_empty_exception_from_bounded_peer_wait_stays_a_scoped_read_error(monkeypatch, error, expected):
+@pytest.mark.parametrize('error, expected', [
+    (TimeoutError(), 'timed out'), (ValueError(), 'ValueError'),
+    (ValueError('first line\r\nsecond line'), 'ValueError: first line'),
+])
+def test_bounded_read_exceptions_keep_their_scope(monkeypatch, error, expected):
     conn = Connection()
     def fail(_):
         raise error

@@ -240,8 +240,8 @@ def _short(exc: Exception) -> str:
     name = type(exc).__name__
     if isinstance(exc, TimeoutError) or "timeout" in str(exc).lower() or "Cancel" in name:
         return "timed out"
-    reason = str(exc).strip().partition("\n")[0][:120]
-    return f"{name}: {reason}" if reason else name
+    lines = str(exc).strip().splitlines()
+    return f"{name}: {lines[0][:120]}" if lines else name
 
 
 def _json_mapping(value, *, label: str) -> dict:
