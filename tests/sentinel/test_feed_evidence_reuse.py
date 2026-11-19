@@ -165,6 +165,33 @@ def test_single_renewal_serves_current_peers_and_expired_peers_wait(monkeypatch)
     assert calls == [key, key] and not display._VERIFYING
 
 
+def test_cold_peer_timeout_does_not_start_another_hash_or_cancel_owner(monkeypatch):
+    from sentinel.panel import sources
+    _, _, calls = setup(monkeypatch)
+    entered, release = Event(), Event()
+    def slow(_, key):
+        calls.append(key)
+        entered.set()
+        assert release.wait(5)
+    monkeypatch.setattr(rolling_store, 'verify_evidence', slow)
+    monkeypatch.setattr(sources, 'STATEMENT_TIMEOUT_MS', 25)
+    def read():
+        conn = Connection()
+        display._verify_evidence(conn, 'a' * 64, context=frame(conn))
+    with ThreadPoolExecutor(max_workers=1) as worker:
+        owner = worker.submit(read)
+        try:
+            assert entered.wait(5)
+            with pytest.raises(TimeoutError):
+                read()
+            assert not display._BYTE_PROOFS and len(display._VERIFYING) == 1
+        finally:
+            release.set()
+        owner.result(timeout=5)
+    read()
+    assert calls == ['a' * 64] and not display._VERIFYING
+
+
 @pytest.mark.parametrize('outcome', ['current', 'expired', 'corrupt'])
 def test_early_renewal_failure_obeys_exact_original_expiry(monkeypatch, outcome):
     conn, clocks, _ = setup(monkeypatch)
