@@ -197,7 +197,7 @@ def test_guard_falsifier_detects_a_book_bypassing_its_authentication_gate():
 def preparing_panel(*, now=NOW, state='ACQUIRING', **changes):
     values = dict(job_id='owned-next-close', decision_session=date(2026,10,22),
         effective_session=date(2026,10,23), state=state, rows_done=1720712,
-        components_done=31, created_at=now-timedelta(minutes=20), updated_at=now,
+        components_done=31, source_rows_done=1720712, created_at=now-timedelta(minutes=20), updated_at=now,
         last_progress_at=now-timedelta(minutes=2), observed_at=now,
         deadline=now+timedelta(hours=1), lease_until=now+timedelta(seconds=35),
         owner_registered=True, fence=4)
@@ -215,9 +215,28 @@ def _headline(panel, **options):
     return render(panel, **options).split('id="operational-state"',1)[1].split('</span>',1)[0]
 
 
+def test_final_price_checkpoint_survives_stalled_build_and_ready_phase_reset():
+    from sentinel.panel.presentation import preparation_stage
+    active = preparing_panel(final_price_batch_recorded=True,
+        updated_at=NOW-timedelta(minutes=4), last_progress_at=NOW-timedelta(minutes=4))
+    assert preparation_stage(active) == 'Preparing closing snapshot · final price batch recorded'
+    assert preparation_stage(active) in overview.overview_html(active)
+    assert 'Downloading' not in overview.overview_html(active)
+    for changes in ({'owner_registered':False}, {'fence':0}, {'lease_until':NOW},
+                    {'state':'RETRY_WAIT'}):
+        parked = preparing_panel(final_price_batch_recorded=True, **changes)
+        assert 'final price batch recorded' not in (preparation_stage(parked) or '')
+    ready = preparing_panel(state='READY', rows_done=0, final_price_batch_recorded=True)
+    rendered = overview.overview_html(ready)
+    assert 'Candidate sealed · preparing publication' in rendered
+    assert '1,720,712 source records checkpointed' in rendered and '0 rows' not in rendered
+    old_ready = preparing_panel(state='READY',rows_done=0,source_rows_done=None)
+    assert 'source records checkpointed' not in overview.overview_html(old_ready)
+
+
 @pytest.mark.parametrize('state,stage',[
-    ('ACQUIRING','Downloading closing data'), ('STAGING','Preparing downloaded data'),
-    ('VALIDATING','Validating market data'), ('READY','Waiting to publish validated data')])
+    ('ACQUIRING','Preparing closing snapshot'), ('STAGING','Preparing downloaded data'),
+    ('VALIDATING','Validating market data'), ('READY','Candidate sealed · preparing publication')])
 def test_owned_preparation_is_healthy_without_claiming_a_saved_plan(state,stage):
     from sentinel.panel.presentation import dashboard_health
     panel = preparing_panel(state=state)
@@ -231,7 +250,7 @@ def test_owned_preparation_is_healthy_without_claiming_a_saved_plan(state,stage)
     html = overview.overview_html(panel)
     assert stage in html and 'Plan not ready yet' in html
     assert 'Friday, Oct 23' in html and 'Closing session: 2026-10-22' in html
-    assert 'Current-stage rows recorded: 1,720,712. Source components completed: 31.' in html
+    assert '1,720,712 source records checkpointed · 31 source components recorded' in html
     assert 'Oct 22, 2026 · 9:11 PM Pacific' in html  # Original progress, not render time.
     assert '%' not in html and 'ETA' not in html and 'Ready to trade' not in html
     assert panel == before
@@ -245,7 +264,7 @@ def test_unowned_expired_or_parked_preparation_stays_amber_without_active_copy(c
     panel = preparing_panel(**changes)
     health = dashboard_health(panel)
     assert health['status'] == 'warn' and health['label'].startswith('Preparation delayed')
-    assert 'Downloading closing data' not in overview.overview_html(panel)
+    assert 'Preparing closing snapshot' not in overview.overview_html(panel)
     assert 'Healthy' not in _headline(panel)
 
 
@@ -254,12 +273,14 @@ def test_waiting_retry_and_published_work_keep_recorded_stage_without_inventing_
     retry = preparing_panel(state='RETRY_WAIT',next_retry=NOW+timedelta(minutes=5))
     html = overview.overview_html(retry)
     assert 'Waiting to retry data acquisition' in html and 'Recorded retry:' in html
-    assert 'Downloading closing data' not in html
-    published = preparing_panel(state='PUBLISHED',owner_registered=False,lease_until=None)
+    assert 'Preparing closing snapshot' not in html
+    published = preparing_panel(state='PUBLISHED',rows_done=0,owner_registered=False,lease_until=None)
     row = published.rows[0]
     published = replace(published,rows=[replace(row,status=model.OK,recovery=None)])
     assert dashboard_health(published)['label'] == 'Healthy · Market data published · plan preparation pending'
-    assert 'Calculating' not in overview.overview_html(published)
+    html = overview.overview_html(published)
+    assert '1,720,712 source records checkpointed' in html and '0 rows' not in html
+    assert 'Calculating' not in html
 
 
 def test_published_work_does_not_call_an_admitted_saved_plan_pending():
@@ -346,7 +367,7 @@ def test_atomic_publication_proof_wins_over_the_committed_jobs_old_lease():
     assert health['label'] == 'Healthy · Publishing closing data'
     assert health['valid_until'] == (NOW+timedelta(seconds=45)).isoformat()
     assert 'Publishing closing data' in overview.overview_html(panel)
-    assert 'Downloading closing data' not in _headline(panel)
+    assert 'Preparing closing snapshot' not in _headline(panel)
 
 
 @pytest.mark.parametrize('negative',[
@@ -413,7 +434,7 @@ def test_composed_closing_run_has_healthy_acquisition_without_claiming_financial
           for key in ('prepare','open','transport','reconcile','complete')]]
     panel = replace(panel,rows=rows)
     assert panel.overall == panel.operational == model.WARN
-    assert dashboard_health(panel)['label'] == 'Healthy · Downloading closing data'
+    assert dashboard_health(panel)['label'] == 'Healthy · Preparing closing snapshot'
     assert dashboard_health(panel)['plan_readiness'] == 'pending'
     assert 'Plan not ready yet' in overview.overview_html(panel)
     failure = model.Row('automation_alerts','Alerts','CURRENT INCIDENT',model.FAIL)
@@ -465,7 +486,7 @@ def test_source_errors_and_original_progress_expiry_withdraw_healthy_copy():
     expired = replace(panel,now=NOW+timedelta(seconds=46))
     assert dashboard_health(expired)['status'] != 'ok'
     assert 'preparation-title' not in overview.overview_html(expired)
-    assert 'Downloading closing data' not in overview.overview_html(expired)
+    assert 'Preparing closing snapshot' not in overview.overview_html(expired)
     assert 'Next trading plan pending.' in overview.overview_html(expired)
 
 
@@ -492,7 +513,7 @@ def test_preparation_copy_escapes_data_and_retained_views_withdraw_current_claim
     assert_initial_cadence(html, 6000)
     retained = render(panel,refresh_pending=True)
     assert 'class="state ok"' not in retained.split('</header>',1)[0]
-    assert 'Last known · Downloading closing data' in retained
+    assert 'Last known · Preparing closing snapshot' in retained
     assert 'id="plan-readiness"' not in retained
     attack = '<script>alert("x")</script>'
     monkeypatch.setattr(overview,'preparation_stage',lambda _:attack)
@@ -514,7 +535,7 @@ def test_acquisition_health_does_not_poll_on_an_unrelated_routine_leader_lease()
             as_of=NOW,required_current=True,valid_until=deadline,
             recovery=RecoveryEvidence(phase='SOURCE_FRONTIER',automatic=True,deadline=deadline)),
         model.Row('paper_plan','Next plan','NOT PREPARED',model.PENDING)])
-    assert dashboard_health(panel)['label'] == 'Healthy · Downloading closing data'
+    assert dashboard_health(panel)['label'] == 'Healthy · Preparing closing snapshot'
     assert dashboard_health(panel)['valid_until'] == (NOW+timedelta(seconds=35)).isoformat()
     html = render(panel)
     assert 'data-max-age-seconds="35.0"' in html

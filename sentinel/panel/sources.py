@@ -238,9 +238,10 @@ def _short(exc: Exception) -> str:
     operator seeing this at 23:00 needs to know it was slow, not which
     exception class libpq chose."""
     name = type(exc).__name__
-    if "timeout" in str(exc).lower() or "Cancel" in name:
+    if isinstance(exc, TimeoutError) or "timeout" in str(exc).lower() or "Cancel" in name:
         return "timed out"
-    return f"{name}: {str(exc).strip().splitlines()[0][:120]}"
+    lines = str(exc).strip().splitlines()
+    return f"{name}: {lines[0][:120]}" if lines else name
 
 
 def _json_mapping(value, *, label: str) -> dict:
@@ -1035,16 +1036,22 @@ def _feed_status_snapshot(conn, *, clock=time.monotonic, sleep=time.sleep):
 
     deadline = clock() + FEED_PIN_RETRY_SECONDS
     last_error = None
-    while True:
-        # The preceding acquisition-status SELECT belongs to this display
-        # connection. End it before selecting repeatable-read metadata.
-        conn.rollback()
+    def limit_legacy_pin():
         remaining = deadline - clock()
         if remaining <= 0:
             raise CorpusLockUnavailable('panel source pin retry deadline expired') from last_error
         _set_statement_timeout(conn, max(1, int(remaining * 1000)))
+
+    while True:
+        # The preceding acquisition-status SELECT belongs to this display
+        # connection. End it before selecting repeatable-read metadata.
+        conn.rollback()
+        if last_error is not None and clock() >= deadline:
+            raise last_error
+        _set_statement_timeout(conn, STATEMENT_TIMEOUT_MS)
         try:
-            return feed_display.status_snapshot(conn, include_publication=True)
+            return feed_display.status_snapshot(conn, include_publication=True,
+                                                before_legacy=limit_legacy_pin)
         except CorpusLockUnavailable as exc:
             last_error = exc
         finally:
@@ -1145,10 +1152,11 @@ def _feed_rows(database_url: str, now: Optional[datetime] = None) -> tuple[list[
             ingest = replace(ingest, value=('NO OPERATIONAL JOB YET' if not run else
                              f"OPERATIONAL SNAPSHOT · {run['current_chunk']}"),
                              detail=(run['current_chunk'] if run.get('status') == 'success'
+                                     or run.get('current_chunk') in {'READY', 'VALIDATING', 'WAIT_SOURCE', 'RETRY_WAIT'}
                                      else ingest.detail))
             if run.get('preparation') is not None:
-                ingest = replace(ingest,
-                    preparation=model.PreparationWork.model_validate(run['preparation']))
+                work = model.PreparationWork.model_validate(run['preparation'])
+                ingest = replace(ingest, preparation=work, detail=work.recorded_counts())
         rows = [
             # A frontier that TIMED OUT is not an unreadable database — the
             # connection is open and the ingest row right below was just read
@@ -2595,9 +2603,14 @@ _PREPARATION_SQL = """WITH current_publication AS (
         (b.job_id IS NOT NULL),
         EXISTS (SELECT 1 FROM sentinel_snapshot_workers w
             WHERE w.owner=j.owner AND w.job_id=j.job_id),
-        (SELECT count(*) FROM sentinel_snapshot_job_components c WHERE c.job_id=j.job_id)
+        components.count,components.source_rows,components.final_price
     FROM sentinel_snapshot_jobs j
     JOIN sentinel_operational_snapshot_jobs o USING(job_id)
+    CROSS JOIN LATERAL (
+        SELECT count(*),coalesce(sum(c.rows_done),0)::bigint AS source_rows,
+            coalesce(bool_or(left(c.component,4)='SEP.' AND
+                right(c.component,11)='.' || (j.request #>> '{window,sessions,-1}')),false) AS final_price
+        FROM sentinel_snapshot_job_components c WHERE c.job_id=j.job_id) components
     LEFT JOIN current_publication p ON TRUE
     LEFT JOIN sentinel_operational_snapshots b ON b.publication_version=p.version
         AND b.job_id=j.job_id AND b.candidate_id=j.candidate_id
@@ -2617,7 +2630,8 @@ def _preparation_work(record, *, target):
     from sentinel.feed import calendar, operational_snapshot, rolling_go_inputs, rolling_jobs
     from sentinel.feed.rolling_contract import digest
 
-    job, sampled, current_version, prior_version, published_binding, registered, components = record
+    (job, sampled, current_version, prior_version, published_binding, registered,
+     components, source_rows, final_price) = record
     def clock(value):
         if value is None:
             return None
@@ -2650,6 +2664,7 @@ def _preparation_work(record, *, target):
         decision_session=date.fromisoformat(target),
         effective_session=date.fromisoformat(calendar.next_session(target)),
         state=job['state'], rows_done=job['rows_done'], components_done=components,
+        source_rows_done=source_rows, final_price_batch_recorded=final_price,
         created_at=created, updated_at=clock(job['updated_at']),
         last_progress_at=clock(job['last_progress_at']), observed_at=sampled,
         deadline=clock(job['deadline']), lease_until=clock(job.get('lease_until')),
@@ -2668,23 +2683,27 @@ def _operational_acquisition(conn, *, now=None):
     state, reason, updated, count, version, latest_job_id = record
     if state == 'PUBLISHED' and version is None:
         raise ValueError('published acquisition lacks publication identity')
-    status = ('success' if state == 'PUBLISHED' else 'failed' if state in {
-        'REFUSED', 'ABORTED'} else 'running')
-    run = dict(kind='OPERATIONAL SNAPSHOT', status=status, updated_at=updated,
-                 rows_written=count, chunks_done=0, chunks_total=0,
-                 current_chunk=f'{state} · publication {version}' if version is not None else state,
-                 error_message=reason if status == 'failed' else None)
     from sentinel.feed import calendar
     target = calendar.latest_closed_session(now or datetime.now(timezone.utc))
     candidates = conn.execute(_PREPARATION_SQL, (target,)).fetchall()
-    if len(candidates) == 1:
+    work = None
+    if len(candidates) == 1 and state not in {'REFUSED', 'ABORTED'}:
         try:
             if str(candidates[0][0]['job_id']) == str(latest_job_id):
-                run['preparation'] = _preparation_work(candidates[0], target=target)
+                work = _preparation_work(candidates[0], target=target)
+                state, count, updated, version = (work['state'], work['rows_done'], work['updated_at'],
+                                                  candidates[0][0]['publication_version'])
         except (AttributeError, KeyError, TypeError, ValueError):
-            # Optional progress cannot hide or reinterpret the existing job
-            # status. Missing/foreign/malformed metadata simply earns no badge.
-            pass
+            work = None
+    status = ('success' if state == 'PUBLISHED' else 'failed' if state in {
+        'REFUSED', 'ABORTED'} else 'running')
+    chunk = 'PREPARATION' if state == 'ACQUIRING' else state
+    run = dict(kind='OPERATIONAL SNAPSHOT', status=status, updated_at=updated,
+               rows_written=count, chunks_done=0, chunks_total=0,
+               current_chunk=f'{chunk} · publication {version}' if version is not None else chunk,
+               error_message=reason if status == 'failed' else None)
+    if work is not None:
+        run['preparation'] = work
     return [run]
 
 

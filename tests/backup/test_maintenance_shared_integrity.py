@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import sys
 import time
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import psycopg
@@ -721,20 +722,30 @@ def test_removed_release_renewal_distinction_falsifies_measured_prefix_work(medi
         test_release_reuses_prefix_and_hashes_only_new_wal_during_renewal_headroom(media, monkeypatch)
 
 
-def test_release_joins_existing_owner_and_extends_frontier_after_session_loss(media, monkeypatch):
+@pytest.mark.parametrize('occupied_polls', [1, 3])
+def test_release_joins_existing_owner_and_extends_frontier_after_session_loss(media, monkeypatch, occupied_polls):
     first = media.prove()
     media.advance()
     waits = []
-    with psycopg.connect(media.server.sync_dsn, autocommit=True) as blocker:
+    with (psycopg.connect(media.server.sync_dsn, autocommit=True) as blocker,
+          psycopg.connect(media.server.sync_dsn, autocommit=True, options='-c lock_timeout=3000') as witness):
         blocker.execute('SELECT pg_advisory_lock(%s)', (reuse.LOCK_KEY,))
         def owner_exits(delay):
             waits.append(delay)
-            blocker.close()
-        monkeypatch.setattr(maintenance.time, 'sleep', owner_exits)
+            assert len(waits) <= occupied_polls and 0 < delay <= .1
+            assert not reads
+            assert witness.execute('SELECT pg_try_advisory_xact_lock(%s)', (reuse.LOCK_KEY,)).fetchone() == (False,)
+            if len(waits) == occupied_polls:
+                blocker.close()
+                # Client close returns before the backend necessarily releases its session lock.
+                # A successful autocommit transaction lock observes and completes that handoff.
+                witness.execute('SELECT pg_advisory_xact_lock(%s)', (reuse.LOCK_KEY,))
+        monkeypatch.setattr(maintenance, 'time', SimpleNamespace(monotonic=time.monotonic, sleep=owner_exits))
         with count_reads(monkeypatch) as reads:
             proof = media.prove(release_check=True, wait_seconds=3)
-    assert len(waits) == 1 and 0 < waits[0] <= .1
+    assert len(waits) == occupied_polls
     assert reads == [media.end, media.end]
+    assert proof['recoverable_through_wal'] == media.end
     assert proof['integrity_completed_uptime'] == first['integrity_completed_uptime']
     assert media.conn.execute('SELECT pg_advisory_unlock(%s)', (reuse.LOCK_KEY,)).fetchone() == (False,)
 

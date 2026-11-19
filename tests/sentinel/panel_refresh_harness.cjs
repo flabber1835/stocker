@@ -16,7 +16,7 @@ let currentRegions = input.case?.currentRegions === true;
 const badge = { className: input.wake.startsWith('partial-short-') ? 'state neutral' :
   ['known-failure','resume-known-failure','hidden-initial-known-failure'].includes(input.wake) || input.case?.knownNegative ? 'state fail' : 'state ok', textContent: 'current' };
 const heartbeat = { textContent: 'current' };
-const preparation = { textContent: 'Downloading closing data' };
+const preparation = { textContent: 'Preparing closing snapshot' };
 const planReadiness = { textContent: 'Next trading plan: not ready yet.' };
 const classes = new Set();
 let focusRestored = false;

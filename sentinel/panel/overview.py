@@ -212,8 +212,7 @@ def _preparation_html(panel: Panel, *, refresh_pending: bool = False) -> str:
         '<div class="plan-schedule"><strong>'+_esc(date)+'</strong>'
         '<span>Plan not ready yet</span></div>'
         '<p id="preparation-stage" class="overview-note">'+_esc(stage)+'</p>'
-        '<p class="overview-note">Current-stage rows recorded: '+_esc(f'{work.rows_done:,}')
-        +'. Source components completed: '+_esc(f'{work.components_done:,}')+'.</p>'
+        '<p class="overview-note">'+_esc(work.recorded_counts())+'.</p>'
         '<p class="overview-note">Closing session: '+_esc(work.decision_session)
         +'. These recorded counters do not estimate completion time.</p>'
         +_stamp(work.last_progress_at, label='Last recorded progress:')+retry+'</section>')

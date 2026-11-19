@@ -291,6 +291,67 @@ def test_bypassing_current_attempt_eligibility_exposes_a_latched_failure(monkeyp
         test_authenticated_bounded_shadow_work_preserves_unknown_readiness(monkeypatch, 'latched')
 
 
+@pytest.mark.parametrize('fault', [None, 'generic_retry', 'step_clock', 'step_attempt', 'other_schedule',
+                                   'at_wake', 'missing_handoff', 'failed_book'])
+def test_attestation_retry_owns_only_current_published_check_and_matching_step(monkeypatch, fault):
+    from sentinel.panel import postclose_feed_wait, readiness_handoff
+    page = checking_close_panel(monkeypatch)
+    attempt = page.trial_details['verification_attempts']['SHADOW']['latest']
+    subject = attempt['subject_sha256']
+    wake = NOW + timedelta(seconds=10)
+    schedule = model.OpeningSchedule(market_open=OPEN, execution_start=OPEN+timedelta(minutes=1),
+                                     recovery_deadline=OPEN+timedelta(hours=6))
+    if fault == 'other_schedule':
+        schedule = schedule.model_copy(update={'market_open':OPEN-timedelta(days=1)})
+    workflow = model.OperationalFact(kind='AUTOMATION_CYCLE', state='RETRY_WAIT', schedule=schedule)
+    recovery = model.RecoveryEvidence(phase='AUTOMATION_REFRESH_AVAILABILITY' if fault == 'generic_retry'
+        else 'AUTOMATION_SHADOW_ATTESTATION', automatic=True, attempt=9, next_attempt_at=wake,
+        deadline=NOW+timedelta(hours=2))
+    for key in ('automation_cycle', 'automation_step_data'):
+        page = changed_history_panel(page, key, as_of=NOW-timedelta(minutes=4), required_current=True,
+            status=model.WARN, operational_fact=workflow, recovery=recovery, valid_until=None)
+    page = replace(page, rows=[r for r in page.rows if r.key != 'automation_step_prepare'])
+    if fault == 'step_clock':
+        page = changed_history_panel(page, 'automation_step_data', as_of=NOW-timedelta(minutes=2))
+    elif fault == 'step_attempt':
+        page = changed_history_panel(page, 'automation_step_data', recovery=replace(recovery, attempt=8))
+    elif fault == 'failed_book':
+        page = changed_history_panel(page, 'book', status=model.FAIL)
+    feed = model.feed_row(frontier=str(NOW.date()), sessions_behind=0, ready=None, checks_passed=0,
+        checks_total=0, as_of=NOW-timedelta(minutes=5), publication_version=25)
+    page = replace(page, rows=[feed if r.key=='feed' else r for r in page.rows])
+    proof = readiness_handoff.Progress(schema='sentinel.readiness-handoff-progress/1',
+        publication_version=25, session=str(NOW.date()), subject_sha256=subject, attempt_id=attempt['attempt_id'],
+        observed_at=NOW, deadline=NOW+timedelta(seconds=30))
+    if fault != 'missing_handoff':
+        page = replace(page, trial_details={**page.trial_details,
+            'readiness_handoff':proof.model_dump(mode='json',by_alias=True)})
+    if fault == 'at_wake':
+        page = replace(page, now=wake)
+    page = postclose_feed_wait.project_panel(page, now=page.now, subject=subject)
+    until, keys = presentation._close_check_work(page)
+    facts = presentation.health_facts(page)
+    if fault is None:
+        assert until == wake
+        assert {'automation_cycle','automation_step_data','book','exposure','shadow_verification','terminals'} <= keys
+        assert facts == {'active':[], 'warnings':[]}
+        assert presentation.dashboard_health(page)['label'] == 'Checking strategy for the next open'
+        assert page.row('feed').feed_readiness == 'AWAITING_VERDICT' and page.row('book').shadow_book is None
+    else:
+        assert until is None and not keys and (facts['active'] or facts['warnings'])
+
+
+def test_ignoring_the_recorded_retry_clock_loses_the_falsifier(monkeypatch):
+    source = inspect.getsource(presentation._attestation_retry_boundary)
+    guard = 'step.as_of == cycle.as_of and '
+    assert source.count(guard) == 1
+    namespace = dict(vars(presentation))
+    exec(compile(source.replace(guard,''), '<unbound retry step>', 'exec'), namespace)
+    monkeypatch.setattr(presentation, '_attestation_retry_boundary', namespace['_attestation_retry_boundary'])
+    with pytest.raises(AssertionError):
+        test_attestation_retry_owns_only_current_published_check_and_matching_step(monkeypatch,'step_clock')
+
+
 @pytest.mark.parametrize('state', ['REFRESHING_DATA', 'WAITING_OPEN'])
 @pytest.mark.parametrize('fault', [None, 'foreign_clock', 'foreign_state', 'foreign_plan'])
 def test_checking_work_needs_the_real_step_and_scheduled_plan(monkeypatch, state, fault):

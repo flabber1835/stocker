@@ -374,3 +374,20 @@ long inventory. A timed-out hint still admits a bounded pass. Qualification comp
 with the canonical pin function for live
 ancestors, linked payloads, current publications and retired parts. The
 certified acquisition schema and its deletion guards remain authoritative.
+
+### Price selection within a disposable part
+
+On November 19 the 20:13:59, 20:19:23 and 20:24:22 UTC maintenance passes
+timed out selecting a price batch. At 20:24:22 class 5 recorded zero disposed
+rows and parts. For its saved part key the planner chose a sequential scan
+of a 189,221-page heap with an estimated 6.6 million rows. A LIMIT on
+unordered matches gives the planner no reason to start at that part's range.
+
+Select rows within each eligible part in the existing primary key's session
+and ticker order. The index can seek directly to the range, including its
+last row or an empty range. The query still locks only the selected rows
+and skips locks held by other transactions. An extensive run of locked
+rows remains subject to the existing class deadline and cursor fairness.
+The 128-row cap, per-part burst, restart cursor, pin and delete guards stay
+in force. Qualify the native query plan on skewed private data and exercise
+the actual deletion with locks, a nearly drained range and an empty part.

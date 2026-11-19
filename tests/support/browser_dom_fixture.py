@@ -8,8 +8,8 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import json
 
-from sentinel.panel import model
-from sentinel.panel.render import render
+from sentinel.panel import model, review_controls
+from sentinel.panel.render import STYLE_ASSET, render
 from sentinel.panel.presentation import dashboard_health
 from sentinel.panel.review_model import OperatorReview
 from sentinel.paper_plan_preview import PlanPreview
@@ -93,7 +93,19 @@ assert dashboard_health(review_done)['color'] == 'green'
 review_documents = dict(initial=publication(review_initial, now, now+timedelta(seconds=20)),
     ready=publication(review_ready, review_ready_at, review_ready_at+timedelta(seconds=20)),
     done=publication(review_done, review_done_at, review_done_at+timedelta(seconds=20)))
+events = [dict(at=now.isoformat(), kind='FAILED',
+               details={'reason': 'Opening verifier failure' if sequence == 2 else f'Event {sequence}'})
+          for sequence in range(22, 1, -1)]
+history_args = dict(scope='a'*64, head=22, reviewed_head=1)
+paged_review = OperatorReview(**history_args, status='REVIEW', observed_at=now, reviewed_at=now,
+                              events=events[:20], token='unconsumed-history-view')
+history_documents = dict(dashboard=publication(replace(review_page, operator_review=paged_review),
+                                               now, now+timedelta(seconds=20)),
+                         first=review_controls.history_page(events[:20], **history_args,
+                                                            first=22, stylesheet=STYLE_ASSET),
+                         last=review_controls.history_page(events[20:], **history_args,
+                                                           first=2, stylesheet=STYLE_ASSET))
 print(json.dumps(dict(now=now.isoformat(),
     green=render(page, refresh_seconds=5), red=render(negative, refresh_seconds=5),
     short_receipts=short_receipts, short_partial=short_partial,
-    review_documents=review_documents)))
+    review_documents=review_documents, history_documents=history_documents)))

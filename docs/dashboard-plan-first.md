@@ -64,6 +64,31 @@ uses its own lease boundary. A short proof may withdraw the display before a
 refresh succeeds, but must not force a one-second HTTP polling loop; use a
 bounded refresh cadence with the existing negative-only expiry timer.
 
+At the November 19 close the last source checkpoint committed at 21:06:50
+UTC. The producer began checking candidate identity while the dashboard still
+said it was downloading. Candidate construction and its stage changes commit
+atomically, so other transactions continue to see the earlier ACQUIRING row.
+
+Describe that row as snapshot preparation. Use its existing per-job component
+metadata to identify the price batch whose range ends on the decision session.
+An active leased worker may display that recorded milestone. The observation
+does not establish which statement the worker is executing, progress since the
+checkpoint, publication, or readiness. Keep the source row count and original
+progress time visible, even when the count stops changing. Parked, failed,
+unowned and expired jobs retain their existing health and visibility rules.
+Sum the recorded rows across the same job's component checkpoints. Those
+source rows survive transitions to STAGING, VALIDATING, READY and PUBLISHED,
+whose own phase counters start at zero. Historical observations without this
+total must omit it. A normalized row count and a source row count have
+different units and are never summed.
+READY establishes a sealed candidate. Operational validation, source
+corroboration or publication may still be running. Only a committed,
+publication-bound PUBLISHED job establishes completion.
+When the same registered job advances between the two metadata reads, use
+the later validated job state, counters and clock together. Keep the original
+status if the optional observation is absent, malformed or belongs to a
+different job. A terminal failure still takes precedence.
+
 Decision, 2026-10-30, before implementation: browser refreshes must not replace
 the document while its tab is hidden. A background replacement loses the prior
 foreground lifecycle and can turn a normal app return into an immediate stale
@@ -311,6 +336,17 @@ control generation, authority, history and backup ownership. No installation,
 financial activation, plan replay or backup/restore operation is introduced.
 
 ### Human health and review after an intraday activation
+
+Decision 2026-11-19. A financial receipt renewal can precede the next full
+dashboard snapshot. A completed same-day run keeps its human health meaning
+through a SHADOW, PAPER or combined renewal only if the HTTP reader proves the
+complete display remains current, rereads every displayed financial fact in
+each changed scope, and the completed-run, discovery and independent source
+checks below still pass. The original proof clocks and the exchange close
+bound this interpretation. An unproved native subject change, partial or retained
+display, or absent replacement proof cannot support it. The review baseline
+can be displayed if its conditions still agree. Strict readiness and the
+acknowledgment token still require a strictly current snapshot.
 
 Decision 2026-11-18, before implementation. A software activation after a
 completed same-day PAPER run starts a new healthy control generation with no

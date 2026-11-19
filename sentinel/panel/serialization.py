@@ -15,7 +15,7 @@ def public_payload(panel):
     if review is not None and panel.observation_current:
         public_review = review.model_dump(mode='json')
     elif (review is not None and display_current and not panel.observation_retained
-            and panel.observation_changed_scopes == ('PAPER',)
+            and (panel.observation_changed_scopes == ('PAPER',) or delivery.complete_receipt_handoff(panel))
             and set(review.active) == set(health['active_conditions'])
             and set(review.warnings) == set(health['review_conditions'])):
         public_review = {**review.model_dump(mode='json'), 'token': None}

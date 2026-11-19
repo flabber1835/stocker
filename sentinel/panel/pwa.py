@@ -52,13 +52,22 @@ button:disabled{opacity:.6}
   "use strict";
   __CURRENT_DOCUMENT_SCRIPT__
   var busy = false, controller = null, again = false, away = false, retryTimer = null;
+  var retryDelay = 5000;
   var status = document.getElementById("launch-status");
   var detail = document.getElementById("launch-detail");
   var retry = document.getElementById("launch-retry");
   function visible() { return !away && document.visibilityState === "visible"; }
   function offline() {
     status.textContent = "STATUS NOT CURRENT — OFFLINE";
-    detail.textContent = "This device cannot check system health while offline. Reconnect and retry.";
+    detail.textContent = "This device will check system health when it reconnects.";
+  }
+  function sameOrigin(response) {
+    return new URL(response.url || location.href, location.href).origin === location.origin;
+  }
+  function deploymentProgress(response) {
+    if (!response || response.status !== 503 || !sameOrigin(response)) { return ""; }
+    try { return decodeURIComponent(response.headers.get("X-Sentinel-Deployment-Progress") || ""); }
+    catch (_) { return ""; }
   }
   async function load() {
     if (document.body.dataset.panelLaunch !== "true" || !visible()) { return; }
@@ -66,8 +75,6 @@ button:disabled{opacity:.6}
     if (busy) { again = true; return; }
     if (!navigator.onLine) { offline(); return; }
     busy = true; retry.disabled = true;
-    status.textContent = "Connecting to current status…";
-    detail.textContent = "Current system health has not been checked yet.";
     controller = new AbortController();
     var active = controller;
     var deadline = setTimeout(function(){ active.abort(); }, 15000);
@@ -75,27 +82,23 @@ button:disabled{opacity:.6}
       var response = await fetch(location.href, {cache:"no-store", credentials:"same-origin", headers:{"X-Sentinel-Refresh":"1"}, signal:active.signal});
       var documentStatus = response.headers.get("X-Sentinel-Panel-Status");
       if (!response.ok || !["CURRENT", "PARTIAL"].includes(documentStatus) ||
-          new URL(response.url || location.href, location.href).origin !== location.origin) {
+          !sameOrigin(response)) {
         throw new Error("Current status is not available");
       }
       var html = await response.text();
       currentDocument(html, documentStatus);
-      if (active.signal.aborted || !visible()) { return; }
+      if (active.signal.aborted || !visible()) { throw new Error("Launch request interrupted"); }
       document.open(); document.write(html); document.close();
     } catch (_error) {
       if (visible()) {
         if (!navigator.onLine) { offline(); }
         else {
-          status.textContent = "STATUS NOT CURRENT — CONNECTION DELAYED";
-          var progress = response && response.status === 503 &&
-            new URL(response.url || location.href, location.href).origin === location.origin &&
-            response.headers.get("X-Sentinel-Deployment-Progress");
-          if (response && response.status === 503) {
-            detail.textContent = (progress ? decodeURIComponent(progress) + ". " : "") + "Checking again in five seconds.";
-            retryTimer = setTimeout(load, 5000);
-          } else {
-            detail.textContent = "Current status could not be loaded. Retry when the connection is ready.";
-          }
+          var progress = deploymentProgress(response);
+          var delay = progress ? 5000 : retryDelay;
+          retryDelay = progress ? 5000 : Math.min(delay * 2, 30000);
+          status.textContent = progress || "STATUS NOT CURRENT — CONNECTION DELAYED";
+          detail.textContent = "Current health is unavailable. Checking again in " + delay / 1000 + " seconds.";
+          retryTimer = setTimeout(load, delay);
         }
       }
     } finally {
@@ -103,16 +106,28 @@ button:disabled{opacity:.6}
       if (again && visible()) { again = false; load(); }
     }
   }
-  retry.addEventListener("click", load);
+  function resume() {
+    retryDelay = 5000;
+    if (status.textContent === "STATUS NOT CURRENT — OFFLINE" && navigator.onLine) {
+      status.textContent = "Connecting to current status…";
+      detail.textContent = "Current system health has not been checked yet.";
+    }
+    load();
+  }
+  function pause() {
+    clearTimeout(retryTimer);
+    again = false;
+    if (controller) { controller.abort(); }
+  }
+  retry.addEventListener("click", resume);
   document.addEventListener("visibilitychange", function(){
     away = document.visibilityState !== "visible";
-    if (away && controller) { controller.abort(); }
-    if (!away) { load(); }
+    if (away) { pause(); } else { resume(); }
   });
-  window.addEventListener("pagehide", function(){ away = true; if (controller) { controller.abort(); } });
-  window.addEventListener("pageshow", function(event){ if (event.persisted) { away = false; load(); } });
-  window.addEventListener("online", load);
-  window.addEventListener("offline", function(){ if (controller) { controller.abort(); } offline(); });
+  window.addEventListener("pagehide", function(){ away = true; pause(); });
+  window.addEventListener("pageshow", function(event){ if (event.persisted) { away = false; resume(); } });
+  window.addEventListener("online", resume);
+  window.addEventListener("offline", function(){ pause(); offline(); });
   // Commit a painted neutral document before beginning the status round trip.
   requestAnimationFrame(function(){ requestAnimationFrame(load); });
 })();

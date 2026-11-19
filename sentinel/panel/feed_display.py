@@ -1,4 +1,6 @@
 """Authenticated rolling display metadata; no financial corpus admission."""
+from concurrent.futures import Future
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -7,6 +9,8 @@ import os
 from pathlib import Path
 from threading import Lock
 import time
+
+from psycopg.errors import QueryCanceled
 
 from sentinel.feed import operational_snapshot as snapshots, readers
 from sentinel.feed import readiness, rolling_jobs as jobs, rolling_store
@@ -36,8 +40,10 @@ class _ByteFrame:
 
 
 _BYTE_PROOFS: dict[str, _ByteProof] = {}
+_VERIFYING: dict[str, Future] = {}
 _PROOF_LOCK = Lock()
 _MAX_PROOFS = 16
+_RENEW_SECONDS = 60
 
 
 def _now():
@@ -111,6 +117,19 @@ def _byte_subject(conn, identity, context):
     return _digest([os.getpid(), context.key, identity, list(row)])
 
 
+def _measure_bytes(conn, identity, context, started, observed_at):
+    from sentinel.panel import authority_reader
+    if not context.authenticated:
+        _authenticate_byte_context(conn, context)
+        context.authenticated = True
+    rolling_store.verify_evidence(conn, identity)
+    proof = _ByteProof(started, started + authority_reader.FRESH_SECONDS,
+        observed_at, observed_at + timedelta(seconds=authority_reader.FRESH_SECONDS))
+    if not proof.current(_now(), time.monotonic()):
+        raise TimeoutError('display evidence verification exceeded its validity')
+    return proof
+
+
 def _verify_evidence(conn, identity, *, context):
     """Reuse only successful bytes under this caller's immutable MVCC frame."""
     if context is None:
@@ -118,30 +137,56 @@ def _verify_evidence(conn, identity, *, context):
         return
     if not context.active or context.owner is not conn:
         raise ValueError('DISPLAY_EVIDENCE_CONTEXT_OWNER_CHANGED')
-    from sentinel.panel import authority_reader
-    started, instant = time.monotonic(), _now()
+    started, observed_at = time.monotonic(), _now()
     subject = _byte_subject(conn, identity, context)
     if subject is None:
         rolling_store.verify_evidence(conn, identity)
         return
     with _PROOF_LOCK:
         proof = _BYTE_PROOFS.get(subject)
-    if proof is not None and proof.current(_now(), time.monotonic()):
+        flight = _VERIFYING.get(subject)
+        instant, clock = _now(), time.monotonic()
+        current = proof is not None and proof.current(instant, clock)
+        if current and (flight is not None or proof.current(
+                instant + timedelta(seconds=_RENEW_SECONDS), clock + _RENEW_SECONDS)):
+            return
+        owner = flight is None
+        if owner:
+            flight = _VERIFYING[subject] = Future()
+    if not owner:
+        from sentinel.panel.sources import STATEMENT_TIMEOUT_MS
+        verified = flight.result(timeout=STATEMENT_TIMEOUT_MS / 1000)
+        if not verified.current(_now(), time.monotonic()):
+            raise TimeoutError('display evidence expired while awaiting verification')
         return
-    if not context.authenticated:
-        _authenticate_byte_context(conn, context)
-        context.authenticated = True
-    rolling_store.verify_evidence(conn, identity)
-    proof = _ByteProof(started, started + authority_reader.FRESH_SECONDS,
-        instant, instant + timedelta(seconds=authority_reader.FRESH_SECONDS))
-    if subject is not None and proof.current(_now(), time.monotonic()):
+
+    try:
+        # Only a still-current, exact proof permits continuing after a slow
+        # renewal. The savepoint keeps the remaining display frame readable.
+        try:
+            with conn.transaction() if current else nullcontext():
+                verified = _measure_bytes(conn, identity, context, started, observed_at)
+        except QueryCanceled:
+            if current and proof.current(_now(), time.monotonic()):
+                flight.set_result(proof)
+                return
+            raise
         with _PROOF_LOCK:
             if subject not in _BYTE_PROOFS and len(_BYTE_PROOFS) >= _MAX_PROOFS:
                 _BYTE_PROOFS.pop(next(iter(_BYTE_PROOFS)))
-            _BYTE_PROOFS[subject] = proof
+            _BYTE_PROOFS[subject] = verified
+        flight.set_result(verified)
+    except BaseException as exc:
+        with _PROOF_LOCK:
+            _BYTE_PROOFS.pop(subject, None)
+        flight.set_exception(exc)
+        raise
+    finally:
+        with _PROOF_LOCK:
+            del _VERIFYING[subject]
 
 
-def status_snapshot(conn, *, include_publication=False):
+def status_snapshot(conn, *, include_publication=False, before_legacy=None):
     """Read one fresh, read-only MVCC frame; caller owns its rollback."""
     if conn.autocommit:
         raise ValueError('DISPLAY_STATUS_REQUIRES_CALLER_TRANSACTION')
@@ -149,6 +194,8 @@ def status_snapshot(conn, *, include_publication=False):
         cur.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
     pub = _current(conn)
     if pub is None or not readers.is_rolling(pub):
+        if before_legacy is not None:
+            before_legacy()
         return readers.status_snapshot(conn, include_publication=include_publication)
     snapshot = readiness.latest_snapshot(conn)
     result = pub.window_end, snapshot if readers.snapshot_matches(pub, snapshot) else None

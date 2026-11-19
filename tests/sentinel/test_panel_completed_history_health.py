@@ -124,6 +124,60 @@ def test_post_activation_valuation_handoff_preserves_only_proven_human_health(fa
         assert payload['dashboard_health']['review_conditions'] == []
 
 
+@pytest.mark.parametrize('scopes', [('SHADOW',), ('SHADOW', 'PAPER')])
+def test_completed_run_stays_visible_during_full_shadow_receipt_renewal(scopes, monkeypatch):
+    from sentinel.panel import app, delivery, serialization
+    from sentinel.panel.render import render
+    page = post_activation_panel()
+    clean = page.operator_review.model_copy(update={'status': 'CLEAN', 'head': 3, 'reviewed_head': 3})
+    metrics = [model.Row(key, key, 'VERIFIED', model.OK, as_of=NOW,
+                         valid_until=NOW+timedelta(minutes=10)) for key in ('shadow_nav', 'shadow_return')]
+    strict = replace(page, operator_review=clean, rows=[*page.rows, *metrics])
+    assert presentation.dashboard_health(strict)['label'] == 'Healthy · Waiting for next decision · today’s run recorded'
+    financial = {'shadow_verification', 'book', 'exposure', 'terminals', 'shadow_nav','shadow_return'}
+    if 'PAPER' in scopes:
+        financial.add('paper_reconciliation')
+    expires = NOW + timedelta(seconds=5)
+    handoff = replace(strict, observation_current=False, observation_display_current=True,
+                      observation_changed_scopes=scopes, observation_revalidated_keys=tuple(financial),
+                      observation_display_keys=delivery.display_keys(strict), observation_valid_until=expires)
+    payload = serialization.public_payload(handoff)
+    assert payload['dashboard_health']['label'] == presentation.dashboard_health(strict)['label']
+    assert payload['dashboard_health']['valid_until'] == expires.isoformat()
+    assert payload['observation']['strict_current'] is False and payload['operational'] == model.UNKNOWN
+    assert payload['operator_review'] == {**clean.model_dump(mode='json'), 'token': None}
+    monkeypatch.setattr(app, '_read_panel', lambda: handoff)
+    assert app.operational_health().status_code == 503
+    reviewable = replace(handoff, operator_review=page.operator_review.model_copy(update={'token': 'strict-only-token'}))
+    assert 'strict-only-token' not in render(reviewable)
+    assert serialization.public_payload(reviewable)['operator_review']['token'] is None
+
+    for missing in financial:
+        partial = replace(handoff, observation_revalidated_keys=tuple(financial - {missing}))
+        assert serialization.public_payload(partial)['dashboard_health']['color'] != 'green', missing
+    for unproved in (replace(handoff, observation_display_current=False),
+                     replace(handoff, observation_retained=True), replace(handoff, now=expires),
+                     changed_history_panel(handoff, 'book', status=model.FAIL),
+                     changed_history_panel(handoff, 'shadow_verification', valid_until=NOW)):
+        assert presentation.dashboard_health(unproved)['color'] != 'green'
+    prior = handoff.row('completed_trading_run').trading_run
+    superseded = prior.model_copy(update={'state': 'SUPERSEDED'})
+    assert presentation.dashboard_health(changed_history_panel(
+        handoff, 'completed_trading_run', trading_run=superseded))['color'] != 'green'
+
+
+def test_missing_receipt_row_guard_is_exercised(monkeypatch):
+    from sentinel.panel import delivery
+    source = inspect.getsource(delivery.complete_receipt_handoff)
+    guard = 'required.issubset(panel.observation_revalidated_keys)'
+    assert source.count(guard) == 1
+    namespace = dict(vars(delivery))
+    exec(compile(source.replace(guard, 'True'), '<missing revalidation guard>', 'exec'), namespace)
+    monkeypatch.setattr(delivery, 'complete_receipt_handoff', namespace['complete_receipt_handoff'])
+    with pytest.raises(AssertionError):
+        test_completed_run_stays_visible_during_full_shadow_receipt_renewal(('SHADOW','PAPER'), monkeypatch)
+
+
 @pytest.mark.parametrize('fault',[
     'missing_history','wrong_session','wrong_decision','incomplete_run','unfilled_order',
     'active_cycle','successor_started','missing_discovery','unowned_discovery','saved_plan','pending_alert',
@@ -184,7 +238,8 @@ def test_post_activation_context_expires_at_original_wait_deadline():
     assert presentation.dashboard_health(replace(page,now=NOW+timedelta(seconds=10)))['color']!='green'
 
 
-def test_post_activation_context_stops_at_exchange_close_even_if_other_clocks_are_extended():
+@pytest.mark.parametrize('renewing', [False, True])
+def test_post_activation_context_stops_at_exchange_close_even_if_other_clocks_are_extended(renewing):
     from sentinel.feed import calendar
 
     page=post_activation_panel()
@@ -193,6 +248,12 @@ def test_post_activation_context_stops_at_exchange_close_even_if_other_clocks_ar
     page=replace(page,rows=[replace(row,valid_until=longer,freshness=None,
         recovery=replace(row.recovery,deadline=longer) if row.recovery is not None else None)
         for row in page.rows])
+    if renewing:
+        from sentinel.panel import delivery
+        page = replace(page, observation_current=False, observation_display_current=True,
+                       observation_valid_until=longer, observation_changed_scopes=('SHADOW','PAPER'),
+                       observation_display_keys=delivery.display_keys(page), observation_revalidated_keys=(
+                           'shadow_verification','book','exposure','terminals','paper_reconciliation'))
     assert presentation._post_activation_completion_normal(replace(page,now=close-timedelta(microseconds=1)))
     assert not presentation._post_activation_completion_normal(replace(page,now=close))
 

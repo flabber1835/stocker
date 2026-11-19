@@ -129,6 +129,61 @@ def test_panel_helper_ends_its_prior_read_and_its_display_transaction(conn,publi
     assert conn.info.transaction_status==TransactionStatus.IDLE
 
 
+def test_panel_cold_reference_outliving_legacy_pin_then_warm_reuse(conn, monkeypatch, request):
+    import hashlib
+    from psycopg.errors import QueryCanceled
+    from sentinel import operational_ddl_epoch
+    from sentinel.feed.retained_source import RetainedSource
+    from sentinel.feed.rolling_contract import canonical_json
+    from sentinel.panel import sources
+
+    reference_size = 9_400_066
+    original_reference = RetainedSource.reference_payload
+    def full_size(source):
+        value = original_reference(source)
+        first, *others = value['tickers']
+        ticker = {**first, 'name': ''}
+        value['tickers'] = [ticker, *others]
+        # Mixed high/low entropy makes PostgreSQL store real external TOAST pages.
+        prefix = hashlib.shake_256(b'private feed fixture').hexdigest(1_700_000)
+        ticker['name'] = prefix.ljust(reference_size - len(canonical_json(value)), 'z')
+        return value
+    monkeypatch.setattr(RetainedSource, 'reference_payload', full_size)
+    pub, measured = request.getfixturevalue('published')
+    for statement in operational_ddl_epoch.DDL:
+        conn.execute(statement)
+    conn.commit()
+    reference = pub.evidence['rolling_snapshot']['reference_sha256']
+    stored = conn.execute('SELECT octet_length(canonical_payload), pg_column_size(canonical_payload) '
+        'FROM sentinel_snapshot_evidence WHERE evidence_sha256=%s', (reference,)).fetchone()
+    assert stored[0] == reference_size and 1_000_000 < stored[1] < reference_size
+    source = conn.execute('SELECT e.payload IS NOT NULL, e.canonical_payload IS NULL '
+        'FROM sentinel_price_candidates c JOIN sentinel_snapshot_evidence e '
+        'ON e.evidence_sha256=c.source_evidence_sha256 WHERE c.candidate_id=%s',
+        (pub.evidence['rolling_snapshot']['candidate_id'],)).fetchone()
+    assert source == (True, True)
+    conn.rollback()
+
+    execute = conn.execute
+    hashes = []
+    def delayed_statement(query, params=None, **kwargs):
+        if 'sha256(convert_to(canonical_payload' in str(query) and params[-1] == reference:
+            hashes.append(reference)
+            query = query.replace('FROM sentinel_snapshot_evidence WHERE',
+                'FROM sentinel_snapshot_evidence CROSS JOIN pg_sleep(2.1) WHERE')
+        return execute(query, params, **kwargs)
+    monkeypatch.setattr(conn, 'execute', delayed_statement)
+    with monkeypatch.context() as old_limit:
+        old_limit.setattr(sources, 'STATEMENT_TIMEOUT_MS', 2000)
+        with pytest.raises(QueryCanceled, match='statement timeout'):
+            sources._feed_status_snapshot(conn)
+    for _ in range(2):
+        frontier, verdict, version = sources._feed_status_snapshot(conn)
+        assert (frontier, version) == (pub.window_end, pub.version)
+        assert verdict.ready and verdict.computed_at == measured.computed_at
+    assert hashes == [reference, reference]
+
+
 def test_display_projection_matches_original_authenticated_metadata_and_cache(conn,published):
     pub,_=published
     actual=display.status_snapshot(conn,include_publication=True)

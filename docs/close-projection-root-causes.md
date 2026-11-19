@@ -38,6 +38,29 @@ callers. The runtime changes are outside the frozen economic contributor set.
 
 ## Project the actual display dependency
 
+During the November 19 PAPER activation, rollout version 63 was committed at
+18:32:39 UTC and the matching replacement plan at 18:36:23. For that interval
+the prior plan still named version 62. A disagreement between the saved plan
+and current rollout withdraws the dashboard's adoption claim. The authenticated
+SHADOW receipt still owns its session, book, NAV, return and terminal facts.
+Keep those signed rows with their original clocks. Show unknown exposure and
+a source error for the disagreement. Label the current plan as unadopted.
+Disabled control and the kill switch can persist after an activation owner
+exits. The public phase file contains no certificate, generation or deadline.
+Only the existing verified fee-wait
+lineage may identify adoption as pending under that wait's original deadline.
+Confirm the current receipt subject, signature, expiry and consistent book
+basis before making this distinction. Other receipt and projection errors
+retain their existing failure handling.
+
+The signed book records canonical valuation and risk. The current saved plan
+also reports securities that execution could not price. A rollout change can
+withdraw plan adoption while that same decision's saved plan still has
+unpriced securities. Keep that warning on the book through both ordinary
+adoption and a rollout disagreement, including a verified activation fee
+wait. Preserve the signed book's original clock and any existing negative
+evidence. A plan for another decision session contributes no book warning.
+
 The execution-free historical producer emits a dated historical controller
 allocation with the same finite SOURCE_FRONTIER recovery as its book. It has
 no current plan-adoption fact. The normal current SHADOW receipt still resolves

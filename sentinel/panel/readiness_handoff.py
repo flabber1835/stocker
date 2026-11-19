@@ -1,9 +1,11 @@
 """Bounded explanation for a published source awaiting its readiness handoff.
 
-Only the background publisher captures metadata through its fenced transaction.
-HTTP consumes the signed snapshot's explanation, never launches verification.
+The composition worker authenticates cold checkpoint data. The fast publisher
+rechecks the live metadata in its fenced transaction. HTTP consumes the signed
+snapshot's explanation, never launches verification.
 This is operational progress, never a data verdict or financial authority.
 """
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import json
 import os
@@ -78,7 +80,7 @@ def _active_attempt(attempt, *, published, now):
         and attempt.diagnostic is None and attempt.latched_failure is None
         and published <= attempt.admitted_at <= now < attempt.deadline
         and (attempt.supersession_started_at is None
-             or (published <= attempt.supersession_started_at <= attempt.admitted_at
+             or (attempt.supersession_started_at <= attempt.admitted_at
                  and now < attempt.supersession_deadline))
         and (attempt.work_started_at is None
              or attempt.admitted_at <= attempt.work_started_at <= now < attempt.work_deadline)
@@ -130,6 +132,7 @@ def close_check_deadline(panel, *, now):
 def _superseded_attempt(attempt, *, subject, published, worker, now):
     return (attempt.subject_sha256 != subject and attempt.outcome == 'RUNNING'
         and attempt.supersession_started_at is not None
+        and published <= attempt.supersession_started_at
         and worker.operational_fact is not None
         and worker.operational_fact.state == 'ACTIVE_WORKER'
         and published <= worker.as_of <= now
@@ -187,10 +190,67 @@ class CandidateMemo:
         return None
 
 
-def capture(conn, panel, *, subject, owner_expiry, now, candidate_memo=None):
+def _candidate_rows(shadow, feed, worker):
+    return (shadow is not None and feed is not None and worker is not None
+            and shadow.as_of is not None and feed.as_of is not None and feed.as_of <= shadow.as_of
+            and type(feed.source_publication_version) is int and feed.feed_readiness == 'AWAITING_VERDICT'
+            and (shadow.source_publication_version, shadow.source_session) ==
+                (feed.source_publication_version, feed.source_session)
+            and worker.operational_fact is not None and worker.operational_fact.state == 'ACTIVE_WORKER')
+
+
+def _candidate_attempt(attempt, *, subject, shadow, feed, worker, now):
+    return (attempt.subject_sha256 != subject and attempt.outcome == 'VERIFIED'
+            and attempt.diagnostic is None and attempt.latched_failure is None
+            and attempt.completed_at is not None and _candidate_rows(shadow, feed, worker)
+            and shadow.as_of <= attempt.completed_at <= now < attempt.deadline)
+
+
+def compose_candidate(database_url, owner_id, panel, *, memo):
+    """Authenticate the cold archive in the longer-lived composition worker."""
+    if (not checking(panel, now=panel.now)
+            or not _candidate_rows(panel.row('shadow_verification'), panel.row('feed'), panel.row('shadow_worker'))):
+        return None
+    from sentinel.feed import store
+    conn = store.connect(database_url, connect_timeout=3, statement_timeout_ms=3000)
+    try:
+        conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+        return _compose_candidate_owned(conn, owner_id, panel, memo)
+    finally:
+        conn.rollback()
+        conn.close()
+
+
+def _compose_candidate_owned(conn, owner_id, panel, memo):
+    from sentinel.panel import attempt_store, operational_schema, review_store
+    owner = conn.execute(f'SELECT expires_at FROM {operational_schema.OWNER} '
+        'WHERE id=1 AND owner_id=%s AND expires_at>clock_timestamp()', (owner_id,)).fetchone()
+    if owner is None:
+        return None
+    now = review_store.database_now(conn)
+    diagnostic = attempt_store.read_owned(conn, scope='SHADOW', now=now)
+    subject = panel.display_basis['native']['SHADOW']
+    if not _current_diagnostic(diagnostic):
+        return None
+    try:
+        attempt = observer_failure.Attempt.model_validate_json(json.dumps(diagnostic['latest']))
+    except (KeyError, ValueError, TypeError):
+        return None
+    if not _candidate_attempt(attempt, subject=subject, shadow=panel.row('shadow_verification'),
+                              feed=panel.row('feed'), worker=panel.row('shadow_worker'), now=now):
+        return None
+    candidate = replace(panel, trial_details={**panel.trial_details, 'verification_attempts':{'SHADOW':diagnostic}})
+    proof = capture(conn, candidate, subject=subject, owner_expiry=owner[0], now=now, candidate_memo=memo)
+    if proof is not None and proof['checkpoint_sha256'] is not None:
+        return {'publication_sha256':memo.entry[0][1], 'progress':proof}
+    return None
+
+
+def capture(conn, panel, *, subject, owner_expiry, now, candidate_memo=None, prepared_candidate=None):
     """Use already-authenticated attempt diagnostics; preserve their exact key.
 
-    Caller reads OWNER and attempt_store in this same transaction and fences publication.
+    The caller samples OWNER and attempt_store in the same transaction. Only
+    the composition worker supplies a memo that permits a cold archive read.
     One indexed metadata query is needed only during this missing-verdict gap.
     """
     if not checking(panel, now=now):
@@ -217,13 +277,7 @@ def capture(conn, panel, *, subject, owner_expiry, now, candidate_memo=None):
         current_attempt = (attempt.subject_sha256 == subject and attempt.outcome in {'QUEUED', 'RUNNING'})
         potential_work = current_attempt or (attempt.outcome == 'RUNNING'
             and attempt.supersession_started_at is not None)
-        candidate = (attempt.subject_sha256 != subject and attempt.outcome == 'VERIFIED'
-            and attempt.completed_at is not None and shadow.as_of is not None
-            and feed.as_of <= shadow.as_of <= attempt.completed_at <= now < attempt.deadline
-            and (shadow.source_publication_version, shadow.source_session) ==
-                (feed.source_publication_version, feed.source_session)
-            and worker.operational_fact is not None
-            and worker.operational_fact.state == 'ACTIVE_WORKER')
+        candidate = _candidate_attempt(attempt, subject=subject, shadow=shadow, feed=feed, worker=worker, now=now)
         predecessor = _verified_predecessor(attempt, subject=subject, feed=feed, worker=worker, now=now)
         if not potential_work and not candidate and not predecessor:
             return None
@@ -281,9 +335,20 @@ def capture(conn, panel, *, subject, owner_expiry, now, candidate_memo=None):
             boundary = min(boundary, attempt.work_deadline or attempt.deadline,
                            attempt.supersession_deadline or attempt.deadline)
         elif candidate:
-            memo = candidate_memo if candidate_memo is not None else CandidateMemo()
-            checkpoint = memo.read(conn, subject=subject, pub=pub, binding=binding,
-                                   closed=closed, now=now)
+            if candidate_memo is not None:
+                checkpoint = candidate_memo.read(conn, subject=subject, pub=pub, binding=binding,
+                                                 closed=closed, now=now)
+            else:
+                if (not isinstance(prepared_candidate, dict)
+                        or prepared_candidate.get('publication_sha256') != digest(pub.to_dict())):
+                    return None
+                proof = Progress.model_validate_json(json.dumps(prepared_candidate['progress']))
+                if (proof.subject_sha256 != subject or proof.attempt_id != attempt.attempt_id
+                        or proof.session != feed.source_session or proof.publication_version != version
+                        or not proof.observed_at <= now < proof.deadline):
+                    return None
+                checkpoint = proof.checkpoint_sha256
+                boundary = min(boundary, proof.deadline)
             if checkpoint is None:
                 return None
             boundary = min(boundary, shadow.valid_until)

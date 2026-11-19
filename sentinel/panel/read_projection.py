@@ -326,7 +326,7 @@ def read(database_url, *, include_paper=True, now=None, only_scope=None,
 
 
 def _activation_renewal_exposure(conn, rows, mismatch, *, now, valid_until):
-    """Keep authenticated SHADOW evidence when only adoption awaits renewal."""
+    """Explain withdrawn adoption only for the exact fee-wait lineage."""
     from sentinel import activation_fee_wait
     from sentinel.feed import calendar
 
@@ -362,12 +362,11 @@ def _activation_renewal_exposure(conn, rows, mismatch, *, now, valid_until):
               old_version, current_version)).fetchone()
     if proof != (True, True, True, True, True):
         return None
-    exposure = model.Row('exposure', 'Exposure', 'CURRENT PLAN NOT ADOPTED', model.UNKNOWN,
+    return model.Row('exposure', 'Exposure', 'CURRENT PLAN NOT ADOPTED', model.UNKNOWN,
         'The preceding plan remains recorded under its own certificate. Current adoption is pending.',
         as_of=basis.observed_at, required_current=True, valid_until=min(valid_until, wait.valid_until),
         operational_fact=model.OperationalFact(kind='CONTROLLER_DECISION',
             state='ROLLOUT_RENEWAL_PENDING', session=session, exposure=basis.target_core_exposure))
-    return [exposure if row.key == 'exposure' else row for row in rows]
 
 
 def _activation_paper_rows(conn, rows, *, now):
@@ -440,14 +439,20 @@ def read_owned(conn, database_url, *, include_paper=True, now=None, only_scope=N
             if scope == 'SHADOW':
                 failure_site = 'SHADOW_PROJECTION'
                 from sentinel.panel.sources import PlanRolloutMismatch
-                from sentinel.panel.shadow_execution_projection import project
+                from sentinel.panel.shadow_execution_projection import book_with_plan_pricing, project
                 try:
                     projected = project(conn, result[0], observed_at=row[1], valid_until=row[2], now=instant)
                 except PlanRolloutMismatch as mismatch:
-                    projected = _activation_renewal_exposure(
+                    exposure = _activation_renewal_exposure(
                         conn, result[0], mismatch, now=instant, valid_until=row[2])
-                    if projected is None:
-                        raise
+                    if exposure is None:
+                        detail = str(mismatch)
+                        exposure = model.Row('exposure', 'Exposure', 'CURRENT PLAN NOT ADOPTED', model.UNKNOWN, detail,
+                            as_of=instant, required_current=True, valid_until=row[2])
+                        result[3].append('current plan adoption: '+detail)
+                    replacements = {'exposure': exposure, 'book': book_with_plan_pricing(
+                        next(item for item in result[0] if item.key == 'book'), mismatch.plan)}
+                    projected = [replacements.get(item.key, item) for item in result[0]]
                 result = (projected, result[1], result[2], result[3])
             if scope == 'PAPER':
                 failure_site = 'PAPER_ACTIVATION'

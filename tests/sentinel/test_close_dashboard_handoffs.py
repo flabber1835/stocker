@@ -237,3 +237,44 @@ def test_partial_close_uses_original_progress_and_keeps_affected_rows_unavailabl
         fact = stage.operational_fact.model_copy(update=change)
         stopped = replace(stage, operational_fact=fact)
         assert delivery.closing_refresh_deadline(replace(panel, rows=[worker, feed, plan, stopped])) is None
+
+
+def test_retained_ready_lag_expires_at_the_exchange_close():
+    before = CLOSE - timedelta(milliseconds=350)
+    feed = model.feed_row(frontier='2026-11-10', sessions_behind=0, ready=True,
+        checks_passed=4, checks_total=4, as_of=before, checked_at=before)
+    panel = model.Panel(rows=[feed], now=before, observation_current=False,
+        observation_retained=True, observation_generated_at=before,
+        observation_changed_scopes=('PAPER',))
+    assert delivery.row_current(panel, feed)
+    assert not delivery.row_current(replace(panel, now=CLOSE), feed)
+    assert delivery.row_current(replace(panel, now=CLOSE), replace(feed, status=model.FAIL))
+
+
+def test_retained_close_names_only_current_registered_work_on_the_due_session():
+    now = CLOSE + timedelta(minutes=4)
+    lease = now + timedelta(seconds=3)
+    until = now + timedelta(seconds=9)
+    work = model.PreparationWork(job_id='close-job', decision_session='2026-11-11',
+        effective_session='2026-11-12', state='ACQUIRING', rows_done=1200, components_done=2,
+        created_at=CLOSE, updated_at=now, last_progress_at=now, observed_at=now,
+        deadline=OPEN, lease_until=lease, owner_registered=True, fence=1)
+    ingest = model.Row('ingest', 'Ingest', 'ACQUIRING', model.WARN, as_of=now,
+                       preparation=work, valid_until=until)
+    worker = model.Row('shadow_worker', 'Worker', 'RUNNING', model.OK, as_of=now,
+                       required_current=True, valid_until=until)
+    feed = replace(model.feed_row(frontier='2026-11-10', sessions_behind=1,
+        ready=True, checks_passed=4, checks_total=4, as_of=now, checked_at=now),
+        status=model.WARN, valid_until=until, recovery=model.RecoveryEvidence(
+            phase='POST_CLOSE_SOURCE_WAIT', automatic=True, deadline=until))
+    review = OperatorReview(scope='1'*64, head=1, reviewed_head=0, status='REVIEW', observed_at=now)
+    panel = model.Panel(rows=[worker, feed, ingest], now=now, local_paper_mode=True,
+        operator_review=review, observation_current=False, observation_retained=True,
+        observation_generated_at=now, observation_valid_until=until)
+    assert delivery.closing_refresh_deadline(panel) == lease
+    assert not delivery.display_current(panel)
+    assert presentation.dashboard_health(panel)['plan_readiness'] == 'unavailable'
+    assert delivery.closing_refresh_deadline(replace(panel, now=lease)) is None
+    for changes in ({'owner_registered': False}, {'decision_session': CLOSE.date()-timedelta(days=1)}):
+        changed = replace(ingest, preparation=work.model_copy(update=changes))
+        assert delivery.closing_refresh_deadline(replace(panel, rows=[worker, feed, changed])) is None

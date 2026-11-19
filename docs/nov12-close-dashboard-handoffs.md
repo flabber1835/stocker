@@ -79,3 +79,19 @@ the header, job, candidate and version to agree and that the final update
 falls between the header time and the observed feed time. The 60-second
 bound starts at that recorded final update and expires even when the dashboard
 reads the same publication again.
+
+## November 19 close
+
+The initial broker preflight could not acquire a shared read of the
+published market data. Show the classified retry as waiting for access to
+that data on the cycle, progress step and headline. An ordinary broker
+preflight and a retry of broker reconciliation keep their own descriptions.
+
+The closing bell changes which session is due. A retained READY row from
+before the bell can show the previous frontier as history. It cannot present
+its old zero-session lag as current. During acquisition, a retained partial
+response can identify closing work when the current ingest row proves a
+registered job for this session and the current worker and feed independently
+prove the bounded source wait. Cap the message at the earliest original
+deadline, including the job's lease. Operator review and trading readiness
+still require their own evidence.

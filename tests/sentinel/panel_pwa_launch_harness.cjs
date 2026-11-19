@@ -56,6 +56,58 @@ async function launch() {
   if(input.kind==='offline') {assert.equal(reads.length,0);assert.match(status.textContent,/OFFLINE/);return;}
   assert.equal(reads.length,1);
   assert.equal(reads[0].options.cache,'no-store');
+  const settle = () => new Promise(resolve => setImmediate(resolve));
+  const takeTimer = delay => {
+    const matches = [...timers].filter(([,timer]) => timer.delay === delay);
+    assert.equal(matches.length,1,'expected one timer for '+delay);
+    const [id,timer]=matches[0];
+    timers.delete(id);
+    return timer.fn;
+  };
+  if (['reset-recovery','timeout-recovery','backoff','pause-offline','pause-hidden',
+       'foreign-progress','malformed-progress'].includes(input.kind)) {
+    if (input.kind === 'timeout-recovery') {
+      reads[0].options.signal.addEventListener('abort',()=>reads[0].reject(new Error('aborted')));
+      takeTimer(15000)();
+    } else if (input.kind.endsWith('-progress')) {
+      reads[0].resolve({ok:false,status:503,
+        url:input.kind==='foreign-progress'?'https://foreign.invalid/':context.location.href,
+        headers:{get:()=>input.kind==='foreign-progress'?'Foreign phase':'%wrong'}});
+    } else {
+      reads[0].reject(new Error('connection reset'));
+    }
+    await settle();
+    assert.equal(writes.length,0);
+    assert.match(status.textContent,/CONNECTION DELAYED/);
+    if (input.kind==='pause-offline' || input.kind==='pause-hidden') {
+      if (input.kind==='pause-offline') {
+        context.navigator.onLine=false;listeners.offline();
+        assert.match(status.textContent,/OFFLINE/);
+        assert.equal(timers.size,0);
+        context.navigator.onLine=true;listeners.online();
+      } else {
+        document.visibilityState='hidden';listeners.visibilitychange();
+        assert.equal(timers.size,0);
+        document.visibilityState='visible';listeners.visibilitychange();
+      }
+    } else {
+      takeTimer(5000)();
+    }
+    assert.equal(reads.length,2,'launch must recover without a click');
+    if(input.kind==='backoff') {
+      for (const delay of [10000,20000,30000,30000]) {
+        reads.at(-1).reject(new Error('reset'));
+        await settle();
+        takeTimer(delay)();
+      }
+    }
+    reads.at(-1).resolve({ok:true,status:200,url:context.location.href,
+      headers:{get:()=> 'CURRENT'},text:async()=> 'fresh'});
+    await settle();
+    assert.deepEqual(writes,['open','fresh','close']);
+    assert.equal(timers.size,0);
+    return;
+  }
   if(input.kind==='busy-progress') {
     assert.equal(reads[0].options.headers['X-Sentinel-Refresh'],'1');
     const phase='Software installation · verifying completion';
@@ -63,7 +115,7 @@ async function launch() {
       headers:{get:key=>key==='X-Sentinel-Deployment-Progress'?encodeURIComponent(phase):null},
       text:()=>{throw new Error('retry downloaded a retained document');}});
     for(let i=0;i<12;i++)await Promise.resolve();
-    assert(detail.textContent.includes(phase));
+    assert.equal(status.textContent,phase);
     assert.equal(writes.length,0);
     const pending=[...timers.values()].filter(t=>t.delay===5000);
     assert.equal(pending.length,1);

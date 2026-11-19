@@ -166,13 +166,45 @@ def test_current_attempt_can_explain_original_publication_rollover(metadata):
     attempt.update(supersession_started_at=started.isoformat(),
                    supersession_deadline=(started+timedelta(minutes=10)).isoformat())
     assert capture((conn, original)) is not None
-    started -= timedelta(microseconds=1)
+    # The current attempt's admission binds it to this publication. Its inherited
+    # chain can be older, but its clock must still apply to the entire display.
+    started = NOW - timedelta(minutes=10) + timedelta(seconds=1)
     attempt.update(supersession_started_at=started.isoformat(),
                    supersession_deadline=(started+timedelta(minutes=10)).isoformat())
-    assert capture((conn, original)) is None
+    proof = capture((conn, original))
+    assert datetime.fromisoformat(proof['deadline']) == NOW + timedelta(seconds=1)
+    assert handoff.capture(conn, original, subject=SUBJECT, owner_expiry=NOW+timedelta(minutes=5),
+                           now=NOW+timedelta(seconds=1)) is None
 
 
-@pytest.mark.parametrize('fault', [None, 'no_rollover', 'worker_idle', 'older_attempt', 'work_expired'])
+def test_november_19_commit_during_supersession_starts_a_new_matching_attempt(metadata):
+    conn, original = metadata
+    # Exact offsets from the first stored red page at 21:13:42.766077Z.
+    published = NOW - timedelta(seconds=8, microseconds=117589)
+    header = published - timedelta(seconds=40, microseconds=228708)
+    chain = published - timedelta(seconds=16, microseconds=308139)
+    admitted = published + timedelta(microseconds=835641)
+    working = published + timedelta(microseconds=989056)
+    conn.execute('UPDATE sentinel_corpus_publications SET published_at=%s', (header,))
+    conn.execute('UPDATE sentinel_snapshot_jobs SET updated_at=%s', (published,))
+    attempt = original.trial_details['verification_attempts']['SHADOW']['latest']
+    attempt.update(admitted_at=admitted.isoformat(), deadline=(working+timedelta(minutes=5)).isoformat(),
+        work_started_at=working.isoformat(), work_deadline=(working+timedelta(minutes=5)).isoformat(),
+        supersession_started_at=chain.isoformat(), supersession_deadline=(chain+timedelta(minutes=10)).isoformat())
+    panel = replace(original, rows=[replace(r, as_of=published) if r.key=='feed' else r for r in original.rows])
+    proof = capture((conn, panel))
+    assert proof and proof['attempt_id']==attempt['attempt_id'] and proof['subject_sha256']==SUBJECT
+    signed = replace(panel,trial_details={**panel.trial_details,'readiness_handoff':proof})
+    result = waiting.project_panel(signed, now=NOW, subject=SUBJECT)
+    assert result.row('feed').as_of == published and result.row('feed').effective_status(NOW) == model.WARN
+    assert result.row('feed').operational_fact.state == 'AWAITING_VERDICT'
+    assert handoff.deadline(signed, subject=SUBJECT, now=datetime.fromisoformat(proof['deadline'])) is None
+    attempt['admitted_at'] = (published-timedelta(microseconds=1)).isoformat()
+    assert capture((conn, panel)) is None
+
+
+@pytest.mark.parametrize('fault', [None, 'no_rollover', 'worker_idle', 'older_attempt',
+                                   'chain_before_publication', 'work_expired'])
 def test_running_prior_subject_can_explain_published_readiness_rollover(metadata, fault):
     conn, original = metadata
     published = original.row('feed').as_of
@@ -192,6 +224,10 @@ def test_running_prior_subject_can_explain_published_readiness_rollover(metadata
     elif fault == 'older_attempt':
         conn.execute('UPDATE sentinel_corpus_publications SET published_at=%s', (admitted,))
         attempt['supersession_started_at'] = published.isoformat()
+    elif fault == 'chain_before_publication':
+        chain = published - timedelta(microseconds=1)
+        attempt.update(supersession_started_at=chain.isoformat(),
+                       supersession_deadline=(chain+timedelta(minutes=10)).isoformat())
     elif fault == 'work_expired':
         attempt['work_deadline'] = NOW.isoformat()
     # The composite feed may sample the exact published frontier after the
@@ -211,6 +247,17 @@ def test_running_prior_subject_can_explain_published_readiness_rollover(metadata
     assert result.row('feed').operational_fact.state == 'AWAITING_VERDICT'
     deadline = NOW+timedelta(seconds=15)
     assert waiting.project_panel(signed, now=deadline, subject=SUBJECT).row('feed').effective_status(deadline) == model.FAIL
+
+
+def test_foreign_attempt_publication_guard_has_an_executed_falsifier(metadata, monkeypatch):
+    source = inspect.getsource(handoff._superseded_attempt)
+    guard = 'and published <= attempt.supersession_started_at'
+    assert source.count(guard) == 1
+    scope = dict(vars(handoff))
+    exec(compile(source.replace(guard, ''),'<unbound foreign attempt>','exec'),scope)
+    monkeypatch.setattr(handoff,'_superseded_attempt',scope['_superseded_attempt'])
+    with pytest.raises(AssertionError):
+        test_running_prior_subject_can_explain_published_readiness_rollover(metadata,'chain_before_publication')
 
 
 def test_committed_close_can_bridge_only_the_original_verifier_admission_gap(metadata):
@@ -282,7 +329,7 @@ def test_prior_verifier_finishing_while_publication_transaction_is_open(metadata
     assert row.effective_status(row.valid_until+timedelta(microseconds=1)) == model.FAIL
 
 
-def test_candidate_handoff_has_one_owned_exact_witness_and_negative_precedence(metadata, monkeypatch):
+def candidate_panel(metadata):
     conn, original = metadata
     observed = NOW-timedelta(seconds=45)
     attempt = original.trial_details['verification_attempts']['SHADOW']['latest']
@@ -292,7 +339,14 @@ def test_candidate_handoff_has_one_owned_exact_witness_and_negative_precedence(m
         source_publication_version=17, source_session='2026-11-09')
     worker = replace(original.row('shadow_worker'), operational_fact=model.OperationalFact(
         kind='SHADOW_WORKER', state='ACTIVE_WORKER'))
-    original = replace(original, rows=[original.row('feed'), shadow, worker])
+    return replace(original, rows=[original.row('feed'), shadow, worker],
+                   display_basis={'native':{'SHADOW':SUBJECT}})
+
+
+def test_candidate_handoff_has_one_owned_exact_witness_and_negative_precedence(metadata, monkeypatch):
+    conn, _ = metadata
+    original = candidate_panel(metadata)
+    observed = original.row('shadow_verification').as_of
     calls = []
     def checkpoint(conn, *, pub, binding, closed, now):
         calls.append((pub.version, binding['candidate_id']))
@@ -310,10 +364,88 @@ def test_candidate_handoff_has_one_owned_exact_witness_and_negative_precedence(m
     current = waiting.project_panel(signed, subject=SUBJECT, now=NOW)
     assert current.row('feed').effective_status(NOW) == model.WARN
     assert current.row('shadow_verification').value == 'CHECKING'
-    failed = replace(shadow, status=model.FAIL, recovery=None)
-    signed = replace(signed, rows=[signed.row('feed'), failed, worker])
+    failed = replace(original.row('shadow_verification'), status=model.FAIL, recovery=None)
+    signed = replace(signed, rows=[signed.row('feed'), failed, original.row('shadow_worker')])
     assert read(signed) is None
     assert waiting.project_panel(signed, subject=SUBJECT, now=NOW).row('feed').effective_status(NOW) == model.FAIL
+
+
+def test_only_the_composition_authenticates_the_cold_candidate(metadata, monkeypatch):
+    from sentinel.panel import attempt_store, review_store
+    conn, _ = metadata
+    panel = candidate_panel(metadata)
+    diagnostic = panel.trial_details['verification_attempts']['SHADOW']
+    monkeypatch.setattr(attempt_store, 'read_owned', lambda *args, **kwargs: diagnostic)
+    monkeypatch.setattr(review_store, 'database_now', lambda conn: NOW)
+    owner = uuid.uuid4()
+    conn.execute('CREATE TEMP TABLE sentinel_operational_verification_owner(id int,owner_id uuid,expires_at timestamptz)')
+    conn.execute("INSERT INTO sentinel_operational_verification_owner VALUES(1,%s,clock_timestamp()+interval '10 minutes')",
+                 (owner,))
+    calls = []
+    def archive_check(conn, *, pub, binding, closed, now):
+        calls.append(pub.version)
+        return 'd'*64, panel.row('shadow_verification').as_of
+    monkeypatch.setattr(handoff, '_checkpoint_bound', archive_check)
+    memo = handoff.CandidateMemo()
+    assert handoff._compose_candidate_owned(conn, uuid.uuid4(), panel, memo) is None and not calls
+    witness = handoff._compose_candidate_owned(conn, owner, panel, memo)
+    assert witness['progress']['checkpoint_sha256'] == 'd'*64 and calls == [17]
+    assert handoff._compose_candidate_owned(conn, owner, panel, memo) == witness and calls == [17]
+    def fast(value, subject=SUBJECT, now=NOW, owner_expiry=NOW+timedelta(minutes=5)):
+        return handoff.capture(conn, panel, subject=subject, now=now, owner_expiry=owner_expiry,
+                               prepared_candidate=value)
+    assert fast(witness) == witness['progress']
+    assert fast(None) is None, 'fast publisher authenticated an absent composition witness'
+    assert fast(witness, subject='f'*64) is None
+    assert fast(witness, owner_expiry=NOW) is None
+    for field, invalid in (('checkpoint_sha256', None), ('subject_sha256','e'*64), ('session','2026-11-06'),
+                           ('publication_version',18), ('attempt_id','b'*32), ('deadline',NOW.isoformat())):
+        wrong = deepcopy(witness)
+        wrong['progress'][field] = invalid
+        assert fast(wrong) is None
+    assert fast({**witness, 'publication_sha256':'f'*64}) is None
+    assert fast(witness, now=datetime.fromisoformat(witness['progress']['deadline'])) is None
+    assert calls == [17], 'five-second publication tried to reauthenticate the full archive'
+    # Every installation, including those with legacy checkpoint encodings, uses
+    # the full authenticated reader on a cold composition. A failed read cannot
+    # reach fast publication through a new native subject.
+    monkeypatch.setattr(handoff, '_checkpoint_bound', lambda *args, **kwargs: None)
+    assert handoff._compose_candidate_owned(conn, owner, panel, handoff.CandidateMemo()) is None
+
+    # The composition should not repeat the fast publisher's metadata query
+    # for ordinary current, queued, invalid or already-finished work.
+    def unexpected(*args, **kwargs):
+        pytest.fail('ineligible candidate attempted publication lineage or archive IO')
+    monkeypatch.setattr(handoff, 'capture', unexpected)
+    attempt = diagnostic['latest']
+    prior = dict(attempt)
+    for change in ({'subject_sha256':SUBJECT}, {'outcome':'QUEUED', 'completed_at':None,
+                        'work_started_at':None, 'work_deadline':None},
+                   {'completed_at':(panel.row('shadow_verification').as_of-timedelta(seconds=1)).isoformat()},
+                   {'outcome':'RUNNING', 'completed_at':None}, {'outcome':'malformed'}):
+        diagnostic['latest'] = {**prior, **change}
+        assert handoff._compose_candidate_owned(conn, owner, panel, memo) is None
+
+
+def test_ordinary_composition_opens_no_candidate_database_connection(monkeypatch):
+    from sentinel.feed import store
+    def unexpected(*args, **kwargs):
+        pytest.fail('ordinary composition opened a candidate database connection')
+    monkeypatch.setattr(store, 'connect', unexpected)
+    for snapshot in (page(), page(typed=True), model.Panel(now=NOW, rows=[])):
+        assert handoff.compose_candidate('unused', 'unused', snapshot, memo=handoff.CandidateMemo()) is None
+
+
+def test_restoring_a_cold_fallback_in_fast_publication_breaks_its_budget_contract(metadata, monkeypatch):
+    source = inspect.getsource(handoff.capture)
+    guard = 'if candidate_memo is not None:'
+    assert source.count(guard) == 1
+    scope = dict(vars(handoff))
+    exec(compile(source.replace(guard, 'if candidate_memo is not None or (candidate_memo := CandidateMemo()):'),
+                 '<cold archive on fast path>', 'exec'), scope)
+    monkeypatch.setattr(handoff, 'capture', scope['capture'])
+    with pytest.raises(AssertionError, match='fast publisher authenticated an absent composition witness'):
+        test_only_the_composition_authenticates_the_cold_candidate(metadata, monkeypatch)
 
 
 def test_row_clock_diagnostic_is_closed_and_preserves_strict_refusal(monkeypatch,caplog):

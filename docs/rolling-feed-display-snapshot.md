@@ -136,3 +136,32 @@ rehashing of unchanged evidence on every status collection. All other metadata,
 authentication, binding and recorded-verdict checks above remain fresh. Missing
 reuse prerequisites retain the original full verification; default/financial
 readers and their authority are unchanged.
+
+## November 19 rolling proof renewal
+
+At 16:37:37 UTC PostgreSQL canceled a snapshot evidence read. The dashboard
+recorded an unknown feed frontier at 16:37:43 and recovered at 16:37:52.
+The active publication had a 9,400,066-byte canonical reference. The database
+log omitted its bound evidence key and wait history. The display nevertheless
+applied the legacy two-second pin retry budget to rolling verification SQL.
+
+Rolling metadata uses the existing eight-second dashboard statement budget.
+On reaching a legacy publication, the reader gives its pin only the remainder
+of its original two-second deadline. Each retry obtains a fresh snapshot.
+
+The existing projection collector renews canonical TEXT byte proofs during
+the last minute of their ten-minute life. That minute allows several ordinary
+collection attempts with an eight-second SQL limit. One caller per exact
+subject owns the check. Peers with a current proof may use it during renewal.
+Cold or expired peers wait at most one statement budget for the same result.
+Both wall and monotonic expiry still apply after the wait and after hashing.
+Each authenticated renewal earns its own finite lifetime from the beginning
+of the observation. Readiness and publication timestamps retain their source.
+
+Early renewal runs in a savepoint. A canceled SQL statement may leave the
+previous exact proof usable only until its original expiry. A detected
+integrity or authentication failure withdraws the old proof immediately.
+Cache misses, changed byte subjects and expiry require actual verification.
+Every publication still undergoes fresh receipt, manifest and verdict binding.
+Legacy JSONB evidence continues through its canonical verifier. Financial
+readers keep their own verification and pin contracts.

@@ -105,6 +105,39 @@ def test_real_noop_tuple_write_still_requires_fresh_hash(evidence_db):
     assert measured.hash_queries==2
 
 
+def test_canceled_early_renewal_preserves_frame_and_original_expiry(evidence_db, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    conn = evidence_db
+    install(conn)
+    identity = seed(conn)
+    now = datetime(2031, 4, 21, tzinfo=timezone.utc)
+    age = 0
+    monkeypatch.setattr(display, '_now', lambda: now + timedelta(seconds=age))
+    monkeypatch.setattr(display, 'time', SimpleNamespace(monotonic=lambda: age))
+    def start_frame():
+        conn.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+        return display._byte_context(conn)
+    display._verify_evidence(conn, identity, context=start_frame())
+    conn.rollback()
+    original = next(iter(display._BYTE_PROOFS.values()))
+    def slow(conn, key):
+        conn.execute("SET LOCAL statement_timeout = '40ms'")
+        conn.execute('SELECT pg_sleep(0.2)')
+    monkeypatch.setattr(rolling_store, 'verify_evidence', slow)
+    age = 550
+    display._verify_evidence(conn, identity, context=start_frame())
+    assert next(iter(display._BYTE_PROOFS.values())) is original
+    assert conn.execute('SELECT 1').fetchone() == (1,)
+    conn.rollback()
+    age = 600
+    with pytest.raises(psycopg.errors.QueryCanceled):
+        display._verify_evidence(conn, identity, context=start_frame())
+    conn.rollback()
+    assert not display._BYTE_PROOFS and not display._VERIFYING
+
+
 def test_real_ddl_change_invalidates_unchanged_bytes(evidence_db):
     install(evidence_db);identity=seed(evidence_db);measured=Measured(evidence_db)
     first=frame(measured,identity)

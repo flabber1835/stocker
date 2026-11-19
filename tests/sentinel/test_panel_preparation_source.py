@@ -37,7 +37,7 @@ def record(**changes):
         deadline=NOW+timedelta(hours=1), lease_until=NOW+timedelta(minutes=5),
         fence=4, next_retry=None, publication_version=None)
     job.update(changes)
-    return [job, NOW, 7, 6, False, True, 31]
+    return [job, NOW, 7, 6, False, True, 31, 1720712, False]
 
 
 class Connection:
@@ -64,7 +64,7 @@ def test_current_registered_request_exports_dated_progress_without_changing_run_
     work = model.PreparationWork.model_validate(result.pop('preparation'))
     assert result == dict(kind='OPERATIONAL SNAPSHOT', status='running', updated_at=NOW,
         rows_written=1720712, chunks_done=0, chunks_total=0,
-        current_chunk='ACQUIRING', error_message=None)
+        current_chunk='PREPARATION', error_message=None)
     assert work.decision_session == date(2026, 10, 30)
     assert work.effective_session == date(2026, 11, 2)
     assert work.active_at(NOW) and work.rows_done == 1720712 and work.components_done == 31
@@ -104,6 +104,19 @@ def test_another_latest_jobs_status_cannot_receive_the_current_candidates_progre
     result = sources._operational_acquisition(Connection([record()], latest=latest), now=NOW)[0]
     assert 'preparation' not in result, 'another job received current producer ownership'
     assert result['status'] == 'running' and result['rows_written'] == 777
+
+
+def test_job_published_between_reads_uses_one_stage_and_original_progress_clock():
+    current = record(state='PUBLISHED', rows_done=0, publication_version=8)
+    current[2:5] = [8, 7, True]
+    latest = ('READY', None, NOW-timedelta(seconds=4), 0, None, current[0]['job_id'])
+    run = sources._operational_acquisition(Connection([current], latest=latest), now=NOW)[0]
+    assert run['current_chunk'] == 'PUBLISHED · publication 8' and run['status'] == 'success'
+    assert run['updated_at'] == NOW and run['preparation']['source_rows_done'] == 1720712
+    assert run['preparation']['last_progress_at'] == NOW-timedelta(minutes=2)
+    failed = ('REFUSED','BAD_SOURCE',NOW,0,None,current[0]['job_id'])
+    run = sources._operational_acquisition(Connection([current], latest=failed), now=NOW)[0]
+    assert run['status'] == 'failed' and 'preparation' not in run
 
 
 def test_latest_job_identity_guard_has_an_executed_removal_falsifier(monkeypatch):
@@ -158,14 +171,17 @@ def test_progress_never_calls_strategy_identity_corpus_or_provider_work(monkeypa
         'sentinel_automation', 'sentinel_execution', 'copy ', 'update ', 'insert '))
 
 
-def test_feed_ingest_exports_typed_progress_without_changing_the_readiness_verdict(monkeypatch):
+@pytest.mark.parametrize('state,rows_done', [('ACQUIRING',1720712),('READY',0),('VALIDATING',0)])
+def test_feed_ingest_exports_typed_progress_without_changing_the_readiness_verdict(monkeypatch,state,rows_done):
     from sentinel.feed import store
 
     connection = Connection([])
     monkeypatch.setenv('SENTINEL_REVIEWED_DEPLOYMENT_MODE', 'shadow')
     monkeypatch.setattr(store, 'connect', lambda *_: connection)
     monkeypatch.setattr(sources, '_set_statement_timeout', lambda *_: None)
-    run = sources._operational_acquisition(Connection([record()]), now=NOW)[0]
+    current = record(state=state, rows_done=rows_done)
+    run = sources._operational_acquisition(Connection([current],
+        latest=(state, None, NOW, rows_done, None, current[0]['job_id'])), now=NOW)[0]
     monkeypatch.setattr(sources, '_operational_acquisition', lambda *_: [run])
     monkeypatch.setattr(sources, '_feed_status_snapshot', lambda *_: ('2026-10-29',
         SimpleNamespace(ready=False, checks_passed=13, checks_total=14, computed_at=NOW)))
@@ -175,6 +191,8 @@ def test_feed_ingest_exports_typed_progress_without_changing_the_readiness_verdi
     ingest = next(row for row in rows if row.key == 'ingest')
     feed = next(row for row in rows if row.key == 'feed')
     assert not errors and ingest.preparation is not None
+    assert '1,720,712 source records checkpointed' in ingest.detail and '0 rows' not in ingest.detail
+    assert 'ACQUIRING' not in ingest.value
     assert ingest.preparation.active_at(NOW)
     assert ingest.status == model.WARN and feed.status != model.OK
     assert ingest.preparation.effective_session == date(2026, 11, 2)
@@ -211,7 +229,7 @@ def metadata_database(private_pg, *, registered=True, cursor=None, cas=7,
         'publication_version bigint,candidate_id uuid,reason text)')
     conn.execute('CREATE TEMP TABLE sentinel_operational_snapshot_jobs(job_id uuid PRIMARY KEY)')
     conn.execute('CREATE TEMP TABLE sentinel_snapshot_workers(owner uuid PRIMARY KEY,job_id uuid)')
-    conn.execute('CREATE TEMP TABLE sentinel_snapshot_job_components(job_id uuid,component text,PRIMARY KEY(job_id,component))')
+    conn.execute('CREATE TEMP TABLE sentinel_snapshot_job_components(job_id uuid,component text,rows_done bigint,PRIMARY KEY(job_id,component))')
     conn.execute('CREATE TEMP TABLE sentinel_corpus_publications(version bigint PRIMARY KEY,previous_version bigint)')
     conn.execute('CREATE TEMP TABLE sentinel_operational_snapshots(publication_version bigint PRIMARY KEY,job_id uuid,candidate_id uuid)')
     observed = conn.execute('SELECT clock_timestamp()').fetchone()[0]
@@ -228,7 +246,8 @@ def metadata_database(private_pg, *, registered=True, cursor=None, cas=7,
     if registered:
         conn.execute('INSERT INTO sentinel_operational_snapshot_jobs VALUES(%s)', (job,))
     conn.execute('INSERT INTO sentinel_snapshot_workers VALUES(%s,%s)', (owner,job))
-    conn.execute("INSERT INTO sentinel_snapshot_job_components VALUES(%s,'SEP')", (job,))
+    conn.execute("INSERT INTO sentinel_snapshot_job_components VALUES(%s,'TICKERS',20),(%s,%s,103)",
+        (job, job, 'SEP.' + target[:7] + '-01.' + target))
     conn.execute('INSERT INTO sentinel_corpus_publications VALUES(%s,%s)', (8,7) if published else (7,6))
     if published:
         conn.execute('INSERT INTO sentinel_operational_snapshots VALUES(8,%s,%s)',
@@ -249,7 +268,8 @@ def test_real_sql_selects_only_current_registered_ordinary_cas_or_exact_publicat
         assert bool(rows) is expected, 'foreign metadata earned current source progress'
         if expected:
             progress = model.PreparationWork.model_validate(sources._preparation_work(rows[0], target=target))
-            assert progress.components_done == 1 and progress.rows_done == 123
+            assert progress.components_done == 2 and progress.rows_done == 123
+            assert progress.source_rows_done == 123 and progress.final_price_batch_recorded
             assert progress.owner_registered
             run = sources._operational_acquisition(conn)[0]
             assert run['preparation']['job_id'] == progress.job_id
@@ -264,6 +284,28 @@ def test_removing_operational_registration_from_real_sql_is_detected(private_pg,
     monkeypatch.setattr(sources, '_PREPARATION_SQL', sources._PREPARATION_SQL.replace(guard, ''))
     with pytest.raises(AssertionError, match='foreign metadata earned'):
         test_real_sql_selects_only_current_registered_ordinary_cas_or_exact_publication(private_pg, 'unregistered', False)
+
+
+def test_last_price_milestone_and_source_count_belong_to_the_selected_job(private_pg):
+    conn, target = metadata_database(private_pg)
+    try:
+        conn.execute("UPDATE sentinel_snapshot_job_components SET job_id=%s WHERE component LIKE 'SEP.%%'",
+                     (uuid.uuid4(),))
+        conn.execute("UPDATE sentinel_snapshot_jobs SET state='READY',rows_done=0")
+        progress = sources._operational_acquisition(conn)[0]['preparation']
+        assert progress['source_rows_done'] == 20 and progress['rows_done'] == 0
+        assert progress['components_done'] == 1 and not progress['final_price_batch_recorded']
+    finally:
+        conn.close()
+
+
+def test_removing_component_job_binding_carries_foreign_source_rows(private_pg,monkeypatch):
+    guard = 'FROM sentinel_snapshot_job_components c WHERE c.job_id=j.job_id'
+    assert sources._PREPARATION_SQL.count(guard) == 1
+    monkeypatch.setattr(sources, '_PREPARATION_SQL',
+        sources._PREPARATION_SQL.replace(guard, 'FROM sentinel_snapshot_job_components c'))
+    with pytest.raises(AssertionError):
+        test_last_price_milestone_and_source_count_belong_to_the_selected_job(private_pg)
 
 
 def test_real_reader_never_attaches_one_jobs_current_progress_to_a_newer_foreign_cas_job(private_pg):
