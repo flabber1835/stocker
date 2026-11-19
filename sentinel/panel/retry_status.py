@@ -227,7 +227,9 @@ def _native_fee_posting_retry(cycle: Mapping, diagnostic: Mapping) -> RecoveryEv
 def availability_label(cycle: Mapping, recovery: RecoveryEvidence) -> str:
     if recovery.phase == 'NATIVE_FEE_POSTING':
         state = 'WAITING FOR FEE TO POST'
-    elif recovery.phase in {'AUTOMATION_RECOVER_AVAILABILITY', 'AUTOMATION_PREFLIGHT_RECOVER_AVAILABILITY'}:
+    elif recovery.phase == 'AUTOMATION_PREFLIGHT_RECOVER_AVAILABILITY':
+        state = 'WAITING TO READ PUBLISHED MARKET DATA'
+    elif recovery.phase == 'AUTOMATION_RECOVER_AVAILABILITY':
         state = 'RETRYING RECONCILIATION'
     elif recovery.phase == 'AUTOMATION_EXECUTE_ENTRY_AVAILABILITY':
         state = 'WAITING FOR BACKUP PROOF'

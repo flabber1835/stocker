@@ -10,6 +10,21 @@ intervals of partial delivery also made the banner grey.
 
 ## Fenced preflight and independent broker freshness
 
+Decision 2026-11-19. The API recorded review changes for a running, planless
+preflight and the exact publication-pin retry even though its collector had
+already proved which callback owned the work. Classify the cycle, its active
+step and the matching broker refresh as expected human-health work through
+their original shared deadline when the other close-preparation inputs remain
+healthy. During initial discovery use the discovery step. For the supported
+pin-availability retry use the retrying data step and the producer's saved
+attempt and wake. A current, planless pending or bounded checking PAPER receipt
+can accompany both. Keep the broker observation's own timestamp and expired
+validity visible. Only its fenced refresh is in progress. A missing or mismatched
+owner, an unclassified retry, unresolved broker outcome, negative observation,
+expired callback or independent failure keeps its existing verdict and review
+history. The human classification does not grant financial readiness or clear
+any previously recorded incident.
+
 The discovery due time schedules preflight. A current, planless DISCOVERED
 cycle with its live leader and matching original preflight callback may show
 preflight in progress through the original callback deadline, bounded by the

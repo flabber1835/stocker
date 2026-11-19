@@ -676,6 +676,40 @@ def _preparation_inputs_current(panel) -> bool:
             and panel.row('book').shadow_book.session == session)
 
 
+_PREFLIGHT_STEPS = {
+    'AUTOMATION_PREFLIGHT_RECOVER': ('DISCOVERED', 'automation_step_discovery'),
+    'AUTOMATION_PREFLIGHT_RECOVER_AVAILABILITY': ('RETRY_WAIT', 'automation_step_data'),
+}
+
+
+def _preflight_refresh_owned(panel, cycle, session, opened):
+    from dataclasses import replace
+    from sentinel.panel.delivery import row_current
+    recovery = cycle.recovery
+    state, key = _PREFLIGHT_STEPS[recovery.phase]
+    step, broker = panel.row(key), panel.row('broker')
+    if (not _workflow(cycle, state) or not row_current(panel, cycle)
+            or not cycle.as_of <= panel.now < recovery.deadline <= opened
+            or step is None or not row_current(panel, step) or not step.required_current
+            or step.status != step.effective_status(panel.now) or step.status != 'warn'
+            or step.operational_fact != cycle.operational_fact or step.as_of != cycle.as_of
+            or step.recovery != recovery
+            or broker is None or not row_current(panel, broker) or not broker.required_current
+            or broker.status != 'ok' or broker.effective_status(panel.now) not in {'ok','warn'}
+            or not _aware(broker.as_of) or not _aware(broker.valid_until)
+            or broker.is_future(panel.now) or broker.as_of > broker.valid_until
+            or broker.recovery != replace(recovery, phase='BROKER_PREFLIGHT_REFRESH')):
+        return False
+    if state == 'DISCOVERED':
+        return (str(cycle.operational_fact.session) == session
+                and recovery.attempt is None and recovery.next_attempt_at is None)
+    schedule = cycle.operational_fact.schedule
+    return (schedule is not None and schedule.market_open == opened
+            and type(recovery.attempt) is int and recovery.attempt >= 1
+            and _aware(recovery.next_attempt_at)
+            and cycle.as_of < recovery.next_attempt_at <= recovery.deadline)
+
+
 def _preparing_work_normal(panel) -> bool:
     """Ordinary pending PAPER work can accompany proven next-close preparation.
 
@@ -690,7 +724,7 @@ def _preparing_work_normal(panel) -> bool:
     # Reject non-preparation before loading a calendar or evaluating inputs.
     # WAITING_OPEN is common; it cannot earn this preparation exception.
     if (cycle is None or cycle.recovery is None or cycle.recovery.phase not in {
-            'AUTOMATION_CLOSING_DATA', 'AUTOMATION_SHADOW_ATTESTATION',
+            *_PREFLIGHT_STEPS, 'AUTOMATION_CLOSING_DATA', 'AUTOMATION_SHADOW_ATTESTATION',
             'AUTOMATION_REFRESHING_DATA', 'AUTOMATION_PREPARING', 'AUTOMATION_PLAN_READY'}
             or cycle.effective_status(panel.now) != 'warn' or not cycle.required_current
             or not _aware(cycle.as_of) or cycle.is_future(panel.now)
@@ -719,6 +753,9 @@ def _preparing_work_normal(panel) -> bool:
         return False
     if cycle.as_of < closed:
         return False
+    preflight = cycle.recovery.phase in _PREFLIGHT_STEPS
+    if preflight and not _preflight_refresh_owned(panel, cycle, session, opened):
+        return False
     if (cycle.recovery.phase in {'AUTOMATION_REFRESHING_DATA', 'AUTOMATION_PREPARING'}
             and cycle.recovery.deadline != opened):
         return False
@@ -732,6 +769,8 @@ def _preparing_work_normal(panel) -> bool:
     elif plan.status != 'pending' or plan.paper_plan is not None:
         return False
     for key in _HISTORY_CURRENT_FACTS:
+        if preflight and key == 'broker':
+            continue
         row = panel.row(key)
         if _current_health_fact(panel, key):
             continue
@@ -744,7 +783,7 @@ def _preparing_work_normal(panel) -> bool:
     notifications = panel.row('automation_alerts')
     return (_enabled_policy(panel.row('automation'))
             and panel.row('alpaca_account').can_show_paper_account(panel.now)
-            and _current_reconciliation_usable(panel)
+            and (preflight or _current_reconciliation_usable(panel))
             and notifications is not None and notifications.effective_status(panel.now) in {'ok', 'warn'}
             and not notifications.is_future(panel.now) and not notifications.is_stale(panel.now))
 
@@ -789,15 +828,21 @@ def _normal_warning(panel, row: Row) -> bool:
             and row.operational_fact.state == run.state and row.as_of == run.updated_at
             and row.required_current and row.recovery is not None
             and row.recovery.phase == phases[row.key] and row.recovery.active(panel.now))
-    if (row.key in {'paper_reconciliation', 'exposure', 'automation_cycle', 'automation_step_data',
-                    'automation_step_prepare', 'automation_step_open'}
+    if (row.key in {'paper_reconciliation', 'broker', 'exposure', 'automation_cycle',
+                    'automation_step_discovery', 'automation_step_data', 'automation_step_prepare',
+                    'automation_step_open'}
             and (row.key != 'exposure' or row.recovery is None)
             and _preparing_work_normal(panel)):
+        cycle = panel.row('automation_cycle')
+        if cycle.recovery.phase in _PREFLIGHT_STEPS:
+            _, step = _PREFLIGHT_STEPS[cycle.recovery.phase]
+            return row.key in {'paper_reconciliation', 'broker', 'automation_cycle', step}
+        if row.key in {'broker', 'automation_step_discovery'}:
+            return False
         if row.key == 'paper_reconciliation':
             return True
         if row.key == 'exposure':
             return _unadopted_preparation_fact(panel)
-        cycle = panel.row('automation_cycle')
         phases = {cycle.recovery.phase}
         if _matching_close_step(row, cycle):
             phases.add(row.recovery.phase)
@@ -902,6 +947,8 @@ def preparation_stage(panel) -> str | None:
     if (cycle is not None and cycle.effective_status(panel.now) == 'warn'
             and cycle.recovery is not None and cycle.recovery.phase in {
                 'AUTOMATION_PREFLIGHT_RECOVER', 'AUTOMATION_PREFLIGHT_RECOVER_AVAILABILITY'}):
+        if cycle.recovery.phase == 'AUTOMATION_PREFLIGHT_RECOVER_AVAILABILITY':
+            return 'Waiting to read published market data'
         return 'Checking the recorded broker account'
     if _closing_source_proof(panel):
         phases = {row.recovery.phase for row in panel.rows
@@ -1165,10 +1212,17 @@ def dashboard_health(panel) -> dict:
                 if status == 'warn' and normal_warning
                 and row.key not in OPERATIONAL_INFORMATIONAL_ROW_KEYS]
     execution_normal = _execution_work_normal(panel)
-    boundaries.extend(row.operational_fact.opening.deadline
-        if execution_normal and row.key == 'broker' and row.is_stale(panel.now)
-        else _row_boundary(row) for row in admitted)
+    preparing = _preparing_work_normal(panel)
     cycle = panel.row('automation_cycle')
+    preflight = preparing and cycle.recovery.phase in _PREFLIGHT_STEPS
+    def work_boundary(row):
+        if row.key == 'broker' and row.is_stale(panel.now):
+            if execution_normal:
+                return row.operational_fact.opening.deadline
+            if preflight:
+                return row.recovery.deadline
+        return _row_boundary(row)
+    boundaries.extend(work_boundary(row) for row in admitted)
     if activation_wait is not None:
         boundaries.append(activation_wait.valid_until)
         if status == 'warn' and review is not None:
@@ -1203,8 +1257,8 @@ def dashboard_health(panel) -> dict:
             'automation_step_discovery'))
         boundaries.append(calendar.session_window(str(
             panel.row('completed_trading_run').trading_run.intent.effective_session))[1])
-    if _preparing_work_normal(panel):
-        boundaries.extend(_row_boundary(panel.row(key)) for key in _HISTORY_CURRENT_FACTS)
+    if preparing:
+        boundaries.extend(work_boundary(panel.row(key)) for key in _HISTORY_CURRENT_FACTS)
         boundaries.append(_row_boundary(panel.row('paper_reconciliation')))
         from sentinel.feed import calendar
         boundaries.append(calendar.session_window(calendar.next_session(

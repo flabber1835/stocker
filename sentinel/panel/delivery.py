@@ -126,12 +126,12 @@ def closing_refresh_deadline(panel):
     """Bound partial close delivery to already proved operational progress."""
     from sentinel.feed import calendar
     from sentinel.panel.operational_snapshot import MAX_SECONDS
-    from sentinel.panel.presentation import _fresh_worker, _row_boundary
+    from sentinel.panel.presentation import _fresh_worker, _row_boundary, visible_preparation
 
     generated, until = panel.observation_generated_at, panel.observation_valid_until
     review = panel.operator_review
     changed = set(panel.observation_changed_scopes)
-    if (not panel.local_paper_mode or panel.source_errors or not changed
+    if (not panel.local_paper_mode or panel.source_errors
             or changed - {'SHADOW', 'PAPER'} or generated is None or until is None
             or review is None or review.status not in {'CLEAN', 'REVIEW'}):
         return None
@@ -159,6 +159,14 @@ def closing_refresh_deadline(panel):
     opened = calendar.session_window(calendar.next_session(session))[0]
     if not closed <= now < opened or ready and str(fact.session) != session:
         return None
+    if not changed:
+        ingest = panel.row('ingest')
+        work = visible_preparation(panel)
+        if (not panel.observation_retained or not preparing or recovery.phase != 'POST_CLOSE_SOURCE_WAIT'
+                or generated < closed or work is None or str(work.decision_session) != session
+                or not row_current(panel, ingest) or not work.active_at(now)):
+            return None
+        boundary = min(boundary, work.active_until)
     if ready:
         cycle = panel.row('automation_cycle')
         stage = cycle.operational_fact if cycle is not None else None
@@ -202,6 +210,12 @@ def _within_display_bounds(panel, row):
         return True
     if row.is_future(panel.now) or row.is_stale(panel.now):
         return False
+    if row.key == 'feed' and panel.observation_retained and row.status == model.OK:
+        from sentinel.feed import calendar
+        fact = row.operational_fact
+        if (fact is not None and fact.kind == 'MARKET_DATA' and fact.state == 'READY'
+                and fact.sessions_behind == 0 and str(fact.session) != calendar.latest_closed_session(panel.now)):
+            return False
     from sentinel.panel.presentation import _row_boundary
     boundary = _row_boundary(row)
     if row.paper_plan is not None:

@@ -29,6 +29,9 @@ def test_exact_pin_retry_reaches_summary_step_and_broker_until_original_clock(mo
         cycle, summary, steps = preflight_cycle(monkeypatch, callback=callback)
         assert summary.recovery == steps[1].recovery
         assert summary.recovery.phase == 'AUTOMATION_PREFLIGHT_RECOVER_AVAILABILITY'
+        assert summary.value == steps[1].value == 'WAITING TO READ PUBLISHED MARKET DATA · ATTEMPT 9'
+        page = model.Panel(rows=[summary, *steps], now=boundary-timedelta(microseconds=1))
+        assert presentation.preparation_stage(page) == 'Waiting to read published market data'
         broker = sources._observation_recovery(cycle)
         assert broker.phase == 'BROKER_PREFLIGHT_REFRESH'
         assert broker.deadline == summary.recovery.deadline == boundary
