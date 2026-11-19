@@ -30,6 +30,14 @@ stale required dependencies and unrelated warnings. Preserve operator review
 and its original expiry. The installation record names the software-only
 scope and grants no financial authority or operator acknowledgement.
 
+The pending next-plan row must contain no saved plan. Earlier panels display
+`NOT PREPARED`. Current panels name the exchange session following today's
+completed run. Verify that date against the original run's effective session
+and the New York date when the dashboard was sampled. A still-current panel
+can be verified across midnight until its original expiry. An undated wait
+without a current run, a date from another run, and a plan awaiting adoption
+cannot prove this handoff.
+
 If the original 230-second start deadline expires after all six candidate
 processes were recorded at APPLICATIONS_STARTED, ordinary resume still refuses.
 The backed installer accepts an explicit `recover-verification --recovery-id

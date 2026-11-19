@@ -1,5 +1,5 @@
 """Counterexamples from the activated deployment; no broker or alternate book."""
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -161,8 +161,31 @@ def test_dual_runtime_broker_reader_does_not_consult_legacy_book(monkeypatch, mo
     assert [row.key for row in rows] == (['broker', 'paper_plan'] if mode == 'dual' else ['broker'])
     assert len(preview_reads) == (1 if mode == 'dual' else 0)
     if mode == 'dual':
-        assert rows[1].value == 'NOT PREPARED'
+        assert rows[1].value == 'AWAITING NEXT PLAN'
         assert rows[1].status == model.PENDING
+        assert rows[1].paper_plan is None
+
+
+@pytest.mark.parametrize(('decision','effective','label'), [
+    ('2026-10-21', '2026-10-22', 'AWAITING NEXT PLAN'),
+    ('2026-10-22', '2026-10-23', '2026-10-26 · awaiting plan'),
+    ('2026-10-23', '2026-10-26', 'AWAITING NEXT PLAN'),
+])
+def test_only_a_current_session_run_dates_the_pending_plan(decision, effective, label):
+    from sentinel.paper_plan_preview import PlanPreview
+
+    now = datetime(2026, 10, 23, 15, tzinfo=timezone.utc)
+    session = date.fromisoformat(effective)
+    opened = datetime.combine(session, now.time(), tzinfo=timezone.utc) - timedelta(hours=1)
+    prepared = datetime.combine(date.fromisoformat(decision), now.time(), tzinfo=timezone.utc)
+    intent = PlanPreview(cycle_id='cycle', plan_id='plan', decision_session=prepared.date(),
+        effective_session=session, execute_at=opened, created_at=prepared, observation_at=None, legs=[])
+    # The row's own deadline extends past the sampled time, including for yesterday's active run.
+    row = model.Row('trading_run','Today’s paper trading','EXECUTING',model.WARN,
+        as_of=now, valid_until=now+timedelta(days=5),
+        trading_run=model.TradingRun(intent=intent, state='EXECUTING', updated_at=opened, orders=[]))
+    pending = sources._pending_next_plan(row, now=now)
+    assert pending.value == label and pending.status == model.PENDING and pending.paper_plan is None
 
 
 def test_real_sql_identity_changes_on_book_or_control_but_not_heartbeats(conn):
