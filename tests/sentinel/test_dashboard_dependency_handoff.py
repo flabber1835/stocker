@@ -291,6 +291,35 @@ def test_display_and_ack_follow_native_automation_term(operational,monkeypatch,l
     assert delivery.row_current(current,current.row('automation_leader')) is (lease_change=='renew')
 
 
+def test_removing_native_lease_match_reuses_released_automation(operational,monkeypatch):
+    monkeypatch.setattr(deps,'same_automation_term',lambda *args:True)
+    with pytest.raises(AssertionError):
+        test_display_and_ack_follow_native_automation_term(operational,monkeypatch,'release')
+
+
+def test_shortened_automation_lease_bounds_response_and_expires_during_read(operational,monkeypatch):
+    from sentinel.automation import store
+    from tests.sentinel.test_automation_store import enable
+
+    c,_,_=operational
+    enable(c)
+    store.acquire_lease(c,holder_id='first',lease_seconds=120)
+    c,_=primed(operational,monkeypatch)
+    renewed=store.acquire_lease(c,holder_id='first',lease_seconds=10)
+    current=producer.read(c.info.dsn,display=True)
+    assert current.observation_current and current.observation_valid_until <= renewed.expires_at
+    def cross_expiry():
+        clocks=iter((renewed.expires_at-timedelta(seconds=1),renewed.expires_at))
+        monkeypatch.setattr(review_store,'database_now',lambda c:next(clocks))
+    cross_expiry()
+    page=producer.read(c.info.dsn,display=True)
+    assert not page.observation_current and not delivery.display_current(page)
+    assert not delivery.row_current(page,page.row('automation_leader'))
+    cross_expiry()
+    with pytest.raises(snapshots.SnapshotUnavailable,match='automation lease expired'):
+        producer.read(c.info.dsn)
+
+
 @pytest.mark.parametrize('negative',[False,True])
 def test_new_signed_snapshot_restores_strict_read_after_receipt_handoff(
         operational,monkeypatch,negative):
