@@ -50,14 +50,14 @@ def test_lens_contains_host_owner_inspection_inputs_without_runtime_shadowing():
     ):
         assert (test_root / relative).is_file(), relative
     if os.environ.get("SENTINEL_IN_IMAGE") == "1":
-        from sentinel import source_diagnostic
+        from sentinel import source_coverage_summary
 
         assert {path.relative_to(test_root / "sentinel").as_posix()
                 for path in (test_root / "sentinel").rglob("*") if path.is_file()} == {
-                    "requirements.lock", "source_diagnostic.py"}
-        assert source_diagnostic.__file__.startswith("/app/"), source_diagnostic.__file__
-        assert (test_root / "sentinel/source_diagnostic.py").read_bytes() == Path(
-            source_diagnostic.__file__).read_bytes()
+                    "requirements.lock", "source_coverage_summary.py"}
+        assert source_coverage_summary.__file__.startswith("/app/"), source_coverage_summary.__file__
+        assert (test_root / "sentinel/source_coverage_summary.py").read_bytes() == Path(
+            source_coverage_summary.__file__).read_bytes()
         assert not (test_root / "stock_strategy_shared").exists()
 
 
@@ -264,12 +264,12 @@ def test_ci_lens_missing_progress_parser_copy_is_detected(tmp_path, monkeypatch)
 
 def test_ci_lens_phase_diagnostic_resolves_its_exact_standalone_companion(tmp_path):
     """Execute the real host loader in the split image without importing a shadow runtime."""
-    import sentinel
+    from tests.host_python38.test_host_compat import run_phase_diagnostic_probe
 
     copies = _copy_directives(ROOT / "Dockerfile.sentinel-test")
-    destination = "/work/sentinel/source_diagnostic.py"
+    destination = "/work/sentinel/source_coverage_summary.py"
     sources = [source for source, target in copies if target == destination]
-    assert sources == ["sentinel/source_diagnostic.py"], (
+    assert sources == ["sentinel/source_coverage_summary.py"], (
         "CI lens diagnostic companion COPY missing or ambiguous")
     script_sources = [source for source, target in copies if target == "/work/scripts/"]
     assert script_sources == ["scripts/"]
@@ -277,42 +277,9 @@ def test_ci_lens_phase_diagnostic_resolves_its_exact_standalone_companion(tmp_pa
     companion.parent.mkdir(parents=True)
     shutil.copy2(ROOT / sources[0], companion)
     scripts = tmp_path / "work/scripts"
-    scripts.mkdir()
-    shutil.copy2(ROOT / script_sources[0] / "sentinel_go_phase_controller.py", scripts)
-    assert {path.name for path in companion.parent.iterdir()} == {"source_diagnostic.py"}
-    runtime = Path(sentinel.__file__).resolve()
-    # Extract and execute only the actual phase controller's diagnostic call;
-    # importing the complete controller would introduce unrelated GO probes.
-    code = """
-import ast, json, runpy, sys
-from pathlib import Path
-from types import SimpleNamespace
-work, runtime = Path(sys.argv[1]), Path(sys.argv[2])
-sys.path[:0] = [str(work), str(runtime.parent.parent)]
-import sentinel
-assert Path(sentinel.__file__).resolve() == runtime
-SCRIPT_DIR = work / 'scripts'
-tree = ast.parse((SCRIPT_DIR / 'sentinel_go_phase_controller.py').read_text())
-phase = next(node for node in tree.body
-             if isinstance(node, ast.FunctionDef) and node.name == 'run_phased_probes')
-calls = [node for node in ast.walk(phase)
-         if isinstance(node, ast.Call) and isinstance(node.func, ast.Subscript)
-         and isinstance(node.func.slice, ast.Constant)
-         and node.func.slice.value == 'collect_source_coverage']
-assert len(calls) == 1
-expected = dict(session='2026-10-30', expected_eligible=2,
-                received_eligible=1, missing_eligible_total=1,
-                missing_eligible=['DELL'])
-runner = SimpleNamespace(last_preparation_output=
-    'SENTINEL_GO_PREPARATION_FAILURE=' + json.dumps(dict(source_coverage=expected)))
-assert eval(compile(ast.Expression(calls[0]), '<phase-diagnostic>', 'eval')) == expected
-assert not any(name.startswith('sentinel.feed') for name in sys.modules)
-assert 'sentinel.source_diagnostic' not in sys.modules
-assert not (work / 'sentinel/__init__.py').exists()
-"""
-    result = subprocess.run(
-        [sys.executable, "-I", "-c", code, str(tmp_path / "work"), str(runtime)],
-        cwd=tmp_path, capture_output=True, text=True, check=False)
+    shutil.copytree(ROOT / script_sources[0], scripts)
+    assert {path.name for path in companion.parent.iterdir()} == {"source_coverage_summary.py"}
+    result = run_phase_diagnostic_probe(scripts, tmp_path)
     assert result.returncode == 0, result.stderr
 
 
@@ -320,8 +287,23 @@ def test_ci_lens_missing_phase_diagnostic_companion_is_detected(tmp_path, monkey
     original = _copy_directives
     monkeypatch.setattr(sys.modules[__name__], "_copy_directives",
         lambda path: [(source, target) for source, target in original(path)
-                      if target != "/work/sentinel/source_diagnostic.py"])
+                      if target != "/work/sentinel/source_coverage_summary.py"])
     with pytest.raises(AssertionError, match="CI lens diagnostic companion COPY missing"):
+        test_ci_lens_phase_diagnostic_resolves_its_exact_standalone_companion(tmp_path)
+
+
+def test_ci_lens_phase_diagnostic_detects_runtime_dependency(tmp_path, monkeypatch):
+    original_copy = shutil.copy2
+
+    def copy_with_regression(source, dest, **kwargs):
+        result = original_copy(source, dest, **kwargs)
+        if Path(source).name == 'source_coverage_summary.py':
+            with Path(result).open('a') as output:
+                output.write('\nfrom sentinel.archive_identifiers import FEED\n')
+        return result
+
+    monkeypatch.setattr(shutil, 'copy2', copy_with_regression)
+    with pytest.raises(AssertionError, match="No module named 'sentinel'"):
         test_ci_lens_phase_diagnostic_resolves_its_exact_standalone_companion(tmp_path)
 
 
