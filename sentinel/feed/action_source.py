@@ -1,6 +1,6 @@
-"""Canonical identity and cardinality diagnostics for Sharadar ACTIONS rows.
+"""Canonical identity and cardinality diagnostics for Source ACTIONS rows.
 
-Sharadar's source row grain is the complete seven-column row delivered by the
+the source's source row grain is the complete seven-column row delivered by the
 datatable, not ``(ticker, date, action)``.  Several rows may legitimately share
 that economic-event key (relationship rows are the production example).  This
 module gives the received content a stable identity without consulting row

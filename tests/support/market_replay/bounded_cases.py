@@ -32,9 +32,9 @@ def require_bounded_acquisition(transcript, *, step, successful):
                        or max(r["query"]["date.lte"] for r in exports) != end):
         raise StateMismatch("bounded acquisition did not cover the independent 300-session interval")
     downloads = [r for r in rows if r["channel"] == "download"
-                 and r.get("download_table") in {"SEP", "ACTIONS", "TICKERS"}]
-    counts = Counter((r["download_table"], r["download_query"].get("date.gte"),
-                      r["download_query"].get("date.lte"))
+                 and r.get("table") in {"SEP", "ACTIONS", "TICKERS"}]
+    counts = Counter((r["table"], r["query"].get("date.gte"),
+                      r["query"].get("date.lte"))
                      for r in downloads)
     if any(count != 1 for count in counts.values()):
         raise StateMismatch("bounded acquisition downloaded a table/partition more than once")
@@ -79,12 +79,12 @@ def build_bounded_scenarios():
         fault = Fault(table=table, channel="export", kind="creating_export")
         add(f"bounded_{table.lower()}_creating", [current("unavailable", FIRST,
             faults=(fault,), expected=seed.expected, ready=False,
-            error="export status=creating", required_blockers=("freshness",)),
+            error="ExportPending", required_blockers=("freshness",)),
             current("recover", SECOND)], recovery_from="recover")
     for kind in ("stale_export", "invalid_zip"):
         fault = Fault(table="SEP", channel="export", kind=kind)
         add(f"bounded_sep_{kind}", [current("damaged", FIRST, faults=(fault,),
-            expected=seed.expected, ready=False, error="SharadarSnapshotExportError",
+            expected=seed.expected, ready=False, error="SnapshotExportError",
             required_blockers=("freshness",)), current("recover", SECOND)], recovery_from="recover")
 
     changed = copy.deepcopy(current("source_changes", FIRST).tables["SEP"])

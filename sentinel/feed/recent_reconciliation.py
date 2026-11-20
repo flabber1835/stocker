@@ -19,16 +19,17 @@ key drift leaves the runtime fenced even if the ordinary `lastupdated` watermark
 already advanced.
 """
 from __future__ import annotations
+from sentinel import archive_identifiers
 
 import datetime as dt
 
 from sentinel.feed import (
     calendar, maintenance, publication, seed_coherence, sep_reconciliation,
-    sharadar, snapshot_export, store)
+    archive_tables, snapshot_export, store)
 from stock_strategy_shared.wealth_core.signals import REQUIRED_CLOSES
 
-CURSOR_NAME = "sharadar-sep-recent-export-reconcile:v1"
-CURSOR_KIND = "sharadar-sep-recent-export-reconcile/v1"
+CURSOR_NAME = archive_identifiers.FEED['RECENT_RECONCILE']
+CURSOR_KIND = archive_identifiers.FEED['RECENT_RECONCILE_KIND']
 
 
 def load_cursor(conn):
@@ -36,7 +37,7 @@ def load_cursor(conn):
 
 
 def _export_fetch(table, params=None, **_kwargs):
-    if table != sharadar.SEP:
+    if table != archive_tables.SEP:
         raise ValueError("recent SEP reconciliation export fetch accepts only SEP")
     params = dict(params or {})
     start = str(params.get("date.gte") or "")
@@ -69,7 +70,7 @@ def reconcile_recent(conn, *, through: str, fetch=None, observation_ceiling=None
     requested = dt.date.fromisoformat(str(through))
     prior_cursor = load_cursor(conn)
     if prior_cursor is not None and prior_cursor.processed_through > requested:
-        raise maintenance.SharadarMutationRefused(
+        raise maintenance.SourceMutationRefused(
             f"recent SEP reconciliation cursor {prior_cursor.processed_through} "
             f"is ahead of requested reconciliation through {requested}; refusing "
             "to traverse source under future durable authority")

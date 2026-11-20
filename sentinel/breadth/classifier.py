@@ -36,7 +36,7 @@ raw-corpus parity         REQUIRES NAS 7,061-session reproduction against the
 ```
 
 Offline falsification is not corpus certification. Nothing here may be cited as
-reproducing the frozen tape until the authoritative Sharadar run does it session
+reproducing the frozen tape until the reviewed data replay does it session
 by session — see `docs/sentinel-deployment.md` §12 item F.
 
 ## Three properties that are silent if got wrong
@@ -251,7 +251,7 @@ def breadth_observation_fields(holdings: Sequence[Holding]) -> Dict[str, float]:
     This makes the forward chain POSSIBLE. It does not activate it:
 
     ```text
-    Sharadar -> Wealth Core shadow -> THIS MODULE -> damaged/green
+    Published prices -> Wealth Core shadow -> THIS MODULE -> damaged/green
              -> SPY regime -> Observation -> controller.step
                                                    ^
                             the `decide` seam stays empty until the NAS run

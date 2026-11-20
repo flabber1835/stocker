@@ -22,8 +22,8 @@ is a long seed the operator will interrupt.
 
 ```text
 sentinel_bars          one row per (security, session). The corpus
-sentinel_actions       SHARADAR/ACTIONS, the authoritative corporate-action stream
-sentinel_universe      SHARADAR/TICKERS snapshots, for identity and eligibility
+sentinel_actions       ACTIONS, the authoritative corporate-action stream
+sentinel_universe      TICKERS snapshots, for identity and eligibility
 sentinel_defensive_bars fixed-identity BIL execution/return fields from SFP
 feed_ingest_runs       progress and history, committed per chunk
 ```
@@ -341,7 +341,7 @@ DDL = [
     # CORPUS VERSIONS. Architecture invariant #3 — "every snapshot and
     # decision records data_version" — was ADOPTED and UNIMPLEMENTED: there was
     # no version to record, and `sentinel_bars` is a destructive upsert, so a
-    # Sharadar restatement rewrote the evidence under a decision already made.
+    # Source restatement rewrote the evidence under a decision already made.
     #
     # AN INGEST RUN IS NOT A CORPUS VERSION. A run that fails halfway has a
     # run_id, and it must never be citable. A version exists only when a

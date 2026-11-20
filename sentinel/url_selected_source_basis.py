@@ -158,10 +158,11 @@ RETAINED_PREDECESSORS = {
     INSTALLED_PREDECESSOR_REVISION: (434, '85165e291f835307e86d45a1c678d44529ce42d1d46713614147c676ade7c47b'),
 }
 STRUCTURAL_PROFILE_SHA256 = '139d811983db0777eb6a92949e7e6adbe1c12d063c05d40c461f918cc741c5a0'
-PROFILE_SHA256 = 'cf2b8131b5ec9949faafdf67060b83ddd25258abdd5a6492a7e64fc9faff5b27'
+PROFILE_SHA256 = 'd8708c03a387217766fc21058a48914f778ad07130ab11b0e412fb215a9c4ef2'
 PROFILE = Path(__file__).with_name('url-selected-trading-transition.json')
 _SCHEMA = 'sentinel.url-selected-trading-transition/81'
 _SELF = 'url_selected_source_basis.py'
+RETIRED_PATHS_SHA256 = '1f47d0d6aec42d0e4d59c4e996d25794330a37237cd2d923fb9748d543b2a7db'
 
 
 def _sha(raw: bytes) -> str:
@@ -205,6 +206,38 @@ def _validated_closure(files: Mapping[str, str]) -> str:
     return result.hexdigest()
 
 
+def unpack_history(value):
+    """Resolve canonical indices into independently authenticated fixed-anchor deltas."""
+    if not isinstance(value, dict) or not isinstance(value.get('retained_objects'), list):
+        raise ValueError('URL_SOURCE_RETAINED_POOL_CHANGED')
+    pool = value['retained_objects']
+    if (any(not isinstance(pair, list) or len(pair) != 2 or
+            not all(isinstance(item, str) for item in pair) for pair in pool)
+            or pool != sorted(pool) or len({tuple(pair) for pair in pool}) != len(pool)):
+        raise ValueError('URL_SOURCE_RETAINED_POOL_CHANGED')
+    used = set()
+    records = value.get('retained_predecessors')
+    if not isinstance(records, dict):
+        raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
+    deltas = {}
+    for revision, record in records.items():
+        indices = record.get('overrides') if isinstance(record, dict) else None
+        if (not isinstance(indices, list) or len(indices) > 1024
+                or any(type(i) is not int or not 0 <= i < len(pool) for i in indices)
+                or indices != sorted(set(indices))):
+            raise ValueError('URL_SOURCE_RETAINED_POOL_CHANGED')
+        overrides = dict(pool[i] for i in indices)
+        if len(overrides) != len(indices):
+            raise ValueError('URL_SOURCE_RETAINED_POOL_CHANGED')
+        used.update(indices)
+        deltas[revision] = {**record, 'overrides': overrides}
+    if len(used) != len(pool):
+        raise ValueError('URL_SOURCE_RETAINED_POOL_CHANGED')
+    result = dict(value, retained_predecessors=deltas)
+    del result['retained_objects']
+    return result
+
+
 def _expand_retained(anchor, records):
     """Single-level deltas share validated paths, never independent pins."""
     if not isinstance(records, dict) or set(records) != set(RETAINED_PREDECESSORS):
@@ -246,6 +279,7 @@ def _profile() -> dict | None:
         raise ValueError('URL_SOURCE_PROFILE_CHANGED')
     value = json.loads(raw, object_pairs_hook=_pairs,
         parse_constant=lambda _: (_ for _ in ()).throw(ValueError('nonfinite profile')))
+    value = unpack_history(value)
     if (not isinstance(value, dict) or set(value) != {
             'schema', 'authority_effect', 'base_revision', 'base_source_sha256',
             'base_files', 'candidate_files', 'module_sha256', 'structural_profile_sha256',
@@ -262,6 +296,9 @@ def _profile() -> dict | None:
     anchor = _source_map(value['retained_anchor_files'])
     if (len(anchor), _validated_closure(anchor)) != RETAINED_PREDECESSORS[FRACTIONAL_PREDECESSOR_REVISION]:
         raise ValueError('URL_SOURCE_RETAINED_ANCHOR_CHANGED')
+    retired = set(baseline) - set(candidate)
+    if _sha(('\n'.join(sorted(retired))).encode()) != RETIRED_PATHS_SHA256:
+        raise ValueError('URL_SOURCE_COMPLETE_MAP_CHANGED')
     sealed = structural._profile()
     if sealed is None:
         raise ValueError('URL_SOURCE_PREDECESSOR_UNSEALED')
@@ -277,12 +314,12 @@ def _profile() -> dict | None:
                 or _validated_closure(record['files']) != expected_sha):
             raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
         if revision not in {PREVIOUS_BASE_REVISION, RETAINED_REVISION}:
-            if not set(record['files']) <= set(candidate) | {_SELF}:
+            if not set(record['files']) <= set(candidate) | retired | {_SELF}:
                 raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
         elif set(record['files']) - set(baseline):
             raise ValueError('URL_SOURCE_RETAINED_PREDECESSOR_CHANGED')
     if (len(baseline) != 422 or _validated_closure(baseline) != BASE_SOURCE_SHA256
-            or baseline != expected or set(baseline) - set(candidate)
+            or baseline != expected
             or _SELF in baseline or _SELF in candidate):
         raise ValueError('URL_SOURCE_COMPLETE_MAP_CHANGED')
     return value

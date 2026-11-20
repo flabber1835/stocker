@@ -387,6 +387,17 @@ def _refresh_unchanged_health(conn, result, verified_inventory):
         conn.rollback()
 
 
+def prepare_adjacent(conn, *, previous, through, acquisition_deadline):
+    """The common data-only advance after classifying the durable predecessor."""
+    from sentinel import shadow_budget
+    if calendar.next_session(previous) != through:
+        raise Refused("ROLLING_RUNTIME_SESSION_GAP")
+    initial._timing(conn, through)
+    conn.rollback()
+    shadow_budget.require_remaining(acquisition_deadline)
+    return inputs._prepare(conn, target_session=through, absolute_deadline=acquisition_deadline)
+
+
 def service_advance(conn, *, through, observation_id, starting_cash, acquisition_deadline=None):
     """Acquire only after checking the previous runtime authority and adjacency."""
     from sentinel import shadow_budget
@@ -427,13 +438,10 @@ def service_advance(conn, *, through, observation_id, starting_cash, acquisition
             from sentinel.rolling_reconstruction_evidence import InputsUnavailable
             raise InputsUnavailable("NEXT_FRESH_SESSION_REQUIRED:" + next_step)
         if previous != through:
-            if next_step != through:
+            if classified["status"] == "RECONSTRUCTION_REQUIRED":
                 raise Refused("ROLLING_RUNTIME_SESSION_GAP")
-            initial._timing(conn, through)
-            conn.rollback()
-            shadow_budget.require_remaining(acquisition_deadline)
-            inputs._prepare(conn, target_session=through,
-                            absolute_deadline=acquisition_deadline)
+            prepare_adjacent(conn, previous=previous, through=through,
+                             acquisition_deadline=acquisition_deadline)
     # Fresh genesis and crash recovery must consume the reviewed/current exact
     # publication; neither is permitted to replace it with newly acquired data.
     # Keep canonical ownership through the small validated health projection.

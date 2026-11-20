@@ -1,15 +1,12 @@
 """Local capacity evidence must reject incomplete work and resource pressure."""
 import argparse
 import ast
-import csv
 import inspect
-import io
 import json
-import zipfile
 
 import pytest
 
-from tools.acquisition_resources import cache_probe, fixtures, measurement, runner
+from tools.acquisition_resources import fixtures, measurement, runner
 
 
 def test_sampler_retains_phase_peaks_without_retaining_samples(tmp_path, monkeypatch):
@@ -98,27 +95,35 @@ def test_cgroup_working_set_excludes_inactive_file_cache(tmp_path):
         measurement.cgroup(tmp_path)
 
 
-def test_streamed_fixture_cardinality_and_csv_metadata(tmp_path):
-    profile = fixtures.Profile(name="test", securities=2, tickers=3, actions=7)
-    manifest = fixtures.build(profile, tmp_path)
-    assert sum(v["rows"] for k, v in manifest.items() if k.startswith("SEP-")) == 2 * 379
-    assert manifest["ACTIONS"]["rows"] == 7
-    assert manifest["TICKERS"]["rows"] == 3
-    for key, entry in manifest.items():
-        with zipfile.ZipFile(tmp_path / (key + ".zip")) as archive:
-            content = archive.read(archive.namelist()[0])
-        assert len(content) == entry["csv_bytes"]
-        assert len(list(csv.DictReader(io.StringIO(content.decode())))) == entry["rows"]
-
-
-def test_cache_probe_reports_actual_disk_consumption(tmp_path):
-    result = cache_probe.probe(tmp_path)
-    assert result["larger"] == measurement.disk(tmp_path)
-    assert result["small"]["cache_files"] == 64
-    assert result["small"]["cache_bytes"] == 64 * 4096
-    assert result["larger"]["cache_files"] == 64
-    assert result["larger"]["cache_bytes"] == 64 * 16384
-    assert result["larger"]["partial_bytes"] == 0
+def test_native_resource_profile_reuses_retained_price_pages(tmp_path, monkeypatch):
+    import threading
+    from http.server import ThreadingHTTPServer
+    from tests.support.postgres import _EphemeralPostgres
+    from tools.acquisition_resources import worker
+    profile = fixtures.Profile(name="test", securities=2, tickers=3, actions=7, formation=False)
+    server = ThreadingHTTPServer(('127.0.0.1', 0), fixtures.handler(profile))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    db = _EphemeralPostgres()
+    db.start()
+    thread.start()
+    try:
+        monkeypatch.setenv('RESOURCE_DSN', db.sync_dsn)
+        monkeypatch.setenv('SENTINEL_STATE_DIR', str(tmp_path))
+        monkeypatch.setenv('ALPACA_API_KEY', 'fixture-data-id')
+        monkeypatch.setenv('ALPACA_SECRET_KEY', 'fixture-data-secret')
+        monkeypatch.setenv('OPENFIGI_API_KEY', 'fixture-mapping')
+        from sentinel import backup_runtime_authority
+        monkeypatch.setattr(backup_runtime_authority, 'POLICY_MARKER', tmp_path/'no-policy')
+        result = worker.run(profile, 2, address=f'http://127.0.0.1:{server.server_port}')
+        cold, replay = result['cycles']
+        assert cold['rows'] == replay['rows'] == 600
+        assert cold['provider']['/v2/stocks/bars'] == replay['provider']['/v2/stocks/bars'] > 0
+        assert cold['provider']['/v3/mapping'] == replay['provider']['/v3/mapping'] > 0
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+        db.stop()
 
 
 @pytest.mark.parametrize("failure", (RuntimeError, KeyboardInterrupt))

@@ -281,15 +281,15 @@ def _bind_backup_audit(base, *, audit_sha256: str):
         "authorized_database_mutation_scopes": [
             "VERIFIED_BASE_BACKUP_RECOVERY_MARKER",
             "SCHEMA_MIGRATION",
-            "BOUNDED_SHARADAR_DAILY_INGEST",
+            "BOUNDED_MARKET_DATA_DAILY_INGEST",
         ],
     }
     return go.PreparationSummary(
         status=base.status,
         runtime_image_digest=base.runtime_image_digest,
         schema_migration_attempted=base.schema_migration_attempted,
-        bounded_sharadar_daily_attempted=(
-            base.bounded_sharadar_daily_attempted),
+        bounded_market_data_daily_attempted=(
+            base.bounded_market_data_daily_attempted),
         broker_mutation_attempts=base.broker_mutation_attempts,
         evidence_sha256=go._evidence_digest(evidence),
         elapsed_milliseconds=base.elapsed_milliseconds,
@@ -312,7 +312,7 @@ def _unavailable_preparation(
             and go._IMAGE_DIGEST.fullmatch(str(runtime_ref)) is not None
             else None),
         schema_migration_attempted=False,
-        bounded_sharadar_daily_attempted=False,
+        bounded_market_data_daily_attempted=False,
         broker_mutation_attempts=0,
         evidence_sha256=go._evidence_digest(evidence),
     )
@@ -434,7 +434,7 @@ def _preparation_with_backup_refresh(*args, **kwargs):
             "prior_schema_attempted": wrapped.attempts[0],
             "prior_daily_attempted": wrapped.attempts[1]}),
         schema_migration_attempted=base.schema_migration_attempted or wrapped.attempts[0],
-        bounded_sharadar_daily_attempted=base.bounded_sharadar_daily_attempted or wrapped.attempts[1],
+        bounded_market_data_daily_attempted=base.bounded_market_data_daily_attempted or wrapped.attempts[1],
         elapsed_milliseconds=max(0, math.ceil((time.monotonic() - started) * 1000)))
     bound = _bind_backup_audit(base, audit_sha256=audit_sha)
     phase._PHASE["prepared"] = bool(bound.status == go.PASS and bound.complete)

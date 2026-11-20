@@ -9,6 +9,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from ipaddress import IPv6Address
 import json
+import hashlib
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -47,7 +48,13 @@ UNSAFE_KEYS = frozenset({
     "SENTINEL_AUTHORIZED_RUNTIME", "SENTINEL_RUNTIME_BACKUP_AUTHORITY",
     "SENTINEL_RECOVERED_ORDER_AUTHORITY",
 })
-FILE_PREFIXES = ("SENTINEL_", "SHARADAR_", "ALPACA_", "NDL_")
+# Historical environment names and released GO wire identifiers have no current provider authority.
+_ARCHIVE_BYTES = Path(__file__).with_name("go-archive-format-v1.json").read_bytes()
+if hashlib.sha256(_ARCHIVE_BYTES).hexdigest() != "e2a17cc93076f9ccf81e0ac74d137e303c74285f43ef6f2bd52cffab6f7be0d9":
+    raise ValueError("historical host format changed")
+ARCHIVE_V1 = json.loads(_ARCHIVE_BYTES)
+RETIRED_ENV_PREFIXES = tuple(ARCHIVE_V1["retired_env_prefixes"])
+FILE_PREFIXES = ("SENTINEL_", "ALPACA_")
 FILE_EXTRA_KEYS = frozenset({
     "GITHUB_TOKEN", "GH_TOKEN", "COMPOSE_DISABLE_ENV_FILE", "COMPOSE_ENV_FILES",
     "OPENFIGI_API_KEY",
@@ -57,7 +64,7 @@ FILE_EXTRA_KEYS = frozenset({
 def operational_values(values: Mapping[str, str]) -> Dict[str, str]:
     """Keep historical vendor variables out of operational child processes."""
     return {key: value for key, value in values.items()
-            if not key.startswith(("SHARADAR_", "NDL_"))}
+            if not key.startswith(RETIRED_ENV_PREFIXES)}
 
 
 def _sec_contact(env: Mapping[str, str]) -> None:
@@ -291,10 +298,10 @@ def load(path: Path, *, required: bool = False) -> Dict[str, str]:
 def merge(values: Mapping[str, str], process: Mapping[str, str]) -> Dict[str, str]:
     for key in values:
         if (key in UNSAFE_KEYS or KEY.fullmatch(key) is None
-                or not (key.startswith(FILE_PREFIXES) or key in FILE_EXTRA_KEYS)):
+                or not (key.startswith(FILE_PREFIXES + RETIRED_ENV_PREFIXES) or key in FILE_EXTRA_KEYS)):
             _fail("FILE_COMMAND_KEY_REFUSED", key=key)
-    result = dict(values)
-    result.update(process)
+    result = operational_values(values)
+    result.update(operational_values(process))
     if result.get("COMPOSE_ENV_FILES", "").strip() not in {"", "/dev/null"}:
         _fail("ALTERNATE_COMPOSE_ENV_FILES_REFUSED", key="COMPOSE_ENV_FILES")
     result["COMPOSE_DISABLE_ENV_FILE"] = "1"
@@ -715,7 +722,7 @@ def validate(env: Mapping[str, str], *, profile: str, target: Optional[str] = No
     if invalid:
         raise EnvRefused(".env REQUIRED_VALUES_MISSING_OR_PLACEHOLDER: " + ", ".join(invalid))
     for key, value in env.items():
-        if key.startswith(("SENTINEL_", "SHARADAR_", "ALPACA_", "NDL_")):
+        if key.startswith(FILE_PREFIXES):
             if any(_unsafe_character(c) for c in value):
                 _fail("NONPRINTING_VALUE", key=key)
     if not Path(env["SENTINEL_BACKUP_DIR"]).is_absolute():
@@ -784,7 +791,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             for key in names:
                 if any(_unsafe_character(char) for char in resolved[key]):
                     _fail("NONPRINTING_VALUE", key=key)
-            payload = b"".join((key + "=" + resolved[key]).encode("utf-8") + b"\0"
+            removed = [key for key in sorted(os.environ) if KEY.fullmatch(key) and key.startswith(RETIRED_ENV_PREFIXES)]
+            unset_records = b"".join(("-" + key).encode("ascii") + b"\0" for key in removed)
+            payload = unset_records + b"".join((key + "=" + resolved[key]).encode("utf-8") + b"\0"
                                for key in sorted(names)) + COMPLETE
             sys.stdout.buffer.write(payload)
         else:

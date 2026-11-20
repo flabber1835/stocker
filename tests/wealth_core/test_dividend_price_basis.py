@@ -1,6 +1,6 @@
 import pytest
 
-from stock_strategy_shared.wealth_core.sharadar_domains import raw_dividend_per_share
+from stock_strategy_shared.wealth_core.price_domains import raw_dividend_per_share
 
 
 def test_dividend_domain_recovers_historical_aapl_pre_split_amount():

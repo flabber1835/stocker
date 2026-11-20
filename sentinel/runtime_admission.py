@@ -424,8 +424,7 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
         prior_bytes = manifest.seam_sources.get(name, '').encode()
         current_bytes = (current/name).read_bytes()
         if name == 'core/decision.py' and backed is not None:
-            from sentinel.fractional_execution_source_basis import decision_comparison_scope
-            comparison_scope, comparison_bytes = decision_comparison_scope(backed, current_bytes)
+            comparison_scope, comparison_bytes = _decision_comparison_scope(backed, current_bytes)
             if comparison_scope.decision_compatible(prior_bytes, comparison_bytes):
                 continue
         contribution = basis.canonical_contribution(module, current_bytes)
@@ -438,6 +437,20 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
     if restored != old['environment_identity_sha256']:
         raise Refused('RETAINED_COMPUTATIONAL_ENVIRONMENT_CHANGED')
     return digest(manifest.model_dump(by_alias=True))
+
+
+def _decision_comparison_scope(scope, raw):
+    """Compose reviewed changes only after authenticating the observed candidate."""
+    from sentinel.economic_manifest import previous_source
+    from sentinel.fractional_execution_source_basis import decision_comparison_scope
+    name = 'core/decision.py'
+    if hashlib.sha256(raw).hexdigest() != scope.current_files.get(name):
+        return scope, raw
+    predecessor = previous_source('sentinel.core.decision', raw)
+    if predecessor != raw:
+        scope = replace(scope, current_files=MappingProxyType({
+            **scope.current_files, name: hashlib.sha256(predecessor).hexdigest()}))
+    return decision_comparison_scope(scope, predecessor)
 
 
 def _fence(conn):

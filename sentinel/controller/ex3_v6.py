@@ -1,4 +1,5 @@
 """Retained EX3 V6 profile: broad V5, R40 strictly above -4%, REC8."""
+from sentinel import archive_identifiers
 from dataclasses import asdict, replace
 import hashlib
 import json
@@ -22,7 +23,7 @@ def load():
     config = replace(base, strategy_id=STRATEGY_ID)
     payload = {"native": asdict(config), "wealth_core": asdict(v5.config()),
                "reference_source_sha256": v5.REFERENCE_SOURCE_SHA256,
-               "universe": "BROAD_SHARADAR_COMMON_EQUITY",
+               "universe": archive_identifiers.UNIVERSE,
                "r40_floor": R40_FLOOR, "rec_sessions": RECOVERY_SESSIONS}
     digest = hashlib.sha256(json.dumps(payload, sort_keys=True,
                                       separators=(",", ":")).encode()).hexdigest()

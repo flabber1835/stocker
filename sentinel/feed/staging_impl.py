@@ -38,7 +38,7 @@ does not.
 ## Exact source decimals survive the scratch table
 
 The compatibility staging columns are DOUBLE PRECISION, but the production
-provider now decodes Sharadar fractional JSON numbers as ``Decimal``. Converting
+provider now decodes Source fractional JSON numbers as ``Decimal``. Converting
 those exact source values to float here would reintroduce publication-rebase
 noise before volume, dividend, and raw-open normalization. Five nullable source
 text columns therefore travel beside the compatibility numerics. They preserve

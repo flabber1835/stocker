@@ -37,7 +37,8 @@ class _Opener:
 
 
 @pytest.fixture(autouse=True)
-def credentials(monkeypatch):
+def credentials(monkeypatch, tmp_path):
+    monkeypatch.setenv("SENTINEL_STATE_DIR", str(tmp_path))
     monkeypatch.setenv("ALPACA_API_KEY", "test-key")
     monkeypatch.setenv("ALPACA_SECRET_KEY", "test-secret")
 
@@ -157,8 +158,10 @@ def test_action_pagination_accepts_distinct_pages():
     assert pages[0][0]["cash_dividends"][0]["symbol"] == "A"
 
 
-def test_basic_plan_requests_are_paced_and_429_retry_after_is_bounded():
+def test_basic_plan_requests_are_paced_and_429_retry_after_is_bounded(monkeypatch):
+    from sentinel.feed import provider_budget
     now, delays = [0.0], []
+    monkeypatch.setattr(provider_budget.time, "time", lambda: now[0])
     def sleep(delay):
         delays.append(delay)
         now[0] += delay
@@ -180,7 +183,11 @@ def test_request_measurement_reports_retries_and_bytes_without_touching_evidence
     monkeypatch.setattr(transport.time, 'perf_counter_ns', lambda: next(ticks))
     error = HTTPError(BAR_URL, 429, 'private', {'Retry-After': '3'}, io.BytesIO(b'hidden'))
     body = {'bars': {}, 'next_page_token': None}
-    client = Client(opener=_Opener([error, body, body]), interval=0, sleeper=lambda _: None)
+    now = [1.0]
+    monkeypatch.setattr(transport.time, 'time', lambda: now[0])
+    def sleep(delay):
+        now[0] += delay
+    client = Client(opener=_Opener([error, body, body]), interval=0, sleeper=sleep)
     with measure_requests() as metrics:
         _, proof = client.get(BAR_URL, {'symbols': 'private-symbol'})
     after = metrics.fields()

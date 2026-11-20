@@ -58,8 +58,18 @@ def compact(value):
     return {**value, 'retained_predecessors': records}
 
 
+def pool_history(value):
+    records = value['retained_predecessors']
+    pairs = sorted({pair for record in records.values() for pair in record['overrides'].items()})
+    indices = {pair: i for i, pair in enumerate(pairs)}
+    return {**value, 'retained_objects': pairs,
+            'retained_predecessors': {revision: {**record,
+                'overrides': sorted(indices[pair] for pair in record['overrides'].items())}
+                for revision, record in records.items()}}
+
+
 def encoded(value):
-    return (json.dumps(compact(value), sort_keys=True, separators=(',', ':'),
+    return (json.dumps(pool_history(compact(value)), sort_keys=True, separators=(',', ':'),
                        allow_nan=False)+'\n').encode('utf-8')
 
 
@@ -80,6 +90,11 @@ def seal_candidate(repo, predecessor, candidate):
     if pins != [_sha(old_raw).encode()]:
         raise ValueError('predecessor catalog digest differs from its checker')
     old = json.loads(old_raw)
+    if 'retained_objects' in old:
+        # Only current and future protected releases use the pooled storage.
+        # Previous release bytes were authenticated before decoding.
+        from sentinel.url_selected_source_basis import unpack_history
+        old = unpack_history(old)
     normalized = _PIN.sub(b"PROFILE_SHA256 = '" + b'0' * 64 + b"'", checker)
     if (old['authority_effect'] != 'NONE' or old['module_sha256'] != _sha(normalized)):
         raise ValueError('predecessor source comparison boundary differs')

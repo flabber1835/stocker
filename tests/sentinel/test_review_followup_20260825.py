@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from sentinel import alert_service, automation_supervisor, shadow_supervisor
-from sentinel.feed import sharadar, source_authority
+from sentinel.feed import archive_tables, source_authority
 from sentinel.feed.source_authority import fetch as source_fetch
 
 
@@ -42,7 +42,7 @@ def test_cdc_request_shape_drift_refuses_before_fetch():
 
     with pytest.raises(source_authority.SourceAuthorityRefused,
                        match="request envelope refused"):
-        list(guarded(sharadar.SEP, {
+        list(guarded(archive_tables.SEP, {
             "lastupdated.gte": "2026-08-02",
             "lastupdated.lte": "2026-08-05",
         }))
@@ -63,16 +63,16 @@ def test_cdc_replay_is_available_only_after_two_exact_update_observations():
 
     with pytest.raises(source_authority.SourceAuthorityRefused,
                        match="request envelope refused"):
-        list(routed(sharadar.SEP, date_request))
+        list(routed(archive_tables.SEP, date_request))
     assert calls == []
 
     update_request = {
         "lastupdated.gte": "2026-08-01",
         "lastupdated.lte": "2026-08-05",
     }
-    assert list(routed(sharadar.SEP, update_request))
-    assert list(routed(sharadar.SEP, update_request))
-    assert list(routed(sharadar.SEP, date_request))
+    assert list(routed(archive_tables.SEP, update_request))
+    assert list(routed(archive_tables.SEP, update_request))
+    assert list(routed(archive_tables.SEP, date_request))
     assert calls == [update_request, update_request, date_request]
 
 

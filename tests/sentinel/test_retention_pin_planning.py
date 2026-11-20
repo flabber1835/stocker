@@ -35,6 +35,7 @@ def pin_sql(pg):
         conn.execute(f'CREATE TABLE {name}({columns})')
     for prefix,statements in (
         ('CREATE OR REPLACE FUNCTION sentinel_retention_locks()',retention_schema.DDL),
+        ('CREATE OR REPLACE FUNCTION sentinel_acquisition_retention_locks()',retention_schema.DDL),
         ('CREATE OR REPLACE FUNCTION sentinel_acquisition_part_pinned(',acquisition_part_schema.DDL),
         ('CREATE OR REPLACE FUNCTION sentinel_acquisition_delete_guard()',acquisition_part_schema.DDL),
         ('CREATE TRIGGER acquisition_delete_guard BEFORE DELETE ON sentinel_acquisition_parts',acquisition_part_schema.DDL),

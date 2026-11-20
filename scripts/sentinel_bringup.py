@@ -24,7 +24,6 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-import sentinel_bringup_source_liveness as liveness  # noqa: E402
 import sentinel_go_backup_refresh as backup_refresh  # noqa: E402
 import sentinel_go_lock as go_lock  # noqa: E402
 import sentinel_go_phase_controller as controller  # noqa: E402
@@ -43,28 +42,10 @@ class BringupRefused(RuntimeError):
 
 
 @dataclass(frozen=True)
-class SourceDecision:
-    proceed: bool
-    status: str
-    reason_code: str
-
-
-@dataclass(frozen=True)
 class BackupDecision:
     healthy: bool
     repairable: bool
     reason_code: str
-
-
-def source_decision(report: Mapping[str, object]) -> SourceDecision:
-    """Map the lightweight source report to a bring-up handoff action."""
-    status = str(report.get("status") or "")
-    reason = str(report.get("reason_code") or "BRINGUP_LIVENESS_UNAVAILABLE")
-    if status in {"PASS", "RECOVERY_REQUIRED"}:
-        return SourceDecision(True, status, reason)
-    if status in {"DEFERRED", "REFUSED"}:
-        return SourceDecision(False, status, reason)
-    raise BringupRefused("source liveness probe returned an unknown state")
 
 
 def backup_decision(completed: subprocess.CompletedProcess) -> BackupDecision:
@@ -80,20 +61,6 @@ def backup_decision(completed: subprocess.CompletedProcess) -> BackupDecision:
     raise BringupRefused(
         "backup durability checkpoint returned an unclassified failure (exit %d)"
         % int(completed.returncode))
-
-
-def _print_source_report(report: Mapping[str, object], *, prefix: str) -> None:
-    decision = source_decision(report)
-    detail = liveness.safe_detail(report.get("detail"))
-    text = "%s: %s - %s" % (prefix, decision.status, decision.reason_code)
-    if detail:
-        text += " - " + detail
-    if report.get("detail_sha256"):
-        text += " [detail_sha256=%s]" % str(report["detail_sha256"])
-    followup = report.get("local_followup")
-    if isinstance(followup, list) and followup:
-        text += " [local_followup=%s]" % ",".join(str(item) for item in followup)
-    print(text, flush=True)
 
 
 def _require_exact_main(runner: go.CommandRunner):
@@ -195,37 +162,6 @@ def _runtime_for_commit(
     return _build_exact_ordinary(runner, commit)
 
 
-def _source_liveness_report(
-        runner: go.CommandRunner, *, env: Mapping[str, str],
-        runtime_ref: str, compose_args: Sequence[str]) -> Mapping[str, object]:
-    """Run one bounded liveness read; no CDC stability/identity/recovery work."""
-    run_env = go._without_broker_authority(dict(env))
-    run_env["SENTINEL_RUNTIME_IMAGE_REF"] = str(runtime_ref)
-    # Prevent a diagnostic liveness probe from inheriting production-scale retry
-    # budgets. GO retains the normal authoritative source policy.
-    run_env["SHARADAR_FETCH_TIMEOUT"] = "15"
-    run_env["SHARADAR_FETCH_RETRIES"] = "2"
-    run_env["SHARADAR_FETCH_BACKOFF"] = "1"
-    run_env["SHARADAR_429_BACKOFF_CAP"] = "15"
-    run_env["SHARADAR_FETCH_MAX_PAGES"] = "2"
-    completed = runner.run([
-        "docker", "compose", *[str(item) for item in compose_args],
-        "--profile", "cli", "run", "--rm", "-T", "--no-deps",
-        "--entrypoint", "python", "sentinel", "-c", liveness._CODE,
-    ], env=run_env)
-    report = liveness.payload(completed)
-    if completed.returncode != 0 or report is None:
-        evidence = (
-            probe_contract.subprocess_evidence(completed, context="BRINGUP_LIVENESS")
-            if completed.returncode != 0
-            else probe_contract.malformed_report_evidence(
-                completed, context="BRINGUP_LIVENESS"))
-        probe_contract.emit_probe_failure(evidence)
-        raise BringupRefused(
-            "Sharadar/local liveness probe failed (%s)" % evidence["reason"])
-    return report
-
-
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Fast non-authoritative Sentinel bring-up diagnostics")
@@ -249,16 +185,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         _require_environment(env)
         runner = controller.DiagnosticRunner()
         git = _require_exact_main(runner)
-        _run_env, compose_args = _compose_and_database_ready(runner, env)
+        _compose_and_database_ready(runner, env)
 
         print("bring-up gate: backup durability", flush=True)
         backup_repair_reason = _backup_checkpoint(env)
 
         print("bring-up gate: exact ordinary runtime", flush=True)
-        runtime_ref = _runtime_for_commit(runner, env=env, commit=git.commit)
-
-        # GO owns Alpaca/OpenFIGI source observation. Bring-up is a local
-        # durability/image diagnostic and must not query the retired provider.
+        _runtime_for_commit(runner, env=env, commit=git.commit)
 
         if backup_repair_reason is not None:
             print(

@@ -61,14 +61,14 @@ def _preparation(*, status=go.PASS):
         status=status,
         runtime_image_digest=DIGEST_B if status == go.PASS else None,
         schema_migration_attempted=status == go.PASS,
-        bounded_sharadar_daily_attempted=status == go.PASS,
+        bounded_market_data_daily_attempted=status == go.PASS,
         broker_mutation_attempts=0,
         evidence_sha256="8" * 64)
 
 
 def _database_health(*, status=go.PASS, measured=None, checks=None):
     measured = measured or {
-        "bounded_sharadar_ingest": 1_000,
+        "bounded_market_data_ingest": 1_000,
         "full_forward_decision_replay": 2_000,
         "warmup_revision_scan": 3_000,
         "combined_pretrade_work": 6_000,
@@ -88,7 +88,7 @@ def _database_health(*, status=go.PASS, measured=None, checks=None):
         },
         measured_milliseconds=measured,
         threshold_milliseconds={
-            "bounded_sharadar_ingest": go.MAX_BOUNDED_INGEST_MS,
+            "bounded_market_data_ingest": go.MAX_BOUNDED_INGEST_MS,
             "full_forward_decision_replay": (
                 go.MAX_FULL_FORWARD_DECISION_REPLAY_MS),
             "warmup_revision_scan": go.MAX_WARMUP_REVISION_SCAN_MS,
@@ -140,7 +140,7 @@ def test_gate_ids_and_bundle_members_are_exact_contract():
         "certified_suite_no_skips",
         "database_financial_health",
         "wealth_core_nas_parity",
-        "sharadar_readiness",
+        "market_data_readiness",
         "preopen_share_unit_authority",
         "alpaca_paper_account",
         "official_close_nav",
@@ -263,13 +263,13 @@ def test_validation_reports_preparation_outside_zero_write_boundary():
 
 def test_bundle_contains_only_allowlisted_sanitized_members(tmp_path):
     account = "PA-PRIVATE-ACCOUNT-123456"
-    api_key = "SHARADAR-PRIVATE-KEY-987654"
+    api_key = "RETIRED-PRIVATE-KEY-987654"
     probes = _probes(subjects={"alpaca_paper_account": account})
 
     result = go.emit_bundle(
         probes, output_dir=tmp_path, created_at=NOW,
         valid_for=timedelta(hours=24),
-        scan_env={"SHARADAR_API_KEY": api_key})
+        scan_env={go.sentinel_env.ARCHIVE_V1["retired_api_key"]: api_key})
 
     assert result.upload_permitted is True
     assert result.shadow_verdict == go.SHADOW_GO
@@ -466,7 +466,7 @@ def test_readiness_probe_code_enforces_read_only_and_never_saves_snapshot():
     assert "ensure_schema" not in go._READINESS_CODE
 
 
-def test_readiness_runs_exact_runtime_digest_and_requires_alpaca_authority():
+def test_readiness_runs_exact_runtime_without_provider_credentials():
     class ReadinessRunner:
         def __init__(self):
             self.calls = []
@@ -490,7 +490,7 @@ def test_readiness_runs_exact_runtime_digest_and_requires_alpaca_authority():
                     }) + "\n"), stderr="")
 
     runner = ReadinessRunner()
-    gate = go.probe_sharadar_readiness(
+    gate = go.probe_market_data_readiness(
         runner, env={
             "ALPACA_API_KEY": "private-key",
             "ALPACA_SECRET_KEY": "private-secret",
@@ -513,11 +513,11 @@ def test_readiness_runs_exact_runtime_digest_and_requires_alpaca_authority():
                                      "SENTINEL_TEST_IMAGE_DIGEST"]
     assert not go._BROKER_AUTH_ENV.intersection(probe_env)
 
-    missing = go.probe_sharadar_readiness(
+    without_provider = go.probe_market_data_readiness(
         ReadinessRunner(), env={
             "SENTINEL_POSTGRES_PASSWORD": "private-password",
         }, runtime_ref=DIGEST_B, commit=COMMIT, now_text=NOW_TEXT)
-    assert missing.status == go.NOT_PROVEN
+    assert without_provider.status == go.PASS
 
 
 def _database_health_payload():
@@ -573,7 +573,7 @@ def test_database_health_probe_is_read_only_pinned_and_reports_exact_margin():
     assert gate.status == go.PASS
     assert summary.complete is True
     assert summary.measured_milliseconds == {
-        "bounded_sharadar_ingest": 1_000,
+        "bounded_market_data_ingest": 1_000,
         "full_forward_decision_replay": 2_000,
         "warmup_revision_scan": 3_000,
         "combined_pretrade_work": 6_000,
@@ -646,7 +646,7 @@ def test_read_only_probes_refuse_missing_or_malformed_selected_identity(commit, 
            'ALPACA_API_KEY': 'private-key', 'ALPACA_SECRET_KEY': 'private-secret',
            'SENTINEL_GIT_COMMIT': COMMIT, 'SENTINEL_RUNTIME_IMAGE_DIGEST': DIGEST_B}
     if probe == 'readiness':
-        gate = go.probe_sharadar_readiness(runner, env=env, runtime_ref=DIGEST_B,
+        gate = go.probe_market_data_readiness(runner, env=env, runtime_ref=DIGEST_B,
             commit=commit, now_text=NOW_TEXT)
     else:
         _, gate = go.probe_database_financial_health(runner, env=env, runtime_ref=DIGEST_B,
@@ -1064,7 +1064,7 @@ def test_upgrade_preparation_uses_exact_runtime_with_market_data_authority_only(
                             "schema_migrated": True,
                             "source_not_before_satisfied": True,
                             "following_open_future": True,
-                            "bounded_sharadar_daily": True,
+                            "bounded_market_data_daily": True,
                             "publication_current": True,
                         }) + "\n"), stderr="")
             raise AssertionError(command)
@@ -1087,7 +1087,7 @@ def test_upgrade_preparation_uses_exact_runtime_with_market_data_authority_only(
     assert summary.elapsed_milliseconds == 1_500
     command, prepared_env = runner.calls[-1]
     assert "schema.ensure_schema(c)" in command[-1]
-    assert "store.migrate_schema(c)" in command[-1]
+    assert "store.require_feed_schema(c)" in command[-1]
     # Preparation overlays can format this call across lines. Check the actual
     # connection and target arguments, rather than one source-code spelling.
     assert any(
@@ -1095,7 +1095,7 @@ def test_upgrade_preparation_uses_exact_runtime_with_market_data_authority_only(
         and isinstance(node.func.value, ast.Name)
         and (node.func.value.id, node.func.attr) in {
             ("ingest", "daily"), ("outage_recovery", "catch_up"),
-            ("outage_recovery", "catch_up_waiting"), ("rolling_go_inputs", "prepare")}
+            ("outage_recovery", "catch_up_waiting"), ("rolling_go_inputs", "prepare"), ("retained_go", "prepare")}
         and node.args and isinstance(node.args[0], ast.Name) and node.args[0].id == "c"
         and any(keyword.arg == ("today" if node.func.attr == "daily" else "target_session")
                 and isinstance(keyword.value, ast.Name) and keyword.value.id == "target"
@@ -1115,7 +1115,7 @@ def test_upgrade_preparation_uses_exact_runtime_with_market_data_authority_only(
                 "ALPACA_API_KEY", "ALPACA_SECRET_KEY", "OPENFIGI_API_KEY"]
     assert prepared_env.get("OPENFIGI_API_KEY") == openfigi_key
     assert "SENTINEL_PAPER_ACCOUNT_ID" not in prepared_env
-    assert "SHARADAR_API_KEY" not in prepared_env
+    assert go.sentinel_env.ARCHIVE_V1["retired_api_key"] not in prepared_env
     assert "after.version >" not in go._PREPARATION_CODE
 
 
@@ -1123,7 +1123,7 @@ def test_upgrade_preparation_without_alpaca_is_not_proven():
     summary = go.probe_prevalidation_preparation(
         go.CommandRunner(), env={
             "SENTINEL_POSTGRES_PASSWORD": "private",
-            "SHARADAR_API_KEY": "retired-source-key",
+            go.sentinel_env.ARCHIVE_V1["retired_api_key"]: "retired-source-key",
         }, runtime_ref=DIGEST_B, commit=COMMIT)
     assert summary.status == go.NOT_PROVEN
     assert summary.complete is False

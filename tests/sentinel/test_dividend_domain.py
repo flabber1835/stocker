@@ -1,6 +1,6 @@
-"""Sharadar dividend-domain regression tests.
+"""Archived dividend-domain regression tests.
 
-ACTIONS dividend values are expressed on Sharadar's split-adjusted share basis;
+ACTIONS dividend values are expressed on the archive's split-adjusted share basis;
 Wealth Core owns the historical as-traded share count. These tests pin the
 conversion at the production SEP boundary so later splits cannot silently shrink
 historical cash distributions.
@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from sentinel.feed import domains as D
-from stock_strategy_shared.wealth_core.sharadar_domains import raw_dividend_per_share
+from stock_strategy_shared.wealth_core.price_domains import raw_dividend_per_share
 
 
 def _row(*, close, raw, date="2014-08-07", ticker="AAPL", volume=1_000_000):

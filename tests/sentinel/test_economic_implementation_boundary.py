@@ -145,7 +145,7 @@ def test_provider_canonical_mappings_preserve_original_price_domains():
         assert len(calls) == 1
         return calls[0]
     prior = call_in(record['_build'])
-    current = call_in(inspect.getsource(canonical_transforms.sharadar_bar))
+    current = call_in(inspect.getsource(canonical_transforms.source_bar))
     assert ast.dump(prior,include_attributes=False) == ast.dump(current,include_attributes=False)
     prior = call_in(record['build_alpaca'])
     current = call_in(inspect.getsource(canonical_transforms.alpaca_bar))
@@ -346,7 +346,7 @@ def test_implicit_initializers_bind_independent_unchanged_b2_source_bytes():
     assert hashlib.sha256(encoded).hexdigest() == B2_INITIALIZERS_SHA256
     for name in INITIALIZERS:
         assert profile['input_compilers'][name] == baseline[name]
-        assert hashlib.sha256(economic._module_raw(name)).hexdigest() == baseline[name]
+        assert hashlib.sha256(economic.previous_source(name, economic._module_raw(name))).hexdigest() == baseline[name]
 
 
 def test_every_contributor_binds_its_actual_implicit_initializers():
@@ -385,9 +385,15 @@ def test_all_local_edges_have_explicit_economic_or_reviewed_port_ownership():
     closure = set(profile['pure_contracts']) | set(profile['input_compilers'])
     ports = profile['operational_ports']
     assert not closure & set(ports)
-    for name,edges in profile['dependencies'].items():
-        assert edges == economic.local_imports(economic._module_raw(name),module_name=name)
-        assert {edge for edge in edges if edge.startswith('sentinel.')} <= closure | set(ports)
+    migration = economic._retired_source_profile()
+    current_closure = {migration['modules'].get(name, {}).get('module', name) for name in closure}
+    for name, edges in profile['dependencies'].items():
+        record = migration['modules'].get(name, {})
+        installed = record.get('module', name)
+        current_edges = economic.local_imports(economic._module_raw(installed), module_name=installed)
+        assert current_edges == record.get('dependencies', edges)
+        allowed_ports = set(ports) | set(migration['ports'])
+        assert {edge for edge in current_edges if edge.startswith('sentinel.')} <= current_closure | allowed_ports
 
 
 def test_missing_port_classification_refuses_even_with_supplied_manifest_digest(tmp_path,monkeypatch):
@@ -464,3 +470,28 @@ def test_unknown_manifest_bytes_and_changed_reader_are_refused(tmp_path, monkeyp
     monkeypatch.setattr(economic,'__file__',str(reader))
     with pytest.raises(economic.EconomicManifestRefused,match='READER_CHANGED'):
         economic.manifest()
+
+def test_renamed_price_source_preserves_archived_provenance_and_refuses_unknown_bytes(monkeypatch):
+    from sentinel.feed import rolling_contract
+    from sentinel.strategy import production_strategy
+
+    installed = 'stock_strategy_shared.wealth_core.price_domains'
+    transitions = economic._retired_source_profile()['modules']
+    historical, = (name for name, row in transitions.items() if row['module'] == installed)
+    # SHA256 of the complete original price-domain file at the verified
+    # 5a5331d435705f23d2b6d6228a6ec8fda8c94979 main release.
+    archived = '4bebd224c7597913280dc731fcd04db10102f6b85250e8d74003754b53b550ba'
+    baseline = economic.identity(schema='qualification-economic-boundary')
+    assert historical != installed
+    assert transitions[historical]['before'] == archived
+    assert {row['module']: row['sha256'] for row in baseline['files']}[historical] == archived
+    assert installed not in {row['module'] for row in baseline['files']}
+    baseline_strategy = rolling_contract.digest(production_strategy()[1])
+    read = economic._module_raw
+    changed = read(installed) + b'\n# unreviewed adjacent price-domain edit\n'
+    monkeypatch.setattr(economic, '_module_raw', lambda name: changed if name == installed else read(name))
+    mutated = economic.identity(schema='qualification-economic-boundary')
+    assert mutated['sha256'] != baseline['sha256']
+    assert mutated['economic_implementation']['preserved_behavior'] is False
+    assert next(row['sha256'] for row in mutated['files'] if row['module'] == historical) == hashlib.sha256(changed).hexdigest()
+    assert rolling_contract.digest(production_strategy()[1]) != baseline_strategy

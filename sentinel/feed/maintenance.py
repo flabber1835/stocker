@@ -1,5 +1,6 @@
 """Canonical SEP/ACTIONS maintenance authority."""
 from __future__ import annotations
+from sentinel import archive_identifiers
 
 import datetime as dt
 from typing import Optional
@@ -8,7 +9,7 @@ from sentinel.feed import actions_reconcile_v7 as _actions_v7
 from sentinel.feed import maintenance_impl as _core
 from sentinel.feed.maintenance_impl import (
     MutationCursorUnavailable,
-    SharadarMutationRefused,
+    SourceMutationRefused,
     SourceCursor,
     establish_sep_cursor_after_complete_reconciliation,
     establish_sep_cursor_after_seed,
@@ -45,20 +46,20 @@ def _require_cursor_scope(cursor):
     from sentinel.feed import operational_source
     window = getattr(cursor, "price_window", None)
     if window is not None and operational_source.current() is None:
-        raise _core.SharadarMutationRefused(
+        raise _core.SourceMutationRefused(
             f"SEP cursor covers operational prices {window[0]}..{window[1]}, "
             "not full retained history; an explicit complete seed/reconciliation "
             "must earn full-history CDC authority")
 
 
-def _reconcile_sep_mutations_core(conn, *, fetch=_core.sharadar.fetch_table,
+def _reconcile_sep_mutations_core(conn, *, fetch=_core.archive_tables.fetch_table,
                                   through: str,
                                   reobserve_equal: bool = False
                                   ) -> Optional[_core.SourceCursor]:
     """Apply SEP CDC rows through the canonical typed identity boundary.
 
     Direct callers keep equal-cursor reconciliation terminal. Production daily
-    may explicitly request one same-date re-observation because Sharadar
+    may explicitly request one same-date re-observation because source
     ``lastupdated`` has date granularity: a row can appear later on the same UTC
     vendor date after an earlier complete observation of that date.
     """
@@ -78,7 +79,7 @@ def _reconcile_sep_mutations_core(conn, *, fetch=_core.sharadar.fetch_table,
             # call executes. No source traversal is needed to satisfy the older
             # frozen boundary; return the already stronger durable cursor.
             return cursor
-        raise _core.SharadarMutationRefused(
+        raise _core.SourceMutationRefused(
             f"SEP mutation cursor {cursor.processed_through} is ahead of "
             f"requested reconciliation through {hi}; refusing to treat future "
             "durable authority as already current")
@@ -87,7 +88,7 @@ def _reconcile_sep_mutations_core(conn, *, fetch=_core.sharadar.fetch_table,
     lo = cursor.processed_through - dt.timedelta(days=1)
     params = {"lastupdated.gte": lo.isoformat(),
               "lastupdated.lte": hi.isoformat()}
-    rows = _stable_rows(fetch, _core.sharadar.SEP, params)
+    rows = _stable_rows(fetch, _core.archive_tables.SEP, params)
     market_start, market_end = _retained_market_bounds(conn)
     published_from = dt.date.fromisoformat(market_start)
     published_through = dt.date.fromisoformat(market_end)
@@ -99,7 +100,7 @@ def _reconcile_sep_mutations_core(conn, *, fetch=_core.sharadar.fetch_table,
         current = _core.publication.require_current(conn)
         return _write_cursor(
             conn, name=SEP_CURSOR_NAME,
-            kind="sharadar-sep-lastupdated/v1", through=hi,
+            kind=archive_identifiers.FEED['SEP_WATERMARK_KIND'], through=hi,
             publication_version=current.version)
 
     windows = _core.renormalize.correction_windows(
@@ -134,7 +135,7 @@ def _reconcile_sep_mutations_core(conn, *, fetch=_core.sharadar.fetch_table,
         })
     return _write_cursor(
         conn, name=SEP_CURSOR_NAME,
-        kind="sharadar-sep-lastupdated/v1", through=hi,
+        kind=archive_identifiers.FEED['SEP_WATERMARK_KIND'], through=hi,
         publication_version=published.version)
 
 
@@ -146,7 +147,7 @@ from sentinel.feed.source_authority import (  # noqa: E402
 
 __all__ = [
     "ACTIONS_RECONCILE_DAYS", "LastUpdatedTrackingFetch",
-    "MutationCursorUnavailable", "SEP_CURSOR_NAME", "SharadarMutationRefused",
+    "MutationCursorUnavailable", "SEP_CURSOR_NAME", "SourceMutationRefused",
     "SourceCursor", "establish_sep_cursor_after_complete_reconciliation",
     "establish_sep_cursor_after_seed", "load_actions_cursor", "load_sep_cursor",
     "reconcile_actions_if_due", "reconcile_sep_mutations",

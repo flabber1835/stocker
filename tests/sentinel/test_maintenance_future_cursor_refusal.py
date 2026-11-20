@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from sentinel import archive_identifiers as archive_ids
+
 import datetime as dt
 
 import pytest
 
 from sentinel.feed import (
     actions_reconcile_v7, ingest, maintenance, maintenance_impl,
-    recent_reconciliation, sharadar,
+    recent_reconciliation, archive_tables,
 )
 
 
@@ -28,17 +30,17 @@ def test_sep_future_cursor_refuses_before_vendor_fetch(monkeypatch):
     monkeypatch.setattr(
         maintenance,
         "load_sep_cursor",
-        lambda _conn: _future_cursor("sharadar-sep-lastupdated/v1"),
+        lambda _conn: _future_cursor(archive_ids.FEED['SEP_WATERMARK_KIND']),
     )
 
     calls = []
 
     def forbidden_fetch(*args, **kwargs):
         calls.append((args, kwargs))
-        raise AssertionError("future cursor must refuse before Sharadar is contacted")
+        raise AssertionError("future cursor must refuse before any captured table is read")
 
     with pytest.raises(
-        maintenance.SharadarMutationRefused,
+        maintenance.SourceMutationRefused,
         match="SEP mutation cursor .* is ahead of requested reconciliation",
     ):
         maintenance.reconcile_sep_mutations(
@@ -51,7 +53,7 @@ def test_daily_caller_reobserves_vendor_cursor_ahead_of_market_target(monkeypatc
     source_day = dt.datetime.now(dt.timezone.utc).date()
     market_target = source_day - dt.timedelta(days=1)
     current = maintenance.SourceCursor(
-        kind="sharadar-sep-lastupdated/v1",
+        kind=archive_ids.FEED['SEP_WATERMARK_KIND'],
         processed_through=source_day,
         publication_version=17,
     )
@@ -73,7 +75,7 @@ def test_daily_caller_refuses_vendor_cursor_beyond_source_observation_date(
         monkeypatch):
     source_day = dt.datetime.now(dt.timezone.utc).date()
     impossible = maintenance.SourceCursor(
-        kind="sharadar-sep-lastupdated/v1",
+        kind=archive_ids.FEED['SEP_WATERMARK_KIND'],
         processed_through=source_day + dt.timedelta(days=1),
         publication_version=17,
     )
@@ -81,7 +83,7 @@ def test_daily_caller_refuses_vendor_cursor_beyond_source_observation_date(
         ingest.maintenance, "load_sep_cursor", lambda _conn: impossible)
 
     with pytest.raises(
-        maintenance.SharadarMutationRefused,
+        maintenance.SourceMutationRefused,
         match="ahead of requested reconciliation through",
     ):
         ingest._reconcile_sep_for_market_target(
@@ -92,7 +94,7 @@ def test_daily_caller_refuses_vendor_cursor_beyond_source_observation_date(
 def test_equal_sep_cursor_reobserve_does_not_skip_same_date_row(monkeypatch):
     source_day = dt.date(2026, 9, 3)
     current = maintenance.SourceCursor(
-        kind="sharadar-sep-lastupdated/v1",
+        kind=archive_ids.FEED['SEP_WATERMARK_KIND'],
         processed_through=source_day,
         publication_version=17,
     )
@@ -110,7 +112,7 @@ def test_equal_sep_cursor_reobserve_does_not_skip_same_date_row(monkeypatch):
     }
 
     def source(table, params=None, **_kwargs):
-        assert table == sharadar.SEP
+        assert table == archive_tables.SEP
         observed_requests.append(dict(params or {}))
         return [dict(late_row)]
 
@@ -121,8 +123,8 @@ def test_equal_sep_cursor_reobserve_does_not_skip_same_date_row(monkeypatch):
             "lastupdated.gte": (source_day - dt.timedelta(days=1)).isoformat(),
             "lastupdated.lte": source_day.isoformat(),
         }
-        first = list(fetch(sharadar.SEP, params))
-        second = list(fetch(sharadar.SEP, params))
+        first = list(fetch(archive_tables.SEP, params))
+        second = list(fetch(archive_tables.SEP, params))
         assert first == [late_row]
         assert second == [late_row]
         return current
@@ -151,7 +153,7 @@ def test_actions_future_cursor_refuses_before_export_or_vendor_fetch(monkeypatch
         raise AssertionError("future cursor must refuse before source traversal")
 
     with pytest.raises(
-        maintenance.SharadarMutationRefused,
+        maintenance.SourceMutationRefused,
         match="ACTIONS v10 reconciliation cursor .* is ahead of requested reconciliation",
     ):
         maintenance.reconcile_actions_if_due(
@@ -178,7 +180,7 @@ def test_recent_sep_future_cursor_refuses_before_complete_export(monkeypatch):
         raise AssertionError("future recent cursor must refuse before export")
 
     with pytest.raises(
-        maintenance.SharadarMutationRefused,
+        maintenance.SourceMutationRefused,
         match="recent SEP reconciliation cursor .* is ahead of requested reconciliation",
     ):
         recent_reconciliation.reconcile_recent(
@@ -191,7 +193,7 @@ def test_equal_sep_cursor_is_terminal_current_without_vendor_fetch(monkeypatch):
     monkeypatch.setattr(
         maintenance_impl.store, "_assert_corpus_locked", lambda _conn: None)
     current = maintenance.SourceCursor(
-        kind="sharadar-sep-lastupdated/v1",
+        kind=archive_ids.FEED['SEP_WATERMARK_KIND'],
         processed_through=dt.date.fromisoformat(THROUGH),
         publication_version=17,
     )

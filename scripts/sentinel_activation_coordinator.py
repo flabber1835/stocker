@@ -215,13 +215,13 @@ def _source_frontier_wait(completed):
     value = failure_payload(result)
     detail = 'ROLLING_INPUTS_NOT_READY: rolling source-final frontier'
     keys = {'phase', 'error_type', 'reason_code', 'schema_migration_attempted',
-            'bounded_sharadar_daily_attempted', 'detail', 'detail_sha256'}
+            'bounded_market_data_daily_attempted', 'detail', 'detail_sha256'}
     return bool(result.returncode == 2 and value is not None and set(value) == keys
         and value['phase'] == 'DAILY_CATCHUP'
         and value['error_type'] == 'RollingSourceFrontierPending'
         and value['reason_code'] == 'PREPARATION_DAILY_CATCHUP_FAILED'
         and value['schema_migration_attempted'] is True
-        and value['bounded_sharadar_daily_attempted'] is True
+        and value['bounded_market_data_daily_attempted'] is True
         and value['detail'] == detail
         and value['detail_sha256'] == hashlib.sha256(detail.encode()).hexdigest()
         and not any(line.strip().startswith(('bundle:', 'sha256:'))

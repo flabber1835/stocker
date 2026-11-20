@@ -4,7 +4,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Optional
 
-from sentinel.feed import sharadar
+from sentinel.feed import archive_tables
 from .dates import SepUpdateEnvelope
 
 
@@ -43,7 +43,7 @@ class LastUpdatedTrackingFetch:
 
     def __call__(self, table, params=None, **kwargs):
         rows = self._fetch(table, params, **kwargs)
-        if table != sharadar.SEP:
+        if table != archive_tables.SEP:
             return rows
 
         def replay():

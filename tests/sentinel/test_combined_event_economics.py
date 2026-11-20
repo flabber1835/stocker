@@ -10,14 +10,14 @@ import pytest
 from sentinel.controller.machine import Controller
 from sentinel.core.kernel import advance_session
 from sentinel.core.production import PublishedSession, SessionState
-from sentinel.feed import actions_map, calendar, corporate_action_authority as CAA, sharadar
+from sentinel.feed import actions_map, calendar, corporate_action_authority as CAA, archive_tables
 from sentinel.feed.domains import RawPriceDomainUnavailable, normalise_sep_rows
 from sentinel.strategy import owned_impairment_strategy as production_strategy
 from stock_strategy_shared.wealth_core.adapter import PendingOrder
 from stock_strategy_shared.wealth_core.engine import Operation
 from stock_strategy_shared.wealth_core.feed import SecurityMeta, VendorBar
 from stock_strategy_shared.wealth_core.ledger import EventType, Ledger
-from stock_strategy_shared.wealth_core.sharadar_domains import raw_dividend_per_share
+from stock_strategy_shared.wealth_core.price_domains import raw_dividend_per_share
 from stock_strategy_shared.wealth_core.state import HoldingEpisode, PortfolioState
 from stock_strategy_shared.wealth_core.terminal import TerminalKind, TerminalTerms
 from tests.sentinel.test_corporate_action_cash_adjudication import (
@@ -33,9 +33,9 @@ EXPECTED_CASH = Decimal("1435.518000")
 
 def normalized_tri(*, rebase=1, cash="1.36"):
     fetch = tri_vendor(rebase=rebase, cash=cash)
-    rows = [r for r in fetch(sharadar.SEP) if r["date"] >= PRE]
+    rows = [r for r in fetch(archive_tables.SEP) if r["date"] >= PRE]
     days = sorted(r["date"] for r in rows)
-    source = fetch(sharadar.ACTIONS)
+    source = fetch(archive_tables.ACTIONS)
     splits, ambiguous = actions_map.split_rows_from_actions(source, days)
     assert not ambiguous
     resolution = CAA.resolve_dividends(source, days)
@@ -178,8 +178,8 @@ def test_opening_entry_receives_no_old_share_distribution():
 
 def test_basis_contract_refuses_missing_or_wrong_consolidation():
     fetch = tri_vendor()
-    rows = [r for r in fetch(sharadar.SEP) if r["date"] == EVENT_DAY]
-    resolution = CAA.resolve_dividends(fetch(sharadar.ACTIONS), [EVENT_DAY])
+    rows = [r for r in fetch(archive_tables.SEP) if r["date"] == EVENT_DAY]
+    resolution = CAA.resolve_dividends(fetch(archive_tables.ACTIONS), [EVENT_DAY])
     with pytest.raises(RawPriceDomainUnavailable, match="split_ratio"):
         list(normalise_sep_rows(rows, dividends=resolution.dividends))
     distribution = resolution.dividends[("TRI", EVENT_DAY)]

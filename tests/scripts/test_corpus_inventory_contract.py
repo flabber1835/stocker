@@ -15,13 +15,15 @@ import zipfile
 
 import pytest
 
+from sentinel.archive_identifiers import PROVIDER as ARCHIVE_PROVIDER
+
 ROOT = Path(os.environ.get('SENTINEL_REPO_ROOT', Path(__file__).resolve().parents[2]))
 SOURCE = ROOT/'scripts/sentinel-corpus-inventory.py'
 spec = importlib.util.spec_from_file_location('corpus_inventory_contract', SOURCE)
 inventory = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(inventory)
-METADATA = ('SHARADAR_TICKERS.zip', 'SHARADAR_ACTIONS.zip', 'SHARADAR_SFP.zip')
-YEARS = ('SHARADAR_SEP_1998.csv.gz', 'SHARADAR_SEP_1999.csv.gz')
+METADATA = (f'{ARCHIVE_PROVIDER}_TICKERS.zip', f'{ARCHIVE_PROVIDER}_ACTIONS.zip', f'{ARCHIVE_PROVIDER}_SFP.zip')
+YEARS = (f'{ARCHIVE_PROVIDER}_SEP_1998.csv.gz', f'{ARCHIVE_PROVIDER}_SEP_1999.csv.gz')
 CSV = 'ticker,date,close\nBIL,1998-02-02,100\nSPY,1998-01-02,200\nBIL,1998-02-01,101\n'
 
 
@@ -50,7 +52,7 @@ def corpus(tmp_path):
 
 def invoke(monkeypatch, root, output, pins, *, deep=False):
     monkeypatch.setattr(inventory, 'pinned_hashes', lambda: dict(pins))
-    monkeypatch.setattr(sys, 'argv', [str(SOURCE), '--sharadar', str(root), '--out', str(output)]
+    monkeypatch.setattr(sys, 'argv', [str(SOURCE), '--corpus', str(root), '--out', str(output)]
         + (['--deep'] if deep else []))
     assert inventory.main() == 0
     return json.loads(output.read_text())
@@ -155,7 +157,7 @@ def test_main_refuses_unavailable_or_half_promoted_corpus(monkeypatch, tmp_path,
         root.mkdir()
         (root/'.sentinel-sep-promotion.json').write_text('{}')
     output = tmp_path/'never.json'
-    monkeypatch.setattr(sys, 'argv', [str(SOURCE), '--sharadar', str(root), '--out', str(output)])
+    monkeypatch.setattr(sys, 'argv', [str(SOURCE), '--corpus', str(root), '--out', str(output)])
     with pytest.raises(SystemExit, match='not a directory' if blocked == 'not-directory' else 'incomplete'):
         inventory.main()
     assert not output.exists()
@@ -166,7 +168,7 @@ def test_main_refuses_unavailable_or_half_promoted_corpus(monkeypatch, tmp_path,
 def test_complete_per_year_corpus_is_never_reported_as_bulk_only(monkeypatch, tmp_path, deep, bulk):
     root, pins = corpus(tmp_path)
     if bulk:
-        zip_csv(root/'SHARADAR_SEP.zip')
+        zip_csv(root/f'{ARCHIVE_PROVIDER}_SEP.zip')
     (root/'ignored-directory').mkdir()
     (root/'duplicate.bin').write_bytes((root/YEARS[0]).read_bytes())
     output = tmp_path/'inventory.json'
@@ -181,7 +183,7 @@ def test_complete_per_year_corpus_is_never_reported_as_bulk_only(monkeypatch, tm
     assert report['files']['duplicate.bin']['pinned'] is None
     assert any('duplicate.bin' in names for names in report['duplicates_by_content'].values())
     assert ('content' in report['files'][YEARS[0]]) is deep
-    assert report['files']['SHARADAR_SFP.zip']['content']['missing_wanted'] == []
+    assert report['files'][f'{ARCHIVE_PROVIDER}_SFP.zip']['content']['missing_wanted'] == []
     assert {path.name: path.read_bytes() for path in root.iterdir() if path.is_file()} == before
 
 
@@ -191,9 +193,9 @@ def test_bulk_only_and_absent_metadata_have_distinct_next_steps(monkeypatch, tmp
     for name in YEARS:
         (root/name).unlink()
     if bulk:
-        zip_csv(root/'SHARADAR_SEP.zip')
+        zip_csv(root/f'{ARCHIVE_PROVIDER}_SEP.zip')
     if missing_metadata:
-        (root/'SHARADAR_SFP.zip').unlink()
+        (root/f'{ARCHIVE_PROVIDER}_SFP.zip').unlink()
     report = invoke(monkeypatch, root, tmp_path/'report.json', pins)
     summary = report['summary']
     assert summary['sep_present_only_as_bulk_zip'] is (bulk and not missing_metadata)
@@ -201,24 +203,24 @@ def test_bulk_only_and_absent_metadata_have_distinct_next_steps(monkeypatch, tmp
     assert summary['metadata_inputs_byte_identical'] is (not missing_metadata)
     assert summary['missing'] == 2 + int(missing_metadata)
     assert summary['corpus_is_byte_identical_to_the_recovered_run'] is False
-    assert report['summary']['missing_files'] == sorted([*YEARS] + (['SHARADAR_SFP.zip'] if missing_metadata else []))
+    assert report['summary']['missing_files'] == sorted([*YEARS] + ([f'{ARCHIVE_PROVIDER}_SFP.zip'] if missing_metadata else []))
     assert capsys.readouterr().out
 
 
 def test_newer_corpus_hash_is_reported_as_difference_without_overwriting_pins(monkeypatch, tmp_path):
     root, pins = corpus(tmp_path)
-    zip_csv(root/'SHARADAR_ACTIONS.zip', 'ticker,action\nX,dividend\n')
+    zip_csv(root/f'{ARCHIVE_PROVIDER}_ACTIONS.zip', 'ticker,action\nX,dividend\n')
     report = invoke(monkeypatch, root, tmp_path/'report.json', pins)
-    assert report['summary']['mismatched_files'] == ['SHARADAR_ACTIONS.zip']
+    assert report['summary']['mismatched_files'] == [f'{ARCHIVE_PROVIDER}_ACTIONS.zip']
     assert report['summary']['corpus_is_byte_identical_to_the_recovered_run'] is False
-    assert report['files']['SHARADAR_ACTIONS.zip']['pinned'] == pins['SHARADAR_ACTIONS.zip']
+    assert report['files'][f'{ARCHIVE_PROVIDER}_ACTIONS.zip']['pinned'] == pins[f'{ARCHIVE_PROVIDER}_ACTIONS.zip']
 
 
 def test_script_entrypoint_with_empty_private_corpus_does_not_claim_real_reproduction(monkeypatch, tmp_path):
     root = tmp_path/'empty-corpus'
     root.mkdir()
     output = tmp_path/'report.json'
-    monkeypatch.setattr(sys, 'argv', [str(SOURCE), '--sharadar', str(root), '--out', str(output)])
+    monkeypatch.setattr(sys, 'argv', [str(SOURCE), '--corpus', str(root), '--out', str(output)])
     with pytest.raises(SystemExit) as completed:
         runpy.run_path(str(SOURCE), run_name='__main__')
     assert completed.value.code == 0

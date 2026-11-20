@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Step 1 of the raw-breadth certification: inventory and verify the corpus.
 
-Run this on the machine that HAS the Sharadar corpus. It answers, with
+Run this on the machine that HAS the archived corpus. It answers, with
 evidence rather than filename convention:
 
 ```text
@@ -20,7 +20,7 @@ of the source rather than restating it, for the same reason
 second copy is a second thing to drift.
 
 Those hashes describe the corpus the recovered result was produced from. A
-mismatch is not automatically an error — Sharadar restates history, so a newer
+mismatch is not automatically an error — source archives can be revised, so a newer
 pull legitimately differs — but it IS the difference between "we reproduced the
 tape" and "we reproduced something from a different corpus", and it must be
 recorded before any reconstruction is run rather than discovered afterwards.
@@ -28,7 +28,7 @@ recorded before any reconstruction is run rather than discovered afterwards.
 ## Usage
 
 ```bash
-python3 scripts/sentinel-corpus-inventory.py --sharadar /path/to/corpus \
+python3 scripts/sentinel-corpus-inventory.py --corpus /path/to/corpus \
     --out corpus-inventory.json
 ```
 
@@ -49,6 +49,11 @@ import sys
 import zipfile
 from collections import defaultdict
 from pathlib import Path
+
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from sentinel.archive_identifiers import PROVIDER as ARCHIVE_PROVIDER
 
 REPO = Path(__file__).resolve().parents[1]
 STANDALONE = (REPO / "docs" / "sentinel-reference-implementation"
@@ -106,7 +111,7 @@ def sep_date_range(path: Path) -> dict:
 
 
 def zip_csv_info(path: Path, want_tickers=None) -> dict:
-    """Header and row count of the single CSV inside a Sharadar ZIP."""
+    """Header and row count of the single CSV inside an archive."""
     try:
         with zipfile.ZipFile(path) as z:
             names = [n for n in z.namelist() if n.lower().endswith(".csv")]
@@ -136,7 +141,7 @@ def zip_csv_info(path: Path, want_tickers=None) -> dict:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--sharadar", type=Path, required=True,
+    ap.add_argument("--corpus", type=Path, required=True,
                     help="directory holding SEP_*.csv.gz and the three ZIPs")
     ap.add_argument("--out", type=Path, default=Path("corpus-inventory.json"))
     ap.add_argument("--deep", action="store_true",
@@ -144,7 +149,7 @@ def main() -> int:
                          "(slow: reads the whole corpus)")
     args = ap.parse_args()
 
-    root: Path = args.sharadar
+    root: Path = args.corpus
     if not root.is_dir():
         raise SystemExit(f"not a directory: {root}")
     if (root / ".sentinel-sep-promotion.json").exists():
@@ -193,25 +198,25 @@ def main() -> int:
     # NOT optional: load_spy_bil() reads SPY for the regime sensor and BIL for
     # the defensive sleeve, so its absence blocks the chain rather than
     # degrading it.
-    for name, wanted in (("SHARADAR_TICKERS.zip", None),
-                         ("SHARADAR_ACTIONS.zip", None),
-                         ("SHARADAR_SFP.zip", {"SPY", "BIL"})):
+    for name, wanted in ((f"{ARCHIVE_PROVIDER}_TICKERS.zip", None),
+                         (f"{ARCHIVE_PROVIDER}_ACTIONS.zip", None),
+                         (f"{ARCHIVE_PROVIDER}_SFP.zip", {"SPY", "BIL"})):
         p = root / name
         if p.exists():
             report["files"][name]["content"] = zip_csv_info(p, wanted)
 
     if args.deep:
-        for name in sorted(n for n in report["files"] if n.startswith("SHARADAR_SEP_")):
+        for name in sorted(n for n in report["files"] if n.startswith(f"{ARCHIVE_PROVIDER}_SEP_")):
             print(f"  scanning {name} ...", file=sys.stderr)
             report["files"][name]["content"] = sep_date_range(root / name)
 
     # A bulk export packs each TABLE into one ZIP; the replay reads one gzip per
-    # YEAR. When SHARADAR_SEP.zip is present and the per-year files are not,
+    # YEAR. When the SEP archive is present and the per-year files are not,
     # the SEP rows are here in a different shape — reporting that as "missing"
     # reads as absent data, which is a materially different and much worse
     # finding than the true one.
-    sep_missing = [n for n in missing if n.startswith("SHARADAR_SEP_")]
-    bulk_sep_present = "SHARADAR_SEP.zip" in report["files"]
+    sep_missing = [n for n in missing if n.startswith(f"{ARCHIVE_PROVIDER}_SEP_")]
+    bulk_sep_present = f"{ARCHIVE_PROVIDER}_SEP.zip" in report["files"]
     unpackaged = (bulk_sep_present and bool(sep_missing)
                   and len(sep_missing) == len(missing))
 
@@ -231,8 +236,8 @@ def main() -> int:
         # states with different next steps.
         "metadata_inputs_byte_identical": all(
             report["files"].get(n, {}).get("matches_pinned") is True
-            for n in ("SHARADAR_TICKERS.zip", "SHARADAR_ACTIONS.zip",
-                      "SHARADAR_SFP.zip")),
+            for n in (f"{ARCHIVE_PROVIDER}_TICKERS.zip", f"{ARCHIVE_PROVIDER}_ACTIONS.zip",
+                      f"{ARCHIVE_PROVIDER}_SFP.zip")),
         "sep_per_year_files_present": not sep_missing,
         "corpus_is_byte_identical_to_the_recovered_run":
             not missing and not mismatched,
@@ -265,7 +270,7 @@ def main() -> int:
         print("  The rows are here in a different shape — this is packaging,")
         print("  not absent data. Split it before running any reconstruction:")
         print("    python3 scripts/sentinel-split-sep-bulk.py \\")
-        print(f"        --zip {root}/SHARADAR_SEP.zip \\")
+        print(f"        --zip {root}/{ARCHIVE_PROVIDER}_SEP.zip \\")
         print(f"        --out {root} --fingerprint sep-fingerprint.json")
         print("\n  Note: the split files will NOT match the pinned SEP hashes.")
         print("  Those digests are of specific gzip artefacts and gzip bytes")

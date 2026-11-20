@@ -112,19 +112,16 @@ async def establish_ownership(
             detail="ownership previously established",
         )
 
+    if conn is None or deployment is None:
+        raise OwnershipNotEstablished("unresolved ownership requires the command journal and deployment identity")
+
     state = current_state(store)
     last_plan: Optional[Plan] = None
 
     for cycle in range(1, max_cycles + 1):
         observation = await broker.observe()
-        unresolved = ()
-        if conn is not None and deployment is not None:
-            unresolved = await _sync_liquidation_commands(
-                broker=broker, conn=conn, deployment=deployment,
-                observation=observation)
-        elif (conn is None) != (deployment is None):
-            raise ValueError(
-                "durable migration requires both conn and deployment identity")
+        unresolved = await _sync_liquidation_commands(
+            broker=broker, conn=conn, deployment=deployment, observation=observation)
 
         # A flat position/open-order read cannot erase a durable command whose
         # outcome is still capable of changing the account. Exact-key recovery
@@ -186,7 +183,7 @@ async def establish_ownership(
 
 async def _execute(
     broker: SentinelBroker, plan: Plan, observation: AccountObservation,
-    *, conn=None, deployment: Optional[DeploymentIdentity] = None,
+    *, conn, deployment: DeploymentIdentity,
 ) -> None:
     if plan.cancel_order_ids:
         n = await broker.cancel_orders(plan.cancel_order_ids)
@@ -201,25 +198,9 @@ async def _execute(
                  len(plan.cancel_order_ids), n)
 
     for ticker in plan.liquidate_tickers:
-        if conn is not None and deployment is not None:
-            await _submit_durable_liquidation(
-                broker=broker, conn=conn, deployment=deployment,
-                observation=observation, ticker=ticker)
-            continue
-        result = await broker.close_position(ticker)
-        if not result.accepted:
-            # Not fatal on its own: one symbol may be halted while the rest close
-            # fine. The next cycle re-observes and retries whatever is still held,
-            # so a transient refusal costs a poll interval rather than the run.
-            log.warning(
-                "sentinel: %s close REFUSED for %s: %s",
-                LIQUIDATION_REASON, ticker, result.error,
-            )
-        else:
-            log.info(
-                "sentinel: %s close accepted for %s (order=%s status=%s)",
-                LIQUIDATION_REASON, ticker, result.broker_order_id, result.status,
-            )
+        await _submit_durable_liquidation(
+            broker=broker, conn=conn, deployment=deployment,
+            observation=observation, ticker=ticker)
 
 
 def _migration_plan_id(deployment: DeploymentIdentity) -> str:

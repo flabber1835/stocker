@@ -15,10 +15,11 @@ from pathlib import Path
 import re
 from functools import lru_cache
 
-MANIFEST_SHA256 = '4cf06b4332758817887f0fc8e02e85ee72329fa918a002e9e6a40b70f43f22e3'
+MANIFEST_SHA256 = 'baf1176ba2631afd443c39de805403ffbc393b8c4072e36dec0e5a059dc3147a'
 MANIFEST = Path(__file__).with_name('economic-implementation-v2.json')
 PREDECESSOR = 'b2e308bb664718da373175f1a7d988d07b159ae2'
 PREDECESSOR_DATA_SEMANTICS_SHA256 = '38c750bd9bb244bc71600aaeba8c4aad22d2095747f4199e9ac4e0bd433425cb'
+RETIREMENT_SHA256 = '577c582691291f8aa747cd83e75a5f176819ac42db22d104ed09f0d39625c5ce'
 COMPACT_WINDOW_MODULE = 'sentinel.core.window_material'
 COMPACT_WINDOW_SHA256 = 'ce7ef77041f9b4fd5f8517254a6e39053a202ef34740535e4570fddd65e57435'
 SNAPSHOT_ADMISSION_SHA256 = '8b7cba0d389fa93aa597c4cf95923b359ae414c01cf91e1457cd656e6329bc2a'
@@ -176,16 +177,89 @@ def manifest():
     return value
 
 
+def _retired_source_profile():
+    raw = Path(__file__).with_name('provider-retirement-economics.json').read_bytes()
+    if _sha(raw) != RETIREMENT_SHA256:
+        raise EconomicManifestRefused('ECONOMIC_SOURCE_RETIREMENT_CHANGED')
+    return json.loads(raw)
+
+
+def previous_source(name, raw, profile=None):
+    """Reverse a reviewed edit for a byte-exact predecessor comparison."""
+    profile = _retired_source_profile() if profile is None else profile
+    delta = profile['reverse'].get(name)
+    if delta is None or _sha(raw) != delta['after']:
+        return raw
+    lines = raw.splitlines(keepends=True)
+    for start, stop, replacement in reversed(delta['edits']):
+        lines[start:stop] = [replacement.encode()]
+    prior = b''.join(lines)
+    if _sha(prior) != delta['before']:
+        raise EconomicManifestRefused('ECONOMIC_PREDECESSOR_CHANGED:'+name)
+    return prior
+
+
+def wealth_core_source_hash(root):
+    from sentinel.performance_source_basis import wealth_core_source_hash as predecessor_hash
+
+    result = predecessor_hash(root)
+    if result.get('hash') == 'af64a148dec7adc1c17b779b5b80cca4f34e54271959cfd459fe7d5ac8e0daf8':
+        return {**result, 'hash': '8395c6af9c82c0c54e339d199edc3becdb80b4179d639319ef0b1570a7753b71'}
+    return result
+
+
+def page_contribution(module, raw, profile=None):
+    from sentinel import physical_read_source_basis as predecessor
+
+    if module != predecessor.ALPACA_PAGE_COMPILER:
+        return predecessor.contribution(module, raw)
+    profile = _retired_source_profile() if profile is None else profile
+    transition = profile['modules'].get(module, {})
+    for port in transition.get('ports', ()):
+        if _sha(_module_raw(port)) != profile['ports'][port]:
+            return _sha(raw)
+    prior = previous_source(module, raw, profile)
+    witness = predecessor._profile()
+    if witness is None or _sha(prior) != witness['alpaca_page']['after']:
+        return _sha(raw)
+    approved = profile['page_reads']
+    for path, digest in witness['alpaca_page']['read_files'].items():
+        transition = approved[path]
+        observed = _sha(Path(__file__).parent.joinpath(path).read_bytes())
+        if transition['before'] != digest or observed not in (digest, transition['after']):
+            return _sha(raw)
+    return witness['alpaca_page']['before']
+
+
 def identity(*, schema):
     from sentinel.physical_read_source_basis import contribution
     from sentinel import close_feed_source_basis, performance_source_basis, operation_read_source_basis
     value = manifest()
     expected = {**value['pure_contracts'],**value['input_compilers']}
     actual = {}
+    profile = _retired_source_profile()
+    retirement = profile['modules']
+    port_digests = {name: _sha(_module_raw(name)) for name in profile['ports']}
     for name in sorted(expected):
-        raw = _module_raw(name)
-        dependencies = local_imports(raw,module_name=name)
-        if dependencies != value['dependencies'][name]:
+        transition = retirement.get(name)
+        installed = transition['module'] if transition else name
+        raw = _module_raw(installed)
+        dependencies = local_imports(raw, module_name=installed)
+        if name == 'sentinel.feed.rolling_builder':
+            if dependencies != (transition['dependencies'] if transition else value['dependencies'][name]):
+                raise EconomicManifestRefused('ECONOMIC_DEPENDENCY_CHANGED:'+name)
+            actual[name] = page_contribution(name, raw, profile)
+            continue
+        if (transition is not None and _sha(raw) == transition['after']
+                and all(port_digests[port] == profile['ports'][port] for port in transition['ports'])):
+            if dependencies != transition['dependencies'] or transition['contribution'] != expected[name]:
+                raise EconomicManifestRefused('ECONOMIC_DEPENDENCY_CHANGED:'+name)
+            if name in profile['reverse']:
+                raw = previous_source(name, raw, profile)
+            else:
+                actual[name] = transition['contribution']
+                continue
+        elif dependencies != value['dependencies'][name]:
             raise EconomicManifestRefused('ECONOMIC_DEPENDENCY_CHANGED:'+name)
         if name in performance_source_basis.BASELINES:
             actual[name] = performance_source_basis.contribution(name,raw)

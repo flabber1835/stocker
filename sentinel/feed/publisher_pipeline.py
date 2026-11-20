@@ -11,7 +11,7 @@ from typing import Protocol
 
 from sentinel import backup_runtime_authority, identity
 from sentinel.feed import (
-    acquisition_work, progress, rolling_builder, rolling_jobs as jobs,
+    provider_budget, progress, rolling_builder, rolling_jobs as jobs,
     rolling_store, rolling_work, store,
 )
 from sentinel.feed.rolling_contract import digest
@@ -230,7 +230,7 @@ def run(conn, job_id, *, operational, boundary, lease, observer: Observer):
             conn.commit()
         rolling_work.checkpoint()
         observer.stage('SOURCE_CORROBORATION')
-        with acquisition_work.budget(seconds=min(500, jobs.status(conn, job_id)["remaining_seconds"])):
+        with provider_budget.budget(seconds=min(500, jobs.status(conn, job_id)["remaining_seconds"])):
             conn.commit()
             with progress.phase('rolling_source_corroboration', job_id=job_id):
                 source.corroborate()

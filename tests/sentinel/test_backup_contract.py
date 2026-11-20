@@ -68,7 +68,7 @@ def test_wal_archive_contract_requires_verified_atomic_durable_publication():
     assert 'namespace_name="cluster-$system_id"' in text
     assert 'archive_dir="$archive_root/$namespace_name"' in text
     assert 'mktemp "$archive_dir/.${wal_name}.part.XXXXXX"' in text
-    assert 'cmp -s -- "$source_wal" "$temporary"' in text
+    assert 'hash_matches_source "$temporary"' in text
     assert 'sync "$temporary"' in text
     assert 'mv -T --no-clobber -- "$temporary" "$target"' in text
     assert 'sync "$archive_dir"' in text

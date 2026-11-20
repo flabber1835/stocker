@@ -22,7 +22,7 @@ BASE_FILES = {
     'scripts/sentinel_go_validate.py': '66cd2d8493e7e722bb5fad95003a3e969e9e56a7ed88b863d2b4bc07f60cca79',
     'scripts/sentinel_go_validate_entry.py': 'f1155a3e73d2cd8abf15150f939f171c3cbbd6c382a27b950980cc7e50f57c8e',
 }
-FUNCTIONS = ('probe_active_wealth_parity', 'probe_sharadar_readiness',
+FUNCTIONS = ('probe_active_wealth_parity', 'probe_market_data_readiness',
              'probe_database_financial_health')
 KEY = 'SENTINEL_TEST_IMAGE_DIGEST'
 ALLOWED = frozenset({*BASE_FILES,

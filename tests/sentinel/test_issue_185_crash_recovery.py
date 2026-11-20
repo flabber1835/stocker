@@ -1,4 +1,4 @@
-"""Crash/restart matrix required by Sharadar umbrella issue #185 / issue #108.
+"""Crash/restart matrix required by the feed integrity issue #185 / issue #108.
 
 These tests pin the state-machine boundary, not PostgreSQL failure mechanics:
 anything that dies before ``finish(success)`` is still RUNNING and is reclaimed;

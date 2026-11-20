@@ -76,13 +76,14 @@ minimum 12-hour interval, falling back at 24 hours, or early when inclusive WAL
 reaches 8 GiB or the primary moves to a later timeline. The footprint uses
 the primary's current WAL position, including unarchived activity. These are
 early triggers, not a guarantee against arbitrarily fast WAL production.
-The hard 16 GiB/1024-object runtime refusal remains authoritative. From 12:30
-through 21:00 UTC defer heavy allocation, restore and retention while continuing
-current-chain status and operational evidence publication. Deferral grants no
-new receipt or runtime authority. Restore workers are capped at half a CPU each.
+The hard 16 GiB/1024-object runtime refusal remains authoritative. Reserve the
+actual XNYS session and its preparation and close margins for foreground work.
+Urgent WAL, timeline and base-age renewals can proceed during that reservation.
+See [maintenance work admission and archive I/O](maintenance-work-qualification.md).
+Deferral grants no new receipt or runtime authority. Restore workers are capped at half a CPU each.
 See [the approved policy and integrity interval](paper-system-rehearsal.md).
 
-During this window a due renewal defers allocation and retention only. The
+During this window a routine renewal defers allocation and retention only. The
 coordinator still performs the exact selected-base read-only chain check and
 publishes genuine current-chain evidence on success. A failed check remains a
 failure; neither deferral nor a live supervisor claims health. Storage identity

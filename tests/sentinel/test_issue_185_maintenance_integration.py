@@ -10,6 +10,8 @@ composes it with the separately tested exceptional cash migration.
 """
 from __future__ import annotations
 
+from sentinel import archive_identifiers as archive_ids
+
 import datetime as dt
 from contextlib import contextmanager
 from types import SimpleNamespace
@@ -291,7 +293,7 @@ def test_semantic_cursor_upgrade_replays_old_blockers_with_unchanged_source(
 def test_sep_mutation_cursor_moves_only_after_bounded_replay_publication(monkeypatch):
     events = []
     cursor = maintenance.SourceCursor(
-        kind="sharadar-sep-lastupdated/v1",
+        kind=archive_ids.FEED['SEP_WATERMARK_KIND'],
         processed_through=dt.date(2026, 8, 16), publication_version=10)
     rows = [{
         "ticker": "AAA", "date": "2020-01-02", "lastupdated": "2026-08-17",

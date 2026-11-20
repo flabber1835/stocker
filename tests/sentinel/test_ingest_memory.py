@@ -58,7 +58,7 @@ sys.path.insert(0, str(ROOT / "shared"))
 from tests.support.postgres import _EphemeralPostgres  # noqa: E402
 from tests.support.source import code_of  # noqa: E402
 
-from sentinel.feed import ingest, sharadar  # noqa: E402
+from sentinel.feed import ingest, archive_tables  # noqa: E402
 from sentinel.feed import store as S  # noqa: E402
 
 #: Held CONSTANT while sessions scale. Every other per-chunk structure — the
@@ -111,7 +111,7 @@ def sep_rows(n_sessions: int, tracked: bool = False):
 
     The synthetic source uses actual XNYS sessions from one calendar-year chunk.
     Consecutive calendar ordinals would inject weekends/holidays and rows outside
-    the requested source envelope, which is not a valid Sharadar session stream.
+    the requested source envelope, which is not a valid archived session stream.
 
     Rows are shaped like real SEP rows — ten keys, not two — so a consumer that
     reads a field the staging table does not carry fails here rather than in
@@ -139,12 +139,12 @@ def sep_rows(n_sessions: int, tracked: bool = False):
 
 
 def a_fetch(n_sessions: int, tracked: bool = False):
-    """Stands in for `sharadar.fetch_table`, one table at a time."""
+    """Stands in for `archive_tables.fetch_table`, one table at a time."""
     def fetch(table, params=None, **kw):
         params = dict(params or {})
-        if table == sharadar.SEP:
+        if table == archive_tables.SEP:
             return sep_rows(n_sessions, tracked=tracked)
-        if table == sharadar.ACTIONS and params.get("date.gte") == "1900-01-01":
+        if table == archive_tables.ACTIONS and params.get("date.gte") == "1900-01-01":
             return iter([{"ticker": "__SOURCE_HEALTH__", "date": "1900-01-02",
                           "action": "listed", "value": None,
                           "contraticker": None}])
@@ -259,11 +259,11 @@ class TestTheOrderingSURVIVES:
 
         def shuffled_fetch(table, params=None, **kw):
             params = dict(params or {})
-            if table == sharadar.ACTIONS and params.get("date.gte") == "1900-01-01":
+            if table == archive_tables.ACTIONS and params.get("date.gte") == "1900-01-01":
                 return iter([{"ticker": "__SOURCE_HEALTH__", "date": "1900-01-02",
                               "action": "listed", "value": None,
                               "contraticker": None}])
-            if table != sharadar.SEP:
+            if table != archive_tables.SEP:
                 return iter(())
             rows = list(sep_rows(12))
             random.Random(20260811).shuffle(rows)

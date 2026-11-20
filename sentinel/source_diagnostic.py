@@ -6,8 +6,10 @@ It conveys no publication or execution authority.
 import json
 import re
 
-PREFIX = "Sharadar SEP seed eligible-set coverage refused: "
-COLLISION_PREFIX = "Sharadar SEP seed identity collision refused: "
+from sentinel.archive_identifiers import FEED
+
+PREFIX = FEED['SOURCE_COVERAGE_PREFIX']
+COLLISION_PREFIX = FEED['SOURCE_COLLISION_PREFIX']
 FAILURE_MARKER = "SENTINEL_GO_PREPARATION_FAILURE="
 _PROHIBITED = ("http://", "https://", "api_key", "api-key", "password",
                "authorization", "postgres://", "postgresql://", "apca-api-")

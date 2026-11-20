@@ -89,7 +89,7 @@ class TestTheParseThatBrokeTheReference:
         assert c == d
 
     def test_the_key_is_ORDER_INDEPENDENT(self):
-        """Sharadar's listing order must not change the key, or the conflict
+        """The ordering of archived listings must not change the key, or the conflict
         check silently stops working on rows that happen to be ordered
         differently."""
         a, _ = U.issuer_key("X", "B A C", "P1")

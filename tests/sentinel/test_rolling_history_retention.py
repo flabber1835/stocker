@@ -469,12 +469,12 @@ def test_text_reference_publication_retirement_and_schema_restart(conn, operatio
 
 
 def test_terminal_candidate_cleanup_preserves_job_and_exact_reacquisition(conn, operational_source, monkeypatch):
-    from sentinel.feed.rolling_source import SharadarSource
+    from sentinel.feed.rolling_source import ArchiveSource
     monkeypatch.setattr(retention, 'opening_execution_due', lambda _: False)
-    original = SharadarSource.corroborate
+    original = ArchiveSource.corroborate
     def fail(*args):
         raise ValueError('source interrupted')
-    monkeypatch.setattr(SharadarSource, 'corroborate', fail)
+    monkeypatch.setattr(ArchiveSource, 'corroborate', fail)
     job = enqueue(conn)
     with pytest.raises(ValueError, match='source interrupted'):
         op.prepare(conn, job)
@@ -487,16 +487,16 @@ def test_terminal_candidate_cleanup_preserves_job_and_exact_reacquisition(conn, 
     assert rolling_store.retired(conn, candidate)
     assert conn.execute('SELECT count(*) FROM sentinel_snapshot_bars').fetchone()[0] == 0
     assert conn.execute('SELECT count(*) FROM sentinel_snapshot_job_components WHERE job_id=%s', (job,)).fetchone()[0] > 0
-    monkeypatch.setattr(SharadarSource, 'corroborate', original)
+    monkeypatch.setattr(ArchiveSource, 'corroborate', original)
     result = publish(conn)
     assert len(list(rolling_store.read_bars(conn, result['candidate_id']))) == 600
     assert jobs.status(conn, job)['state'] == 'REFUSED'
 
 
 def test_active_job_and_worker_scratch_survive_maintenance(conn, operational_source, monkeypatch):
-    from sentinel.feed.rolling_source import SharadarSource
+    from sentinel.feed.rolling_source import ArchiveSource
     import psycopg
-    real = SharadarSource.corroborate
+    real = ArchiveSource.corroborate
     def concurrent(source):
         # Candidate is sealed but worker retains its lease during corroboration.
         with psycopg.connect(conn.info.dsn) as other:
@@ -504,7 +504,7 @@ def test_active_job_and_worker_scratch_survive_maintenance(conn, operational_sou
         assert conn.execute('SELECT count(*) FROM sentinel_snapshot_bars').fetchone()[0] == 600
         assert conn.execute('SELECT count(*) FROM sentinel_acquisition_prices').fetchone()[0] == 600
         return real(source)
-    monkeypatch.setattr(SharadarSource, 'corroborate', concurrent)
+    monkeypatch.setattr(ArchiveSource, 'corroborate', concurrent)
     assert publish(conn)['data_version'] == 1
 
 
@@ -545,11 +545,11 @@ def test_backup_authority_refusal_retains_data_and_retries(conn, operational_sou
 
 
 def test_retained_payload_cannot_be_rehydrated_under_different_identity(conn, operational_source, monkeypatch):
-    from sentinel.feed.rolling_source import SharadarSource
+    from sentinel.feed.rolling_source import ArchiveSource
     monkeypatch.setattr(retention, 'opening_execution_due', lambda _: False)
     def fail(*args):
         raise ValueError('source interrupted')
-    monkeypatch.setattr(SharadarSource, 'corroborate', fail)
+    monkeypatch.setattr(ArchiveSource, 'corroborate', fail)
     with pytest.raises(ValueError, match='source interrupted'):
         publish(conn)
     retention.idle_pass(conn.info.dsn)

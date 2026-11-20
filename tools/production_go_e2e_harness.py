@@ -5,30 +5,24 @@ This is deliberately a process/composition harness.  The success lane invokes
 ``bash scripts/sentinel-go-validate.sh`` exactly once and lets that entry point
 own locking, bootstrap, Docker/Compose/PostgreSQL, local-full certification,
 feed recovery, readiness, promotion, panel recreation and handoff.  Only the
-Sharadar HTTP boundary is replaced with a deterministic Tables-compatible
+Alpaca SIP and OpenFIGI HTTP boundaries are replaced with a deterministic
 server; SHADOW is the production-supported broker-free target.
 """
 from __future__ import annotations
 
 import argparse
 import contextlib
-import csv
 import datetime as dt
-import hashlib
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-import io
+from http.server import ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
 import re
 import shutil
-import socket
 import subprocess
 import sys
 import tempfile
 import threading
-from urllib.parse import parse_qs, urlparse
-import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -50,42 +44,15 @@ REQUIRED_PHASES = (
     "HOST GO IDENTITY PREFLIGHT",
     "RUNTIME SELECTION PREFLIGHT",
     "PAPER ACCOUNT PREFLIGHT - GET ONLY",
-    "READ-ONLY SHARADAR PREFLIGHT",
     "CERTIFICATION + FINANCIAL READINESS",
     "PROMOTE EXACT CERTIFIED RUNTIME",
     "POST-VALIDATION HANDOFF",
-)
-
-TICKERS = (
-    "SPY", "AAPL", "MSFT", "JPM", "XOM", "JNJ", "PG", "KO", "WMT", "CAT",
-    "HD", "V", "MA", "PFE", "UNH", "CVX", "IBM", "GE", "DIS", "MMM", "TRI",
-) + tuple(f"E2E{i:04d}" for i in range(3_979))
-# The production seed source requires at least 4,000 resolved rows per session.
-SEP_COLUMNS = (
-    "ticker", "date", "open", "high", "low", "close", "volume", "dividends",
-    "closeunadj", "lastupdated",
-)
-SFP_COLUMNS = (
-    "ticker", "date", "open", "high", "low", "close", "volume", "dividends",
-    "closeadj", "closeunadj", "lastupdated",
-)
-ACTIONS_COLUMNS = (
-    "date", "action", "ticker", "name", "value", "contraticker", "contraname",
-)
-TICKER_COLUMNS = (
-    "table", "permaticker", "ticker", "name", "exchange", "isdelisted",
-    "category", "cusips", "siccode", "sicsector", "sicindustry", "famasector",
-    "famaindustry", "sector", "industry", "scalemarketcap", "scalerevenue",
-    "relatedtickers", "currency", "location", "lastupdated", "firstadded",
-    "firstpricedate", "lastpricedate", "firstquarter", "lastquarter",
-    "secfilings", "companysite",
 )
 
 _FIXTURE_READY = False
 SEEDED_PUBLICATION: dict | None = None
 _SOURCE_SETTINGS: dict[str, str] = {}
 SOURCE_REQUESTS: list[dict[str, str]] = []
-PAGE_SIZE = 10_000
 
 
 class HarnessFailure(RuntimeError):
@@ -107,217 +74,13 @@ def _latest_closed_session() -> dt.date:
     return dt.date.fromisoformat(calendar.latest_closed_session())
 
 
-def _session_days() -> tuple[dt.date, ...]:
-    from sentinel.feed import calendar
-    from sentinel.feed.rolling_contract import CurrentFormationWindow
-    end = _latest_closed_session()
-    required = len(CurrentFormationWindow.through(end.isoformat()).sessions) + 1
-    return tuple(dt.date.fromisoformat(day) for day in calendar.previous_sessions(end, required))
-
-
-def _in_range(day: dt.date, query: dict[str, list[str]], key: str = "date") -> bool:
-    lo = query.get(f"{key}.gte", [None])[0]
-    hi = query.get(f"{key}.lte", [None])[0]
-    eq = query.get(key, [None])[0]
-    if eq and day.isoformat() != eq:
-        return False
-    if lo and day < dt.date.fromisoformat(lo[:10]):
-        return False
-    if hi and day > dt.date.fromisoformat(hi[:10]):
-        return False
-    return True
-
-
-def _price_rows(query: dict[str, list[str]], *, sfp: bool = False,
-                offset: int = 0, limit: int | None = None) -> list[list[object]]:
-    rows: list[list[object]] = []
-    # The production source-authority membrane refuses observations whose
-    # vendor mutation clock is newer than the replay's causal ceiling.  Bind
-    # deterministic fixture mutations to the latest closed market session,
-    # not the runner's UTC wall-clock date (which can already be tomorrow).
-    source_day = _latest_closed_session()
-    ticker_filter = query.get("ticker", [None])[0]
-    allowed = (
-        {item.strip().upper() for item in ticker_filter.split(",") if item.strip()}
-        if ticker_filter else None
-    )
-    tickers = ("SPY", "BIL") if sfp else TICKERS
-    if not _in_range(source_day, query, key="lastupdated"):
-        return rows
-    days = [(di, day) for di, day in enumerate(_session_days())
-            if _in_range(day, query)]
-    for ti, ticker in enumerate(tickers):
-        if allowed is not None and ticker not in allowed:
-            continue
-        if offset >= len(days):
-            offset -= len(days)
-            continue
-        for di, day in days[offset:]:
-            base = 50.0 + ti * 7.0 + di * 0.03
-            source_open = round(base, 4)
-            source_close = round(base * 1.001, 4)
-            volume = 2_000_000 + ti * 10_000
-            # TRI's reviewed 2026-05-04 event is one combined old-share cash
-            # entitlement plus share consolidation. Preserve both price and
-            # volume domains across that consolidation.
-            before_tri_consolidation = (
-                ticker == "TRI" and day < dt.date(2026, 5, 4))
-            close_unadjusted = (
-                round(source_close * 0.984560, 4)
-                if before_tri_consolidation else source_close)
-            source_volume = (
-                int(round(volume * 0.984560))
-                if before_tri_consolidation else volume)
-            common = [
-                ticker, day.isoformat(), source_open, round(base * 1.006, 4),
-                round(base * 0.994, 4), source_close, source_volume,
-                1.36 if ticker == "TRI" and day == dt.date(2026, 5, 4) else 0.0,
-            ]
-            if sfp:
-                rows.append(common + [source_close, close_unadjusted,
-                                       source_day.isoformat()])
-            else:
-                rows.append(common + [close_unadjusted, source_day.isoformat()])
-            if limit is not None and len(rows) >= limit:
-                return rows
-        offset = 0
-    return rows
-
-
-def _ticker_rows() -> list[list[object]]:
-    source_day = _latest_closed_session().isoformat()
-    days = _session_days()
-    result = []
-    for i, ticker in enumerate(TICKERS, start=1):
-        category = "ETF" if ticker == "SPY" else "Domestic Common Stock"
-        result.append([
-            "SEP", 100000 + i, ticker, f"{ticker} fixture security", "NYSE",
-            "N", category, None, 3571, "Manufacturing", "Technology",
-            "Business Equipment", "Computers", "Technology", "Software",
-            "5 - Large", "5 - Large", ticker, "USD", "U.S.A.", source_day,
-            days[0].isoformat(), days[0].isoformat(), days[-1].isoformat(),
-            "2000-03-31", None, None, None,
-        ])
-    return result
-
-
-def _payload(table: str, query: dict[str, list[str]]) -> dict:
-    exporting = query.get("qopts.export") == ["true"]
-    offset = int(query.get("qopts.cursor_id", ["0"])[0])
-    if offset < 0:
-        raise ValueError("invalid fixture cursor")
-    limit = None if exporting else PAGE_SIZE + 1
-    if table == "SEP":
-        columns, rows = SEP_COLUMNS, _price_rows(query, offset=offset, limit=limit)
-    elif table == "SFP":
-        columns, rows = SFP_COLUMNS, _price_rows(query, sfp=True, offset=offset, limit=limit)
-    elif table == "ACTIONS":
-        # Complete production seed acquisition requires a nonempty whole-table
-        # ACTIONS witness. A relation is retained metadata with no cash/share
-        # effect, and both paginated and exported observations carry it.
-        day = _session_days()[0]
-        columns = ACTIONS_COLUMNS
-        rows = ([[day.isoformat(), "relation", "AAPL", "AAPL fixture security",
-                  None, "MSFT", "MSFT fixture security"]]
-                if _in_range(day, query) else [])
-        # The current ACTIONS semantic migration replays this reviewed stale
-        # vendor fact whenever its date is retained. Production adjudicates it
-        # to 1.435518; the source fixture keeps the original 1.36 observation.
-        event_day = dt.date(2026, 5, 4)
-        if day <= event_day <= _session_days()[-1] and _in_range(event_day, query):
-            rows.append([event_day.isoformat(), "dividend", "TRI", "TRI fixture security",
-                         1.36, None, None])
-            rows.append([event_day.isoformat(), "split", "TRI", "TRI fixture security",
-                         0.984560, None, None])
-        if query.get("action"):
-            selected_actions = set(query["action"][0].split(","))
-            rows = [row for row in rows if row[1] in selected_actions]
-    elif table == "TICKERS":
-        columns, rows = TICKER_COLUMNS, _ticker_rows()
-    else:
-        raise KeyError(table)
-    if table not in ("SEP", "SFP"):
-        rows = rows[offset:]
-    next_cursor = None
-    if not exporting and len(rows) > PAGE_SIZE:
-        rows = rows[:PAGE_SIZE]
-        next_cursor = str(offset + PAGE_SIZE)
-    return {
-        "datatable": {
-            "columns": [{"name": name, "type": "text"} for name in columns],
-            "data": rows,
-        },
-        "meta": {"next_cursor_id": next_cursor},
-    }
-
-
-class _TablesHandler(BaseHTTPRequestHandler):
-    fail_source = False
-    downloads: dict[str, bytes] = {}
-    refreshed_at = ""
-
-    def do_GET(self):  # noqa: N802 - BaseHTTPRequestHandler API
-        parsed = urlparse(self.path)
-        table = Path(parsed.path).stem.upper()
-        if self.fail_source:
-            self.send_response(503)
-            self.send_header("Retry-After", "0")
-            self.end_headers()
-            return
-        query = parse_qs(parsed.query)
-        try:
-            if parsed.path.startswith("/exports/"):
-                body = self.downloads[parsed.path]
-                channel = "download"
-                content_type = "application/zip"
-            elif query.get("qopts.export") == ["true"]:
-                page = _payload(table, query)["datatable"]
-                content = io.StringIO(newline="")
-                writer = csv.writer(content)
-                writer.writerow(item["name"] for item in page["columns"])
-                writer.writerows(page["data"])
-                buffer = io.BytesIO()
-                with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-                    info = zipfile.ZipInfo(f"{table}.csv", (2000, 1, 1, 0, 0, 0))
-                    info.compress_type = zipfile.ZIP_DEFLATED
-                    archive.writestr(info, content.getvalue())
-                blob = buffer.getvalue()
-                path = f"/exports/{table}-{hashlib.sha256(blob).hexdigest()}.zip"
-                self.downloads[path] = blob
-                body = json.dumps({"datatable_bulk_download": {
-                    "file": {"status": "fresh", "link": f"http://{self.headers['Host']}{path}",
-                             "data_snapshot_time": self.refreshed_at},
-                    "datatable": {"last_refreshed_time": self.refreshed_at},
-                }}).encode()
-                channel = "export"
-                content_type = "application/json"
-            else:
-                body = json.dumps(_payload(table, query)).encode()
-                channel = "pages"
-                content_type = "application/json"
-        except (KeyError, ValueError):
-            self.send_response(404)
-            self.end_headers()
-            return
-        self.send_response(200)
-        SOURCE_REQUESTS.append({"table": table.split("-")[0], "channel": channel})
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def log_message(self, _format, *_args):
-        return
-
-
 @contextlib.contextmanager
-def _source_server(*, fail_source: bool = False):
+def _source_server(*, profile=None, end=None, bind=None):
+    from tools.acquisition_resources import fixtures
     SOURCE_REQUESTS.clear()
-    handler = type("TablesHandler", (_TablesHandler,), {
-        "fail_source": fail_source, "downloads": {},
-        "refreshed_at": dt.datetime.now(dt.timezone.utc).isoformat(),
-    })
-    server = ThreadingHTTPServer(("0.0.0.0", 0), handler)
+    profile = profile or fixtures.Profile(name="go", securities=600, tickers=625, actions=4)
+    handler = fixtures.handler(profile, end=end or _latest_closed_session().isoformat(), requests=SOURCE_REQUESTS)
+    server = ThreadingHTTPServer((bind or _docker_host_gateway(), 0), handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -344,19 +107,13 @@ def _docker_host_gateway() -> str:
 def _write_env(path: Path, *, port: int, backup_dir: Path) -> None:
     gateway = _docker_host_gateway()
     _SOURCE_SETTINGS.clear()
-    _SOURCE_SETTINGS.update({
-        "NDL_BASE_URL": f"http://{gateway}:{port}",
-        "SHARADAR_ALLOW_INSECURE_BASE_URL": "1",
-        "SHARADAR_FETCH_RETRIES": "1",
-        "SHARADAR_FETCH_BACKOFF": "0",
-    })
+    _SOURCE_SETTINGS['address'] = f"http://{gateway}:{port}"
     lines = [
         "SENTINEL_POSTGRES_PASSWORD=e2e-postgres-password-363",
         "SENTINEL_PUBLICATION_RECEIPT_KEY=e2e-publication-receipt-key-363-0123456789abcdef",
-        "SHARADAR_API_KEY=e2e-sharadar-key",
-        *(f"{key}={value}" for key, value in _SOURCE_SETTINGS.items()),
-        "ALPACA_API_KEY=",
-        "ALPACA_SECRET_KEY=",
+        "ALPACA_API_KEY=fixture-data-id",
+        "ALPACA_SECRET_KEY=fixture-data-secret",
+        "OPENFIGI_API_KEY=fixture-mapping",
         "ALPACA_BASE_URL=https://paper-api.alpaca.markets",
         f"SENTINEL_BACKUP_DIR={backup_dir}",
         "SENTINEL_BACKUP_DURABLE_TARGET_ATTESTED=1",
@@ -420,21 +177,43 @@ def _compose_service_container_id(service: str, *, env: dict[str, str]) -> str:
     return values[0]
 
 
-def _require_local_source(model: dict, expected: dict[str, str]) -> None:
-    service = model.get("services", {}).get("sentinel")
-    if not isinstance(service, dict):
-        raise HarnessFailure("resolved Compose model omits the CLI feed service")
-    actual = service.get("environment", {})
-    mismatched = [key for key, value in expected.items()
-                  if str(actual.get(key, "")) != value]
-    if not expected or mismatched:
-        raise HarnessFailure(
-            "resolved feed container does not select the local Sharadar fixture: "
-            + ", ".join(mismatched))
+def fixture_docker_arguments(argv, address):
+    """Supply the HTTP fixture only to the canonical preparation process."""
+    result = list(argv)
+    if ('compose' not in result or 'run' not in result or '-c' not in result
+            or 'SENTINEL_GO_PREPARATION=' not in result[-1]):
+        return result
+    if result[-3:-1] != ['sentinel', '-c'] or '--entrypoint' not in result:
+        raise HarnessFailure('unexpected preparation child command')
+    adapter = (ROOT / 'tools/acquisition_resources/fixture_transport.py').read_text(encoding='utf-8')
+    result[-1] = adapter + '\ninstall_fixture(' + repr(address) + ')\n' + result[-1]
+    return result
+
+
+@contextlib.contextmanager
+def _fixture_cli(env):
+    """Every other Docker invocation, including image certification, is unchanged."""
+    real = shutil.which('docker', path=env.get('PATH'))
+    if not real or not _SOURCE_SETTINGS.get('address'):
+        raise HarnessFailure('isolated data fixture is unavailable')
+    with tempfile.TemporaryDirectory(prefix='sentinel-go-fixture-bin-') as directory:
+        wrapper = Path(directory) / 'docker'
+        wrapper.write_text(f"#!{sys.executable}\nimport os, sys\n"
+            f"sys.path.insert(0, {str(ROOT)!r})\n"
+            "from tools.production_go_e2e_harness import fixture_docker_arguments\n"
+            f"args = fixture_docker_arguments(sys.argv[1:], {_SOURCE_SETTINGS['address']!r})\n"
+            f"os.execv({real!r}, [{real!r}, *args])\n", encoding='utf-8')
+        wrapper.chmod(0o755)
+        # The host GO also observes the optional PAPER gate on SHADOW. Confine
+        # those HTTPS attempts to the private server, which rejects all tunnels.
+        proxy = _SOURCE_SETTINGS['address']
+        yield {**env, 'PATH': directory + os.pathsep + env.get('PATH', ''),
+               'https_proxy': proxy, 'HTTPS_PROXY': proxy,
+               'no_proxy': 'localhost,127.0.0.1', 'NO_PROXY': 'localhost,127.0.0.1'}
 
 
 def _bootstrap_financial_fixture() -> None:
-    """Create the supported retained feed state required before production daily GO."""
+    """Establish a backed, empty database before the canonical cold GO."""
     global _FIXTURE_READY, SEEDED_PUBLICATION
     if _FIXTURE_READY:
         return
@@ -450,15 +229,6 @@ def _bootstrap_financial_fixture() -> None:
     # image we build below; the canonical GO success path will publish its own
     # validated selector later.
     VALIDATED_RUNTIME_POINTER.unlink(missing_ok=True)
-
-    # Resolve the exact production graph before any feed request. A dropped
-    # setting must fail here, before the runtime can select its vendor default.
-    resolved = _run_host([
-        "bash", "scripts/sentinel-compose.sh", "--run", "--profile", "cli",
-        "config", "--format", "json",
-    ], env=env, timeout=60)
-    _require_local_source(json.loads(resolved.stdout), _SOURCE_SETTINGS)
-    print("E2E fixture: resolved feed container selects local Sharadar", flush=True)
 
     _run_host([
         "docker", "build", "--network", "host", "--build-arg",
@@ -478,52 +248,35 @@ def _bootstrap_financial_fixture() -> None:
 
     schema_code = (
         "import os; "
-        "from sentinel import schema; "
+        "from sentinel import operational_schema, schema; "
         "from sentinel.feed import store; "
         "c=store.connect(os.environ['SENTINEL_DATABASE_URL']); "
-        "schema.ensure_schema(c); store.migrate_schema(c); c.close()"
+        "schema.ensure_schema(c); store.migrate_schema(c); operational_schema.install_quiescent(c); c.close()"
     )
     schema_url = (
         "postgresql://sentinel:e2e-postgres-password-363@127.0.0.1:5432/sentinel"
     )
+    from scripts import sentinel_env
+    fixture_env = sentinel_env.merge(sentinel_env.load(ROOT / ".env", required=True), env)
     postgres_container = _compose_service_container_id("sentinel-postgres", env=env)
     _run_host([
         "docker", "run", "--rm", "--network", f"container:{postgres_container}",
         "--entrypoint", "python", "-e", f"SENTINEL_DATABASE_URL={schema_url}",
-        runtime_ref, "-c", schema_code,
-    ], env=env, timeout=300)
+        "-e", "SENTINEL_PUBLICATION_RECEIPT_KEY", runtime_ref, "-c", schema_code,
+    ], env=fixture_env, timeout=300)
 
-    days = _session_days()
-    if len(days) < 427:
-        raise HarnessFailure("deterministic Sharadar fixture has no seed sessions")
-    # GO must publish the final available session through its actual Phase C.
-    # Keep the selected 426-session formation history before that transition.
-    print("E2E fixture: seed through " + days[-2].isoformat(), flush=True)
-    _run_host([
-        "bash", "scripts/sentinel-compose.sh", "--run",
-        "run", "--rm", "-T", "--no-deps", "sentinel", "feed-seed",
-        "--from", days[0].isoformat(), "--to", days[-2].isoformat(),
-    ], env=env, timeout=1800)
-    # PostgreSQL deliberately does not promise useful plans for a freshly bulk-
-    # loaded relation until statistics exist. Production has autovacuum history;
-    # the short-lived fixture must establish the equivalent planner authority
-    # before the read-only GO health probe evaluates the predecessor index.
-    _run_host([
+    # Phase C owns acquisition, candidate construction and first publication.
+    # Refuse a stale fixture volume rather than certifying an already warm head.
+    result = _run_host([
         "docker", "run", "--rm", "--network", f"container:{postgres_container}",
         "--entrypoint", "python", "-e", f"SENTINEL_DATABASE_URL={schema_url}",
-        runtime_ref, "-c",
-        "import os; from sentinel.feed import store; "
+        runtime_ref, "-c", "import os; from sentinel.feed import store; "
         "c=store.connect(os.environ['SENTINEL_DATABASE_URL']); "
-        "cur=c.cursor(); cur.execute('ANALYZE sentinel_bars'); "
-        "c.commit(); cur.close(); c.close()",
-    ], env=env, timeout=300)
-    print("E2E fixture: planner statistics established", flush=True)
-    # The bulk load can exceed the runtime's bounded WAL verification budget.
-    # Start normal GO from a new verified base covering that retained corpus.
-    _run_host(["bash", "scripts/sentinel-base-backup.sh"], env=env, timeout=900)
-    print("E2E fixture: post-seed base backup verified", flush=True)
-    SEEDED_PUBLICATION = _publication_identity(env=env)
-    print("E2E fixture: seed complete; canonical GO starts next", flush=True)
+        "print(c.execute('SELECT count(*) FROM sentinel_corpus_publications').fetchone()[0]); c.close()"
+    ], env=env, timeout=120)
+    if result.stdout.strip() != '0':
+        raise HarnessFailure('canonical cold qualification requires an empty publication history')
+    SEEDED_PUBLICATION = {"version": 0, "visible_frontier": None}
     _FIXTURE_READY = True
 
 
@@ -592,10 +345,11 @@ def _invoke(*, target: str = "SHADOW", extra_env: dict[str, str] | None = None,
     argv = [*ENTRYPOINT, "--local-full-certification", "--target", target]
     # GO already sanitizes its operator output. Retain it and stream the same
     # transcript so long real certification/preparation runs remain diagnosable.
-    result = observability._streaming_run(
-        SimpleNamespace(_safe_int_env=lambda *_args: timeout),
-        SimpleNamespace(MAX_BOUNDED_INGEST_MS=timeout * 1000),
-        argv, cwd=ROOT, env=env, raw_stream=True)
+    with _fixture_cli(env) as fixture_env:
+        result = observability._streaming_run(
+            SimpleNamespace(_safe_int_env=lambda *_args: timeout),
+            SimpleNamespace(MAX_BOUNDED_INGEST_MS=timeout * 1000),
+            argv, cwd=ROOT, env=fixture_env, raw_stream=True)
     return subprocess.CompletedProcess(
         argv, result.returncode, stdout=result.stdout + "\n" + result.stderr,
         stderr="")
@@ -615,6 +369,13 @@ def _load_json(path: Path) -> dict:
     return value
 
 
+def require_provider_requests(evidence):
+    expected = {('GET', '/v2/assets'), ('GET', '/v2/stocks/bars'),
+                ('GET', '/v1/corporate-actions'), ('POST', '/v3/mapping')}
+    if {(row['method'], row['endpoint']) for row in evidence} != expected:
+        raise HarnessFailure('incomplete or unexpected market-data provider traffic')
+
+
 def _success_evidence(completed: subprocess.CompletedProcess[str], commit: str) -> dict:
     phases = _phase_names(completed.stdout)
     missing = [phase for phase in REQUIRED_PHASES if phase not in phases]
@@ -622,6 +383,7 @@ def _success_evidence(completed: subprocess.CompletedProcess[str], commit: str) 
         tail = completed.stdout[-5000:]
         raise HarnessFailure(
             f"canonical GO failed rc={completed.returncode} missing_phases={missing}:\n{tail}")
+    require_provider_requests(SOURCE_REQUESTS)
     handoff = _load_json(HANDOFF)
     if handoff.get("git_commit") != commit:
         raise HarnessFailure("handoff is not bound to tested HEAD")
@@ -651,13 +413,9 @@ def _sensitivity_case(name: str, *, port: int, backup_dir: Path) -> dict:
             timeout=60, prepare_fixture=False)
         expected = "HOST COMPATIBILITY"
     elif name == "account-preflight":
-        completed = _invoke(target="PAPER", timeout=300, prepare_fixture=False)
+        completed = _invoke(target="DUAL_RUN_OBSERVATION", extra_env={"ALPACA_API_KEY": "", "ALPACA_SECRET_KEY": ""},
+                            timeout=300, prepare_fixture=False)
         expected = "PAPER ACCOUNT PREFLIGHT - GET ONLY"
-    elif name == "source-preflight":
-        # This lane is run with a failing Tables server and must reach the
-        # read-only source authority before refusing.
-        completed = _invoke(timeout=1800, prepare_fixture=False)
-        expected = "READ-ONLY SHARADAR PREFLIGHT"
     else:
         raise HarnessFailure(f"unknown sensitivity case {name}")
     phases = _phase_names(completed.stdout)
@@ -680,7 +438,7 @@ def run(*, output: Path, sensitivity: bool) -> dict:
     backup = work / "backup"
     backup.mkdir(parents=True)
     result: dict = {
-        "schema": "sentinel.production-go-e2e/1",
+        "schema": "sentinel.production-go-e2e/2",
         "git_commit": commit,
         "canonical_entrypoint": list(ENTRYPOINT),
         "success": None,
@@ -703,12 +461,6 @@ def run(*, output: Path, sensitivity: bool) -> dict:
                     _sensitivity_case("account-preflight", port=port, backup_dir=backup))
 
             _clean_runtime()
-
-        if sensitivity:
-            with _source_server(fail_source=True) as port, _temporary_environment_file(
-                    port=port, backup_dir=backup):
-                result["sensitivity"].append(
-                    _sensitivity_case("source-preflight", port=port, backup_dir=backup))
 
         result["all_pass"] = True
         output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")

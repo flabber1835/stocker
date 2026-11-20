@@ -19,8 +19,13 @@ marker_content="sentinel-independent-durable-target-v1"
 case "$wal_name" in
   ""|.|..|*/*) refuse "invalid WAL filename: $wal_name" ;;
 esac
-[ -f "$source_wal" ] && [ -r "$source_wal" ] || \
+[ ! -L "$source_wal" ] && [ -f "$source_wal" ] && [ -r "$source_wal" ] || \
   refuse "source is not a readable regular file: $source_wal"
+# Exclude access time; this helper's own reads may update it.
+source_identity() {
+  stat -c '%d:%i:%s:%y:%z' -- "$source_wal"
+}
+initial_identity="$(source_identity)" || refuse "could not identify archive source"
 [ -d "$archive_root" ] && [ ! -L "$archive_root" ] || \
   refuse "archive directory is missing or is a symlink: $archive_root"
 [ -f "$marker" ] && [ ! -L "$marker" ] || \
@@ -84,8 +89,10 @@ if [ -e "$archive_dir" ] || [ -L "$archive_dir" ]; then
   [ -d "$archive_dir" ] && [ ! -L "$archive_dir" ] || \
     refuse "cluster WAL namespace is not a regular directory: $archive_dir"
 else
-  mkdir "$archive_dir" || refuse "could not create cluster WAL namespace: $archive_dir"
-  chmod 0700 "$archive_dir" || refuse "could not protect cluster WAL namespace: $archive_dir"
+  if ! mkdir -m 0700 "$archive_dir"; then
+    [ -d "$archive_dir" ] && [ ! -L "$archive_dir" ] || \
+      refuse "could not create cluster WAL namespace: $archive_dir"
+  fi
   sync "$archive_root" || refuse "could not fsync WAL namespace root"
 fi
 
@@ -117,18 +124,8 @@ hash_matches_source() {
   [ "$observed_sha256" = "$source_sha256" ]
 }
 
-source_hash_unchanged() {
-  hash_matches_source "$source_wal"
-}
-
-final_matches_source() {
-  candidate="$1"
-  [ ! -L "$candidate" ] && [ -f "$candidate" ] || return 1
-  candidate_size="$(stat -c %s -- "$candidate")" || return 1
-  source_size_now="$(stat -c %s -- "$source_wal")" || return 1
-  [ "$source_size_before" = "$source_size_now" ] || return 1
-  [ "$candidate_size" = "$source_size_now" ] || return 1
-  cmp -s -- "$source_wal" "$candidate" && hash_matches_source "$candidate"
+source_unchanged() {
+  [ ! -L "$source_wal" ] && [ "$(source_identity)" = "$initial_identity" ]
 }
 
 checksum_matches_source() {
@@ -138,7 +135,7 @@ checksum_matches_source() {
 }
 
 publish_checksum() {
-  source_hash_unchanged || refuse "source WAL changed after initial hash: $wal_name"
+  source_unchanged || refuse "source WAL changed after initial hash: $wal_name"
   if [ -e "$checksum_target" ] || [ -L "$checksum_target" ]; then
     checksum_matches_source "$checksum_target" || \
       refuse "existing WAL checksum differs from source: $checksum_target"
@@ -175,68 +172,34 @@ publish_checksum() {
   sync "$archive_dir" || refuse "could not fsync archive directory: $archive_dir"
   checksum_matches_source "$checksum_target" || \
     refuse "published WAL checksum changed during durable validation: $checksum_target"
-  source_hash_unchanged || refuse "source WAL changed while publishing checksum: $wal_name"
 }
 
 # PostgreSQL retries an archive command after any nonzero result. An existing
 # immutable final is idempotent only when it is the exact completed source.
-if [ -e "$target" ] || [ -L "$target" ]; then
-  final_matches_source "$target" || \
-    refuse "existing archive differs from source: $target"
-  sync "$target" || refuse "could not fsync existing archive: $target"
-  publish_checksum
-  final_matches_source "$target" || \
-    refuse "existing archive changed during durable validation: $target"
-  checksum_matches_source "$checksum_target" || \
-    refuse "existing WAL checksum changed during durable validation: $checksum_target"
-  exit 0
+if [ ! -e "$target" ] && [ ! -L "$target" ]; then
+  temporary="$(mktemp "$archive_dir/.${wal_name}.part.XXXXXX")" || \
+    refuse "could not create same-directory temporary file"
+  cp -- "$source_wal" "$temporary" || refuse "copy failed for $wal_name"
+  sync "$temporary" || refuse "could not fsync temporary archive"
+  hash_matches_source "$temporary" || refuse "temporary archive changed after fsync"
+  hash_matches_source "$source_wal" && source_unchanged || \
+    refuse "source WAL changed during copy: $wal_name"
+  if ! mv -T --no-clobber -- "$temporary" "$target"; then
+    # A no-clobber race may return failure on some coreutils versions.
+    # A lost temporary is an ambiguous move failure; leave recovery to retry.
+    [ -f "$temporary" ] || refuse "atomic publication failed for $wal_name"
+  fi
+  if [ ! -e "$temporary" ]; then temporary=""; fi
 fi
 
-temporary="$(mktemp "$archive_dir/.${wal_name}.part.XXXXXX")" || \
-  refuse "could not create same-directory temporary file"
-if ! cp -- "$source_wal" "$temporary"; then
-  refuse "copy failed for $wal_name"
-fi
-
-temporary_size="$(stat -c %s -- "$temporary")" || \
-  refuse "could not stat temporary archive"
-source_size_after="$(stat -c %s -- "$source_wal")" || \
-  refuse "could not restat source"
-[ "$source_size_before" = "$source_size_after" ] || \
-  refuse "source size changed during copy"
-source_hash_unchanged || refuse "source WAL contents changed during copy: $wal_name"
-[ "$temporary_size" = "$source_size_after" ] || \
-  refuse "temporary archive size differs from source"
-cmp -s -- "$source_wal" "$temporary" || \
-  refuse "temporary archive contents differ from source"
-hash_matches_source "$temporary" || \
-  refuse "temporary archive hash differs from initial source hash"
-
-sync "$temporary" || refuse "could not fsync temporary archive"
-final_matches_source "$temporary" || \
-  refuse "temporary archive changed after fsync"
-
-if ! mv -T --no-clobber -- "$temporary" "$target"; then
-  # Coreutils versions differ on the exit status of a no-clobber name race.
-  # Only an intact temporary plus an exact competing final proves that case.
-  [ -f "$temporary" ] && final_matches_source "$target" || \
-    refuse "atomic publication failed for $wal_name"
-fi
-if [ -e "$temporary" ]; then
-  final_matches_source "$target" || \
-    refuse "concurrent archive publication differs from source: $target"
-  rm -f -- "$temporary"
-else
-  temporary=""
-fi
-
-final_matches_source "$target" || \
-  refuse "published archive differs from source: $target"
+# Both a winning publisher and a retry verify the actual immutable winner.
+hash_matches_source "$target" || refuse "existing archive differs from source: $target"
 sync "$target" || refuse "could not fsync published archive: $target"
 publish_checksum
-final_matches_source "$target" || \
+hash_matches_source "$target" || \
   refuse "published archive changed during durable validation: $target"
 checksum_matches_source "$checksum_target" || \
   refuse "published WAL checksum changed during final validation: $checksum_target"
-source_hash_unchanged || refuse "source WAL changed before archive success: $wal_name"
+hash_matches_source "$source_wal" && source_unchanged || \
+  refuse "source WAL changed before archive success: $wal_name"
 exit 0

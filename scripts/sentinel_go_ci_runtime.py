@@ -2,7 +2,7 @@
 """Acquire one exact CI-certified Sentinel runtime for production GO.
 
 This module has Docker-image authority only. It does not touch PostgreSQL,
-Sharadar, Alpaca, broker state, or deployment verdicts. Normal GO uses it to
+providers, broker state, or deployment verdicts. Normal GO uses it to
 replace the expensive local software-certification build/test phase with exact
 GitHub CI evidence for the current clean main commit.
 """

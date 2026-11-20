@@ -9,6 +9,33 @@ sys.path.insert(0, str(SCRIPTS))
 
 
 class RecoveryDeadlines(unittest.TestCase):
+    def test_callback_result_survives_child_and_executor_cleanup(self):
+        from sentinel_maintenance_process import run_bounded
+
+        class Callback:
+            minimum_seconds = 0.1
+            calls = 0
+
+            def next_at(self):
+                return float('inf') if self.calls else 0
+
+            def __call__(self, remaining):
+                self.calls += 1
+                if fail:
+                    raise OSError('freshness failed')
+
+        for fail in (False, True):
+            callback = Callback()
+            command = [sys.executable, '-c', "import time; time.sleep(.25); print('finished')"]
+            with self.subTest(failure=fail):
+                if fail:
+                    with self.assertRaisesRegex(OSError, 'freshness failed'):
+                        run_bounded(command, on_wait=callback, timeout=5)
+                else:
+                    result = run_bounded(command, on_wait=callback, timeout=5)
+                    self.assertEqual((result.returncode, result.stdout), (0, 'finished\n'))
+                self.assertEqual(callback.calls, 1)
+
     def test_all_recovery_owners_import_with_finite_shared_budgets(self):
         import sentinel_backup_deadlines as budgets
         import sentinel_backup_maintenance as maintenance

@@ -5,12 +5,13 @@ import hashlib
 import json
 import os
 import time
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, build_opener
+from urllib.error import HTTPError
+from urllib.request import Request
 
 from sentinel.feed import rolling_work
 from sentinel.feed.alpaca_transport import (
-    _NoRedirect, AlpacaTransportRefused, AlpacaTransportUnavailable,
+    AlpacaTransportRefused, AlpacaTransportUnavailable, check_provider,
+    NETWORK_FAILURES, provider_pause, rate_limit, request_bytes, request_timeout,
 )
 from sentinel.feed.rolling_contract import digest
 
@@ -111,7 +112,7 @@ def select_assets(assets, observations):
 
 class Client:
     def __init__(self, *, opener=None, sleeper=time.sleep, monotonic=time.monotonic):
-        self.opener = opener or build_opener(_NoRedirect())
+        self.opener = opener
         self.sleep, self.monotonic, self.last = sleeper, monotonic, None
         self.api_key = os.environ.get('OPENFIGI_API_KEY', '').strip()
         self.batch_size = 100 if self.api_key else 10
@@ -127,33 +128,37 @@ class Client:
             rolling_work.checkpoint()
             interval = 0.3 if self.api_key else 2.5
             if self.last is not None:
-                self.sleep(max(0, interval - (self.monotonic() - self.last)))
+                provider_pause(max(0, interval - (self.monotonic() - self.last)), self.sleep)
             self.last = self.monotonic()
+            check_provider(ENDPOINT)
             try:
-                with self.opener.open(Request(ENDPOINT, data=body, headers=headers,
-                                             method='POST'), timeout=45) as response:
-                    if response.status != 200:
-                        raise AlpacaTransportRefused('OpenFIGI returned a non-200 response')
-                    raw = response.read(2 * 1024 * 1024 + 1)
-                    if len(raw) > 2 * 1024 * 1024:
-                        raise AlpacaTransportRefused('OpenFIGI mapping response exceeds size bound')
-                    try:
-                        values = json.loads(raw)
-                    except (ValueError, UnicodeError):
-                        raise AlpacaTransportRefused('OpenFIGI response is invalid JSON') from None
-                    if not isinstance(values, list) or len(values) != len(assets):
-                        raise AlpacaTransportRefused('OpenFIGI mapping response count changed')
-                    return values, {'endpoint': ENDPOINT, 'request_sha256': hashlib.sha256(body).hexdigest(),
-                        'sha256': hashlib.sha256(raw).hexdigest(), 'bytes': len(raw),
-                        'observed_at': datetime.now(timezone.utc).isoformat()}
+                request = Request(ENDPOINT, data=body, headers=headers, method='POST')
+                limit = 2 * 1024 * 1024
+                raw = request_bytes(request, limit, opener=self.opener)
+                if len(raw) > limit:
+                    raise AlpacaTransportRefused('OpenFIGI mapping response exceeds size bound')
+                try:
+                    values = json.loads(raw)
+                except (ValueError, UnicodeError):
+                    raise AlpacaTransportRefused('OpenFIGI response is invalid JSON') from None
+                if not isinstance(values, list) or len(values) != len(assets):
+                    raise AlpacaTransportRefused('OpenFIGI mapping response count changed')
+                request_timeout()
+                return values, {'endpoint': ENDPOINT, 'request_sha256': hashlib.sha256(body).hexdigest(),
+                    'sha256': hashlib.sha256(raw).hexdigest(), 'bytes': len(raw),
+                    'observed_at': datetime.now(timezone.utc).isoformat()}
             except HTTPError as exc:
                 if exc.code not in (429, 500, 502, 503, 504):
                     raise AlpacaTransportRefused('OpenFIGI refused HTTP '+str(exc.code)) from None
                 delay = 60 if exc.code == 429 else min(2 ** attempt, 8)
-            except (URLError, TimeoutError, OSError):
+                if exc.code == 429:
+                    delay = rate_limit(ENDPOINT, exc.headers, default=60)
+                    if delay > 60 or attempt == 3:
+                        raise AlpacaTransportUnavailable("provider rate limit exceeds retry window", delay=delay)
+            except NETWORK_FAILURES:
                 delay = min(2 ** attempt, 8)
             if attempt < 3:
-                self.sleep(delay)
+                provider_pause(delay, self.sleep)
         raise AlpacaTransportUnavailable('OpenFIGI exhausted bounded retries')
 
 

@@ -63,7 +63,7 @@ DEPLOY_SCHEMA = "sentinel.autonomous-paper-deployment/1"
 _HEX40 = re.compile(r"^[0-9a-f]{40}$")
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
-VALIDATION_SCHEMA = "sentinel.nas-go-validation/1"
+VALIDATION_SCHEMA = "sentinel.nas-go-validation/2"
 VALIDATION_TEST_SCHEMA = "sentinel.nas-go-test-summary/1"
 NON_FORWARD_HISTORICAL_EXCLUSIONS = (
     "tests/wealth_core/test_golden_fixture.py::"
@@ -76,8 +76,8 @@ NON_FORWARD_HISTORICAL_EXCLUSIONS = (
 )
 VALIDATION_MANIFEST_SCHEMA = "sentinel.nas-go-validation-manifest/1"
 VALIDATION_SCAN_SCHEMA = "sentinel.nas-go-secret-scan/1"
-VALIDATION_PREPARATION_SCHEMA = "sentinel.nas-go-preparation/1"
-VALIDATION_DATABASE_HEALTH_SCHEMA = "sentinel.nas-financial-db-health/1"
+VALIDATION_PREPARATION_SCHEMA = "sentinel.nas-go-preparation/2"
+VALIDATION_DATABASE_HEALTH_SCHEMA = "sentinel.nas-financial-db-health/2"
 SHADOW_CONFIG_SCHEMA = "sentinel.shadow-reviewed-config/1"
 DATA_PUBLICATION_SCHEMA = "sentinel.data-publication-binding/1"
 SHADOW_EXECUTION_MODEL = "PROSPECTIVE_CONCORDANCE_SCALAR_CORE_BIL_V3"
@@ -98,7 +98,7 @@ VALIDATION_GATES = (
     "certified_suite_no_skips",
     "database_financial_health",
     "wealth_core_nas_parity",
-    "sharadar_readiness",
+    "market_data_readiness",
     "preopen_share_unit_authority",
     "alpaca_paper_account",
     "official_close_nav",
@@ -112,7 +112,7 @@ SHADOW_VALIDATION_GATES = (
     "certified_suite_no_skips",
     "database_financial_health",
     "wealth_core_nas_parity",
-    "sharadar_readiness",
+    "market_data_readiness",
     "zero_mutation_boundary",
 )
 DUAL_RUN_VALIDATION_GATES = SHADOW_VALIDATION_GATES + (
@@ -370,12 +370,7 @@ def _require_exact_keys(value: Mapping, expected, *, label: str) -> None:
         raise DeployRefused("%s has an unexpected field set" % label)
 
 
-def parse_reviewed_validation_bundle(
-        path: Path, *, mode: str, confirmation: str,
-        now: Optional[datetime] = None) -> ReviewedValidation:
-    """Validate every public bundle byte before consulting deployment state."""
-    if mode not in {"shadow", "dual", "paper"}:
-        raise DeployRefused("deployment mode must be shadow, dual or paper")
+def _verified_bundle_members(path: Path, confirmation: str):
     if _HEX64.fullmatch(str(confirmation or "")) is None:
         raise DeployRefused(
             "--confirm-reviewed-go must be the exact lowercase bundle SHA-256")
@@ -404,6 +399,36 @@ def parse_reviewed_validation_bundle(
     }
     if members["SHA256SUMS"] != _sha_sums_expected(sha_inputs):
         raise DeployRefused("validation SHA256SUMS does not match member bytes")
+
+    return bundle_digest, members
+
+
+def read_archive_validation(path: Path, *, confirmation: str) -> Mapping:
+    """Read the verified original v1 report for archive inspection or private restore."""
+    import sentinel_env
+    _, members = _verified_bundle_members(path, confirmation)
+    report = _json_object(members["validation.json"], label="archived validation.json")
+    wire = sentinel_env.ARCHIVE_V1
+    prep = report.get("preparation")
+    health = report.get("database_financial_health")
+    gates = report.get("gates")
+    if (report.get("schema") != wire["validation_schema"]
+            or not isinstance(prep, dict) or prep.get("schema") != wire["preparation_schema"]
+            or not isinstance(health, dict) or health.get("schema") != wire["health_schema"]
+            or not isinstance(gates, list) or not all(isinstance(g, dict) for g in gates)
+            or wire["readiness_gate"] not in [g.get("id") for g in gates]):
+        raise DeployRefused("unsupported archived validation format")
+    return report
+
+
+def parse_reviewed_validation_bundle(
+        path: Path, *, mode: str, confirmation: str,
+        now: Optional[datetime] = None) -> ReviewedValidation:
+    """Validate every public bundle byte before consulting deployment state."""
+    if mode not in {"shadow", "dual", "paper"}:
+        raise DeployRefused("deployment mode must be shadow, dual or paper")
+    path = Path(path).expanduser().resolve()
+    bundle_digest, members = _verified_bundle_members(path, confirmation)
 
     manifest = _json_object(members["manifest.json"], label="manifest.json")
     scan = _json_object(members["secret-scan.json"], label="secret-scan.json")
@@ -484,7 +509,7 @@ def parse_reviewed_validation_bundle(
         raise DeployRefused("validation preparation record is malformed")
     preparation_keys = {
         "schema", "status", "runtime_image_digest",
-        "schema_migration_attempted", "bounded_sharadar_daily_attempted",
+        "schema_migration_attempted", "bounded_market_data_daily_attempted",
         "database_mutation_scope", "broker_mutation_attempts",
         "completed_before_validation_boundary", "evidence_sha256",
     }
@@ -501,15 +526,15 @@ def parse_reviewed_validation_bundle(
             or preparation.get("status") != "PASS"
             or preparation.get("runtime_image_digest") != runtime_digest
             or preparation.get("schema_migration_attempted") is not True
-            or preparation.get("bounded_sharadar_daily_attempted") is not True
+            or preparation.get("bounded_market_data_daily_attempted") is not True
             or preparation.get("database_mutation_scope") != [
-                "SCHEMA_MIGRATION", "BOUNDED_SHARADAR_DAILY_INGEST"]
+                "SCHEMA_MIGRATION", "BOUNDED_MARKET_DATA_DAILY_INGEST"]
             or preparation.get("broker_mutation_attempts") != 0
             or preparation.get("completed_before_validation_boundary") is not True
             or _HEX64.fullmatch(
                 str(preparation.get("evidence_sha256") or "")) is None):
         raise DeployRefused(
-            "prevalidation schema/Sharadar preparation is not complete")
+            "prevalidation schema/market data preparation is not complete")
 
     database_health = validation.get("database_financial_health")
     if not isinstance(database_health, dict):
@@ -540,7 +565,7 @@ def parse_reviewed_validation_bundle(
         "warmup_revision_sessions",
     }
     expected_timings = {
-        "bounded_sharadar_ingest", "full_forward_decision_replay",
+        "bounded_market_data_ingest", "full_forward_decision_replay",
         "warmup_revision_scan", "combined_pretrade_work",
     }
     expected_deadline = {
@@ -558,7 +583,7 @@ def parse_reviewed_validation_bundle(
                 for value in values.values())
         for values, keys in numeric)
     fixed_thresholds = {
-        "bounded_sharadar_ingest": 7_200_000,
+        "bounded_market_data_ingest": 7_200_000,
         "full_forward_decision_replay": 14_400_000,
         "warmup_revision_scan": 1_800_000,
         "combined_pretrade_work": 17_550_000,
@@ -582,7 +607,7 @@ def parse_reviewed_validation_bundle(
                    for name in expected_timings)
             or measured["combined_pretrade_work"] != sum(
                 measured[name] for name in (
-                    "bounded_sharadar_ingest",
+                    "bounded_market_data_ingest",
                     "full_forward_decision_replay",
                     "warmup_revision_scan"))
             or deadline["minimum_source_final_to_following_open"] != 35_100_000
@@ -1079,8 +1104,7 @@ def load_dotenv(path: Path) -> Dict[str, str]:
 def merged_environment(path: Path = ENV_PATH) -> Dict[str, str]:
     env = dict(load_dotenv(path))
     try:
-        return sentinel_env.operational_values(
-            sentinel_env.merge(env, os.environ))
+        return sentinel_env.merge(env, os.environ)
     except sentinel_env.EnvRefused as exc:
         raise DeployRefused(str(exc)) from None
 

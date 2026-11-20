@@ -36,7 +36,7 @@ def baseline_source(name):
 
 
 def publisher_baseline():
-    raw = (BASELINE_ROOT / 'feed_rolling_publisher.py').read_bytes()
+    raw = (BASELINE_ROOT / 'feed_rolling_publisher.py.txt').read_bytes()
     if hashlib.sha256(raw).hexdigest() != '0911777fdce9a86a27e253856b6f0b9ed927a52124f8dcb4f078311a22a9d8e7':
         raise ValueError('publisher Git baseline changed')
     return raw

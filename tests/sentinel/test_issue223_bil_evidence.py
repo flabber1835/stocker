@@ -1,6 +1,8 @@
 """Issue #223 — BIL is published evidence, never an SEP/cash substitute."""
 from __future__ import annotations
 
+from sentinel import archive_identifiers as archive_ids
+
 from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
@@ -271,7 +273,7 @@ def test_corporate_action_mapping_resolves_bil_to_the_fixed_identity():
                for statement, _params in conn.statements)
 
 
-def test_execution_uses_sharadar_direct_reverse_split_multiplier_without_inversion(
+def test_execution_uses_archived_direct_reverse_split_multiplier_without_inversion(
         monkeypatch):
     from sentinel.feed import calendar
 
@@ -291,7 +293,7 @@ def test_execution_uses_sharadar_direct_reverse_split_multiplier_without_inversi
         conn, start=date(2026, 8, 19), end=date(2026, 8, 20))
 
     assert lookup("SEC-A") == canonical
-    assert lookup("SEC-A") != Decimal(30), "Sharadar split is never inverted"
+    assert lookup("SEC-A") != Decimal(30), "An archived split is never inverted"
     assert "sentinel_bar_split_repairs" in conn.statements[1][0]
 
 
@@ -511,7 +513,7 @@ def test_bil_distribution_is_evidence_only_on_raw_paper_shares(monkeypatch):
         "accrued_session": "2026-08-19", "shares": "12",
         "per_share": "0.25", "amount": "3.00",
         "reported_per_share": "0.25", "source_row_ids": ["action-1"],
-        "source": "SHARADAR_ACTIONS", "settlement_lag_sessions": None,
+        "source": archive_ids.TRIAL_ACTIONS, "settlement_lag_sessions": None,
     }]
 
 
@@ -576,7 +578,7 @@ def test_effective_session_equity_dividend_uses_pre_open_paper_shares(
         "per_share": "0.25", "amount": "3.00",
         "reported_per_share": "0.0625",
         "source_row_ids": ["action-equity"],
-        "source": "PUBLISHED_NORMALISED_BAR_AND_SHARADAR_ACTIONS",
+        "source": archive_ids.TRIAL_NORMALIZED_ACTIONS,
         "settlement_lag_sessions": None,
     }]
     assert "sentinel_bars" in conn.statements[0][0]

@@ -100,7 +100,7 @@ def reason(profile=None, **over):
                     CFG if profile is None else cfg_for(profile)).reason
 
 
-# ── 1. security class, from the raw Sharadar category string ────────────────
+# ── 1. security class, from the raw archived category string ────────────────
 
 class TestSecurityCategory:
     @pytest.mark.parametrize("profile", PROFILES)
@@ -132,7 +132,7 @@ class TestSecurityCategory:
         assert r.detail["category"] == "ADR Common Stock"
 
 
-# ── 2. issuer identity — from Sharadar fields, never from names ─────────────
+# ── 2. issuer identity — from archived fields, never from names ─────────────
 
 class TestIssuerIdentity:
     def test_related_tickers_give_ONE_key_regardless_of_input_order(self):
@@ -193,7 +193,7 @@ class TestIssuerIdentity:
 
 @pytest.mark.parametrize("profile", PROFILES)
 def test_PRIMARY_LISTING_METADATA_CANNOT_AFFECT_CERTIFIED_RESULTS(profile):
-    """MANDATORY. Sharadar does not carry it and the certified prototype did not
+    """MANDATORY. The archived source does not carry it and the certified prototype did not
     use it, so it must be inert — proven by running both values, not promised."""
     CFG = cfg_for(profile)
     a = evaluate(inp(is_primary_listing=True), CFG)

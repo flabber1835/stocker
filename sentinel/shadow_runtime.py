@@ -1,7 +1,7 @@
 """Post-publication composition for the broker-free shadow observer.
 
 This is the only runtime adapter around :mod:`sentinel.shadow_observation`.
-It loads canonical Sharadar-published inputs under the corpus pin, constructs a
+It loads canonical published inputs under the corpus pin, constructs a
 feature-only seed from explicit research capital, and appends one verified XNYS
 session. It never constructs or receives a broker.
 """

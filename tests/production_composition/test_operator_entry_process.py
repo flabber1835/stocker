@@ -8,6 +8,8 @@ import sys
 
 import pytest
 
+from scripts.sentinel_env import ARCHIVE_V1
+
 ROOT = Path(__file__).resolve().parents[2]
 LAUNCHER = ROOT / "scripts" / "sentinel-go-validate.sh"
 
@@ -34,7 +36,7 @@ def _write_env(path: Path, *, include_github=True):
     rows = [
         "SENTINEL_BACKUP_DIR=/tmp/sentinel-composition-backup",
         "SENTINEL_POSTGRES_PASSWORD=compositionpassword",
-        "SHARADAR_API_KEY=composition-sharadar",
+        ARCHIVE_V1["retired_api_key"] + "=composition-retired",
         "ALPACA_API_KEY=composition-alpaca-key",
         "ALPACA_SECRET_KEY=composition-alpaca-secret",
         "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL=https://example.invalid/sentinel",
@@ -223,7 +225,7 @@ def test_cancelled_real_guard_blocks_promotion_then_fresh_invocation_succeeds(
         "assert lock.lifecycle_lock_is_held(); "
         "signal.signal(signal.SIGINT, lambda *_: sys.exit(0)); "
         "signal.signal(signal.SIGTERM, lambda *_: sys.exit(0)); "
-        "assert not any(k.startswith(('SHARADAR_', 'NDL_')) for k in os.environ); "
+        "import sentinel_env; assert not any(k.startswith(sentinel_env.RETIRED_ENV_PREFIXES) for k in os.environ); "
         "print(os.environ['ALPACA_API_KEY'], os.environ['ALPACA_SECRET_KEY'], flush=True); "
         "os.kill(os.getppid(), %d); time.sleep(30)" % signum
     )
@@ -231,7 +233,7 @@ def test_cancelled_real_guard_blocks_promotion_then_fresh_invocation_succeeds(
         "COMPOSITION_REAL_GUARD": "1", "COMPOSITION_CHILD": child})
     assert failed.returncode == 128 + signum, failed.stderr
     assert "[REDACTED]" in failed.stdout
-    assert "composition-sharadar" not in failed.stdout + failed.stderr
+    assert "composition-retired" not in failed.stdout + failed.stderr
     assert "composition-alpaca-key" not in failed.stdout + failed.stderr
     assert "composition-alpaca-secret" not in failed.stdout + failed.stderr
     for name in ("promotion", "post_validation"):

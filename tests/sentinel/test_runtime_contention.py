@@ -112,15 +112,15 @@ def test_missing_writer_ownership_is_not_transient(conn):
 def test_real_database_timeout_resumes_same_acquisition_job(conn, operational_source, monkeypatch):
     import psycopg
     from sentinel.feed import operational_snapshot as op, rolling_jobs as jobs
-    from sentinel.feed.rolling_source import SharadarSource
+    from sentinel.feed.rolling_source import ArchiveSource
     from tests.sentinel.test_operational_snapshot import enqueue
     job = enqueue(conn)
     deadline = jobs.status(conn, job)['deadline']
-    original = SharadarSource.preflight
+    original = ArchiveSource.preflight
     def timed_out(self):
         conn.execute("SET LOCAL statement_timeout='20ms'")
         conn.execute('SELECT pg_sleep(1)')
-    monkeypatch.setattr(SharadarSource, 'preflight', timed_out)
+    monkeypatch.setattr(ArchiveSource, 'preflight', timed_out)
     with pytest.raises(psycopg.errors.QueryCanceled):
         op.prepare(conn, job)
     state = jobs.status(conn, job)
@@ -130,7 +130,7 @@ def test_real_database_timeout_resumes_same_acquisition_job(conn, operational_so
     assert conn.execute('SELECT count(*) FROM sentinel_corpus_publications').fetchone()[0] == 0
     conn.execute('UPDATE sentinel_snapshot_jobs SET next_retry=clock_timestamp() WHERE job_id=%s', (job,))
     conn.commit()
-    monkeypatch.setattr(SharadarSource, 'preflight', original)
+    monkeypatch.setattr(ArchiveSource, 'preflight', original)
     result = op.prepare(conn, job)
     assert result['job_id'] == job
     assert jobs.status(conn, job)['deadline'] == deadline
@@ -140,9 +140,9 @@ def test_real_database_timeout_resumes_same_acquisition_job(conn, operational_so
 
 def test_missing_lock_during_acquisition_is_terminal(conn, operational_source, monkeypatch):
     from sentinel.feed import operational_snapshot as op, rolling_jobs as jobs
-    from sentinel.feed.rolling_source import SharadarSource
+    from sentinel.feed.rolling_source import ArchiveSource
     from tests.sentinel.test_operational_snapshot import enqueue
-    monkeypatch.setattr(SharadarSource, 'preflight', lambda _: store._assert_corpus_locked(conn))
+    monkeypatch.setattr(ArchiveSource, 'preflight', lambda _: store._assert_corpus_locked(conn))
     job = enqueue(conn)
     with pytest.raises(publication.CorpusBusy):
         op.prepare(conn, job)
@@ -426,6 +426,29 @@ def test_authority_adapter_classifies_only_explicit_temporary_dependencies(kind)
                 else ValueError if kind == 'unknown' else NonRetryableCallbackRefused)
     with pytest.raises(expected):
         production(config())._raise_authority_refusal(errors[kind])
+
+
+@pytest.mark.parametrize('seconds,expected', [(299, True), (300, True), (301, False)])
+def test_endurance_trace_observes_original_expiry_even_after_a_fresh_commit(seconds, expected):
+    from datetime import datetime, timedelta, timezone
+    from io import StringIO
+    from tools.idle_open_endurance import Trace
+    from sentinel.panel import model
+    start = datetime.now(timezone.utc)
+    trace = Trace(StringIO())
+    def row(instant):
+        return model.execution_authority_row(installed=True, runtime_verdict='PASS',
+            checked_at=instant, certificate_sha256='a'*64, lifecycle_status='ACTIVE',
+            lifecycle_current=True, verdict_binding_matches=True)
+    trace.observe(row(start), start, 1, start)
+    later = start + timedelta(seconds=seconds)
+    if expected:
+        trace.observe(row(later), later, 1, later)
+    else:
+        assert row(later).effective_status(later) == model.OK
+        with pytest.raises(AssertionError, match='previous root expired'):
+            trace.observe(row(later), later, 1, later)
+    assert trace.max_age == seconds
 
 
 @pytest.mark.asyncio

@@ -4,6 +4,7 @@ No function commits, contacts a provider, switches production visibility or
 issues verification authority. The caller owns the transaction and rollback.
 """
 from __future__ import annotations
+from sentinel import archive_identifiers
 
 import hashlib
 import json
@@ -305,7 +306,7 @@ def _fold(hasher, value, _encoder: json.JSONEncoder | None = None):
 
 def seal(conn, candidate_id: str, *, expected_keys: Iterable[tuple[str, str]],
          normalization_version: str,
-         requirements: RestartRequirement, provider: str = "SHARADAR") -> SnapshotManifest:
+         requirements: RestartRequirement, provider: str = archive_identifiers.PROVIDER) -> SnapshotManifest:
     """Seal storage after comparing independent (ISO session, security) keys.
 
     Expected keys must be unique and sorted. They are supplied by the source

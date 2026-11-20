@@ -1,4 +1,6 @@
 """Real publication/SQL proofs for historical economic mutation detection."""
+
+from sentinel import archive_identifiers as archive_ids
 from types import SimpleNamespace
 
 import pytest
@@ -147,20 +149,20 @@ def test_mutation_footprints_are_append_only_and_schema_proves_trigger_presence(
 
 def test_upgrade_from_cash_spinoff_semantics_replays_and_preserves_source(conn, monkeypatch):
     from datetime import date
-    from sentinel.feed import calendar, corporate_action_authority, ingest, maintenance, sharadar
+    from sentinel.feed import calendar, corporate_action_authority, ingest, maintenance, archive_tables
 
     start, event, end = "2014-09-22", "2014-10-01", "2014-10-03"
     days = calendar.sessions_in_range(start, end)
 
     def fetch(table, params=None, **_kwargs):
         lo, hi = (params or {}).get("date.gte", "0000"), (params or {}).get("date.lte", "9999")
-        if table == sharadar.ACTIONS:
+        if table == archive_tables.ACTIONS:
             return [{"ticker": "ADP", "contraticker": "CDK", "date": event,
                      "action": "spinoffdividend", "value": "10"}] if lo <= event <= hi else []
-        if table == sharadar.TICKERS:
+        if table == archive_tables.TICKERS:
             return [{"ticker": "ADP", "permaticker": "P:ADP", "firstpricedate": start,
                      "category": "Domestic Common Stock"}]
-        if table == sharadar.SEP:
+        if table == archive_tables.SEP:
             return [{"ticker": "ADP", "date": day, "close": 100, "closeunadj": 100,
                      "open": 100, "volume": 1000000, "lastupdated": day}
                     for day in days if lo <= day <= hi]
@@ -175,12 +177,12 @@ def test_upgrade_from_cash_spinoff_semantics_replays_and_preserves_source(conn, 
     prior = publication.require_current(conn)
     with store.corpus_write_lock(conn):
         maintenance._core._write_cursor(
-            conn, name="sharadar-actions-export-reconcile:v7",
-            kind="sharadar-actions-export-reconcile/v7", through=date.fromisoformat(end),
+            conn, name=archive_ids.FEED['ACTIONS_RECONCILE_V10'].removesuffix('v10') + 'v7',
+            kind=archive_ids.FEED['ACTIONS_RECONCILE_KIND_V10'].removesuffix('v10') + 'v7', through=date.fromisoformat(end),
             publication_version=prior.version)
         assert maintenance.load_actions_cursor(conn) is None
         cursor = maintenance.reconcile_actions_if_due(conn, fetch=fetch, through=end)
-    assert cursor.kind == "sharadar-actions-export-reconcile/v10"
+    assert cursor.kind == archive_ids.FEED['ACTIONS_RECONCILE_KIND_V10']
     with conn.cursor() as cur:
         cur.execute("SELECT dividend_per_share FROM sentinel_bars WHERE session=%s", (event,))
         assert cur.fetchone()[0] == 0

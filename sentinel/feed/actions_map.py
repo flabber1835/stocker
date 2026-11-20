@@ -1,4 +1,4 @@
-"""SHARADAR/ACTIONS -> authoritative split ratios and dividends. PURE.
+"""ACTIONS -> authoritative split ratios and dividends. PURE.
 
 The Sentinel-specific ACTIONS mapping lives here, while split orientation is a
 shared pure rule in `stock_strategy_shared.split_reconciliation`. Sentinel may
@@ -34,7 +34,7 @@ exact figure in a column the ingest was already reading.
 
 ```text
 ONLY `split` IS LISTED-SHARE AUTHORITY
-    Sharadar documents `split` as new-float/old-float, already the direct share
+    Source documents `split` as new-float/old-float, already the direct share
     multiplier. `adrratiosplit` describes depositary-ratio metadata and never
     resizes the listed holding. The independently derived price-domain ratio
     corroborates the direct value; a reciprocal is disagreement, not permission
@@ -52,7 +52,7 @@ row read would silently drop one. The sum is performed in Decimal source space;
 a float accumulation here would round authoritative cash economics before the
 raw-share-domain conversion even has a chance to canonicalize them.
 
-Sharadar remains the ordinary dividend authority. Explicitly disputed cash
+Source remains the ordinary dividend authority. Explicitly disputed cash
 actions pass through `corporate_action_authority`, whose reviewed immutable
 records can supersede one named stale source component only when independent
 final terms were point-in-time available before the effective XNYS session.
@@ -64,7 +64,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Iterable, Mapping, Sequence
 
 from sentinel.core.terminal import DIVIDEND_ACTIONS, SHARE_SPLIT_ACTIONS
-from stock_strategy_shared.wealth_core.sharadar_domains import AdjudicatedCashDistribution
+from stock_strategy_shared.wealth_core.price_domains import AdjudicatedCashDistribution
 from stock_strategy_shared.split_reconciliation import (
     SPLIT_AGREEMENT_TOLERANCE,
     SPLIT_AUTHORITATIVE_APPLIED,
@@ -117,7 +117,7 @@ def split_rows_from_actions(rows: Iterable[Mapping],
                             ) -> tuple[dict[tuple[str, str], float], list[dict]]:
     """Return unambiguous split values plus explicit multiplicity evidence.
 
-    Only Sharadar ``split`` rows are listed-instrument share authority.
+    Only Source ``split`` rows are listed-instrument share authority.
     ``adrratiosplit`` is a distinct depositary-ratio action and remains source
     provenance. Picking the first/last of distinct stock-split rows or
     multiplying them would invent economics, so those remain explicit.
@@ -177,7 +177,7 @@ def dividends_from_actions(rows: Iterable[Mapping],
                            ) -> dict[tuple[str, str], Decimal | AdjudicatedCashDistribution]:
     """Exact resolved cash per share on the effective ex-date session.
 
-    Ordinary events retain Sharadar ACTIONS authority. A reviewed event in the
+    Ordinary events retain Source ACTIONS authority. A reviewed event in the
     independent dispute registry must satisfy its PIT/provenance contract before
     its named stale component can be replaced. Any missing, late, ambiguous, or
     contradictory flagged evidence raises and prevents publication.

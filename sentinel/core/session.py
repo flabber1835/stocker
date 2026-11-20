@@ -590,7 +590,7 @@ class FeedAnchor:
 
 @dataclass(frozen=True)
 class DefensiveBar:
-    """Exact published Sharadar SFP fields consumed by Core/BIL accounting."""
+    """Exact published SFP fields consumed by Core/BIL accounting."""
 
     session: str
     security_id: str

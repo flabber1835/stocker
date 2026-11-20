@@ -900,6 +900,9 @@ def add_category_tables(storage):
         'sentinel_sep_staging': 'run_id text',
         'sentinel_snapshot_workers': 'owner text,job_id text',
         'sentinel_acquisition_parts': 'part_id text PRIMARY KEY,manifest jsonb,created_at timestamptz DEFAULT clock_timestamp()',
+        'sentinel_acquisition_bindings': 'job_id text,component text,part_id text',
+        'sentinel_acquisition_successors': 'parent_job_id text,child_job_id text',
+        'sentinel_acquisition_price_links': 'part_id text,payload_part_id text',
         'sentinel_acquisition_prices': 'part_id text,session date,ticker text,payload text,PRIMARY KEY(part_id,session,ticker)',
         'sentinel_normalized_blocks': 'block_sha256 text PRIMARY KEY,canonical_payload text',
         'sentinel_candidate_blocks': 'candidate_id uuid,block_sha256 text',
@@ -960,6 +963,8 @@ def test_malformed_checkpoint_blocks_each_actual_mutation_category(
     before = {name: count_rows(conn, name) for name in watched}
     real_class = retention._run_class
     algorithm_owner(monkeypatch)
+    if class_id == 5:
+        monkeypatch.setattr(retention, '_possible_work', lambda _: retention._PRIVATE_ACQUISITION)
     # Use the real handler for exactly this positive category. Other categories
     # are outside this ordering test and do not require synthetic negative tables.
     def selected(connection, selected_id, progress, *, batch_rows):

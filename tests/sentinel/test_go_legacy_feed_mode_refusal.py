@@ -29,7 +29,7 @@ def test_supported_verified_preparation_removes_legacy_service_mode():
     assert '"SENTINEL_FEED_AUTHORIZED": "CLEAN_HEAD_IMAGE_V1"' in text
 
 
-def test_core_producer_does_not_reintroduce_sharadar_daily():
+def test_core_producer_rejects_historical_daily():
     text = (ROOT / "scripts" / "sentinel_go_validate.py").read_text(
         encoding="utf-8")
     assert '"SENTINEL_FEED_SERVICE_MODE": "GO_VALIDATION"' in text

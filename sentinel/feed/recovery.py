@@ -1,4 +1,4 @@
-"""Crash-convergent recovery for Sharadar candidate publication.
+"""Crash-convergent recovery for Source candidate publication.
 
 A completed ingest is deliberately durable before corpus publication. That is a
 useful distinction only if restart understands the intermediate state. Issue

@@ -1,14 +1,14 @@
 """Acquire missing components once; retain validated input across worker claims."""
 from datetime import date
 
-from sentinel.feed import action_source, authority, progress, session_envelope, sharadar
+from sentinel.feed import action_source, authority, progress, session_envelope, archive_tables
 from sentinel.feed.acquisition_parts import Parts, SourceRevision
 from sentinel.feed.rolling_contract import digest
-from sentinel.feed.rolling_source import SharadarSource, component, generation, json_value, ordered
+from sentinel.feed.rolling_source import ArchiveSource, component, generation, json_value, ordered
 from sentinel.feed.source_authority.dates import SepUpdateEnvelope, _canonical_key
 
 
-class RetainedSource(SharadarSource):
+class RetainedSource(ArchiveSource):
     def __init__(self, window, conn, lease, *, corrections=None, verify_during_coverage=False):
         super().__init__(window, corrections=corrections)
         self.parts = Parts(conn, lease)
@@ -88,7 +88,7 @@ class RetainedSource(SharadarSource):
                     operation="rolling_comparison")
                 envelope = SepUpdateEnvelope.through(snapshot.refreshed.date())
                 for row_index, row in enumerate(checked, 1):
-                    ticker, day = _canonical_key(sharadar.SEP, row)
+                    ticker, day = _canonical_key(archive_tables.SEP, row)
                     envelope.validate(row.get("lastupdated"), ticker=ticker, session=day)
                     # Replace consumed rows in the bounded export buffer instead
                     # of retaining a second full partition of dictionaries.

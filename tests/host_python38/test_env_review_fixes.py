@@ -23,7 +23,7 @@ import sentinel_env_writer as writer
 
 BASE_SHADOW = {
     "SENTINEL_POSTGRES_PASSWORD": "synthetic-database-password",
-    "SHARADAR_API_KEY": "synthetic-sharadar-key",
+    env.ARCHIVE_V1["retired_api_key"]: "retired-key-fixture",
     "ALPACA_API_KEY": "synthetic-market-data-key",
     "ALPACA_SECRET_KEY": "synthetic-market-data-secret",
     "SENTINEL_BACKUP_DIR": "/synthetic/external/backup",
@@ -36,7 +36,7 @@ class EnvReviewFixes(unittest.TestCase):
     def test_software_install_needs_neither_provider_credentials_nor_alert_transport(self):
         market_data_only = {k: v for k, v in BASE_SHADOW.items()
                             if k not in {"SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL",
-                                         "SHARADAR_API_KEY"}}
+                                         env.ARCHIVE_V1["retired_api_key"]}}
         env.validate(market_data_only, profile="install", target="SHADOW")
         without_data_key = dict(market_data_only)
         del without_data_key["ALPACA_API_KEY"]
@@ -54,7 +54,7 @@ class EnvReviewFixes(unittest.TestCase):
                     "sentinel-autonomous-deploy.sh",
                     "sentinel-env.sh",
                     "sentinel_lock_ownership.py",
-                    "sentinel_env.py"):
+                    "sentinel_env.py", "go-archive-format-v1.json"):
                 shutil.copyfile(SCRIPTS / name, scripts / name)
             lock_path = root / "deploy.lock"
             launcher = scripts / "sentinel-autonomous-deploy.sh"

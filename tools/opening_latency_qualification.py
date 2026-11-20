@@ -77,8 +77,9 @@ def require_environment(environ, sentinel_file):
     # Do not load a .env, inherit provider access, or let a source overlay stand
     # in for the tested runtime. PostgreSQL/publication authentication is needed
     # to read the private copied source and is never included in the report.
+    from sentinel.archive_identifiers import PROVIDER
     for name, value in environ.items():
-        if value and (name.startswith(("ALPACA_", "OPENFIGI_", "SHARADAR_", "NDL_"))
+        if value and (name.startswith(("ALPACA_", "OPENFIGI_", PROVIDER + "_", "NDL_"))
                       or name in ("REHEARSAL_PRODUCTION_DATABASE_URL",)):
             raise QualificationRefused("PROVIDER_OR_PRODUCTION_ENVIRONMENT_PRESENT")
     if Path(sentinel_file).resolve().parent != Path("/app/sentinel"):

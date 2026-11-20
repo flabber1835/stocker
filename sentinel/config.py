@@ -8,6 +8,7 @@ Credentials come from the environment only. Nothing here reads or writes a repo
 file, and none of these values are ever logged.
 """
 from __future__ import annotations
+from sentinel import archive_identifiers
 
 import os
 from dataclasses import dataclass
@@ -265,11 +266,11 @@ def build_execution_broker(config: SentinelConfig, *, resolve_security_id,
     config.assert_credentials()
     if endpoint.environment is TradingEnvironment.PAPER:
         require_certified("alpaca")
-    provider = getattr(resolve_security_id, "source_provider", "SHARADAR")
-    if provider not in {"SHARADAR", "ALPACA_NASDAQ", "ALPACA_OPENFIGI"}:
+    provider = getattr(resolve_security_id, "source_provider", archive_identifiers.PROVIDER)
+    if provider not in {archive_identifiers.PROVIDER, "ALPACA_NASDAQ", "ALPACA_OPENFIGI"}:
         raise ValueError("execution resolver has an unsupported source symbol domain")
     from_broker_symbol = None
-    if provider != "SHARADAR":
+    if provider != archive_identifiers.PROVIDER:
         if to_broker_symbol is not None:
             raise ValueError("native source symbols cannot use a legacy symbol override")
         to_broker_symbol = str

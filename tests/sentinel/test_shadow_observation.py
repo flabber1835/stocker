@@ -1275,7 +1275,7 @@ def test_postgres_runtime_refuses_go_when_full_readiness_fails(monkeypatch):
         readiness, "check_readiness",
         lambda actual: SimpleNamespace(
             ready=False,
-            failures=[SimpleNamespace(name="Sharadar readiness")], checks=[]))
+            failures=[SimpleNamespace(name="Market data readiness")], checks=[]))
     monkeypatch.setattr(
         SO, "load_published_session",
         lambda *args, **kwargs: pytest.fail("failed readiness loaded a session"))

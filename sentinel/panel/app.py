@@ -257,8 +257,7 @@ def panel(request: Request = None) -> HTMLResponse:
     phase = install_progress.current()
     if phase:
         html = html.replace(deployment_progress_html(), deployment_progress_html(phase), 1)
-    last_known.remember((state_dir, dsn), render(p, refresh_seconds=REFRESH_SECONDS,
-                                              refresh_pending=True))
+    last_known.remember((state_dir, dsn), p)
     return _compress_document(request, HTMLResponse(html, headers={"Cache-Control": "no-store", **_progress_headers(phase),
                               'X-Sentinel-Panel-Status': 'CURRENT' if delivery.display_current(p) else 'PARTIAL'}))
 

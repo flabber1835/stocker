@@ -51,7 +51,7 @@ def test_unverified_orchestration_refusal_survives_as_exact_diagnostic():
 
     assert result.status == entry.go.NOT_PROVEN
     assert result.schema_migration_attempted is False
-    assert result.bounded_sharadar_daily_attempted is False
+    assert result.bounded_market_data_daily_attempted is False
     payload = _payload(runner)
     assert payload["phase"] == "ORCHESTRATION_AUTHORITY"
     assert payload["reason_code"] == \
@@ -128,7 +128,7 @@ def test_early_diagnostic_never_contains_environment_secret(monkeypatch):
         runner,
         env={
             "SENTINEL_GITHUB_READ_TOKEN": secret,
-            "SHARADAR_API_KEY": "also-secret",
+            "OPENFIGI_API_KEY": "also-secret",
             "SENTINEL_POSTGRES_PASSWORD": "db-secret",
         },
         runtime_ref=DIGEST, commit=COMMIT,

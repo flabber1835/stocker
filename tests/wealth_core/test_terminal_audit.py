@@ -63,7 +63,7 @@ def seated(cash=10_000.0, sec="S1", shares=10, entry=100.0, last_print="d0"):
 
 def terms(session="d1"):
     """Terms as the corpus actually produces them: a documented event with NO
-    per-share consideration, which is every one of Sharadar's 19,216."""
+    per-share consideration, which is every one of The archive's 19,216."""
     return TerminalTerms(session=session, security_id="S1",
                          kind=TerminalKind.CASH_MERGER,
                          reference="test/terms-pending")

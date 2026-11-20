@@ -1,6 +1,8 @@
 """Compare host preflight with the independently resolved deployed runtime."""
 from __future__ import annotations
 
+from sentinel import archive_identifiers as archive_ids
+
 import importlib.util
 import asyncio
 import json
@@ -30,7 +32,7 @@ assert SPEC.loader is not None
 SPEC.loader.exec_module(preflight)
 BASE = {
     "SENTINEL_POSTGRES_PASSWORD": "synthetic-database-password",
-    "SHARADAR_API_KEY": "synthetic-sharadar-key",
+    archive_ids.RETIRED_CREDENTIAL: "synthetic-retired-key",
     "SENTINEL_BACKUP_DIR": "/synthetic/external/backup",
     "ALPACA_API_KEY": "synthetic-paper-key",
     "ALPACA_SECRET_KEY": "synthetic-paper-secret",
@@ -372,7 +374,7 @@ def test_missing_webhook_refuses_at_host_and_real_dispatcher(profile, value):
 def test_local_bringup_needs_no_provider_or_alert_credentials():
     candidate = {key: value for key, value in BASE.items()
                  if key not in {"ALPACA_API_KEY", "ALPACA_SECRET_KEY",
-                                "SHARADAR_API_KEY",
+                                archive_ids.RETIRED_CREDENTIAL,
                                 "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL"}}
     preflight.validate(candidate, profile="bringup", target="DUAL_RUN_OBSERVATION")
 
@@ -395,10 +397,10 @@ def test_shared_graph_resolves_for_shadow_and_maintenance_before_alert_setup():
     shadow = service_environment("sentinel-shadow", {}, configured=candidate)
     assert shadow["ALPACA_API_KEY"] == BASE["ALPACA_API_KEY"]
     assert shadow["ALPACA_SECRET_KEY"] == BASE["ALPACA_SECRET_KEY"]
-    assert "SHARADAR_API_KEY" not in shadow
+    assert archive_ids.RETIRED_CREDENTIAL not in shadow
     standby = (ROOT / "docker-compose.sentinel-automation-standby.yml").read_text(
         encoding="utf-8")
-    assert "SHARADAR_API_KEY" not in standby
+    assert archive_ids.RETIRED_CREDENTIAL not in standby
     assert "SENTINEL_FEED_SERVICE_MODE: AUTOMATION" in standby
     assert "SENTINEL_SHADOW_STARTING_CASH: ${SENTINEL_SHADOW_STARTING_CASH:-50000}" in standby
     assert service_environment("sentinel-automation", {}, configured=candidate)[

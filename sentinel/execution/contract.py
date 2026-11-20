@@ -759,6 +759,17 @@ class BrokerOrder:
         return blocks_overlapping(self.state)
 
 
+def order_observation_fingerprint(order: BrokerOrder) -> tuple:
+    return (
+        order.broker_order_id, order.client_key,
+        order.instrument.security_id, order.instrument.broker_id,
+        order.side, order.quantity, order.order_terms,
+        order.notional,
+        order.state, order.filled_quantity, order.filled_average_price,
+        order.submitted_at, bool(order.external_replacement),
+        order.replaced_by, order.replaces)
+
+
 @dataclass(frozen=True)
 class BrokerExactOrderLookup:
     """One exact-key lookup bracketed by typed account identity reads."""

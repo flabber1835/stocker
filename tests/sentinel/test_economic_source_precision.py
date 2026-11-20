@@ -1,13 +1,15 @@
 """Exact source decimals survive the provider and bounded-memory SEP sorter."""
 from __future__ import annotations
 
+from sentinel import archive_identifiers as archive_ids
+
 from decimal import Decimal
 import json
 import uuid
 
 import pytest
 
-from sentinel.feed import domains, sharadar, staging, store
+from sentinel.feed import domains, archive_tables, staging, store
 from tests.support.postgres import _EphemeralPostgres
 
 
@@ -63,11 +65,11 @@ def _sep_payload_raw() -> bytes:
 
 
 def test_provider_decodes_fractional_source_numbers_as_decimal(monkeypatch):
-    monkeypatch.setenv("SHARADAR_API_KEY", "redacted-test-key")
+    monkeypatch.setenv(archive_ids.RETIRED_CREDENTIAL, "redacted-test-key")
     _Http.response_content = _sep_payload_raw()
 
-    rows = list(sharadar.fetch_table(
-        sharadar.SEP, http=_Http, sleep=lambda _seconds: None))
+    rows = list(archive_tables.fetch_table(
+        archive_tables.SEP, http=_Http, sleep=lambda _seconds: None))
 
     assert len(rows) == 1
     row = rows[0]

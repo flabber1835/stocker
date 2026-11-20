@@ -97,7 +97,7 @@ STARTUP_CASES = [
     ('go_disconnected_readiness_fault', 'tools/production_go_stage_faults.py',
      'fault, "sentinel.feed.rolling_go_inputs", "readiness"',
      'fault, "sentinel.feed.readiness", "check_readiness"',
-     'tests/production_composition/test_internal_go_stage_faults.py::test_rolling_fault_reaches_the_production_call_site[sharadar-readiness-readiness]'),
+     'tests/production_composition/test_internal_go_stage_faults.py::test_rolling_fault_reaches_the_production_call_site[market-data-readiness-readiness]'),
     ('go_false_sensitivity_claim', 'tools/production_go_e2e_audit.py',
      'if sensitivity_group == "positive" and sensitivity:', 'if False:',
      'tests/production_composition/test_internal_go_stage_faults.py::test_positive_campaign_cannot_claim_sensitivity'),

@@ -1,16 +1,16 @@
-"""Sharadar SEP -> Wealth Core's price domains. PURE, and the file that must not
+"""Source SEP -> Wealth Core's price domains. PURE, and the file that must not
 be wrong.
 
-Retiring Alpha Vantage in favour of Sharadar is not a vendor swap — it is what
+Retiring Alpha Vantage in favour of Source is not a vendor swap — it is what
 removes the single largest unmodelled risk in the deployment. Wealth Core was
-CERTIFIED on Sharadar. While live read AV's `adjusted_close` (AV-vintage,
-re-based only when AV restates) and certification read Sharadar's (uniformly
+CERTIFIED on source. While live read AV's `adjusted_close` (AV-vintage,
+re-based only when AV restates) and certification read the source's (uniformly
 restated), the 30% trailing stop would have armed on peaks from a price history
 the engine had never been tested against — a strategy change arriving as a data
 change. Reading the certified corpus in production makes that class of divergence
 structurally impossible rather than merely monitored.
 
-THE MAPPING. Sharadar's column names do not mean what they appear to mean, and
+THE MAPPING. the source's column names do not mean what they appear to mean, and
 getting them wrong is silent:
 
 ```text
@@ -58,7 +58,7 @@ from typing import Iterable, Iterator, Mapping, Optional
 
 from stock_strategy_shared.split_reconciliation import SplitStreamReconciler
 from stock_strategy_shared.wealth_core.feed import VendorBar
-from stock_strategy_shared.wealth_core.sharadar_domains import (
+from stock_strategy_shared.wealth_core.price_domains import (
     raw_compatible_price,
     raw_compatible_volume,
     raw_dividend_per_share,
@@ -384,7 +384,7 @@ def normalise_sep_rows(
 
         # Keep the vendor's original decimal spellings for economic-domain
         # conversions. The engine still receives canonical floats below, but a
-        # mathematically equivalent Sharadar rebase must be reduced before any
+        # mathematically equivalent Source rebase must be reduced before any
         # binary-float rounding can alter volume, dividends, raw opens, or
         # economic identity hashes.
         source_open = r.get("open")
@@ -512,7 +512,7 @@ def normalise_sep_rows(
             source_close, source_raw, source_dividend, split_ratio=ratio)
         if dividend is None:
             raise RawPriceDomainUnavailable(
-                f"cannot convert positive Sharadar dividend for {ticker} on "
+                f"cannot convert positive source dividend for {ticker} on "
                 f"{session} into the raw share domain: SEP.close={close!r}, "
                 f"SEP.closeunadj={raw!r}, ACTIONS.value={source_dividend!r}, "
                 f"split_ratio={ratio!r}. "
@@ -532,13 +532,13 @@ def normalise_sep_rows(
             # deliberately in the same as-traded domain.
             volume=volume,
             split_ratio=ratio,
-            # ACTIONS values are in Sharadar's split-adjusted per-share domain;
+            # ACTIONS values are in the source's split-adjusted per-share domain;
             # the ledger owns historical raw shares. Convert exactly once here.
             dividend_per_share=dividend,
             # DERIVED, never defaulted. `VendorBar.tradeable` defaults to True,
             # so omitting it here declared every bar fillable — including a
             # session on which nobody traded the security. Source tradeability
-            # is based on the actual Sharadar print before domain conversion.
+            # is based on the actual Source print before domain conversion.
             tradeable=bool(raw and reported_volume and volume),
         ))
 

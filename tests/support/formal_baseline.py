@@ -44,7 +44,7 @@ def complete_expected(value: dict) -> dict:
     value["window"].update({
         "requested_start": "2021-01-04", "requested_end": "2023-12-29"})
     value["corpus"].update({
-        "status": "READY", "source_mode": "sharadar",
+        "status": "READY", "source_mode": baseline.ARCHIVE_PROVIDER.lower(),
         "split_source": "actions"})
     behavior = wealth_core_baseline_identity()
     value["run"].update({
@@ -103,7 +103,7 @@ def write_record(*, expected_path: Path, manifest_path: Path,
             "divergence": {"identical": True},
             "provenance": {
                 "bt_data_version": expected["corpus"]["version"],
-                "bt_data_status": "READY", "bt_data_source_mode": "sharadar",
+                "bt_data_status": "READY", "bt_data_source_mode": baseline.ARCHIVE_PROVIDER.lower(),
                 "split_source": "actions",
             },
         },
@@ -155,7 +155,7 @@ def write_record(*, expected_path: Path, manifest_path: Path,
             "parity_hashes_sha256": baseline.canonical_sha256(
                 expected["hashes"]),
             "bt_data_version": str(expected["corpus"]["version"]),
-            "bt_data_status": "READY", "bt_data_source_mode": "sharadar",
+            "bt_data_status": "READY", "bt_data_source_mode": baseline.ARCHIVE_PROVIDER.lower(),
             "split_source": "actions",
         },
     }

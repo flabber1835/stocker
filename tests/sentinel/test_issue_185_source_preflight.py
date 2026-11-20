@@ -1,23 +1,12 @@
-"""Production Sharadar source configuration must fail before durable ingest state."""
-from __future__ import annotations
-
 import pytest
 
-from sentinel.feed import ingest, sharadar
+from sentinel.feed import archive_tables, ingest
 
 
-def test_production_fetch_requires_api_key_before_run(monkeypatch):
-    monkeypatch.delenv("SHARADAR_API_KEY", raising=False)
-    with pytest.raises(sharadar.MissingApiKey):
-        ingest._validate_source_before_run(sharadar.fetch_table)
+def test_absent_replay_capture_fails_before_creating_a_durable_run():
+    with pytest.raises(archive_tables.CaptureRequired):
+        ingest._validate_source_before_run(archive_tables.fetch_table)
 
 
-def test_injected_test_source_does_not_require_production_secret(monkeypatch):
-    monkeypatch.delenv("SHARADAR_API_KEY", raising=False)
+def test_injected_table_source_has_no_remote_preflight():
     ingest._validate_source_before_run(lambda table, params=None: ())
-
-
-def test_invalid_transport_config_refuses_even_for_injected_source(monkeypatch):
-    monkeypatch.setattr(sharadar, "FETCH_TIMEOUT_SECS", float("nan"))
-    with pytest.raises(ValueError, match="FETCH_TIMEOUT"):
-        ingest._validate_source_before_run(lambda table, params=None: ())

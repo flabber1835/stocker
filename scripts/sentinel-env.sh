@@ -256,7 +256,6 @@ PY
 # Call after selecting the host interpreter.
 sentinel_load_environment() {
   local record
-  local retired_name
   local -a records=()
   while IFS= read -r -d '' record; do
     records+=("$record")
@@ -267,13 +266,12 @@ sentinel_load_environment() {
     return 2
   fi
   unset 'records[${#records[@]}-1]'
-  # An operator shell may already have sourced an older .env. Do not let those
-  # ambient historical source credentials bypass the filtered record bridge.
-  for retired_name in ${!SHARADAR_@} ${!NDL_@}; do
-    unset "$retired_name"
-  done
   for record in "${records[@]}"; do
-    export "$record" || return 2
+    if [[ "$record" =~ ^-([A-Z_][A-Z_0-9]*)$ ]]; then
+      unset "${BASH_REMATCH[1]}"
+    else
+      export "$record"
+    fi
   done
 
   # Bind every supported launcher to one local Docker/Compose authority before

@@ -102,7 +102,7 @@ def test_ingest_daily_passes_explicit_session_verbatim(monkeypatch):
         return fetch
 
     monkeypatch.setattr(
-        ingest.source_authority, "StableSharadarFetch",
+        ingest.source_authority, 'StableTableFetch',
         stable_fetch)
 
     def daily_locked(conn, **kwargs):

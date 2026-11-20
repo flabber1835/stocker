@@ -93,7 +93,7 @@ def current_metadata_snapshot_identity(conn) -> Mapping:
 
 def _rolling_metadata_snapshot_identity(conn, pub) -> Mapping:
     from sentinel.core.rolling_inputs import SnapshotReferences
-    from sentinel.feed import operational_snapshot, rolling_store, sharadar
+    from sentinel.feed import operational_snapshot, rolling_store, archive_tables
     from sentinel.feed.rolling_contract import canonical_json, digest
 
     binding = operational_snapshot._bound(conn, pub)
@@ -126,7 +126,7 @@ def _rolling_metadata_snapshot_identity(conn, pub) -> Mapping:
         return {"snapshot_date": observed.astimezone(timezone.utc).date().isoformat(),
                 "row_count": len(content), "sha256": digest(content)}
     components = [item for item in source.get("components", [])
-                  if item.get("table") == sharadar.TICKERS]
+                  if item.get("table") == archive_tables.TICKERS]
     if len(components) != 1:
         raise AuthorityRefused("rolling TICKERS provider refresh evidence is missing")
     refreshed = datetime.fromisoformat(components[0]["refreshed"])

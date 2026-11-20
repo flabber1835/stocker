@@ -84,7 +84,7 @@ def predecessor_source(module, raw):
 
 @pytest.mark.parametrize('module', sorted(BASELINES))
 def test_complete_predecessor_module_reconstructs_independently_verified_bytes(module):
-    raw = Path(importlib.import_module(module).__file__).read_bytes()
+    raw = economic_manifest.previous_source(module, Path(importlib.import_module(module).__file__).read_bytes())
     predecessor_source(module, raw)
     with pytest.raises(AssertionError):
         predecessor_source(module, raw + b'\n# neighboring economic edit\n')
@@ -92,7 +92,7 @@ def test_complete_predecessor_module_reconstructs_independently_verified_bytes(m
 
 @pytest.mark.parametrize('module', sorted(BASELINES))
 def test_only_complete_recognized_candidate_bytes_preserve_contribution(module):
-    raw = Path(importlib.import_module(module).__file__).read_bytes()
+    raw = economic_manifest.previous_source(module, Path(importlib.import_module(module).__file__).read_bytes())
     assert basis.contribution(module, raw) == BASELINES[module]
     changed = raw + b'\n# unreviewed neighboring edit\n'
     assert basis.contribution(module, changed) == sha(changed)
@@ -105,7 +105,7 @@ def test_unrecognized_module_never_inherits_known_candidate_contribution():
 
 def test_compact_window_compiler_keeps_only_its_exact_reviewed_semantic_identity(monkeypatch):
     module = 'sentinel.core.window_material'
-    raw = Path(importlib.import_module(module).__file__).read_bytes()
+    raw = economic_manifest.previous_source(module, Path(importlib.import_module(module).__file__).read_bytes())
     historical = '3bd34707705bc97bd815d5da82d59ef2bcbd32e36a7e203851d7f5fff3361d76'
     assert economic_manifest.manifest()['pure_contracts'][module] == historical
 
@@ -176,7 +176,7 @@ def test_full_runtime_package_hash_remains_actual_and_unknown_wealth_edits_move_
     root = tmp_path / 'wealth_core'
     root.mkdir()
     module = 'stock_strategy_shared.wealth_core.feed'
-    raw = Path(importlib.import_module(module).__file__).read_bytes()
+    raw = economic_manifest.previous_source(module, Path(importlib.import_module(module).__file__).read_bytes())
     (root / 'feed.py').write_bytes(raw)
     (root / 'engine.py').write_bytes(b'unchanged = True\n')
     framed = b'engine.py\0' + sha((root / 'engine.py').read_bytes()).encode() + b'\n'
@@ -198,7 +198,8 @@ def test_feed_refactor_keeps_all_canonical_golden_outputs_and_seven_hashes():
     from stock_strategy_shared.wealth_core.run import run_with_hashes
 
     raw = predecessor_source('stock_strategy_shared.wealth_core.feed',
-                             Path(feed.__file__).read_bytes())
+                             economic_manifest.previous_source('stock_strategy_shared.wealth_core.feed',
+                                                               Path(feed.__file__).read_bytes()))
     namespace = dict(vars(feed))
     exec(compile(raw, '<verified-main-feed>', 'exec'), namespace)
     scenario = golden_scenario()
@@ -259,3 +260,26 @@ def test_removed_witness_byte_pin_is_detected(monkeypatch, tmp_path):
     monkeypatch.setattr(basis, '_profile', namespace['_profile'])
     with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
         test_tampered_profile_bytes_refuse(monkeypatch, tmp_path)
+
+def test_complete_installed_wealth_package_only_preserves_the_reviewed_tree(tmp_path, monkeypatch):
+    import shutil
+    from sentinel.core import decision
+    from sentinel.strategy import production_strategy
+
+    installed = Path(decision.wealth_core_package.__file__).resolve().parent
+    copy = tmp_path / installed.name
+    shutil.copytree(installed, copy, ignore=shutil.ignore_patterns('__pycache__'))
+    monkeypatch.setattr(decision.wealth_core_package, '__file__', str(copy/'__init__.py'))
+    _, before = production_strategy()
+    # Independent commitment of the pre-retirement package, including its
+    # previously approved feed-refactor contribution.
+    released = '8395c6af9c82c0c54e339d199edc3becdb80b4179d639319ef0b1570a7753b71'
+    assert before['wealth_core_source_sha256'] == economic_manifest.wealth_core_source_hash(copy)['hash'] == released
+    assert identity.source_hash(copy)['hash'] != released
+    neighbor = copy/'terminal.py'
+    neighbor.write_bytes(neighbor.read_bytes() + b'\n# unreviewed terminal change\n')
+    _, changed = production_strategy()
+    assert changed['wealth_core_source_sha256'] != released
+    assert changed['wealth_core_source_sha256'] == basis.wealth_core_source_hash(copy)['hash']
+    assert {k: v for k, v in changed.items() if k != 'wealth_core_source_sha256'} == {
+        k: v for k, v in before.items() if k != 'wealth_core_source_sha256'}

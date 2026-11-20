@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Split a Sharadar bulk-export ZIP into per-YEAR gzipped CSVs.
+# Split a table-export ZIP into per-YEAR gzipped CSVs.
 #
 # WHY NOT pandas. The obvious version reads the CSV in chunks, parses dates, and
 # appends each year's rows with `to_csv(mode="a", compression="gzip")`. It works,
@@ -25,14 +25,14 @@ ROOT="$(pwd)"
 SRC=""
 OUT_DIR=""
 DATE_COL=""
-IMAGE="${SHARADAR_BULK_IMAGE:-python:3.12-slim}"
+IMAGE="${ARCHIVE_BULK_IMAGE:-python:3.12-slim}"
 FORCE=0
 
 usage() {
     cat <<'USAGE'
-Usage: scripts/split-sharadar-zip.sh --zip PATH [--out DIR] [--date-column NAME] [--force]
+Usage: scripts/split-archive-zip.sh --zip PATH [--out DIR] [--date-column NAME] [--force]
 
-  --zip           the bulk export, e.g. artifacts/sharadar-bulk/SHARADAR_SEP.zip
+  --zip           the bulk export, e.g. /path/to/TABLE.zip
   --out           destination (default: <zip dir>/<TABLE>_years)
   --date-column   column to split on (default: auto — date, then datekey, then
                   the first column whose name ends in "date")

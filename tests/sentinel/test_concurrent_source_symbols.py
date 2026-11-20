@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from sentinel import source_diagnostic
-from sentinel.feed import sharadar, source_authority, source_probe, symbol_identity
+from sentinel.feed import archive_tables, source_authority, source_probe, symbol_identity
 from test_go_preparation_identity_reason_codes import source_final, validate_entry
 
 DAY = "2026-09-11"
@@ -26,12 +26,12 @@ def source(*, healed=False, omit_symbol=None):
     def fetch(table, params=None):
         params = params or {}
         calls.append((table, dict(params)))
-        rows = copy.deepcopy(data[{sharadar.TICKERS: "tickers", sharadar.ACTIONS: "actions", sharadar.SEP: "sep"}[table]])
+        rows = copy.deepcopy(data[{archive_tables.TICKERS: "tickers", archive_tables.ACTIONS: "actions", archive_tables.SEP: "sep"}[table]])
         for field in ("ticker", "permaticker", "contraticker", "action"):
             if field in params:
                 wanted = set(params[field].split(","))
                 rows = [r for r in rows if str(r.get(field)) in wanted]
-        if table == sharadar.SEP and omit_symbol:
+        if table == archive_tables.SEP and omit_symbol:
             rows = [r for r in rows if r["ticker"] != omit_symbol]
         return rows
     return data, fetch, calls
@@ -80,14 +80,14 @@ def test_all_observed_collisions_and_prices_survive_go_and_are_order_independent
 
 def test_early_discovery_preserves_native_authority_without_publication_permission():
     data, fetch, calls = source()
-    guarded = source_authority.StableSharadarFetch(fetch, seed_mode=True)
+    guarded = source_authority.StableTableFetch(fetch, seed_mode=True)
     guarded.preflight_seed_identity(tickers=data["tickers"], fetch=fetch, date_from=DAY, date_to=DAY)
     records = guarded.alias_rejections["records"]
     assert {r["permaticker"] for r in records} == {"6401005", "6399775"}
     assert {r["native_ticker"] for r in records} == {"OCLTU", "BRTMU"}
-    assert calls == [(sharadar.ACTIONS, {"action": "tickerchangeto,tickerchangefrom",
+    assert calls == [(archive_tables.ACTIONS, {"action": "tickerchangeto,tickerchangefrom",
                      "date.gte": "1900-01-01", "date.lte": DAY})] * 2 + [
-                     (sharadar.SEP, sharadar.date_params(DAY, DAY))] * 2
+                     (archive_tables.SEP, archive_tables.date_params(DAY, DAY))] * 2
     assert guarded.seed_coverage_evidence is None
 
 
@@ -103,7 +103,7 @@ def test_worker_wait_keeps_all_symbols_and_corrected_metadata_permits_full_retry
     for healed in (False, True):
         data, fetch, calls = source(healed=healed)
         source_probe.require_recovery_probe(hint, through=DAY, fetch=fetch)
-        sep = [params for table, params in calls if table == sharadar.SEP]
+        sep = [params for table, params in calls if table == archive_tables.SEP]
         assert len(sep) == 2
         assert all(set(p["ticker"].split(",")) == set(hint["symbols"]) for p in sep)
 
@@ -114,11 +114,11 @@ def test_corrected_metadata_keeps_four_distinct_prices_and_missing_bar_still_ref
     resolver = identity.resolver()
     expected = {"OCLTU": "6401005", "BRTMU": "6399775", "OCLT": "900000001", "BRTM": "900000002"}
     assert {row["ticker"]: resolver.resolve(row["ticker"], DAY) for row in data["sep"]} == expected
-    guarded = source_authority.StableSharadarFetch(fetch, seed_mode=True)
+    guarded = source_authority.StableTableFetch(fetch, seed_mode=True)
     guarded.preflight_seed_identity(tickers=data["tickers"], fetch=fetch, date_from=DAY, date_to=DAY)
     from sentinel.feed import coherence
     _, missing_fetch, _ = source(healed=True, omit_symbol="OCLT")
-    missing = source_authority.StableSharadarFetch(missing_fetch, seed_mode=True)
+    missing = source_authority.StableTableFetch(missing_fetch, seed_mode=True)
     with pytest.raises(coherence.SeedHistoryIncomplete, match="900000001"):
         missing.preflight_seed_identity(tickers=data["tickers"], fetch=missing_fetch, date_from=DAY, date_to=DAY)
 
@@ -163,7 +163,7 @@ def test_probe_stops_an_oversized_response_before_stability_materialization():
     _, fetch, _ = source(healed=True)
     consumed = []
     def oversized(table, params=None):
-        if table != sharadar.SEP:
+        if table != archive_tables.SEP:
             return fetch(table, params)
         def rows():
             for index in range(1000):

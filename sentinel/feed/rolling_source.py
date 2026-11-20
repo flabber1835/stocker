@@ -1,11 +1,12 @@
-"""Direct, bounded Sharadar transport for comparison snapshots, not a seed."""
+"""Direct, bounded Source transport for comparison snapshots, not a seed."""
 from __future__ import annotations
+from sentinel import archive_identifiers
 
 from decimal import Decimal
 from datetime import date
 
 from sentinel.feed import (
-    action_source, authority, calendar, coherence, export_readiness, session_envelope, sharadar,
+    action_source, authority, calendar, coherence, export_readiness, session_envelope, archive_tables,
     snapshot_export, tickers_authority, rolling_work,
 )
 from sentinel.feed.operational_source import _months
@@ -39,7 +40,7 @@ def component(snapshot):
                              + snapshot.params["date.lte"] if snapshot.params else "")
 
 
-class SharadarSource:
+class ArchiveSource:
     """One attempt; transports remain patchable at their existing module seams."""
 
     def __init__(self, window, *, corrections=None):
@@ -53,13 +54,13 @@ class SharadarSource:
     def preflight(self):
         if str(self.window.end) > calendar.latest_closed_session():
             raise ValueError("rolling target must be a closed XNYS session")
-        requests = [(sharadar.ACTIONS, {"date.gte": "1900-01-01",
+        requests = [(archive_tables.ACTIONS, {"date.gte": "1900-01-01",
                                        "date.lte": str(self.window.end)}),
-                    (sharadar.TICKERS, {})]
-        requests.extend((sharadar.SEP, sharadar.date_params(lo, hi))
+                    (archive_tables.TICKERS, {})]
+        requests.extend((archive_tables.SEP, archive_tables.date_params(lo, hi))
                         for lo, hi in _months(str(self.window.start), str(self.window.end)))
         self.snapshots = export_readiness.probe_all(requests)
-        if len({s.refreshed for s in self.snapshots if s.table == sharadar.SEP}) != 1:
+        if len({s.refreshed for s in self.snapshots if s.table == archive_tables.SEP}) != 1:
             raise authority.VendorPublicationUnstable("SEP partitions crossed a table refresh")
 
     def _download(self, snapshot, required):
@@ -74,7 +75,7 @@ class SharadarSource:
         return rows, proof
 
     def _tickers_json(self, exported):
-        rows = list(tickers_authority.validate(sharadar.fetch_table(sharadar.TICKERS)))
+        rows = list(tickers_authority.validate(archive_tables.fetch_table(archive_tables.TICKERS)))
         coherence.assert_tickers_metadata(rows)
         keys = {(str(r.get("permaticker") or "").strip(),
                  str(r.get("ticker") or "").strip().upper()) for r in exported
@@ -104,13 +105,13 @@ class SharadarSource:
                    digest(self.sfp), len(self.sfp), 0)
 
     def _sfp(self):
-        params = {**sharadar.date_params(str(self.window.start), str(self.window.end)),
+        params = {**archive_tables.date_params(str(self.window.start), str(self.window.end)),
                   "ticker": "SPY,BIL"}
         rows = session_envelope.validate_rows(
-            sharadar.fetch_table(sharadar.SFP, params), source="SFP",
+            archive_tables.fetch_table(archive_tables.SFP, params), source="SFP",
             date_from=str(self.window.start), date_to=str(self.window.end),
             operation="rolling_comparison")
-        return ordered(validated_source_rows(sharadar.SFP, rows))
+        return ordered(validated_source_rows(archive_tables.SFP, rows))
 
     def prices(self, checkpoint, pulse):
         for snapshot in self.snapshots[2:]:
@@ -121,7 +122,7 @@ class SharadarSource:
                 date_to=snapshot.params["date.lte"], operation="rolling_comparison")
             envelope = SepUpdateEnvelope.through(snapshot.refreshed.date())
             for index, row in enumerate(checked, 1):
-                ticker, day = _canonical_key(sharadar.SEP, row)
+                ticker, day = _canonical_key(archive_tables.SEP, row)
                 envelope.validate(row.get("lastupdated"), ticker=ticker, session=day)
                 if index % 5000 == 0:
                     pulse()
@@ -146,11 +147,11 @@ class SharadarSource:
             raise SourceRevision("SFP", digest(self.sfp), digest(sfp))
 
     def reference_payload(self):
-        return {"schema": "sentinel.rolling-sharadar-references/1",
+        return {"schema": archive_identifiers.REFERENCES_SCHEMA,
                 "tickers": self.tickers, "actions": self.actions}
 
     def source_payload(self):
-        value = {"schema": "sentinel.rolling-sharadar-source/1",
+        value = {"schema": archive_identifiers.FEED['ROLLING_SOURCE'],
                 "consistency": "EXPORT_REFRESH_BRACKET_AND_REFERENCE_REOBSERVATION",
                 "components": self.evidence, "sfp_sha256": digest(self.sfp),
                 "source_corrections": self.corrections}

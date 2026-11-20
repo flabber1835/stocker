@@ -4,7 +4,7 @@ from __future__ import annotations
 import io
 import struct
 
-from sentinel.feed import sharadar
+from sentinel.feed import archive_tables
 
 ZIP_BYTES = 64 * 1024 * 1024
 CSV_BYTES = 256 * 1024 * 1024
@@ -14,12 +14,10 @@ COLUMNS = 64
 RECORD_CHARS = 1024 * 1024
 DIRECTORY_BYTES = 1024 * 1024
 ZIP_ENTRIES = 32
-CACHE_BYTES = 512 * 1024 * 1024
-CACHE_FILES = 64
 CHUNK_BYTES = 64 * 1024
 
 
-class AcquisitionResourceExceeded(sharadar.SharadarRequestError):
+class AcquisitionResourceExceeded(archive_tables.RequestError):
     """Deterministic refusal, not a pending export or transient retry."""
 
 

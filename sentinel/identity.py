@@ -648,7 +648,7 @@ def _corpus_pinned(conn, *, start: str, end: str, publication_record) -> dict:
 def corpus(conn, *, start: str, end: str) -> dict:
     """Hash one coherent published snapshot, named by its held data version."""
     from sentinel.feed import publication
-    from sentinel.feed.sharadar import validate_date_range
+    from sentinel.feed.archive_tables import validate_date_range
 
     start, end = validate_date_range(start, end)
     with publication.pinned(conn) as pinned:

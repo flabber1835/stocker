@@ -1,4 +1,6 @@
 """Operational replacement is scoped, atomic, and preserves older authority."""
+
+from sentinel import archive_identifiers as archive_ids
 from datetime import date
 import json
 import subprocess
@@ -106,7 +108,7 @@ def test_operational_cdc_watermark_cannot_authorize_manual_full_history(conn, ca
     assert M.load_sep_cursor(conn) == cursor
     monkeypatch.setattr(source, "current", lambda: None)
     with S.corpus_write_lock(conn):
-        with pytest.raises(M.SharadarMutationRefused, match="not full retained history"):
+        with pytest.raises(M.SourceMutationRefused, match="not full retained history"):
             M.reconcile_sep_mutations(
                 conn, through="2026-08-24", fetch=lambda *a: pytest.fail("unscoped source read"))
     complete = MI.establish_sep_cursor_after_seed(
@@ -115,33 +117,23 @@ def test_operational_cdc_watermark_cannot_authorize_manual_full_history(conn, ca
     assert M.load_sep_cursor(conn).price_window is None
 
 
-@pytest.mark.parametrize("cold", [False, True])
-def test_real_go_readonly_probe_never_downloads_sep_twice(conn, monkeypatch, capsys, cold):
+@pytest.mark.parametrize("cold", [True, False])
+def test_host_diagnostic_of_a_missing_rolling_frontier_makes_no_provider_request(conn, monkeypatch, capsys, cold):
+    from contextlib import nullcontext
     from tests.sentinel.test_go_readonly_data_preflight import preflight
-    from tests.sentinel.test_bounded_operational_feed import install_source
-    from sentinel.feed import calendar
     if not cold:
         _publish_base(conn)
-    calls = install_source(monkeypatch)
     monkeypatch.setenv("SENTINEL_DATABASE_URL", "postgresql://isolated-test")
-    monkeypatch.setattr(calendar, "latest_closed_session", lambda: "2026-08-21")
-    class BorrowedConnection:
-        cursor = conn.cursor
-        rollback = conn.rollback
-        def close(self):
-            pass
-    monkeypatch.setattr(S, "connect", lambda *a: BorrowedConnection())
-    conn.rollback()  # The probe must start on a fresh read-only transaction.
+    monkeypatch.setattr(S, "connect", lambda *_: nullcontext(conn))
+    conn.rollback()
     exec(preflight._READ_ONLY_CODE, {})
     assert '"status": "RECOVERY_REQUIRED"' in capsys.readouterr().out
-    assert any(c[0] == "probe" for c in calls)
-    assert not any(c[0] == "download" for c in calls)
 
 
 @pytest.mark.parametrize("scope", [None, ["2006-01-01"], ["2026-02-30", "2026-09-14"],
                                  ["2026-09-14", "2026-09-01"]])
 def test_malformed_operational_scope_refuses(scope):
-    with pytest.raises(M.SharadarMutationRefused, match="invalid price scope"):
+    with pytest.raises(M.SourceMutationRefused, match="invalid price scope"):
         MI._cursor_price_window({"price_window": scope}, name=MI.SEP_CURSOR_NAME)
 
 
@@ -151,74 +143,6 @@ def probe_driver(monkeypatch):
     monkeypatch.syspath_prepend(str(ROOT / "scripts"))
     import test_go_probe_runtime_integration as driver
     return driver
-
-
-@pytest.mark.parametrize("status", ["fresh", "creating"])
-@pytest.mark.parametrize("observed_at,target,final", [
-    ("2026-08-21T19:59:59+00:00", "2026-08-20", True),
-    ("2026-08-21T20:00:00+00:00", "2026-08-21", True),
-    ("2026-08-22T03:44:59+00:00", "2026-08-21", True),
-    ("2026-08-22T03:45:00+00:00", "2026-08-21", True),
-    ("2026-08-22T03:45:01+00:00", "2026-08-21", True),
-    ("2026-12-05T04:44:59+00:00", "2026-12-04", True),
-    ("2026-12-05T04:45:00+00:00", "2026-12-04", True),
-    ("2026-11-27T17:59:59+00:00", "2026-11-25", True),
-    ("2026-11-27T18:00:00+00:00", "2026-11-27", True),
-    ("2026-11-27T18:00:01+00:00", "2026-11-27", True),
-    ("2026-11-28T04:44:59+00:00", "2026-11-27", True),
-    ("2026-11-28T04:45:00+00:00", "2026-11-27", True),
-])
-def test_container_probe_export_fixture_preserves_cold_preflight(
-        conn, monkeypatch, capsys, probe_driver, status, observed_at, target, final):
-    import httpx
-    from sentinel.feed import calendar, snapshot_export
-
-    monkeypatch.setenv("SENTINEL_DATABASE_URL", "postgresql://isolated-test")
-    # Restore the CI fixture's module seams when the in-process test finishes.
-    monkeypatch.setattr(calendar, "_dt", calendar._dt)
-    monkeypatch.setattr(httpx, "Client", lambda *a, **kw: pytest.fail("CI probe contacted a vendor"))
-    monkeypatch.setattr(snapshot_export, "probe_snapshot", snapshot_export.probe_snapshot)
-    monkeypatch.setattr(snapshot_export, "download_snapshot", lambda *a, **kw: pytest.fail("CI probe downloaded a file"))
-    class BorrowedConnection:
-        cursor = conn.cursor
-        rollback = conn.rollback
-        def close(self):
-            pass
-    monkeypatch.setattr(S, "connect", lambda *a: BorrowedConnection())
-    conn.rollback()
-    namespace = {}
-    exec(probe_driver._source_export_fixture(
-        probe_driver.preflight._READ_ONLY_CODE, status, observed_at=observed_at),
-        namespace)
-    output = capsys.readouterr().out
-    completed = subprocess.CompletedProcess([], 0, stdout=output, stderr="")
-    report = probe_driver.preflight._payload(completed)
-    assert report is not None
-    refused = final and status == "creating"
-    assert report["status"] == ("REFUSED" if refused else "RECOVERY_REQUIRED")
-    assert report["reason_code"] == (
-        "SOURCE_EXPORT_UNAVAILABLE" if refused else "CORPUS_SCHEMA_NOT_INSTALLED")
-    assert calendar.latest_closed_session() == target
-    assert bool(namespace["_ci_export_calls"]) == final
-    if refused:
-        assert namespace["_ci_export_calls"] == [
-            ("ACTIONS", {"date.gte": "1900-01-01", "date.lte": target})]
-    assert P.current(conn) is None
-
-
-@pytest.mark.parametrize("observed_at", ["2026-08-22T03:45:00", "not-a-clock"])
-def test_container_probe_rejects_invalid_clock(probe_driver, observed_at):
-    with pytest.raises(ValueError):
-        probe_driver._source_export_fixture(
-            probe_driver.preflight._READ_ONLY_CODE, "fresh", observed_at=observed_at)
-
-
-@pytest.mark.parametrize("import_count", [0, 2])
-def test_container_probe_requires_exact_clock_import_seam(probe_driver, import_count):
-    code = probe_driver.preflight._READ_ONLY_CODE.replace(
-        "import datetime as dt", "\n".join(["import datetime as dt"] * import_count), 1)
-    with pytest.raises(ValueError, match="CI clock import seam changed"):
-        probe_driver._source_export_fixture(code, "fresh")
 
 
 @pytest.mark.parametrize("child_exit,status,reason,valid_marker", [
@@ -232,7 +156,7 @@ def test_container_probe_diagnostics_retain_cause_without_child_output(
         probe_driver, capsys, child_exit, status, reason, valid_marker):
     report = {"status": status, "reason_code": reason,
               "failure_phase": "SOURCE_EXPORT_PREFLIGHT",
-              "error_type": "SharadarSnapshotExportError", "detail_sha256": "a" * 64,
+              "error_type": 'SnapshotExportError', "detail_sha256": "a" * 64,
               "detail": "https://vendor.invalid?api_key=synthetic-secret"}
     stdout = (probe_driver.preflight.MARKER + json.dumps(report)
               if valid_marker else "malformed synthetic-secret")
@@ -267,7 +191,7 @@ def test_container_probe_diagnostics_retain_cause_without_child_output(
 
 def test_canonical_cold_seed_publishes_300_sessions_with_one_sep_acquisition(conn, monkeypatch):
     from datetime import datetime, timezone
-    from sentinel.feed import coherence, ingest, sharadar, snapshot_export as export
+    from sentinel.feed import coherence, ingest, archive_tables, snapshot_export as export
     from sentinel.feed.corporate_action_authority import CASH_ADJUDICATION_AUTHORITIES
     from sentinel import backup_guard
     from tests.sentinel.test_issue_178_seed_reference_bracketing import _ticker, _sep
@@ -280,9 +204,9 @@ def test_canonical_cold_seed_publishes_300_sessions_with_one_sep_acquisition(con
         return export.ExportSnapshot(table, dict(params or {}), "https://unit.invalid/file", now, now)
     def download(snapshot, *, required):
         calls.append((snapshot.table, snapshot.params))
-        if snapshot.table == sharadar.TICKERS:
+        if snapshot.table == archive_tables.TICKERS:
             rows = [ticker]
-        elif snapshot.table == sharadar.ACTIONS:
+        elif snapshot.table == archive_tables.ACTIONS:
             rows = [{"date": start, "ticker": "AAA", "action": "dividend", "value": "0",
                      "name": None, "contraticker": None, "contraname": None}]
             rows.extend({"date": r["source_action_date"], "ticker": r["ticker"],
@@ -297,18 +221,25 @@ def test_canonical_cold_seed_publishes_300_sessions_with_one_sep_acquisition(con
                       "last_refreshed_time": now.isoformat(), "source_rows": len(rows),
                       "file_sha256": "a" * 64, "window": snapshot.params}
     def paged(table, params=None, **kwargs):
-        if table == sharadar.TICKERS:
+        if table == archive_tables.TICKERS:
             return [ticker]
-        assert table == sharadar.SFP, "SEP and ACTIONS must never paginate"
+        assert table == archive_tables.SFP, "SEP and ACTIONS must never paginate"
         return [{"ticker": fund, "date": s, "open": 99, "close": 100, "closeadj": 100, "closeunadj": 100,
                  "volume": 1000000} for fund in ("SPY", "BIL") for s in sessions
                 if params["date.gte"] <= s <= params["date.lte"]]
-    monkeypatch.setenv("SHARADAR_API_KEY", "unit-key")
+    monkeypatch.setenv(archive_ids.RETIRED_CREDENTIAL, "unit-key")
     monkeypatch.setattr(export, "probe_snapshot", probe)
     monkeypatch.setattr(export, "download_snapshot", download)
     monkeypatch.setattr(export, "require_actions_refresh",
                         lambda **k: {"last_refreshed_time": now.isoformat(), "data_snapshot_time": now.isoformat()})
-    monkeypatch.setattr(sharadar.DEFAULT_SOURCE, "fetch_table", paged)
+    captured_rows = archive_tables.fetch_table
+    def historical(table, params=None):
+        return captured_rows(table, params) if table in {archive_tables.SEP, archive_tables.ACTIONS} else paged(table, params)
+    monkeypatch.setattr(archive_tables, "fetch_table", historical)
+    original_seed = ingest.seed
+    def seed_from_capture(conn, **kwargs):
+        return original_seed(conn, fetch=historical, **kwargs)
+    monkeypatch.setattr(ingest, "seed", seed_from_capture)
     # This small deterministic source exercises all production proof plumbing;
     # calibrated 4,000-security floor falsifiers remain separate and unchanged.
     monkeypatch.setattr(coherence, "MIN_SEED_SESSION_ROWS", 1)
@@ -324,7 +255,7 @@ def test_canonical_cold_seed_publishes_300_sessions_with_one_sep_acquisition(con
         cur.execute("SELECT count(distinct session),min(session),max(session) FROM sentinel_bars")
         count, lo, hi = cur.fetchone()
     assert (count, str(lo), str(hi)) == (300, start, end)
-    assert len([c for c in calls if c[0] == sharadar.SEP]) == len(list(source._months(start, end)))
+    assert len([c for c in calls if c[0] == archive_tables.SEP]) == len(list(source._months(start, end)))
     monkeypatch.setattr(ingest.sep_reconciliation, "reconcile_next",
                         lambda *a, **k: pytest.fail("automatic historical-year audit"))
     repeated = outage_recovery.catch_up(conn, target_session=end, reobserve_current=True)

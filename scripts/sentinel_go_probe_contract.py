@@ -14,6 +14,7 @@ Every DB-dependent one-shot probe gets the same guarantees:
 """
 from __future__ import annotations
 
+import sentinel_env
 from dataclasses import dataclass
 import hashlib
 import json
@@ -45,7 +46,7 @@ _PROHIBITED = (
     "apca-api-",
     "alpaca_api_key",
     "alpaca_secret_key",
-    "sharadar_api_key",
+    sentinel_env.ARCHIVE_V1["retired_api_key"].lower(),
     "sentinel_postgres_password",
     "sentinel_publication_receipt_key",
 )
@@ -441,7 +442,7 @@ def install(*, controller: Any, phase: Any) -> None:
 
     original_preparation = entry.probe_prevalidation_preparation
     original_parity = go.probe_active_wealth_parity
-    original_readiness = go.probe_sharadar_readiness
+    original_readiness = go.probe_market_data_readiness
     original_database = go.probe_database_financial_health
     original_actual = controller._actual_remaining_ms
     original_classify = controller._classify_preparation_failure
@@ -476,7 +477,7 @@ def install(*, controller: Any, phase: Any) -> None:
                         and go._IMAGE_DIGEST.fullmatch(str(runtime_ref)) is not None
                         else None),
                     schema_migration_attempted=False,
-                    bounded_sharadar_daily_attempted=False,
+                    bounded_market_data_daily_attempted=False,
                     broker_mutation_attempts=0,
                     evidence_sha256=go._evidence_digest({
                         "reason": failure["reason"],
@@ -524,7 +525,7 @@ def install(*, controller: Any, phase: Any) -> None:
             failure = ready(runner, env)
             if failure is not None:
                 return go.make_gate(
-                    "sharadar_readiness", go.NOT_PROVEN, now_text, failure)
+                    "market_data_readiness", go.NOT_PROVEN, now_text, failure)
         recording = RecordingRunner(runner)
         result = original_readiness(
             recording, env=env, runtime_ref=runtime_ref, commit=commit,
@@ -533,13 +534,13 @@ def install(*, controller: Any, phase: Any) -> None:
         report = (_marker_object(child.stdout or "", "SENTINEL_GO_READINESS=")
                   if child is not None else None)
         if result.status != go.PASS and child is not None and report is None:
-            evidence = (subprocess_evidence(child, context="SHARADAR_READINESS")
+            evidence = (subprocess_evidence(child, context="MARKET_DATA_READINESS")
                         if int(child.returncode) != 0
                         else malformed_report_evidence(
-                            child, context="SHARADAR_READINESS"))
+                            child, context="MARKET_DATA_READINESS"))
             emit_probe_failure(evidence)
             return go.make_gate(
-                "sharadar_readiness",
+                "market_data_readiness",
                 go.FAIL if int(child.returncode) not in {124, 127} else go.NOT_PROVEN,
                 now_text, evidence)
         return result
@@ -599,7 +600,7 @@ def install(*, controller: Any, phase: Any) -> None:
 
     entry.probe_prevalidation_preparation = preparation
     go.probe_active_wealth_parity = parity
-    go.probe_sharadar_readiness = readiness
+    go.probe_market_data_readiness = readiness
     go.probe_database_financial_health = database
     controller._actual_remaining_ms = actual
     controller._classify_preparation_failure = lambda text: (

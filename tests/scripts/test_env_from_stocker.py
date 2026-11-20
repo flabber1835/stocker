@@ -4,7 +4,7 @@ Two properties carry real weight here and neither is visible by reading the
 output of a successful run:
 
   * it must never print a VALUE. This runs on a NAS over SSH, and a terminal
-    that has echoed a Sharadar key has put it in scrollback, in the history of
+    that has echoed a provider key has put it in scrollback, in the history of
     anyone who scrolled, and in any transcript of the session;
   * it must drop by WHITELIST, so a variable nobody thought about is dropped by
     construction rather than by somebody remembering to.
@@ -15,6 +15,7 @@ it was written is a credential that silently is not the credential.
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import re
 import stat
@@ -27,6 +28,9 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 REPO = Path(os.environ.get("SENTINEL_REPO_ROOT") or ROOT)
 SCRIPT = REPO / "scripts" / "sentinel-env-from-stocker.py"
+ARCHIVED_ENV = json.loads((REPO / "scripts/go-archive-format-v1.json").read_bytes())
+RETIRED_KEY = ARCHIVED_ENV["retired_api_key"]
+RETIRED_RETRIES = next(key for key in ARCHIVED_ENV["retired_env_names"] if key.endswith("_FETCH_RETRIES"))
 
 
 @pytest.fixture(scope="module")
@@ -39,13 +43,13 @@ def mod():
 
 #: A Stocker `.env` with one of every hazard, and values distinctive enough
 #: that a leak cannot be mistaken for anything else.
-OLD = """\
+OLD = f"""\
 AV_API_KEY=LEAKCANARY_AV
 ALPACA_API_KEY=LEAKCANARY_ALPACA
 ALPACA_SECRET_KEY=LEAKCANARY_SECRET
 ALPACA_BASE_URL=https://api.alpaca.markets
-SHARADAR_API_KEY=LEAKCANARY_SHARADAR
-SHARADAR_FETCH_RETRIES=5
+{RETIRED_KEY}=LEAKCANARY_RETIRED
+{RETIRED_RETRIES}=5
 PAPER_ONLY=true
 LIVE_TRADING_ENABLED=false
 KILL_SWITCH=false
@@ -87,7 +91,7 @@ class TestItNeverPrintsAValue:
         written = dst.read_text()
         assert "LEAKCANARY_ALPACA" in written, (
             "the Alpaca key was not written at all — the leak test is vacuous")
-        assert "LEAKCANARY_SHARADAR" not in written
+        assert "LEAKCANARY_RETIRED" not in written
 
     def test_it_leaks_nothing_on_the_REFUSAL_path_either(self, tmp_path):
         """An error message is the likeliest place to interpolate the value
@@ -137,7 +141,7 @@ class TestTheWhitelist:
         docstring, which this repository has now hit three times."""
         got = set(mod.parse_env(dst := run(tmp_path)[1]))
         assert dst.exists()
-        for dead in ("AV_API_KEY", "SHARADAR_API_KEY", "SHARADAR_FETCH_RETRIES",
+        for dead in ("AV_API_KEY", RETIRED_KEY, RETIRED_RETRIES,
                      "ANTHROPIC_API_KEY", "IBKR_PASSWORD",
                      "STRATEGY_CONFIG_PATH", "TAVILY_API_KEY"):
             assert dead not in got, f"{dead} was carried forward"
@@ -177,7 +181,7 @@ class TestTheWhitelist:
             f"{orphans} are carried forward but nothing reads them")
 
 class TestTheOutputIsFAITHFUL:
-    HARD = ("SHARADAR_API_KEY=plain123\n"
+    HARD = (f"{RETIRED_KEY}=plain123\n"
             "ALPACA_API_KEY=has$dollar\n"
             "ALPACA_SECRET_KEY=hash#inside\n")
 
@@ -206,7 +210,7 @@ class TestTheOutputIsFAITHFUL:
 
 class TestItFailsClosed:
     def test_a_missing_alpaca_secret_REFUSES(self, tmp_path):
-        r, dst = run(tmp_path, "ALPACA_API_KEY=x\nSHARADAR_API_KEY=historical\n")
+        r, dst = run(tmp_path, f"ALPACA_API_KEY=x\n{RETIRED_KEY}=historical\n")
         assert r.returncode == 1
         assert not dst.exists()
 
@@ -216,10 +220,10 @@ class TestItFailsClosed:
                              "ALPACA_SECRET_KEY=valid\n")
         assert r.returncode == 1
 
-    def test_sharadar_is_not_needed_for_the_deployed_env(self, tmp_path, mod):
+    def test_retired_credential_is_not_needed_for_the_deployed_env(self, tmp_path, mod):
         r, dst = run(tmp_path, "ALPACA_API_KEY=key\nALPACA_SECRET_KEY=secret\n")
         assert r.returncode == 0, r.stderr
-        assert "SHARADAR_API_KEY" not in mod.parse_env(dst)
+        assert RETIRED_KEY not in mod.parse_env(dst)
 
     def test_it_will_not_clobber_an_existing_env(self, tmp_path):
         src = tmp_path / "old.env"
@@ -385,7 +389,7 @@ class TestTheWhitelistIsCOMPLETEAgainstCompose:
         # GO supplies them only to its one preparation child via compose run.
         assert "ALPACA_API_KEY" not in got
         assert "ALPACA_SECRET_KEY" not in got
-        assert "SHARADAR_API_KEY" not in got
+        assert RETIRED_KEY not in got
         # The active Sentinel compose deliberately uses the literal
         # ``sentinel:latest`` convenience alias; image identity is verified by
         # digest instead of a fifteenth interpolated environment variable.

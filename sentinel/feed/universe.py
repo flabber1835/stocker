@@ -1,4 +1,4 @@
-"""SHARADAR/TICKERS -> permanent identity and issuer groups.
+"""TICKERS -> permanent identity and issuer groups.
 
 Two jobs, both of which are silent when wrong:
 
@@ -14,7 +14,7 @@ economic issuer. That check is only as good as the parse behind it.
 
 ## The parse that broke the reference implementation
 
-Sharadar serves `relatedtickers` primarily **whitespace-separated**. The Sentinel
+Source serves `relatedtickers` primarily **whitespace-separated**. The Sentinel
 reference implementation split on commas and semicolons only, so `"AIMAU AIMAW"`
 became one opaque token, the keys for two share classes of one company did not
 match, and the book held **GOOG and GOOGL simultaneously** — one bet wearing two
@@ -175,7 +175,7 @@ class IdentityResolver:
 
 
 def listings_from_rows(rows: Iterable[Mapping]) -> list[Listing]:
-    """SHARADAR/TICKERS rows -> listings. Rows without a permaticker are DROPPED:
+    """TICKERS rows -> listings. Rows without a permaticker are DROPPED:
     they cannot be keyed, and admitting them would give a security an identity
     that changes whenever the vendor's row ordering does."""
     out = []

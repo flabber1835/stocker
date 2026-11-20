@@ -2,7 +2,7 @@
 
 Architecture invariant #3 already reads *"every snapshot and decision records
 data_version"*. It was adopted and unimplemented: there was no version to record,
-and `sentinel_bars` is a destructive upsert, so a Sharadar restatement rewrote
+and `sentinel_bars` is a destructive upsert, so a source restatement rewrote
 the evidence underneath a decision that had already been made.
 
 DETECTION TIER ONLY, and the tests say so. This answers "a decision read v47, the
@@ -25,7 +25,7 @@ sys.path.insert(0, str(ROOT / "shared"))
 
 from tests.support.postgres import _EphemeralPostgres  # noqa: E402
 
-from sentinel.feed import ingest, publication as P, sharadar  # noqa: E402
+from sentinel.feed import ingest, publication as P, archive_tables  # noqa: E402
 from sentinel.feed import store as S  # noqa: E402
 
 
@@ -85,13 +85,13 @@ def fetcher(sep_rows, action_rows=None):
                for t in sorted({r["ticker"] for r in sep_rows})]
 
     def fetch(table, params=None, **kw):
-        if table == sharadar.TICKERS:
+        if table == archive_tables.TICKERS:
             return list(tickers)
         lo = (params or {}).get("date.gte", "0000-00-00")
         hi = (params or {}).get("date.lte", "9999-99-99")
-        if table == sharadar.ACTIONS:
+        if table == archive_tables.ACTIONS:
             return [r for r in action_rows if lo <= r["date"] <= hi]
-        if table == sharadar.SFP:
+        if table == archive_tables.SFP:
             return []
         return [r for r in sep_rows if lo <= r["date"] <= hi]
     return fetch
@@ -134,7 +134,7 @@ class TestARunIsNotAVersion:
     def test_a_FAILED_ingest_publishes_NOTHING(self, conn):
         """A run that dies halfway has a run_id. It must never be citable."""
         def exploding(table, params=None, **kw):
-            if table == sharadar.SEP:
+            if table == archive_tables.SEP:
                 raise RuntimeError("vendor exploded")
             return fetcher([sep("AAA", "2021-06-01")])(table, params, **kw)
 

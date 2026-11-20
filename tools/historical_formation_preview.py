@@ -1,7 +1,7 @@
 """Local preview from the retained research archive; no deployment authority.
 
 Uses the production formation component. SEC identities and research metadata
-assumptions are explicitly retained and never relabelled as Sharadar authority.
+assumptions are explicitly retained and never relabelled as historical source authority.
 """
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ def run(args):
     source = dict(archive_sha256=BASE_ARCHIVE_SHA256, dataset_sha256=BASE_DATASET_SHA256,
         supplements_sha256=sha256(args.supplements), classification_sha256=OVERLAY_SHA256,
         identity_domain='RESEARCH_SEP_TAPE_SEC_ISSUER_FF12',
-        limitations=['NOT_SHARADAR_IDENTITY', 'RESEARCH_CLASSIFICATION_ASSUMPTIONS',
+        limitations=['NOT_ARCHIVE_IDENTITY', 'RESEARCH_CLASSIFICATION_ASSUMPTIONS',
                      'KNOWN_SILV_WARMUP_METADATA_ERROR', 'NO_GO_AUTHORITY'])
     cfg, identity = production_strategy()
     plan = FormationPlan(end='2026-07-31', capital='50000', strategy=identity, source_sha256=digest(source))

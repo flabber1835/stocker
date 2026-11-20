@@ -43,7 +43,7 @@ _ORIGINAL_LOAD = controller._load_certification_cache
 _ORIGINAL_CERTIFY = controller._certify_exact_artifacts
 _ORIGINAL_PREPARATION = controller.entry.probe_prevalidation_preparation
 _ORIGINAL_PARITY = controller.go.probe_active_wealth_parity
-_ORIGINAL_READINESS = controller.go.probe_sharadar_readiness
+_ORIGINAL_READINESS = controller.go.probe_market_data_readiness
 _ORIGINAL_DATABASE = controller.go.probe_database_financial_health
 _ORIGINAL_ACTUAL = controller._actual_remaining_ms
 _ORIGINAL_DATABASE_VIEW = controller.DatabaseHealthView
@@ -208,7 +208,7 @@ def _unavailable_preparation(runtime_ref, reason: str):
             and controller.go._IMAGE_DIGEST.fullmatch(str(runtime_ref))
             else None),
         schema_migration_attempted=False,
-        bounded_sharadar_daily_attempted=False,
+        bounded_market_data_daily_attempted=False,
         broker_mutation_attempts=0,
         evidence_sha256=controller.go._evidence_digest(evidence),
     )
@@ -236,7 +236,7 @@ def _parity_guarded(*args, **kwargs):
 def _readiness_guarded(*args, **kwargs):
     if not _PHASE["prepared"]:
         return controller.go.make_gate(
-            "sharadar_readiness", controller.go.NOT_PROVEN,
+            "market_data_readiness", controller.go.NOT_PROVEN,
             kwargs["now_text"], {"reason": "PREPARATION_NOT_PASS"})
     return _ORIGINAL_READINESS(*args, **kwargs)
 
@@ -256,34 +256,6 @@ def _actual_guarded(*args, **kwargs):
     if not _PHASE["prepared"]:
         return None
     return _ORIGINAL_ACTUAL(*args, **kwargs)
-
-
-def _install_reviewed_preparation_contract() -> None:
-    """Install and verify the source-owned single-preparation implementation."""
-    controller.entry.install()
-    code = controller.go._PREPARATION_CODE
-    if "retained_go.prepare" in code:
-        if (code.count("retained_go.prepare(c, target_session=target,") != 1
-                or "rolling_go_inputs.prepare" in code
-                or "outage_recovery" in code or "ingest.daily" in code):
-            raise controller.PhaseRefused("GO retained preparation has more than one data path")
-        return
-    if "rolling_go_inputs.prepare" in code:
-        if (code.count("rolling_go_inputs.prepare(c, target_session=target,") != 1
-                or "outage_recovery" in code or "ingest.daily" in code):
-            raise controller.PhaseRefused("GO rolling preparation has more than one data path")
-        return
-    marker = "if recovered.mode == 'ALREADY_CURRENT':"
-    try:
-        start = code.index(marker)
-        end = code.index("elif recovered.mode in {'BOUNDED_RESEED', 'BOUNDED_INITIAL_SEED'}:", start)
-    except ValueError as exc:
-        raise controller.PhaseRefused(
-            "GO preparation implementation no longer exposes the reviewed recovery contract") from exc
-    block = code[start:end]
-    if "ingest.daily" in block or "pass" not in block:
-        raise controller.PhaseRefused(
-            "GO ALREADY_CURRENT preparation is not terminal single-preparation success")
 
 
 class StrictDatabaseHealthView(_ORIGINAL_DATABASE_VIEW):
@@ -342,11 +314,9 @@ def install() -> None:
     controller._certify_exact_artifacts = _certify_guarded
     controller.entry.probe_prevalidation_preparation = _preparation_guarded
     controller.go.probe_active_wealth_parity = _parity_guarded
-    controller.go.probe_sharadar_readiness = _readiness_guarded
+    controller.go.probe_market_data_readiness = _readiness_guarded
     controller.go.probe_database_financial_health = _database_guarded
     controller._actual_remaining_ms = _actual_guarded
-    controller._install_single_preparation_contract = (
-        _install_reviewed_preparation_contract)
     controller.DatabaseHealthView = StrictDatabaseHealthView
     controller.go.emit_bundle = _emit_at_completion
 

@@ -1,5 +1,6 @@
 """Generic schema for reviewed provider data; never ticker-specific behavior."""
 from __future__ import annotations
+from sentinel import archive_identifiers
 
 import json
 from datetime import date
@@ -54,7 +55,7 @@ class CoverageRecord(Contract):
 
 class Dataset(Contract):
     schema_version: Literal['sentinel.source-corrections/1'] = Field(alias='schema')
-    provider: Literal['SHARADAR']
+    provider: Literal[archive_identifiers.PROVIDER]
     coverage: tuple[CoverageRecord, ...] = Field(max_length=MAX_RECORDS)
     disputed_cash_events: tuple[dict, ...] = Field(max_length=MAX_RECORDS)
     cash_authorities: tuple[dict, ...] = Field(max_length=MAX_RECORDS)

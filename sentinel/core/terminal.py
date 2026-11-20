@@ -1,4 +1,4 @@
-"""SHARADAR/ACTIONS -> terminal events, carried across INTACT.
+"""ACTIONS -> terminal events, carried across INTACT.
 
 Every rule here was a defect found the hard way, so this is a faithful port of
 the preserved strict-PIT certification source rather than

@@ -76,7 +76,7 @@ def step(day: str, seed=0, *, faulty=False, shocks=(), observed_after=None):
     actions.append((SYMBOLS[0], "2026-07-01", "dividend", SYMBOLS[0], 0.5, None, None))
 
     # The production corporate-action authority contains one reviewed historical
-    # dispute. The synthetic lab must carry that exact stale Sharadar source fact
+    # dispute. The synthetic lab must carry that exact dated source fact
     # once the event is in its observed history; otherwise the production code is
     # expected to fail closed before lifecycle testing can begin. Include the
     # predecessor and consolidation so the fixture proves the issuer's old-share

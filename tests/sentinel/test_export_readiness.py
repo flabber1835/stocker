@@ -7,7 +7,7 @@ import runpy
 import pytest
 
 from sentinel.feed import export_readiness as exports, snapshot_export as source
-from sentinel.feed import rolling_source, authority, sharadar
+from sentinel.feed import rolling_source, authority, archive_tables
 from sentinel.feed.rolling_contract import FormationWindow
 
 # CI keeps host helpers in the inspection tree, outside the runtime import path.
@@ -38,7 +38,7 @@ def test_all_exports_requested_before_pending_is_returned(monkeypatch, capsys, p
 
 
 @pytest.mark.parametrize("error", [ValueError("bad response"),
-                                  sharadar.SharadarRetryDeferred(90, 429)])
+                                  archive_tables.RetryDeferred(90, 429)])
 def test_fatal_or_throttled_request_stops_sweep(monkeypatch, error):
     calls = []
     def probe(table, *, params):
@@ -53,7 +53,7 @@ def test_fatal_or_throttled_request_stops_sweep(monkeypatch, error):
 def test_formation_preflight_requests_all_months_and_rejects_mixed_refresh(monkeypatch):
     window = FormationWindow.through("2026-09-25")
     monkeypatch.setattr(rolling_source.calendar, "latest_closed_session", lambda: str(window.end))
-    capture = rolling_source.SharadarSource(window)
+    capture = rolling_source.ArchiveSource(window)
     calls = []
     pending = True
     def probe(table, *, params):

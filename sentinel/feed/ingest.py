@@ -1,4 +1,4 @@
-"""Canonical Sharadar seed/daily ingestion and PIT/source authority.
+"""Canonical Source seed/daily ingestion and PIT/source authority.
 
 The public module owns seed/daily orchestration. Lower-level normalization,
 storage and recovery helpers are static dependencies; import order and
@@ -22,7 +22,7 @@ recent_reconciliation = _authority.recent_reconciliation
 recovery = _authority.recovery
 reseed = _authority.reseed
 sep_reconciliation = _authority.sep_reconciliation
-sharadar = _authority.sharadar
+archive_tables = _authority.archive_tables
 snapshot_source = _authority.snapshot_source
 universe = _authority.universe
 
@@ -65,7 +65,7 @@ def _seed_source(fetch, *, final_hi: str, update_ceiling: str | None = None,
     stability checks.
     """
     production_snapshot = fetch is snapshot_source.fetch_table
-    guarded = source_authority.StableSharadarFetch(
+    guarded = source_authority.StableTableFetch(
         acquisition_fetch or fetch, protect_sep=lambda _params: True,
         corroborate_reference=(
             lambda params: str(params.get("date.lte") or "") == final_hi),
@@ -98,7 +98,7 @@ def _post_seed_proof_source(fetch, *, boundary: str, ceiling: str):
     def proof_fetch(table, params=None, **kwargs):
         request = params or {}
         is_sep_cdc = (
-            table == sharadar.SEP
+            table == archive_tables.SEP
             and ("lastupdated.gte" in request or "lastupdated.lte" in request))
         selected = mutation_fetch if is_sep_cdc else date_fetch
         return selected(table, params, **kwargs)
@@ -114,7 +114,7 @@ def _reconcile_sep_for_market_target(
     Injected/replay callers omit ``source_observation_day`` and keep the explicit
     market target as their only clock. Production supplies the current UTC source
     observation date. Production also re-observes an equal cursor date because
-    Sharadar ``lastupdated`` is date-valued and later rows may still appear with
+    Source ``lastupdated`` is date-valued and later rows may still appear with
     that same date.
     """
     market_day = _dt.date.fromisoformat(str(target))
@@ -127,7 +127,7 @@ def _reconcile_sep_for_market_target(
         if isinstance(source_observation_day, _dt.date)
         else _dt.date.fromisoformat(str(source_observation_day)))
     if source_day < market_day:
-        raise maintenance.SharadarMutationRefused(
+        raise maintenance.SourceMutationRefused(
             f"current source observation date {source_day} is behind market "
             f"target {market_day}; refusing mixed-clock SEP authority")
     return maintenance.reconcile_sep_mutations(
@@ -221,14 +221,14 @@ class _SeedAuthority:
 def _ordinary_seed_generation(conn, *, date_from: str, date_to: str,
                               fetch, resolve_identity, seed_authority):
     """Canonical ordinary seed engine used by every source seam."""
-    chunks = sharadar.year_chunks(date_from, date_to)
+    chunks = archive_tables.year_chunks(date_from, date_to)
     run = feed_store.IngestRun(
         conn, "seed", date_from=date_from, date_to=date_to,
         chunks_total=len(chunks) + 3)
     seed_authority.run_started(run)
 
     with run.chunk("tickers"):
-        rows = list(fetch(sharadar.TICKERS))
+        rows = list(fetch(archive_tables.TICKERS))
         run.progress.rows_written += universe.write_universe(
             conn, rows, date_to, run_id=run.progress.run_id)
 
@@ -239,15 +239,15 @@ def _ordinary_seed_generation(conn, *, date_from: str, date_to: str,
             # Initial warmup also needs rename claims preceding its price window.
             action_start = maintenance.ACTIONS_FULL_WINDOW_START
         action_source_rows = list(fetch(
-            sharadar.ACTIONS, sharadar.date_params(action_start, date_to)))
+            archive_tables.ACTIONS, archive_tables.date_params(action_start, date_to)))
         run.progress.rows_written += feed_store.write_actions(
             conn, action_source_rows, run_id=run.progress.run_id,
             window_start=action_start, window_end=date_to)
 
     with run.chunk("spy"):
         params = {"ticker": SFP_REFERENCE_TICKERS,
-                  **sharadar.date_params(date_from, date_to)}
-        rows = fetch(sharadar.SFP, params)
+                  **archive_tables.date_params(date_from, date_to)}
+        rows = fetch(archive_tables.SFP, params)
         run.progress.rows_written += _impl._write_sfp_reference_rows(
             conn, rows, run_id=run.progress.run_id)
 
@@ -261,7 +261,7 @@ def _ordinary_seed_generation(conn, *, date_from: str, date_to: str,
                 conn, lo, hi, include_run_id=run.progress.run_id)
             bars = domains.normalise_sep_rows(
                 _impl._ordered_sep(
-                    conn, fetch(sharadar.SEP, sharadar.date_params(lo, hi)),
+                    conn, fetch(archive_tables.SEP, archive_tables.date_params(lo, hi)),
                     run_id=run.progress.run_id, chunk=lo[:4]),
                 resolve_identity=resolver,
                 authoritative_splits=splits, dividends=divs,
@@ -348,7 +348,7 @@ def _run_seed_generation(conn, *, recovery_plan, fetch, final_hi: str,
 
 def seed(conn, *, date_from: str = DEFAULT_SEED_START,
          date_to: Optional[str] = None,
-         fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
+         fetch: Callable[..., Iterable[dict]] = archive_tables.fetch_table,
          resolve_identity=None):
     """Run the canonical seed path; production adds durable source authority."""
     from sentinel.feed import seed_coherence
@@ -364,7 +364,7 @@ def seed(conn, *, date_from: str = DEFAULT_SEED_START,
         recovery_plan = _recover_before_seed(
             conn, date_from=date_from, date_to=resolved_to)
         seed_from, seed_to = recovery_plan.date_from, recovery_plan.date_to
-        chunks = sharadar.year_chunks(seed_from, seed_to)
+        chunks = archive_tables.year_chunks(seed_from, seed_to)
         final_hi = chunks[-1][1]
         progress, tracked = _run_seed_generation(
             conn, recovery_plan=recovery_plan, fetch=fetch,
@@ -396,12 +396,12 @@ def seed(conn, *, date_from: str = DEFAULT_SEED_START,
         return progress
 
 
-def _daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
+def _daily(conn, *, fetch: Callable[..., Iterable[dict]] = archive_tables.fetch_table,
           resolve_identity=None, overlap_days: int = DAILY_OVERLAP_DAYS,
           today: Optional[str] = None):
     """Run one explicit-session daily ingest and publication-bound maintenance."""
     if today is None:
-        if fetch is not sharadar.fetch_table:
+        if fetch is not archive_tables.fetch_table:
             try:
                 if feed_store.latest_session(conn) is None:
                     raise RuntimeError(
@@ -512,7 +512,7 @@ def _daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
 
         listing_frontier = (
             published_frontier if fetch is snapshot_source.fetch_table else None)
-        guarded = source_authority.StableSharadarFetch(
+        guarded = source_authority.StableTableFetch(
             daily_fetch, after_session=listing_frontier,
             identity_actions=identity_actions, identity_through=resolved_today,
             identity_fetch=identity_fetch,
@@ -547,11 +547,11 @@ def _daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
         return progress
 
 
-def daily(conn, *, fetch=sharadar.fetch_table, resolve_identity=None,
+def daily(conn, *, fetch=archive_tables.fetch_table, resolve_identity=None,
           overlap_days=DAILY_OVERLAP_DAYS, today=None):
     """Production daily reads one bounded snapshot; replay sources stay offline."""
     from sentinel.feed import operational_source
-    if (today is not None and fetch in (sharadar.fetch_table, snapshot_source.fetch_table)
+    if (today is not None and fetch in (archive_tables.fetch_table, snapshot_source.fetch_table)
             and operational_source.current() is None):
         start, end = operational_source.price_window(today)
         boundary = publication.operational_boundary(conn, frontier=end)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sentinel.feed import coherence, sharadar, universe
+from sentinel.feed import coherence, archive_tables, universe
 
 
 def _ticker(table: str, category: str):
@@ -34,7 +34,7 @@ def test_non_sep_partition_cannot_change_or_enter_tickers_authority():
 
     def fetch(table, params=None, **_kwargs):
         nonlocal observations
-        if table == sharadar.TICKERS:
+        if table == archive_tables.TICKERS:
             observations += 1
             # Same identity, deliberately conflicting category. Its movement
             # between complete observations is irrelevant to the SEP strategy
@@ -43,14 +43,14 @@ def test_non_sep_partition_cannot_change_or_enter_tickers_authority():
                 "SF1",
                 "ADR Common Stock" if observations == 1 else "Canadian Stock")
             return [sep, sf1]
-        if table == sharadar.SEP:
+        if table == archive_tables.SEP:
             return [_sep()]
         return []
 
-    guarded = coherence.StableSharadarFetch(fetch)
-    selected = guarded(sharadar.TICKERS)
+    guarded = coherence.StableTableFetch(fetch)
+    selected = guarded(archive_tables.TICKERS)
     assert selected == [sep]
-    assert list(guarded(sharadar.SEP, {
+    assert list(guarded(archive_tables.SEP, {
         "date.gte": "2026-08-18", "date.lte": "2026-08-18"})) == [_sep()]
     assert observations == 2
 

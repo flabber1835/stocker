@@ -1,4 +1,5 @@
 """Owner-selected compact champion: broad V5, ramp-free native and REC8."""
+from sentinel import archive_identifiers
 from dataclasses import asdict, replace
 import hashlib
 import json
@@ -25,7 +26,7 @@ def load():
                "reference_source_sha256": REFERENCE_SOURCE_SHA256,
                "native_schema": "ramp-free-native/1",
                "recovery_schema": "ramp-free-ex3-rebound-false/1",
-               "universe": "BROAD_SHARADAR_COMMON_EQUITY",
+               "universe": archive_identifiers.UNIVERSE,
                "r40_floor": R40_FLOOR, "rec_sessions": RECOVERY_SESSIONS}
     digest = hashlib.sha256(json.dumps(payload, sort_keys=True,
                                       separators=(",", ":")).encode()).hexdigest()

@@ -16,7 +16,7 @@ import pytest
 from sentinel.feed import (
     coherence, rolling_builder as builder, rolling_jobs as jobs,
     rolling_publisher as publisher, rolling_source, rolling_store,
-    runtime_schema, sharadar, snapshot_export, store,
+    runtime_schema, archive_tables, snapshot_export, store,
 )
 from sentinel.feed.rolling_contract import PriceWindow, digest
 from sentinel.regime.spy import SPY_PRICE_COLUMN
@@ -100,7 +100,7 @@ def source(monkeypatch):
 
     monkeypatch.setattr(snapshot_export, "probe_snapshot", probe)
     monkeypatch.setattr(snapshot_export, "download_snapshot", download)
-    monkeypatch.setattr(sharadar, "fetch_table", fetch)
+    monkeypatch.setattr(archive_tables, "fetch_table", fetch)
     monkeypatch.setattr(rolling_source.calendar, "latest_closed_session", lambda: "2026-09-14")
     # Tiny universe only; every domain/structural/negative-space guard stays on.
     monkeypatch.setattr(coherence, "MIN_SEED_SESSION_ROWS", 1)
@@ -214,9 +214,9 @@ def test_transient_transport_exhaustion_releases_job_for_retry(conn, source, mon
     job = enqueue(conn)
     deadline = jobs.status(conn, job)["deadline"]
     def unavailable(table, **kwargs):
-        raise sharadar.SharadarUnavailable("source unavailable", 3, 503)
+        raise archive_tables.Unavailable("source unavailable", 3, 503)
     monkeypatch.setattr(snapshot_export, "probe_snapshot", unavailable)
-    with pytest.raises(sharadar.SharadarUnavailable):
+    with pytest.raises(archive_tables.Unavailable):
         publisher.prepare(conn, job)
     state = jobs.status(conn, job)
     assert state["state"] == "RETRY_WAIT" and state["owner"] is None
@@ -251,7 +251,7 @@ def test_crash_restarts_from_durable_components_or_ready(conn, source, monkeypat
     job = enqueue(conn)
     deadline = jobs.status(conn, job)["deadline"]
     dsn = conn.info.dsn
-    owner = rolling_store if boundary == "seal" else rolling_source.SharadarSource
+    owner = rolling_store if boundary == "seal" else rolling_source.ArchiveSource
     name = "seal" if boundary == "seal" else "corroborate"
     original = getattr(owner, name)
     def crash(*args, **kwargs):
@@ -316,7 +316,7 @@ patch.setattr(acquisition_work, 'cache_root', lambda: root / 'source-cache')
 def pause(*args, **kwargs):
     (root / 'worker-ready').touch()
     time.sleep(60)
-owner = fixture.rolling_store if os.environ['RECOVERY_BOUNDARY'] == 'seal' else fixture.rolling_source.SharadarSource
+owner = fixture.rolling_store if os.environ['RECOVERY_BOUNDARY'] == 'seal' else fixture.rolling_source.ArchiveSource
 patch.setattr(owner, 'seal' if os.environ['RECOVERY_BOUNDARY'] == 'seal' else 'corroborate', pause)
 with fixture.store.connect(os.environ['RECOVERY_DSN']) as connection:
     fixture.publisher.prepare(connection, os.environ['RECOVERY_JOB'])
@@ -371,11 +371,11 @@ with fixture.store.connect(os.environ['RECOVERY_DSN']) as connection:
 
 
 def test_corroboration_refuses_changed_ticker_fields(conn, source, monkeypatch):
-    original = rolling_source.SharadarSource.corroborate
+    original = rolling_source.ArchiveSource.corroborate
     def changed(self):
         source["TICKERS"][0]["relatedtickers"] = ""  # NULL is not observed empty.
         return original(self)
-    monkeypatch.setattr(rolling_source.SharadarSource, "corroborate", changed)
+    monkeypatch.setattr(rolling_source.ArchiveSource, "corroborate", changed)
     job = enqueue(conn)
     with pytest.raises(rolling_source.authority.VendorPublicationUnstable, match="TICKERS"):
         publisher.prepare(conn, job)
@@ -384,14 +384,14 @@ def test_corroboration_refuses_changed_ticker_fields(conn, source, monkeypatch):
 
 
 def test_corroboration_refuses_changed_refresh(conn, source, monkeypatch):
-    original = rolling_source.SharadarSource.corroborate
+    original = rolling_source.ArchiveSource.corroborate
     probe = snapshot_export.probe_snapshot
     def changed(self):
         from dataclasses import replace
         monkeypatch.setattr(snapshot_export, "probe_snapshot", lambda *a, **kw:
                             replace(probe(*a, **kw), refreshed=self.snapshots[0].refreshed + timedelta(days=1)))
         return original(self)
-    monkeypatch.setattr(rolling_source.SharadarSource, "corroborate", changed)
+    monkeypatch.setattr(rolling_source.ArchiveSource, "corroborate", changed)
     with pytest.raises(rolling_source.authority.VendorPublicationUnstable, match="ACTIONS.*changed generation"):
         publisher.prepare(conn, enqueue(conn))
     assert count(conn, "sentinel_snapshot_comparisons") == 0
@@ -399,14 +399,14 @@ def test_corroboration_refuses_changed_refresh(conn, source, monkeypatch):
 
 def test_compare_and_swap_loser_preserves_winner(conn, source, monkeypatch):
     first, second = enqueue(conn), enqueue(conn)
-    original = rolling_source.SharadarSource.corroborate
+    original = rolling_source.ArchiveSource.corroborate
     winner = {}
     def concurrent(self):
-        monkeypatch.setattr(rolling_source.SharadarSource, "corroborate", original)
+        monkeypatch.setattr(rolling_source.ArchiveSource, "corroborate", original)
         with store.connect(conn.info.dsn) as other:
             winner.update(publisher.prepare(other, second))
         return original(self)
-    monkeypatch.setattr(rolling_source.SharadarSource, "corroborate", concurrent)
+    monkeypatch.setattr(rolling_source.ArchiveSource, "corroborate", concurrent)
     with pytest.raises(publisher.ComparisonRefused, match="expected generation"):
         publisher.prepare(conn, first)
     assert count(conn, "sentinel_snapshot_comparisons") == 1
@@ -459,21 +459,21 @@ def test_backup_refusal_preserves_staging_publication_boundary(conn, source, mon
 
 def test_legacy_publication_change_invalidates_ready(conn, source, monkeypatch):
     from sentinel.feed import publisher_pipeline
-    original = rolling_source.SharadarSource.corroborate
+    original = rolling_source.ArchiveSource.corroborate
     def changed(self):
         original(self)
         monkeypatch.setattr(publisher_pipeline, "_legacy_version", lambda conn: 42)
-    monkeypatch.setattr(rolling_source.SharadarSource, "corroborate", changed)
+    monkeypatch.setattr(rolling_source.ArchiveSource, "corroborate", changed)
     with pytest.raises(publisher.ComparisonRefused, match="legacy publication changed during"):
         publisher.prepare(conn, enqueue(conn))
     assert count(conn, "sentinel_snapshot_comparisons") == 0
 
 
 def test_ready_checkpoint_changed_content_refuses(conn, source, monkeypatch):
-    original = rolling_source.SharadarSource.corroborate
+    original = rolling_source.ArchiveSource.corroborate
     def interrupted(self):
         raise KeyboardInterrupt()
-    monkeypatch.setattr(rolling_source.SharadarSource, "corroborate", interrupted)
+    monkeypatch.setattr(rolling_source.ArchiveSource, "corroborate", interrupted)
     job = enqueue(conn)
     with pytest.raises(KeyboardInterrupt):
         publisher.prepare(conn, job)
@@ -487,7 +487,7 @@ def test_ready_checkpoint_changed_content_refuses(conn, source, monkeypatch):
         return replace(snapshot, refreshed=snapshot.refreshed + timedelta(days=1)) if table == "SEP" else snapshot
     monkeypatch.setattr(snapshot_export, "probe_snapshot", revised)
     retry_now(conn, job)
-    monkeypatch.setattr(rolling_source.SharadarSource, "corroborate", original)
+    monkeypatch.setattr(rolling_source.ArchiveSource, "corroborate", original)
     with pytest.raises(rolling_source.authority.VendorPublicationUnstable, match="SEP.*changed generation"):
         publisher.prepare(conn, job)
     assert count(conn, "sentinel_snapshot_comparisons") == 0
@@ -500,11 +500,11 @@ def test_acquisition_resume_checks_completed_components(conn, source, monkeypatc
         if snapshot.table == "SEP":
             calls[0] += 1
             if calls[0] == 3:
-                raise sharadar.SharadarRetryDeferred(10)
+                raise archive_tables.RetryDeferred(10)
         return original(snapshot, **kwargs)
     monkeypatch.setattr(snapshot_export, "download_snapshot", interrupted)
     job = enqueue(conn)
-    with pytest.raises(sharadar.SharadarRetryDeferred):
+    with pytest.raises(archive_tables.RetryDeferred):
         publisher.prepare(conn, job)
     assert jobs.status(conn, job)["state"] == "RETRY_WAIT"
     completed = jobs.components(conn, job)
@@ -516,11 +516,11 @@ def test_acquisition_resume_checks_completed_components(conn, source, monkeypatc
 
 
 def test_corroboration_refuses_changed_benchmark(conn, source, monkeypatch):
-    original = rolling_source.SharadarSource.corroborate
+    original = rolling_source.ArchiveSource.corroborate
     def changed(self):
         source["SFP"][40][SPY_PRICE_COLUMN] = "60.01"
         original(self)
-    monkeypatch.setattr(rolling_source.SharadarSource, "corroborate", changed)
+    monkeypatch.setattr(rolling_source.ArchiveSource, "corroborate", changed)
     with pytest.raises(rolling_source.authority.VendorPublicationUnstable, match="SFP"):
         publisher.prepare(conn, enqueue(conn))
     assert count(conn, "sentinel_snapshot_comparisons") == 0
@@ -539,13 +539,13 @@ def test_preflight_refuses_mixed_sep_refreshes(source, monkeypatch):
         return snapshot
     monkeypatch.setattr(snapshot_export, "probe_snapshot", mixed)
     with pytest.raises(rolling_source.authority.VendorPublicationUnstable, match="partitions"):
-        rolling_source.SharadarSource(PriceWindow.through("2026-09-14")).preflight()
+        rolling_source.ArchiveSource(PriceWindow.through("2026-09-14")).preflight()
 
 
 def test_source_rejects_unclosed_target(source, monkeypatch):
     monkeypatch.setattr(rolling_source.calendar, "latest_closed_session", lambda: "2026-09-11")
     with pytest.raises(ValueError, match="closed XNYS"):
-        rolling_source.SharadarSource(PriceWindow.through("2026-09-14")).preflight()
+        rolling_source.ArchiveSource(PriceWindow.through("2026-09-14")).preflight()
     assert source["calls"] == []
 
 
@@ -595,10 +595,10 @@ def test_old_comparison_cannot_replace_newer_frontier(conn, source, monkeypatch)
 
 def test_retry_after_is_not_shortened(conn, source, monkeypatch):
     def rate_limit(*a, **kw):
-        raise sharadar.SharadarRetryDeferred(45, 429)
+        raise archive_tables.RetryDeferred(45, 429)
     monkeypatch.setattr(snapshot_export, "probe_snapshot", rate_limit)
     job = enqueue(conn)
-    with pytest.raises(sharadar.SharadarRetryDeferred):
+    with pytest.raises(archive_tables.RetryDeferred):
         publisher.prepare(conn, job)
     state = jobs.status(conn, job)
     assert state["state"] == "RETRY_WAIT"
@@ -637,16 +637,16 @@ def test_source_network_is_outside_common_writer_lock(conn, source, monkeypatch)
         return wrapped
     monkeypatch.setattr(snapshot_export, "probe_snapshot", checked(snapshot_export.probe_snapshot))
     monkeypatch.setattr(snapshot_export, "download_snapshot", checked(snapshot_export.download_snapshot))
-    monkeypatch.setattr(sharadar, "fetch_table", checked(sharadar.fetch_table))
+    monkeypatch.setattr(archive_tables, "fetch_table", checked(archive_tables.fetch_table))
     publisher.prepare(conn, enqueue(conn))
 
 
 def test_missing_independent_ticker_key_refuses(conn, source, monkeypatch):
-    original = sharadar.fetch_table
+    original = archive_tables.fetch_table
     def partial(table, params=None, **kw):
         rows = list(original(table, params, **kw))
         return iter(rows[:1] if table == "TICKERS" else rows)
-    monkeypatch.setattr(sharadar, "fetch_table", partial)
-    with pytest.raises(snapshot_export.SharadarSnapshotExportError, match="key set disagrees"):
+    monkeypatch.setattr(archive_tables, "fetch_table", partial)
+    with pytest.raises(snapshot_export.SnapshotExportError, match="key set disagrees"):
         publisher.prepare(conn, enqueue(conn))
     assert count(conn, "sentinel_snapshot_comparisons") == 0

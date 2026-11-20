@@ -48,7 +48,7 @@ from sentinel.execution.guarded import (
 from sentinel.execution.reconcile import _exact_lookup_account_or_refuse
 from sentinel.execution.simulator import SimulatedBroker
 from sentinel.execution.states import CommandState
-from sentinel.feed import sharadar
+from sentinel.feed import archive_tables
 from sentinel.paper import PaperActivationRefused
 from sentinel.paper.inspection import _require_certified_paper_broker
 
@@ -609,13 +609,13 @@ def test_capability_graph_separates_certified_and_inherited_methods() -> None:
 
 
 @pytest.mark.parametrize("exc,expected", [
-    (sharadar.SharadarRetryDeferred(10, 429),
+    (archive_tables.RetryDeferred(10, 429),
      TransientInfrastructureFailure),
-    (sharadar.SharadarRetryDeferred(10, 503),
+    (archive_tables.RetryDeferred(10, 503),
      TransientInfrastructureFailure),
-    (sharadar.SharadarRequestError("Sharadar request failed (HTTP 401)"),
+    (archive_tables.RequestError("Source request failed (HTTP 401)"),
      PermanentOperationalRefusal),
-    (sharadar.SharadarProtocolError("malformed payload"),
+    (archive_tables.ProtocolError("malformed payload"),
      DataIntegrityFailure),
     (ConnectionError("database unavailable"),
      TransientInfrastructureFailure),

@@ -132,8 +132,9 @@ def test_multiple_fees_continue_exact_intents_and_survive_restart(conn, pg, case
     original_plan = case['plan'].to_dict()
     original_fingerprint = case['plan'].fingerprint()
     original_baseline = baseline_json(conn, case)
-    assert original_baseline['kind'] == 'broker-cash-plan/v4'
-    assert len(original_baseline['activity_membership']) == 1
+    assert original_baseline['kind'] == 'broker-cash-plan/v6'
+    assert original_baseline['membership_root'] == case['initial'].membership_root
+    assert len(case['baseline'].activity_membership) == 1
     events = [case['old'], event(2, 'FEE', '-0.04'), event(3, 'FEE', '-3.17')]
     state = ingest(conn, events, hours=1)
     for recovery in (False, True):
@@ -183,7 +184,8 @@ def test_original_membership_cannot_be_changed_or_deleted(conn, case, damage):
         conn.execute('DELETE FROM sentinel_cash_flows WHERE flow_id=%s', (key,))
     elif damage == 'member_hash':
         raw = baseline_json(conn, case)
-        raw['activity_membership'][key] = '0' * 64
+        del raw['membership_root']
+        raw.update(kind='broker-cash-plan/v4', activity_membership={key: '0' * 64})
         conn.execute('UPDATE sentinel_processed_sessions SET state=%s::jsonb WHERE cursor_name=%s',
             (json.dumps(raw), broker_cash.PLAN_BASELINE_PREFIX + case['plan'].plan_id))
     elif damage == 'detail':
@@ -320,7 +322,7 @@ def test_wait_requires_exact_pre_fee_balance_falsifier(conn, case, monkeypatch):
 def test_legacy_baseline_is_readable_but_never_backfilled(conn, case):
     raw = baseline_json(conn, case)
     raw['kind'] = 'broker-cash-plan/v3'
-    del raw['activity_membership']
+    del raw['membership_root']
     conn.execute('UPDATE sentinel_processed_sessions SET state=%s::jsonb WHERE cursor_name=%s',
         (json.dumps(raw), broker_cash.PLAN_BASELINE_PREFIX + case['plan'].plan_id))
     old = broker_cash.load_plan_baseline(conn, plan_id=case['plan'].plan_id)
@@ -338,6 +340,8 @@ def test_legacy_baseline_is_readable_but_never_backfilled(conn, case):
 @pytest.mark.parametrize('fault', ['missing', 'null', 'unknown_member', 'bad_hash', 'missing_last'])
 def test_v4_membership_missing_or_malformed_never_becomes_legacy(conn, case, fault):
     raw = baseline_json(conn, case)
+    del raw['membership_root']
+    raw.update(kind='broker-cash-plan/v4', activity_membership=dict(case['baseline'].activity_membership))
     if fault == 'missing':
         del raw['activity_membership']
     elif fault == 'null':
@@ -512,7 +516,7 @@ def test_actual_funding_owner_keeps_all_negative_boundaries(conn, case, monkeypa
     if fault == 'plan_v3':
         raw = baseline_json(conn, case)
         raw['kind'] = 'broker-cash-plan/v3'
-        del raw['activity_membership']
+        del raw['membership_root']
         conn.execute('UPDATE sentinel_processed_sessions SET state=%s::jsonb WHERE cursor_name=%s',
             (json.dumps(raw), broker_cash.PLAN_BASELINE_PREFIX + case['plan'].plan_id))
     if fault == 'basis_v1':

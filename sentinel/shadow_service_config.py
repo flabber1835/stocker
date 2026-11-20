@@ -1,5 +1,6 @@
 """One canonical shadow configuration, without financial runtime bootstrap."""
 from __future__ import annotations
+from sentinel import archive_identifiers
 
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
@@ -53,9 +54,9 @@ class ShadowServiceConfig:
                     "ALPACA_API_KEY", "ALPACA_SECRET_KEY")):
                 raise ShadowServiceRefused(
                     "Alpaca market-data credentials are required for operational shadow")
-            if str(source.get("SHARADAR_API_KEY") or "").strip():
+            if str(source.get(archive_identifiers.RETIRED_CREDENTIAL) or "").strip():
                 raise ShadowServiceRefused(
-                    "Sharadar credentials are forbidden in operational shadow")
+                    "Historical feed credentials are forbidden in operational shadow")
         enabled = str(source.get(
             "SENTINEL_SHADOW_OBSERVATION_ENABLED", "0")).strip().lower()
         if enabled not in {"1", "true", "yes", "on"}:

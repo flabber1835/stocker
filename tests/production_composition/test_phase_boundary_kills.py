@@ -12,7 +12,7 @@ STAGES = (
     ("host_preflight", "scripts/sentinel_go_host_preflight.py"),
     ("runtime_preflight", "scripts/sentinel_runtime_selection.py"),
     ("account_preflight", "scripts/sentinel_go_account_preflight.py"),
-    # output_guard owns certification, Phase C schema/Sharadar/publication work,
+    # output_guard owns certification, Phase C schema/market-data/publication work,
     # read-only readiness, and final validation-bundle creation.
     ("validation_phase_c_bundle", "scripts/sentinel_go_output_guard.py"),
     ("promotion_pointer", "in-process:sentinel_go_promote.main"),

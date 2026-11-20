@@ -1,7 +1,7 @@
 """Bounded current-state projection of append-only TICKERS snapshots.
 
 `sentinel_universe` is immutable point-in-time evidence. It intentionally keeps
-every dated SHARADAR/TICKERS snapshot, because ticker reuse and historical
+every dated TICKERS snapshot, because ticker reuse and historical
 listing windows are part of the trading record. It is therefore the wrong
 relation for questions whose complexity should be "how many identities exist
 now?". Daily full snapshots make those questions scale with corpus age.

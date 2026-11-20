@@ -1,7 +1,7 @@
-"""Vendor-publication authority for Sharadar source snapshots.
+"""Vendor-publication authority for source snapshots.
 
 A successful HTTP traversal is transport evidence, not publication evidence.
-Sharadar's tables can be observed while a vendor generation is still moving, so
+the source's tables can be observed while a vendor generation is still moving, so
 Sentinel requires two complete observations with the same order-independent
 content fingerprint before source absence is allowed to become local authority.
 
@@ -188,7 +188,7 @@ def require_stable(table: str, first: SourceObservation,
     if first.rows == second.rows and first.digest == second.digest:
         return
     raise VendorPublicationUnstable(
-        f"Sharadar {expected} publication is not stable across two complete "
+        f"source {expected} publication is not stable across two complete "
         f"observations: rows {first.rows:,}->{second.rows:,}, "
         f"fingerprint {first.digest[:16]}->{second.digest[:16]}. Refusing to "
         f"treat absence, removal, or the candidate corpus as authoritative.")
@@ -230,19 +230,19 @@ def assert_frontier_domains(
         counts = observation.sessions[session]
         if counts.rows <= 0:
             raise FrontierDomainIncomplete(
-                f"Sharadar SEP {session} has no rows to establish a frontier")
+                f"source SEP {session} has no rows to establish a frontier")
         for label, attr in domains:
             present = int(getattr(counts, attr))
             share = present / counts.rows
             if share < minimum:
                 raise FrontierDomainIncomplete(
-                    f"Sharadar SEP frontier {session} {label} is present on "
+                    f"source SEP frontier {session} {label} is present on "
                     f"{present:,}/{counts.rows:,} rows ({share:.1%}); authority "
                     f"requires at least {minimum:.0%}. Historical coverage may "
                     f"not dilute a broken current decision session into PASS.")
 
 
-class StableSharadarFetch:
+class StableTableFetch:
     """A fetch adapter that turns transport success into publication evidence.
 
     The first ACTIONS traversal is allowed to enter the candidate run so price
@@ -267,7 +267,7 @@ class StableSharadarFetch:
 
     def __init__(self, fetch, *, protect_sep=None, corroborate_actions=None,
                  after_session: str | None = None,
-                 operation: str = "stable_sharadar_fetch"):
+                 operation: str = "stable_table_fetch"):
         self._fetch = session_envelope.SessionEnvelopeFetch(
             fetch, operation=operation)
         self._protect_sep = protect_sep or (lambda _params: True)
@@ -278,9 +278,9 @@ class StableSharadarFetch:
         self._actions_kwargs: dict | None = None
 
     def __call__(self, table, params=None, **kwargs):
-        from sentinel.feed import sharadar
+        from sentinel.feed import archive_tables
 
-        if table == sharadar.ACTIONS:
+        if table == archive_tables.ACTIONS:
             if self._actions_first is not None:
                 raise RuntimeError(
                     "ACTIONS was requested again before its first candidate "
@@ -291,22 +291,22 @@ class StableSharadarFetch:
             self._actions_kwargs = dict(kwargs)
             return rows
 
-        if table == sharadar.SEP and self._protect_sep(params or {}):
+        if table == archive_tables.SEP and self._protect_sep(params or {}):
             return self._stable_sep(table, params, **kwargs)
 
         return self._fetch(table, params, **kwargs)
 
     def _require_actions_stable(self) -> None:
-        from sentinel.feed import sharadar
+        from sentinel.feed import archive_tables
 
         if self._actions_first is None:
             return
         rows = list(self._fetch(
-            sharadar.ACTIONS,
+            archive_tables.ACTIONS,
             dict(self._actions_params or {}),
             **dict(self._actions_kwargs or {})))
         second = observe_actions(rows)
-        require_stable(sharadar.ACTIONS, self._actions_first, second)
+        require_stable(archive_tables.ACTIONS, self._actions_first, second)
         self._actions_first = None
         self._actions_params = None
         self._actions_kwargs = None

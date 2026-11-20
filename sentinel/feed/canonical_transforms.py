@@ -32,7 +32,7 @@ def alpaca_bar(row, *, asset_id, split_ratio, dividend_per_share):
         split_ratio=float(split_ratio),dividend_per_share=float(dividend_per_share))
 
 
-def sharadar_bar(item):
+def source_bar(item):
     return CanonicalBar(security_id=str(item.vendor.security_id),session=item.vendor.session,
         ticker=item.vendor.ticker,close_signal=item.close_signal,
         close_unadjusted=item.vendor.raw_close,open_unadjusted=item.vendor.raw_open,

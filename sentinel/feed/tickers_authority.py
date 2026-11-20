@@ -1,4 +1,4 @@
-"""Structural publication authority for Sharadar ``table=SEP`` TICKERS.
+"""Structural publication authority for Source ``table=SEP`` TICKERS.
 
 A complete/stable traversal is not enough when its keys are ambiguous.  This
 module validates the exact identity and listing-interval invariants before a
@@ -61,7 +61,7 @@ class TickersStructureInvalid(RuntimeError):
         self.evidence = evidence
         encoded = json.dumps(
             evidence.to_dict(), sort_keys=True, separators=(",", ":"))
-        super().__init__(f"Sharadar TICKERS structural authority refused: {encoded}")
+        super().__init__(f"source TICKERS structural authority refused: {encoded}")
 
 
 class _Fingerprint:

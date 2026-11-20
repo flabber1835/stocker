@@ -178,7 +178,7 @@ def main(argv=None) -> int:
                   "scripts/sentinel_go_24x7_entry.py::_deployment_preparation_probe",
                   "scripts/sentinel_go_backup_retry.py::RenewalRunner",
                   "scripts/sentinel_go_validate.py::probe_active_wealth_parity",
-                  "scripts/sentinel_go_validate.py::probe_sharadar_readiness",
+                  "scripts/sentinel_go_validate.py::probe_market_data_readiness",
                   "scripts/sentinel_go_validate.py::probe_database_financial_health"],
               "unexecuted":["genuine_base_backup_and_full_restore", "financial_preparation",
                             "formation_restart_parity", "backup_renewal", "financial_readiness",

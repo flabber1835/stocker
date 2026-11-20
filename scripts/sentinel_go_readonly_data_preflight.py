@@ -1,29 +1,5 @@
 #!/usr/bin/env python3
-"""Fail fast on deterministic Sharadar/local-feed refusals without mutation.
-
-This preflight is allowed to run before stable artifact certification because it
-is read-only. It builds the exact ordinary runtime for current clean main, opens
-the production PostgreSQL transaction READ ONLY, validates the durable SEP,
-ACTIONS, and recent-complete-reconciliation cursor shapes against the current
-publication and decision frontier. After source finality it checks availability
-of ACTIONS, TICKERS and bounded SEP exports without downloading any source file.
-Identity, CDC and normalized value/key validation run only in the canonical
-certified preparation over its single verified acquisition.
-
-It never creates/migrates schema, advances a cursor, creates an ingest run,
-renormalizes bars, publishes a corpus generation, downloads the complete ACTIONS
-export, or performs the recent complete SEP export. Those stronger source and
-mutation boundaries remain owned by the certified preparation.
-
-If the newest closed session has not reached the reviewed Sharadar source-final
-boundary, this phase deliberately defers SEP source inspection. A still-
-publishing vendor view is never negative authority. Missing legacy cursor/schema
-state is reported as recovery-required rather than treated as evidence of source
-corruption.
-
-The certified preparation later repeats source observation under the normal feed
-write membrane. This phase is only a liveness filter, never deployment authority.
-"""
+"""Inspect the installed rolling publication in a read-only database transaction."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -35,292 +11,14 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+import sentinel_bringup_source_liveness as frontier_probe
 import sentinel_go_probe_contract as probe_contract  # noqa: E402
 import sentinel_go_validate as go  # noqa: E402
 import sentinel_probe_output as probe_output  # noqa: E402
 
 MARKER = "SENTINEL_GO_READONLY_DATA_PREFLIGHT="
 
-_READ_ONLY_CODE = r'''
-import hashlib
-import json, os
-
-MARKER = 'SENTINEL_GO_READONLY_DATA_PREFLIGHT='
-state = {'phase': 'RUNTIME_IMPORT', 'emitted': False}
-
-
-def emit(value):
-    state['emitted'] = True
-    print(MARKER + json.dumps(value, sort_keys=True), flush=True)
-
-
-def controlled_detail(exc):
-    raw = str(exc).strip()
-    if not raw:
-        return {}
-    digest = hashlib.sha256(raw.encode('utf-8', errors='replace')).hexdigest()
-    lowered = raw.lower()
-    prohibited = ('http://', 'https://', 'api_key', 'api-key', 'password',
-                  'authorization', 'postgres://', 'postgresql://', 'apca-api-')
-    value = {'detail_sha256': digest}
-    if any(item in lowered for item in prohibited) or '\n' in raw or '\r' in raw:
-        return value
-    if len(raw) > 420:
-        raw = raw[:365] + ' ... [sha256:%s]' % digest[:16]
-    value['detail'] = raw
-    return value
-
-
-def refuse(code, exc=None, **extra):
-    value = {'status': 'REFUSED', 'reason_code': code}
-    if exc is not None:
-        value.update(controlled_detail(exc))
-    value.update(extra)
-    emit(value)
-
-
-def execute():
-    state['phase'] = 'RUNTIME_IMPORT'
-    import datetime as dt
-    from sentinel.feed import (
-        calendar, identity_refresh, maintenance_impl as maintenance, publication,
-        recent_reconciliation, sharadar, source_authority, store, universe,
-        operational_source, progress)
-    from sentinel.shadow_runtime import publication_not_before
-
-    def cursor_from_row(row, *, name, kind, current_version):
-        if row is None:
-            return None
-        raw = row[1]
-        if isinstance(raw, dict):
-            cursor_state = raw
-        else:
-            try:
-                cursor_state = json.loads(str(raw))
-            except (TypeError, ValueError) as exc:
-                raise maintenance.SharadarMutationRefused(
-                    'source cursor %s is not valid JSON' % name) from exc
-        required = {'kind', 'processed_through', 'publication_version'}
-        if (not isinstance(cursor_state, dict) or not required.issubset(cursor_state)
-                or set(cursor_state) - required - {'price_window'}
-                or cursor_state.get('kind') != kind):
-            raise maintenance.SharadarMutationRefused(
-                'source cursor %s has an unknown durable state shape' % name)
-        maintenance._cursor_price_window(cursor_state, name=name)
-        try:
-            through = dt.date.fromisoformat(str(cursor_state['processed_through']))
-            version = int(cursor_state['publication_version'])
-            row_date = (row[0] if isinstance(row[0], dt.date)
-                        else dt.date.fromisoformat(str(row[0])))
-        except (TypeError, ValueError) as exc:
-            raise maintenance.SharadarMutationRefused(
-                'source cursor %s has invalid date/version evidence' % name) from exc
-        if row_date != through:
-            raise maintenance.SharadarMutationRefused(
-                'source cursor %s row date disagrees with its state' % name)
-        if version > current_version:
-            raise maintenance.SharadarMutationRefused(
-                'source cursor %s is ahead of current publication v%d'
-                % (name, current_version))
-        return through, version
-
-    def load_cursor_readonly(conn, *, name, kind, current_version):
-        with conn.cursor() as cur:
-            cur.execute(
-                'SELECT session,state FROM sentinel_processed_sessions WHERE cursor_name=%s',
-                (name,))
-            row = cur.fetchone()
-        cursor = cursor_from_row(
-            row, name=name, kind=kind, current_version=current_version)
-        if cursor is None:
-            return None
-        through, version = cursor
-        with conn.cursor() as cur:
-            cur.execute(
-                'SELECT 1 FROM sentinel_corpus_publications WHERE version=%s',
-                (version,))
-            if cur.fetchone() is None:
-                raise maintenance.SharadarMutationRefused(
-                    'source cursor %s names missing publication v%d' % (name, version))
-        return through, version
-
-    def require_not_future(cursor, *, name, target,
-                           boundary_label='current closed session'):
-        if cursor is not None and cursor[0] > target:
-            raise maintenance.SharadarMutationRefused(
-                'source cursor %s processed_through %s is ahead of %s %s'
-                % (name, cursor[0], boundary_label, target))
-
-    c = None
-    try:
-        state['phase'] = 'DATABASE_CONNECT'
-        progress.emit('database_connect', 'started')
-        c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
-        state['phase'] = 'READ_ONLY_TRANSACTION'
-        with c.cursor() as cur:
-            cur.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
-            cur.execute('SHOW transaction_read_only')
-            if str(cur.fetchone()[0]).lower() not in {'on', 'true'}:
-                raise RuntimeError('read-only transaction could not be established')
-            cur.execute("SELECT to_regclass('public.sentinel_corpus_publications')")
-            publication_table = cur.fetchone()[0]
-            cur.execute("SELECT to_regclass('public.sentinel_processed_sessions')")
-            cursor_table = cur.fetchone()[0]
-
-        state['phase'] = 'LOCAL_AUTHORITY'
-        target_raw = calendar.latest_closed_session()
-        target = dt.date.fromisoformat(str(target_raw))
-        source_day = dt.datetime.now(dt.timezone.utc).date()
-        from sentinel.feed import rolling_go_inputs, operational_snapshot
-        if publication_table is not None:
-            held = rolling_go_inputs.current(c)
-            if rolling_go_inputs.is_rolling(held):
-                operational_snapshot._bound(c, held)
-                if held.window_end > operational_snapshot.source_final_session():
-                    raise RuntimeError('rolling publication is ahead of the source-final frontier')
-                emit({'status': 'DEFERRED', 'reason_code': 'ROLLING_INPUT_VALIDATION_REQUIRED'})
-                return
-        if dt.datetime.now(dt.timezone.utc) >= publication_not_before(target_raw):
-            state['phase'] = 'SOURCE_EXPORT_PREFLIGHT'
-            start, end = operational_source.price_window(target_raw)
-            boundary = publication.operational_boundary(c, frontier=end)
-            if boundary.start < start:
-                raise operational_source.OperationalAcquisitionRefused(
-                    'persisted catch-up requires %s..%s; automatic acquisition allows %s..%s'
-                    % (boundary.start, end, start, end))
-            with operational_source.acquisition(start, end):
-                pass  # Availability only, including cold/legacy startup.
-        state['phase'] = 'LOCAL_AUTHORITY'
-        if publication_table is None or publication.current(c) is None:
-            emit({'status': 'RECOVERY_REQUIRED', 'reason_code': 'CORPUS_SCHEMA_NOT_INSTALLED'})
-        else:
-            current = publication.require_current(c)
-            if cursor_table is None:
-                emit({'status': 'RECOVERY_REQUIRED', 'reason_code': 'CURSOR_SCHEMA_NOT_INSTALLED'})
-            else:
-                sep_cursor = load_cursor_readonly(
-                    c, name=maintenance.SEP_CURSOR_NAME,
-                    kind='sharadar-sep-lastupdated/v1',
-                    current_version=current.version)
-                actions_cursor = load_cursor_readonly(
-                    c, name=maintenance.ACTIONS_CURSOR_NAME,
-                    kind=maintenance.ACTIONS_CURSOR_KIND,
-                    current_version=current.version)
-                recent_cursor = load_cursor_readonly(
-                    c, name=recent_reconciliation.CURSOR_NAME,
-                    kind=recent_reconciliation.CURSOR_KIND,
-                    current_version=current.version)
-
-                # SEP is a vendor-update clock and may legitimately be ahead of
-                # the retained market frontier after a complete current seed.
-                # ACTIONS/recent cursors are market-session authorities.
-                require_not_future(
-                    sep_cursor, name=maintenance.SEP_CURSOR_NAME,
-                    target=source_day,
-                    boundary_label='current source observation date')
-                require_not_future(
-                    actions_cursor, name=maintenance.ACTIONS_CURSOR_NAME, target=target)
-                require_not_future(
-                    recent_cursor, name=recent_reconciliation.CURSOR_NAME, target=target)
-
-                if sep_cursor is None:
-                    emit({'status': 'RECOVERY_REQUIRED', 'reason_code': 'SEP_CURSOR_MISSING'})
-                else:
-                    through, _version = sep_cursor
-                    local_lag = []
-                    if actions_cursor is None:
-                        local_lag.append('ACTIONS_CURSOR_MISSING')
-                    elif actions_cursor[0] < target:
-                        local_lag.append('ACTIONS_CURSOR_BEHIND')
-                    if recent_cursor is None:
-                        local_lag.append('RECENT_SEP_CURSOR_MISSING')
-                    elif recent_cursor[0] < target:
-                        local_lag.append('RECENT_SEP_CURSOR_BEHIND')
-
-                    if dt.datetime.now(dt.timezone.utc) < publication_not_before(target_raw):
-                        emit({
-                            'status': 'DEFERRED',
-                            'reason_code': 'SHARADAR_SOURCE_NOT_FINAL',
-                            'local_followup': local_lag,
-                        })
-                    else:
-                        emit({
-                            'status': 'PASS',
-                            'reason_code': 'BOUNDED_SOURCE_EXPORTS_AVAILABLE',
-                            'source_rows': 0,
-                            'local_followup': local_lag,
-                        })
-    except identity_refresh.SepMutationIdentityRefused as exc:
-        codes = {
-            'NO_PERMANENT_ID': 'SOURCE_IDENTITY_NO_PERMANENT_ID',
-            'IDENTITY_INTERVAL_GAP': 'SOURCE_IDENTITY_INTERVAL_GAP',
-            'TICKER_REUSE_UNRESOLVED': 'SOURCE_IDENTITY_TICKER_REUSE_UNRESOLVED',
-            'AMBIGUOUS_IDENTITY': 'SOURCE_IDENTITY_AMBIGUOUS',
-        }
-        refuse(
-            codes.get(exc.reason_code, 'SOURCE_IDENTITY_UNRESOLVED'), exc,
-            identity_reason=exc.reason_code)
-    except universe.HistoricalIdentityMutation as exc:
-        value = {
-            'status': 'RECOVERY_REQUIRED',
-            'reason_code': 'SOURCE_IDENTITY_HISTORY_MUTATION',
-        }
-        value.update(controlled_detail(exc))
-        emit(value)
-    except source_authority.SourceAuthorityRefused as exc:
-        refuse('SOURCE_CDC_AUTHORITY_REFUSED', exc)
-    except maintenance.SharadarMutationRefused as exc:
-        lowered = str(exc).lower()
-        if 'source cursor' in lowered:
-            code = 'LOCAL_CURSOR_CORRUPT'
-        elif 'no positive raw close' in lowered:
-            code = 'SOURCE_RAW_CLOSE_INVALID'
-        elif 'lastupdated' in lowered or 'invalid date' in lowered:
-            code = 'SOURCE_CDC_INVALID'
-        else:
-            code = 'SOURCE_AUTHORITY_REFUSED'
-        refuse(code, exc)
-    except Exception as exc:
-        name = type(exc).__name__
-        if state['phase'] == 'DATABASE_CONNECT':
-            code = 'DATABASE_CONNECT_UNAVAILABLE'
-        elif state['phase'] == 'READ_ONLY_TRANSACTION':
-            code = 'DATABASE_READONLY_UNAVAILABLE'
-        elif name == 'VendorPublicationUnstable':
-            code = 'SOURCE_PUBLICATION_UNSTABLE'
-        elif name == 'OperationalAcquisitionRefused':
-            code = 'OPERATIONAL_ACQUISITION_BOUND_EXCEEDED'
-        elif name == 'SharadarSnapshotExportError':
-            code = 'SOURCE_EXPORT_UNAVAILABLE'
-        elif name == 'ExportPending':
-            code = 'SOURCE_EXPORT_PENDING'
-        elif name in {'SharadarRetryDeferred', 'SharadarUnavailable'}:
-            code = 'SOURCE_RETRY_DEFERRED'
-        elif name in {
-                'TickersStructureInvalid', 'TickerMetadataIncomplete',
-                'SnapshotExportIncomplete'}:
-            code = 'SOURCE_IDENTITY_CANDIDATE_INVALID'
-        else:
-            code = 'READONLY_PREFLIGHT_UNAVAILABLE'
-        refuse(code, exc, error_type=name, failure_phase=state['phase'])
-    finally:
-        if c is not None:
-            try:
-                c.rollback()
-            finally:
-                c.close()
-
-
-try:
-    execute()
-except BaseException as exc:
-    if not state['emitted']:
-        code = ('RUNTIME_IMPORT_UNAVAILABLE'
-                if state['phase'] == 'RUNTIME_IMPORT'
-                else 'READONLY_RUNTIME_FAILURE')
-        refuse(code, exc, error_type=type(exc).__name__,
-               failure_phase=state['phase'])
-'''.strip()
+_READ_ONLY_CODE = frontier_probe._CODE.replace(frontier_probe.MARKER, MARKER)
 
 
 class PreflightRefused(RuntimeError):
@@ -364,8 +62,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if gate.status != go.PASS or git.commit is None:
             raise PreflightRefused(
                 "read-only data preflight requires clean current main equal to origin/main")
-        if not str(env.get("SHARADAR_API_KEY") or "").strip():
-            raise PreflightRefused("Sharadar authority is unavailable")
         if not str(env.get("SENTINEL_POSTGRES_PASSWORD") or "").strip():
             raise PreflightRefused("Sentinel database authority is unavailable")
 
@@ -396,31 +92,25 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     completed, context="READONLY_PREFLIGHT"))
             probe_contract.emit_probe_failure(evidence)
             raise PreflightRefused(
-                "read-only Sharadar diagnostic failed (%s)" % evidence["reason"])
+                "read-only rolling publication diagnostic failed (%s)" % evidence["reason"])
         status = str(report.get("status") or "")
         code = str(report.get("reason_code") or "READONLY_PREFLIGHT_UNAVAILABLE")
         detail = _safe_detail(report.get("detail"))
         if status == "REFUSED":
-            text = "REFUSED: read-only Sharadar preflight %s" % code
+            text = "REFUSED: read-only rolling publication preflight %s" % code
             if detail:
                 text += " - " + detail
             if report.get("detail_sha256"):
                 text += " [detail_sha256=%s]" % str(report["detail_sha256"])
             print(text, file=sys.stderr)
             return 2
-        if status == "PASS":
-            print("read-only Sharadar preflight: PASS - %s" % code, flush=True)
+        if status == "PASS" and code == "ROLLING_PUBLICATION_CURRENT":
+            print("read-only rolling publication preflight: PASS - %s" % code, flush=True)
             return 0
-        if status == "DEFERRED":
-            print(
-                "read-only Sharadar preflight: DEFERRED - %s; stable certification may proceed but source is not yet final"
-                % code,
-                flush=True,
-            )
-            return 0
-        if status == "RECOVERY_REQUIRED":
+        if status == "RECOVERY_REQUIRED" and code in {
+                "CORPUS_SCHEMA_NOT_INSTALLED", "ROLLING_PUBLICATION_REQUIRED", "ROLLING_PUBLICATION_BEHIND"}:
             text = (
-                "read-only Sharadar preflight: RECOVERY_REQUIRED - %s; certified recovery will decide the write path"
+                "read-only rolling publication preflight: RECOVERY_REQUIRED - %s; certified recovery will decide the write path"
                 % code)
             if detail:
                 text += " - " + detail
@@ -428,7 +118,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 text += " [detail_sha256=%s]" % str(report["detail_sha256"])
             print(text, flush=True)
             return 0
-        raise PreflightRefused("read-only Sharadar diagnostic returned unknown state")
+        raise PreflightRefused("read-only rolling publication diagnostic returned unknown state")
     except PreflightRefused as exc:
         print("REFUSED: %s" % exc, file=sys.stderr)
         return 2

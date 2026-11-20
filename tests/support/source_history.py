@@ -60,8 +60,16 @@ def pre_market_history(profile):
             for revision in _PRE_MARKET_REVISIONS}
 
 
-def expanded_profile():
+def stored_deltas():
     value = json.loads(basis.PROFILE.read_bytes())
+    pool = value.pop('retained_objects')
+    for record in value['retained_predecessors'].values():
+        record['overrides'] = dict(pool[i] for i in record['overrides'])
+    return value
+
+
+def expanded_profile():
+    value = stored_deltas()
     anchor = value['retained_anchor_files']
     records = {}
     for revision, record in value['retained_predecessors'].items():

@@ -132,21 +132,22 @@ def test_contending_phone_keeps_last_known_but_machine_health_never_reuses_it(mo
 
 
 def test_changed_configuration_cannot_inherit_a_last_known_page(monkeypatch):
-    panel_app.last_known.remember(panel_app._config(), 'another installation')
+    panel_app.last_known.remember(panel_app._config(), fixture_panel())
     monkeypatch.setenv('SENTINEL_DATABASE_URL', 'postgresql://changed-installation')
     assert panel_app.last_known.read(panel_app._config()) is None
 
 
 def test_last_known_presentation_has_a_strict_allocation_bound():
-    panel_app.last_known.remember(('configuration',), 'x' * panel_app.last_known.MAX_BYTES)
+    panel_app.last_known.remember(('configuration',), fixture_panel())
     assert panel_app.last_known.read(('configuration',)) is not None
-    panel_app.last_known.remember(('configuration',), 'x' * (panel_app.last_known.MAX_BYTES + 1))
-    assert panel_app.last_known.read(('configuration',)) is None
+    huge = model.Panel(now=fixture_panel().now, rows=[], source_errors=['x' * panel_app.last_known.MAX_BYTES])
+    panel_app.last_known.remember(('configuration',), huge)
+    assert panel_app.last_known._value is None
 
 
 def test_removed_presentation_allocation_guard_is_detected(monkeypatch):
     source = inspect.getsource(panel_app.last_known.remember).replace(
-        '(configuration, body) if len(body) <= MAX_BYTES else None', '(configuration, body)')
+        '(configuration, _Entry(body)) if len(body) <= MAX_BYTES else None', '(configuration, _Entry(body))')
     namespace = {}
     exec(compile(source, 'removed-presentation-bound', 'exec'), panel_app.last_known.__dict__, namespace)
     monkeypatch.setattr(panel_app.last_known, 'remember', namespace['remember'])
@@ -179,3 +180,23 @@ def test_inflight_request_cannot_cross_configuration(monkeypatch):
         finally:release.set()
         assert first.result(timeout=2)=='first'
     assert coordinator.read('other',lambda:'new')=='new'
+
+
+def test_fallback_html_is_only_rendered_on_demand_and_shared(monkeypatch):
+    renderer = importlib.import_module('sentinel.panel.render')
+    calls = []
+    original = renderer.render
+    def counted(*args, **kwargs):
+        calls.append(kwargs.get('refresh_pending', False))
+        return original(*args, **kwargs)
+    monkeypatch.setattr(renderer, 'render', counted)
+    monkeypatch.setattr(panel_app, 'render', counted)
+    monkeypatch.setattr(panel_app, '_read_panel', fixture_panel)
+    with TestClient(panel_app.app) as client:
+        assert client.get('/').status_code == 200
+    assert calls == [False]
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        pages = list(pool.map(panel_app.last_known.read, [panel_app._config()] * 3))
+    assert calls == [False, True]
+    assert all(page == pages[0] for page in pages)
+    assert b'data-refresh-pending="true"' in pages[0]

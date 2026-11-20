@@ -1,6 +1,8 @@
 """Permanent operator monitoring, recoverability, and Web Push contracts."""
 from __future__ import annotations
 
+from sentinel import archive_identifiers as archive_ids
+
 import asyncio
 import importlib
 import inspect
@@ -526,7 +528,7 @@ def test_backup_recovery_requires_durable_typed_failure_domain() -> None:
         "RETRY_WAIT", retry_phase="PREPARE",
         failure_detail="text happens to mention backup")
     unrelated = _cycle(
-        "RETRY_WAIT", retry_phase="PREPARE", failure_domain="SHARADAR",
+        "RETRY_WAIT", retry_phase="PREPARE", failure_domain=archive_ids.PROVIDER,
         failure_detail="backup appears only in prose")
 
     assert sources._cycle_recovery(  # noqa: SLF001

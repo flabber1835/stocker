@@ -21,7 +21,7 @@ from decimal import Decimal, InvalidOperation
 from typing import BinaryIO, Callable, Iterable, Iterator, Mapping, Optional
 
 from sentinel.feed import (
-    calendar, coherence, domains, ingest_impl, sharadar, store, universe)
+    calendar, coherence, domains, ingest_impl, archive_tables, store, universe)
 
 SCHEMA = "sentinel.seed-post-coherence/1"
 START_SCHEMA = "sentinel.seed-post-coherence-start/1"
@@ -342,7 +342,7 @@ def _observe_mutations(
     for pass_number in (1, 2):
         fingerprint = _CommutativeFingerprint()
         dates: set[str] = set()
-        for raw in fetch(sharadar.SEP, params):
+        for raw in fetch(archive_tables.SEP, params):
             row = _validate_update_row(
                 raw, update_start=lo, update_through=hi,
                 market_sessions=market_sessions, resolver=resolver,
@@ -354,7 +354,7 @@ def _observe_mutations(
             second_dates = dates
     if observations[0] != observations[1]:
         raise SeedCoherenceRefused(
-            "Sharadar SEP mutation set changed across two complete bounded "
+            "Source SEP mutation set changed across two complete bounded "
             f"observations: {observations[0].to_dict()} -> "
             f"{observations[1].to_dict()}")
     return observations[0], observations[1], second_dates
@@ -415,11 +415,11 @@ class StableDateEvidence:
 def _stable_date_rows(
         fetch, *, start: str, end: str, update_through: dt.date,
         resolver) -> Iterator[tuple[Iterator[dict], StableDateEvidence]]:
-    params = sharadar.date_params(start, end)
+    params = archive_tables.date_params(start, end)
     first_counts: dict = {}
     first_fp = _CommutativeFingerprint()
     _validate_date_stream(
-        fetch(sharadar.SEP, params), start=start, end=end,
+        fetch(archive_tables.SEP, params), start=start, end=end,
         update_through=update_through, resolver=resolver,
         counts=first_counts, fingerprint=first_fp)
     coherence.assert_seed_history(first_counts, date_from=start, date_to=end)
@@ -429,7 +429,7 @@ def _stable_date_rows(
         second_counts: dict = {}
         second_fp = _CommutativeFingerprint()
         _validate_date_stream(
-            fetch(sharadar.SEP, params), start=start, end=end,
+            fetch(archive_tables.SEP, params), start=start, end=end,
             update_through=update_through, resolver=resolver,
             counts=second_counts, fingerprint=second_fp, spool=spool)
         coherence.assert_seed_history(second_counts, date_from=start, date_to=end)
@@ -437,7 +437,7 @@ def _stable_date_rows(
         second = SourceObservation(second_fp.rows, second_fp.digest())
         if first != second:
             raise SeedCoherenceRefused(
-                f"Sharadar SEP {start}..{end} changed across two complete "
+                f"source SEP {start}..{end} changed across two complete "
                 f"observations: {first.to_dict()} -> {second.to_dict()}")
         spool.seek(0)
 

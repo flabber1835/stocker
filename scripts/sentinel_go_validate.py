@@ -4,7 +4,7 @@
 The production path gathers facts itself.  It never accepts a hand-authored
 PASS record and never sends a broker mutation. Before the zero-write evidence
 boundary, it uses the exact candidate runtime for one explicit, bounded
-schema-migration + Sharadar-daily preparation. The later parity/readiness
+schema-migration + market-data preparation. The later parity/readiness
 validation is read-only and reports zero production DB writes. A small
 development-input seam exists for deterministic tests, but is permanently
 ineligible for either deployment verdict.
@@ -44,7 +44,7 @@ import sentinel_env
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHEMA = "sentinel.nas-go-validation/1"
+SCHEMA = "sentinel.nas-go-validation/2"
 INPUT_SCHEMA = "sentinel.nas-go-validation-input/1"
 TEST_SCHEMA = "sentinel.nas-go-test-summary/1"
 NON_FORWARD_HISTORICAL_EXCLUSIONS = (
@@ -58,8 +58,8 @@ NON_FORWARD_HISTORICAL_EXCLUSIONS = (
 )
 MANIFEST_SCHEMA = "sentinel.nas-go-validation-manifest/1"
 SCAN_SCHEMA = "sentinel.nas-go-secret-scan/1"
-PREPARATION_SCHEMA = "sentinel.nas-go-preparation/1"
-DATABASE_HEALTH_SCHEMA = "sentinel.nas-financial-db-health/1"
+PREPARATION_SCHEMA = "sentinel.nas-go-preparation/2"
+DATABASE_HEALTH_SCHEMA = "sentinel.nas-financial-db-health/2"
 SHADOW_CONFIG_SCHEMA = "sentinel.shadow-reviewed-config/1"
 DATA_PUBLICATION_SCHEMA = "sentinel.data-publication-binding/1"
 SHADOW_EXECUTION_MODEL = "PROSPECTIVE_CONCORDANCE_SCALAR_CORE_BIL_V3"
@@ -72,7 +72,7 @@ GATE_IDS = (
     "certified_suite_no_skips",
     "database_financial_health",
     "wealth_core_nas_parity",
-    "sharadar_readiness",
+    "market_data_readiness",
     "preopen_share_unit_authority",
     "alpaca_paper_account",
     "official_close_nav",
@@ -86,7 +86,7 @@ SHADOW_GATE_IDS = (
     "certified_suite_no_skips",
     "database_financial_health",
     "wealth_core_nas_parity",
-    "sharadar_readiness",
+    "market_data_readiness",
     "zero_mutation_boundary",
 )
 DUAL_RUN_GATE_IDS = SHADOW_GATE_IDS + (
@@ -152,7 +152,7 @@ _SAFE_CODE = re.compile(r"^[A-Z][A-Z0-9_]{0,95}$")
 _OBSERVATION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]{0,63}$")
 _SECRET_NAMES = frozenset({
     "OPENFIGI_API_KEY",
-    "SHARADAR_API_KEY",
+    sentinel_env.ARCHIVE_V1["retired_api_key"],
     "ALPACA_API_KEY",
     "ALPACA_SECRET_KEY",
     "SENTINEL_POSTGRES_PASSWORD",
@@ -284,7 +284,7 @@ class PreparationSummary:
     status: str
     runtime_image_digest: Optional[str]
     schema_migration_attempted: bool
-    bounded_sharadar_daily_attempted: bool
+    bounded_market_data_daily_attempted: bool
     broker_mutation_attempts: int
     evidence_sha256: str
     # Kept out of the preparation document because the separate database-health
@@ -298,7 +298,7 @@ class PreparationSummary:
             and self.runtime_image_digest is not None
             and _IMAGE_DIGEST.fullmatch(self.runtime_image_digest) is not None
             and self.schema_migration_attempted
-            and self.bounded_sharadar_daily_attempted
+            and self.bounded_market_data_daily_attempted
             and self.broker_mutation_attempts == 0
             and _HEX64.fullmatch(self.evidence_sha256) is not None
         )
@@ -309,10 +309,10 @@ class PreparationSummary:
             "status": self.status,
             "runtime_image_digest": self.runtime_image_digest,
             "schema_migration_attempted": self.schema_migration_attempted,
-            "bounded_sharadar_daily_attempted": (
-                self.bounded_sharadar_daily_attempted),
+            "bounded_market_data_daily_attempted": (
+                self.bounded_market_data_daily_attempted),
             "database_mutation_scope": [
-                "SCHEMA_MIGRATION", "BOUNDED_SHARADAR_DAILY_INGEST"],
+                "SCHEMA_MIGRATION", "BOUNDED_MARKET_DATA_DAILY_INGEST"],
             "broker_mutation_attempts": self.broker_mutation_attempts,
             "completed_before_validation_boundary": self.complete,
             "evidence_sha256": self.evidence_sha256,
@@ -345,13 +345,13 @@ class DatabaseHealthSummary:
             "warmup_revision_sessions",
         }
         expected_measured = {
-            "bounded_sharadar_ingest",
+            "bounded_market_data_ingest",
             "full_forward_decision_replay",
             "warmup_revision_scan",
             "combined_pretrade_work",
         }
         expected_thresholds = {
-            "bounded_sharadar_ingest",
+            "bounded_market_data_ingest",
             "full_forward_decision_replay",
             "warmup_revision_scan",
             "combined_pretrade_work",
@@ -390,7 +390,7 @@ class DatabaseHealthSummary:
             and self.counts["frontier_duplicate_security_keys"] == 0
             and self.counts["warmup_revision_sessions"] == self.counts["recent_xnys_sessions"]
             and thresholds == {
-                "bounded_sharadar_ingest": MAX_BOUNDED_INGEST_MS,
+                "bounded_market_data_ingest": MAX_BOUNDED_INGEST_MS,
                 "full_forward_decision_replay": (
                     MAX_FULL_FORWARD_DECISION_REPLAY_MS),
                 "warmup_revision_scan": MAX_WARMUP_REVISION_SCAN_MS,
@@ -400,7 +400,7 @@ class DatabaseHealthSummary:
                     for name in expected_thresholds)
             and measured["combined_pretrade_work"] == sum(
                 measured[name] for name in (
-                    "bounded_sharadar_ingest",
+                    "bounded_market_data_ingest",
                     "full_forward_decision_replay",
                     "warmup_revision_scan"))
             and deadline["minimum_source_final_to_following_open"]
@@ -440,7 +440,7 @@ def unavailable_database_health(
         *, runtime_image_digest: Optional[str], reason: str,
         status: str = NOT_PROVEN) -> DatabaseHealthSummary:
     measured = {
-        "bounded_sharadar_ingest": 0,
+        "bounded_market_data_ingest": 0,
         "full_forward_decision_replay": 0,
         "warmup_revision_scan": 0,
         "combined_pretrade_work": 0,
@@ -460,7 +460,7 @@ def unavailable_database_health(
         },
         measured_milliseconds=measured,
         threshold_milliseconds={
-            "bounded_sharadar_ingest": MAX_BOUNDED_INGEST_MS,
+            "bounded_market_data_ingest": MAX_BOUNDED_INGEST_MS,
             "full_forward_decision_replay": (
                 MAX_FULL_FORWARD_DECISION_REPLAY_MS),
             "warmup_revision_scan": MAX_WARMUP_REVISION_SCAN_MS,
@@ -632,7 +632,7 @@ def derive_verdicts(probes: ProbeResults) -> tuple[str, str, str, dict]:
             or probes.production_db_writes < 0):
         raise ValidationRefused("mutation counters are malformed")
 
-    shadow_fresh = gates["sharadar_readiness"].status == PASS
+    shadow_fresh = gates["market_data_readiness"].status == PASS
     shadow_coherent = gates["wealth_core_nas_parity"].status == PASS
     shadow_failures = [
         "GATE_%s_NOT_PASS" % gate_id.upper()
@@ -739,7 +739,7 @@ def build_validation_document(probes: ProbeResults, *, created_at: datetime,
             else PreparationSummary(
                 status=NOT_PROVEN, runtime_image_digest=None,
                 schema_migration_attempted=False,
-                bounded_sharadar_daily_attempted=False,
+                bounded_market_data_daily_attempted=False,
                 broker_mutation_attempts=0,
                 evidence_sha256=_evidence_digest({
                     "reason": "PREPARATION_NOT_RECORDED"})).to_dict()),
@@ -758,7 +758,7 @@ def build_validation_document(probes: ProbeResults, *, created_at: datetime,
             "production_db_writes": probes.production_db_writes,
         },
         "shadow_state": {
-            "fresh": gates["sharadar_readiness"].status == PASS,
+            "fresh": gates["market_data_readiness"].status == PASS,
             "internally_coherent": (
                 gates["wealth_core_nas_parity"].status == PASS),
         },
@@ -785,8 +785,7 @@ def load_dotenv_literal(path: Path) -> Dict[str, str]:
 def merged_environment(path: Path = ROOT / ".env") -> Dict[str, str]:
     values = load_dotenv_literal(path)
     try:
-        return sentinel_env.operational_values(
-            sentinel_env.merge(values, os.environ))
+        return sentinel_env.merge(values, os.environ)
     except sentinel_env.EnvRefused as exc:
         raise ValidationRefused(str(exc)) from None
 
@@ -997,8 +996,8 @@ def _resolve_compose_args(runner: CommandRunner,
 
 def _without_broker_authority(env: Mapping[str, str]) -> Dict[str, str]:
     """Remove every broker-auth value from a broker-free child process."""
-    return {key: value for key, value in env.items()
-            if key not in _BROKER_AUTH_ENV}
+    return {key: value for key, value in sentinel_env.operational_values(env).items()
+            if key not in _BROKER_AUTH_ENV and key != "OPENFIGI_API_KEY"}
 
 
 def _with_market_data_authority(env: Mapping[str, str]) -> Dict[str, str]:
@@ -1008,52 +1007,13 @@ def _with_market_data_authority(env: Mapping[str, str]) -> Dict[str, str]:
     to the certified child. Account identity remains withheld from preparation.
     """
     result = _without_broker_authority(env)
-    for key in ("ALPACA_API_KEY", "ALPACA_SECRET_KEY"):
+    for key in ("ALPACA_API_KEY", "ALPACA_SECRET_KEY", "OPENFIGI_API_KEY"):
         if key in env:
             result[key] = env[key]
     return result
 
 
-_PREPARATION_CODE = r'''
-import json, os
-from datetime import datetime, timezone
-from sentinel import schema
-from sentinel.feed import calendar, rolling_go_inputs, publication, store, writer_schedule
-from sentinel.shadow_runtime import publication_not_before
-c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
-discard_connection = False
-try:
-    schema.ensure_schema(c)
-    store.migrate_schema(c)
-    now = datetime.now(timezone.utc)
-    target = rolling_go_inputs.snapshots.source_final_session(now)
-    execution_session = calendar.next_session(target)
-    execution_open, _execution_close = calendar.session_window(execution_session)
-    source_final = now >= publication_not_before(target)
-    prospective = now < execution_open.astimezone(timezone.utc)
-    eligible = source_final and prospective
-    prepared = rolling_go_inputs.prepare(c, target_session=target) if eligible else None
-    after = rolling_go_inputs.current(c)
-    visible = after.window_end if after is not None else None
-    current = (
-        after is not None and after.window_end is not None
-        and after.window_end >= target and visible == target
-        and publication.chain_gaps(c) == [])
-    print('SENTINEL_GO_PREPARATION=' + json.dumps({
-        'schema_migrated': True,
-        'source_not_before_satisfied': source_final,
-        'following_open_future': prospective,
-        'bounded_sharadar_daily': (
-            prepared is not None and prepared['status'] in ('PUBLISHED', 'ALREADY_CURRENT')),
-        'publication_current': current,
-    }, sort_keys=True))
-except BaseException as exc:
-    discard_connection = writer_schedule.connection_discarded(exc)
-    raise
-finally:
-    if not discard_connection:
-        c.close()
-'''.strip()
+from sentinel_go_preparation_runtime import CODE as _PREPARATION_CODE
 
 
 def _preparation_json_object(pairs):
@@ -1083,7 +1043,7 @@ def preparation_attempts(completed, *, schema_migrated, daily_completed):
     if not isinstance(payload, dict):
         return fallback
     flags = tuple(payload.get(key) for key in (
-        "schema_migration_attempted", "bounded_sharadar_daily_attempted"))
+        "schema_migration_attempted", "bounded_market_data_daily_attempted"))
     if not all(type(value) is bool for value in flags):
         return fallback
     return flags
@@ -1110,7 +1070,7 @@ def probe_prevalidation_preparation(
         return PreparationSummary(
             status=NOT_PROVEN, runtime_image_digest=runtime_ref,
             schema_migration_attempted=False,
-            bounded_sharadar_daily_attempted=False,
+            bounded_market_data_daily_attempted=False,
             broker_mutation_attempts=0,
             evidence_sha256=_evidence_digest(evidence))
     run_env = _with_market_data_authority(env)
@@ -1119,7 +1079,7 @@ def probe_prevalidation_preparation(
         return PreparationSummary(
             status=NOT_PROVEN, runtime_image_digest=runtime_ref,
             schema_migration_attempted=False,
-            bounded_sharadar_daily_attempted=False,
+            bounded_market_data_daily_attempted=False,
             broker_mutation_attempts=0,
             evidence_sha256=_evidence_digest({
                 "reason": "PREPARATION_COMPOSE_GRAPH_UNAVAILABLE"}))
@@ -1154,16 +1114,16 @@ def probe_prevalidation_preparation(
         isinstance(payload, dict)
         and set(payload) == {
             "schema_migrated", "source_not_before_satisfied",
-            "following_open_future", "bounded_sharadar_daily",
+            "following_open_future", "bounded_market_data_daily",
             "publication_current"}
         and all(payload.get(field) is True for field in payload))
     evidence = {
         "exit_code": int(completed.returncode),
         "schema_migrated": bool(
             isinstance(payload, dict) and payload.get("schema_migrated") is True),
-        "bounded_sharadar_daily": bool(
+        "bounded_market_data_daily": bool(
             isinstance(payload, dict)
-            and payload.get("bounded_sharadar_daily") is True),
+            and payload.get("bounded_market_data_daily") is True),
         "source_not_before_satisfied": bool(
             isinstance(payload, dict)
             and payload.get("source_not_before_satisfied") is True),
@@ -1179,14 +1139,14 @@ def probe_prevalidation_preparation(
     }
     schema_attempted, daily_attempted = preparation_attempts(
         completed, schema_migrated=evidence["schema_migrated"],
-        daily_completed=evidence["bounded_sharadar_daily"])
+        daily_completed=evidence["bounded_market_data_daily"])
     evidence.update(schema_migration_attempted=schema_attempted,
-                    bounded_sharadar_daily_attempted=daily_attempted)
+                    bounded_market_data_daily_attempted=daily_attempted)
     return PreparationSummary(
         status=PASS if valid else FAIL,
         runtime_image_digest=runtime_ref,
         schema_migration_attempted=schema_attempted,
-        bounded_sharadar_daily_attempted=daily_attempted,
+        bounded_market_data_daily_attempted=daily_attempted,
         broker_mutation_attempts=0,
         evidence_sha256=_evidence_digest(evidence),
         elapsed_milliseconds=elapsed_milliseconds)
@@ -1459,7 +1419,7 @@ def probe_active_wealth_parity(
 
 _READINESS_CODE = r'''
 import json, os
-from sentinel.feed import readiness, store, rolling_go_inputs
+from sentinel.feed import operational_snapshot, store, rolling_go_inputs
 
 def failure_reason(item):
     detail = str(item.detail or '').casefold()
@@ -1484,9 +1444,11 @@ try:
         cur.execute('BEGIN TRANSACTION READ ONLY')
         cur.execute('SHOW transaction_read_only')
         assert str(cur.fetchone()[0]).lower() == 'on'
-    held = rolling_go_inputs.current(c)
-    result = (rolling_go_inputs.readiness(c) if rolling_go_inputs.is_rolling(held)
-              else readiness.check_readiness(c))
+    with rolling_go_inputs.pinned(c) as held:
+        if not rolling_go_inputs.is_rolling(held):
+            raise RuntimeError("ROLLING_PUBLICATION_REQUIRED")
+        operational_snapshot.require_alpaca_openfigi(c, held)
+        result = rolling_go_inputs.assessment(c, held)
     print('SENTINEL_GO_READINESS=' + json.dumps({
         'ready': bool(result.ready),
         'checks_total': len(result.checks),
@@ -1498,32 +1460,27 @@ try:
             for item in result.checks if not item.ok
         ],
         'transaction_read_only': True,
-        **({'input_contract': rolling_go_inputs.SCHEMA} if rolling_go_inputs.is_rolling(held) else {}),
+        'input_contract': rolling_go_inputs.SCHEMA,
     }, sort_keys=True))
 finally:
     c.rollback(); c.close()
 '''.strip()
 
 
-def probe_sharadar_readiness(runner: CommandRunner, *, env: Mapping[str, str],
+def probe_market_data_readiness(runner: CommandRunner, *, env: Mapping[str, str],
                              runtime_ref: Optional[str], now_text: str,
                              commit: Optional[str] = None) -> Gate:
-    if (not str(env.get("ALPACA_API_KEY") or "").strip()
-            or not str(env.get("ALPACA_SECRET_KEY") or "").strip()):
-        return make_gate(
-            "sharadar_readiness", NOT_PROVEN, now_text,
-            {"reason": "ALPACA_MARKET_DATA_AUTHORITY_UNAVAILABLE"})
     if (not env.get("SENTINEL_POSTGRES_PASSWORD") or not isinstance(commit, str)
             or _HEX40.fullmatch(commit) is None or not runtime_ref
             or _IMAGE_DIGEST.fullmatch(runtime_ref) is None):
         return make_gate(
-            "sharadar_readiness", NOT_PROVEN, now_text,
+            "market_data_readiness", NOT_PROVEN, now_text,
             {"reason": "DATABASE_AUTHORITY_UNAVAILABLE"})
     run_env = _without_broker_authority(env)
     compose_args = _resolve_compose_args(runner, run_env)
     if compose_args is None:
         return make_gate(
-            "sharadar_readiness", NOT_PROVEN, now_text,
+            "market_data_readiness", NOT_PROVEN, now_text,
             {"reason": "COMPOSE_GRAPH_UNAVAILABLE"})
     run_env.update({
         "SENTINEL_RUNTIME_IMAGE_REF": runtime_ref,
@@ -1570,7 +1527,7 @@ def probe_sharadar_readiness(runner: CommandRunner, *, env: Mapping[str, str],
         "failures": payload["failures"],
     } if valid else {"reason": "READ_ONLY_READINESS_UNAVAILABLE"})
     return make_gate(
-        "sharadar_readiness",
+        "market_data_readiness",
         PASS if passed else (FAIL if valid else NOT_PROVEN),
         now_text, evidence)
 
@@ -1863,14 +1820,14 @@ def probe_database_financial_health(
             {**summary.to_dict(), "exit_code": int(completed.returncode)})
 
     measured = {
-        "bounded_sharadar_ingest": int(bounded_ingest_milliseconds),
+        "bounded_market_data_ingest": int(bounded_ingest_milliseconds),
         "full_forward_decision_replay": int(
             full_forward_decision_replay_milliseconds),
         "warmup_revision_scan": int(payload["warmup_revision_scan_ms"]),
     }
     measured["combined_pretrade_work"] = sum(measured.values())
     thresholds = {
-        "bounded_sharadar_ingest": MAX_BOUNDED_INGEST_MS,
+        "bounded_market_data_ingest": MAX_BOUNDED_INGEST_MS,
         "full_forward_decision_replay": (
             MAX_FULL_FORWARD_DECISION_REPLAY_MS),
         "warmup_revision_scan": MAX_WARMUP_REVISION_SCAN_MS,
@@ -2064,7 +2021,7 @@ def run_production_probes(*, runner: Optional[CommandRunner] = None,
         timing_values=timing_values)
     # Readiness is executed by the exact deployable runtime digest
     # recorded in TestSummary, never by a mutable tag or build-stage image.
-    readiness = probe_sharadar_readiness(
+    readiness = probe_market_data_readiness(
         runner, env=resolved_env, runtime_ref=tests.runtime_image_digest, commit=git.commit,
         now_text=now_text)
     database_health, database_gate = probe_database_financial_health(
@@ -2087,7 +2044,7 @@ def run_production_probes(*, runner: Optional[CommandRunner] = None,
         "certified_suite_no_skips": suite_gate,
         "database_financial_health": database_gate,
         "wealth_core_nas_parity": parity,
-        "sharadar_readiness": readiness,
+        "market_data_readiness": readiness,
         "alpaca_paper_account": alpaca,
         **_unproven_paper_gates(now_text),
     }

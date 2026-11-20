@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from sentinel import close_feed_source_basis as close_basis, physical_read_source_basis as basis
+from sentinel import economic_manifest
 from sentinel.feed.rolling_contract import digest
 from sentinel.strategy import production_strategy
 
@@ -26,6 +27,7 @@ def predecessor_sources():
 
 
 def unchanged_compiler_body(module, raw):
+    raw = economic_manifest.previous_source(module, raw)
     if module == close_basis.MODULE:
         replacements = (
             (b'import predecessor_prices, query_router', b'import query_router'),
@@ -139,7 +141,7 @@ def test_compiler_arithmetic_and_sql_edits_fail_mechanical_proof(module,old,new)
 def test_exact_current_compiler_preserves_original_contribution_and_unknown_bytes_do_not(module):
     raw=Path(importlib.import_module(module).__file__).read_bytes()
     mapper = close_basis.contribution if module == close_basis.MODULE else lambda value: basis.contribution(module, value)
-    assert mapper(raw)==basis.BASELINES[module]
+    assert mapper(economic_manifest.previous_source(module, raw))==basis.BASELINES[module]
     changed=raw+b'\n# unknown compiler bytes\n'
     assert mapper(changed)==hashlib.sha256(changed).hexdigest()
 
@@ -147,6 +149,7 @@ def test_exact_current_compiler_preserves_original_contribution_and_unknown_byte
 @pytest.mark.parametrize('name', ['normalized_layout.py', 'read_contract.py'])
 def test_unknown_batch_storage_or_sql_cannot_inherit_original_compiler_identity(name, monkeypatch):
     raw = Path(importlib.import_module(close_basis.MODULE).__file__).read_bytes()
+    raw = economic_manifest.previous_source(close_basis.MODULE, raw)
     read = Path.read_bytes
     path = close_basis.FEED / name
     monkeypatch.setattr(Path, 'read_bytes',
@@ -158,17 +161,17 @@ def test_unknown_batch_storage_or_sql_cannot_inherit_original_compiler_identity(
 def test_alpaca_page_mapping_requires_exact_compiler_and_read_dependencies(name, monkeypatch):
     path = Path(importlib.import_module(basis.ALPACA_PAGE_COMPILER).__file__)
     raw = path.read_bytes()
-    assert basis.contribution(basis.ALPACA_PAGE_COMPILER, raw) == basis.ALPACA_PAGE_BEFORE
+    assert economic_manifest.page_contribution(basis.ALPACA_PAGE_COMPILER, raw) == basis.ALPACA_PAGE_BEFORE
 
     tampered = raw.replace(b'ORDER BY p.ticker', b'ORDER BY p.ticker DESC', 1)
     assert tampered != raw
-    assert basis.contribution(basis.ALPACA_PAGE_COMPILER, tampered) == hashlib.sha256(tampered).hexdigest()
+    assert economic_manifest.page_contribution(basis.ALPACA_PAGE_COMPILER, tampered) == hashlib.sha256(tampered).hexdigest()
 
     read = Path.read_bytes
     dependency = path.with_name(name)
     monkeypatch.setattr(Path, 'read_bytes',
                         lambda self: read(self) + b'\n# unknown read change\n' if self == dependency else read(self))
-    assert basis.contribution(basis.ALPACA_PAGE_COMPILER, raw) == hashlib.sha256(raw).hexdigest()
+    assert economic_manifest.page_contribution(basis.ALPACA_PAGE_COMPILER, raw) == hashlib.sha256(raw).hexdigest()
 
 
 def test_other_modules_never_gain_physical_mapping():

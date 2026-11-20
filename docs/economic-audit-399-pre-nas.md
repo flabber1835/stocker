@@ -193,7 +193,7 @@ the corpus would hide that gap.
    Physical-only success cannot satisfy semantic qualification.
 5. Run the accepted full corpus replay on an isolated copy as specified above.
    Inventory exported raw inputs with
-   `python scripts/sentinel-corpus-inventory.py --sharadar <export-root> --deep --out <new-evidence>/corpus.json`.
+   `python scripts/sentinel-corpus-inventory.py --corpus <export-root> --deep --out <new-evidence>/corpus.json`.
    **Pass** requires complete causal input authority and independently explained
    deltas; no unexplained mismatch, hidden xfail or golden rewrite is acceptable.
 6. Only after provider contracts and a separately approved paper-account test

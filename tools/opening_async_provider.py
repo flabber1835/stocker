@@ -6,6 +6,7 @@ order counters, positions and activity visibility; a POST only acknowledges.
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import multiprocessing
@@ -192,6 +193,10 @@ class SharedProvider:
             def __init__(self, **_kwargs): pass
             async def __aenter__(self): return self
             async def __aexit__(self, *_args): return False
+            @asynccontextmanager
+            async def stream(self, method, url, **kwargs):
+                assert method == "GET" and kwargs.pop("timeout") == 60.0
+                yield await self.get(url, **kwargs)
             async def get(self, url, headers=None, params=None):
                 await asyncio.sleep(owner.latency_seconds)
                 return owner.proxy.get(url, dict(params or {}))

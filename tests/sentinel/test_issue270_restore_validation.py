@@ -118,7 +118,7 @@ def test_restore_validator_reconstructs_every_durable_chain(monkeypatch, retirem
         lambda _c: SimpleNamespace(isoformat=lambda: "2026-08-25T12:00:00+00:00"))
     monkeypatch.setattr(
         restore_validation.broker_cash, "load_activity_state",
-        lambda *_args, **_kwargs: object())
+        lambda *_args, **_kwargs: SimpleNamespace(membership_root=None))
     monkeypatch.setattr(
         restore_validation.broker_cash, "decode_plan_baseline",
         lambda *_args, **_kwargs: SimpleNamespace(

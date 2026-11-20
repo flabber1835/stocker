@@ -21,6 +21,7 @@ import json
 from dataclasses import replace
 from datetime import datetime, timezone
 from hashlib import sha256
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from sentinel.panel.presentation import (
@@ -44,6 +45,12 @@ REFRESH_SECONDS = 30
 PRESENTATION_MAX_AGE_SECONDS = MAX_DOCUMENT_AGE_SECONDS
 
 _DOT = {OK: "●", WARN: "▲", FAIL: "■", PENDING: "○", UNKNOWN: "?", 'neutral': '○'}
+
+
+# The inline controller is part of this source file. Imported scripts contribute
+# their actual bytes so an edit to any running handler changes the handoff ID.
+CONTROLLER_VERSION = sha256(Path(__file__).read_bytes() + b'\0' +
+    '\0'.join((CURRENT_DOCUMENT_SCRIPT, DOM_REFRESH_SCRIPT, REVIEW_SCRIPT, BANNER_SCRIPT)).encode()).hexdigest()
 
 
 def _ago(delta) -> str:
@@ -586,7 +593,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
              data-closing-refresh="{str(closing_refresh).lower()}"
              data-observation-current="{str(delivery.display_current(panel) and not refresh_pending).lower()}"
              data-strict-observation-current="{str(panel.observation_current and not refresh_pending).lower()}"
-             data-controller-version="3"
+             data-controller-version="{CONTROLLER_VERSION}"
              data-max-age-seconds="{document_age}">
 <div class="wrap">
 <header>
@@ -618,7 +625,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
 (function(){{
   // Receiving new HTML does not execute its controller. This identifies the
   // live controller independently of the version offered by the latest body.
-  window.sentinelDashboardControllerVersion = "3";
+  window.sentinelDashboardControllerVersion = "{CONTROLLER_VERSION}";
   var invalidated = false;
   {CURRENT_DOCUMENT_SCRIPT}
   {DOM_REFRESH_SCRIPT}
@@ -748,6 +755,15 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       clearTimeout(resumeTimer);
       clearTimeout(ordinaryTimer);
       clearTimeout(deadline);
+      if (next.body.dataset.controllerVersion !== window.sentinelDashboardControllerVersion){{
+        if (!/^(?:[0-9a-f]{{64}}|[1-9][0-9]{{0,3}})$/.test(next.body.dataset.controllerVersion || "") ||
+            new URL(response.url || location.href, location.href).origin !== new URL(location.href).origin){{
+          throw new Error("Invalid dashboard controller handoff");
+        }}
+        clearTimeout(ageTimer);
+        document.open(); document.write(html); document.close();
+        return;
+      }}
       reconcileDocument(next);
       badge = document.getElementById('operational-state');
       heartbeat = document.getElementById('dashboard-heartbeat');

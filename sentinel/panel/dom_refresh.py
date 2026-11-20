@@ -24,8 +24,7 @@ function reconcileDocument(next) {
     if (target.id === 'push-card' || target.id === 'review-result' ||
         target.id === 'dashboard-heartbeat' || target.classList.contains('brand')) { return; }
     var ignore = function(name) {
-      return (target.tagName === 'DETAILS' && name === 'open') || name === 'data-review-submitting' ||
-        (name === 'disabled' && target.dataset.reviewSubmitting === 'true');
+      return target.tagName === 'DETAILS' && name === 'open';
     };
     Array.from(target.attributes).forEach(function(attr) {
       if (!ignore(attr.name) && !source.hasAttribute(attr.name)) { target.removeAttribute(attr.name); }
@@ -53,6 +52,7 @@ function reconcileDocument(next) {
     available.forEach(function(node) { if (!used.has(node)) { node.remove(); } });
   }
   update(current, incoming);
+  if (window.syncReviewControl) { window.syncReviewControl(); }
   Array.from(document.body.attributes).forEach(function(attr) {
     if (attr.name.startsWith('data-') && !next.body.hasAttribute(attr.name)) { document.body.removeAttribute(attr.name); }
   });

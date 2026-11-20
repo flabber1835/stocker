@@ -24,7 +24,7 @@ def _env_file(tmp_path: Path) -> Path:
             "SENTINEL_POSTGRES_PASSWORD=compositionpassword",
             "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL=https://example.invalid/sentinel",
             "SENTINEL_GITHUB_READ_TOKEN=github_pat_composition_fixture",
-            "SHARADAR_API_KEY=composition-sharadar",
+            "OPENFIGI_API_KEY=composition-figi",
             "ALPACA_API_KEY=composition-alpaca-key",
             "ALPACA_SECRET_KEY=composition-alpaca-secret",
             "",
@@ -62,7 +62,7 @@ class Runner:
                 "schema_migrated": True,
                 "source_not_before_satisfied": True,
                 "following_open_future": True,
-                "bounded_sharadar_daily": True,
+                "bounded_market_data_daily": True,
                 "publication_current": True,
             }}
             return subprocess.CompletedProcess(
@@ -73,7 +73,7 @@ class Runner:
 
 entry.authorize_verified_orchestration()
 env = entry.go.merged_environment()
-env["SHARADAR_API_KEY"] = "composition-sharadar"
+env["OPENFIGI_API_KEY"] = "composition-figi"
 env["SENTINEL_POSTGRES_PASSWORD"] = "compositionpassword"
 if os.environ.get("PHASE_C_DROP_LOCK") == "1":
     env.pop(entry.go_lock.LOCK_HELD_ENV, None)
@@ -85,7 +85,7 @@ print({MARKER!r} + json.dumps({{
     "status": result.status,
     "complete": bool(result.complete),
     "schema_migration_attempted": bool(result.schema_migration_attempted),
-    "bounded_sharadar_daily_attempted": bool(result.bounded_sharadar_daily_attempted),
+    "bounded_market_data_daily_attempted": bool(result.bounded_market_data_daily_attempted),
     "lock_in_merged_env": bool(entry.go_lock.lifecycle_lock_is_held(env)),
     "diagnostic": runner.last_preparation_output,
     "calls": runner.calls,
@@ -139,7 +139,7 @@ def test_real_lock_and_real_env_bridge_authorize_phase_c_boundary(tmp_path):
     assert payload["status"] == "PASS"
     assert payload["complete"] is True
     assert payload["schema_migration_attempted"] is True
-    assert payload["bounded_sharadar_daily_attempted"] is True
+    assert payload["bounded_market_data_daily_attempted"] is True
     assert any("sentinel_feed_gate.py" in " ".join(call) for call in payload["calls"])
     assert any(call[:2] == ["docker", "compose"] for call in payload["calls"])
 
@@ -153,7 +153,7 @@ def test_dropping_inherited_lock_from_phase_c_environment_refuses_without_mutati
     assert payload["status"] == "NOT_PROVEN"
     assert payload["complete"] is False
     assert payload["schema_migration_attempted"] is False
-    assert payload["bounded_sharadar_daily_attempted"] is False
+    assert payload["bounded_market_data_daily_attempted"] is False
     assert "GO_LIFECYCLE_LOCK_NOT_PROVEN_NO_MUTATION" in payload["diagnostic"]
     assert payload["calls"] == []
 
@@ -162,11 +162,11 @@ def test_phase_c_process_diagnostic_never_contains_test_credentials(tmp_path):
     completed, payload = _run(tmp_path, drop_lock=True)
     assert completed.returncode == 0, completed.stderr
     surface = (completed.stdout or "") + (completed.stderr or "")
-    assert "composition-sharadar" not in payload["diagnostic"]
+    assert "composition-figi" not in payload["diagnostic"]
     assert "compositionpassword" not in payload["diagnostic"]
     assert "github_pat_composition_fixture" not in payload["diagnostic"]
     # The loader and Phase-C refusal may print status/diagnostic metadata, but no
     # configured secret value may cross their public output boundary.
-    assert "composition-sharadar" not in surface
+    assert "composition-figi" not in surface
     assert "compositionpassword" not in surface
     assert "github_pat_composition_fixture" not in surface

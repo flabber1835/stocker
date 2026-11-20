@@ -1,10 +1,10 @@
-"""Canonical coalescing for mapped SHARADAR terminal evidence.
+"""Canonical coalescing for mapped corporate-action evidence.
 
 This module deliberately lives beside, not inside, ``wealth_core``.  It is a
 data-normalization contract shared by Sentinel and the canonical backtester;
 it does not apply a terminal event or change Wealth Core state.
 
-Sharadar commonly represents one termination with a reason-specific row plus a
+A source can represent one termination with a reason-specific row plus a
 bare ``delisted`` row.  The economic key is therefore the effective exchange
 session and permanent security id.  Source action, ticker and vendor date are
 provenance, never independent permission to apply the termination again.

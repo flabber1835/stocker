@@ -518,7 +518,7 @@ def test_economic_bundle_names_transitive_book_dependencies_and_runtime_owns_exe
         "sentinel.regime.spy",
         "stock_strategy_shared.split_reconciliation",
         "stock_strategy_shared.terminal_coalescing",
-        "stock_strategy_shared.wealth_core.sharadar_domains",
+        "stock_strategy_shared.wealth_core.price_domains",
     }
 
     from sentinel import economic_manifest

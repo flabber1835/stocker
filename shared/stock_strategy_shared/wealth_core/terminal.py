@@ -285,7 +285,7 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
     exception to find out that the book is now blocked — that fact is on the
     portfolio state, where a restart will find it too.
 
-    THE DECISION IS THE WATERFALL'S, not `completeness()`'s alone. Sharadar
+    THE DECISION IS THE WATERFALL'S, not `completeness()`'s alone. The historical source
     ACTIONS supplies no per-share consideration at any action type, so
     completeness refuses EVERY corpus-sourced termination — which made this a
     permanent block rather than a rare one (218 of 753 sessions in the 2021-2023
@@ -347,7 +347,7 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
         # the rate the grace elapses, so with C1_GRACE_SESSIONS == 10 and
         # MARK_RECENCY_SESSIONS == 10 the mark is 11 sessions old the moment the
         # grace runs out and the settlement branch is UNREACHABLE. That is the
-        # whole Sharadar delisted population (19,216 securities, all of which
+        # whole historical delisted population (19,216 securities, all of which
         # stop printing at delisting), so the run would freeze exactly as it did
         # before the waterfall existed — the defect this module was built to fix,
         # reinstated by an interaction between two constants.

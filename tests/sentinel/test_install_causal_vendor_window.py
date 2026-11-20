@@ -68,7 +68,7 @@ def _stub_bind_probes(monkeypatch, events):
 
     monkeypatch.setattr(go, "probe_active_wealth_parity", parity)
     monkeypatch.setattr(
-        go, "probe_sharadar_readiness",
+        go, "probe_market_data_readiness",
         lambda *args, **kwargs: SimpleNamespace(
             status=go.PASS, evidence_sha256="f" * 64))
     monkeypatch.setattr(
@@ -79,30 +79,6 @@ def _stub_bind_probes(monkeypatch, events):
         lambda *args, **kwargs: events.append("account"))
 
 
-def test_deferred_vendor_probe_and_feed_recheck_causal_window(monkeypatch):
-    instance = object.__new__(install_deploy.InstallAnytimeDeploy)
-    instance._causal_wait_target = "2026-08-27"
-    instance._causal_timing = lambda: _timing(prospective=False)
-    calls = []
-
-    monkeypatch.setattr(
-        install_deploy.bootstrap.BootstrapDeploy,
-        "_vendor_publication_probe",
-        lambda self, sessions, minimum_rows: calls.append("vendor"))
-    monkeypatch.setattr(
-        install_deploy.bootstrap.BootstrapDeploy,
-        "_base_cli",
-        lambda self, args, *, capture=False, check=True: calls.append("cli"))
-
-    with pytest.raises(
-            install_deploy.CausalSessionExpired,
-            match="lost its exact target"):
-        instance._vendor_publication_probe(["2026-08-27"], 100)
-    with pytest.raises(
-            install_deploy.CausalSessionExpired,
-            match="lost its exact target"):
-        instance._base_cli(["feed-daily"])
-    assert calls == []
 
 
 @pytest.mark.parametrize("command", [
@@ -117,77 +93,20 @@ def test_operational_install_refuses_legacy_source_command(monkeypatch, command)
         install_deploy.bootstrap.BootstrapDeploy, "_base_cli",
         lambda self, args, *, capture=False, check=True: calls.append(args))
     with pytest.raises(install_deploy.core.DeployRefused,
-                       match="legacy Sharadar ingestion"):
+                       match="fenced rolling publisher"):
         instance._base_cli(command)
     assert calls == []
 
 
-def test_deferred_vendor_probe_rejects_session_newer_than_causal_target(monkeypatch):
-    instance = object.__new__(install_deploy.InstallAnytimeDeploy)
-    instance._causal_wait_target = "2026-08-27"
-    instance._causal_timing = lambda: _timing()
-    calls = []
-
-    monkeypatch.setattr(
-        install_deploy.bootstrap.BootstrapDeploy,
-        "_vendor_publication_probe",
-        lambda self, sessions, minimum_rows: (
-            calls.append(tuple(sessions)) or {"ready": False}))
-
-    result = instance._vendor_publication_probe(["2026-08-27"], 100)
-    assert result == {"ready": False}
-    assert calls == [("2026-08-27",)]
-
-    with pytest.raises(
-            install_deploy.core.DeployRefused,
-            match="newer than its final target"):
-        instance._vendor_publication_probe(["2026-08-28"], 100)
-    assert calls == [("2026-08-27",)]
 
 
-def test_expired_vendor_wait_returns_to_next_causal_session():
-    instance = object.__new__(install_deploy.InstallAnytimeDeploy)
-    instance.cfg = SimpleNamespace(
-        data_wait_timeout_seconds=60, data_retry_seconds=1)
-    timings = iter([
-        _timing(),
-        _timing(
-            target="2026-08-28", frontier="2026-08-28",
-            source_final=True, prospective=True),
-    ])
-    verdicts = iter([
-        {"ready": False},
-        {"ready": True},
-    ])
-    states = []
-    active_targets = []
-
-    instance._assert_wait_fence = lambda: None
-    instance._causal_timing = lambda: next(timings)
-    instance._readiness_verdict = lambda: next(verdicts)
-    instance._freshness_wait_requirements = lambda verdict: (("2026-08-27",), 100)
-    instance._write_deployment_state = (
-        lambda state, **kwargs: states.append(state))
-    instance._base_cli = lambda *args, **kwargs: None
-
-    def expire_wait(*, deadline):
-        active_targets.append(instance._causal_wait_target)
-        raise install_deploy.CausalSessionExpired(
-            "causal vendor wait lost its exact target")
-
-    instance._wait_for_data = expire_wait
-
-    result = instance._wait_until_causal_ready()
-    assert active_targets == ["2026-08-27"]
-    assert "WAITING_FOR_NEXT_CAUSAL_SESSION" in states
-    assert result["target"] == "2026-08-28"
-    assert instance._causal_wait_target is None
 
 
-def test_publication_bind_rechecks_open_after_full_verification_and_rolls_back(
+def test_publication_bind_rechecks_source_finality_after_full_verification_and_rolls_back(
         monkeypatch, tmp_path):
     events = []
     instance = _bind_instance(tmp_path)
+    monkeypatch.setattr(install_deploy.core, "ROOT", tmp_path)
     instance.env["SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256"] = "old-self"
     instance.runner.env["SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256"] = "old-runner"
     monkeypatch.setenv(
@@ -199,7 +118,7 @@ def test_publication_bind_rechecks_open_after_full_verification_and_rolls_back(
             remaining=go.MIN_REMAINING_DEADLINE_MARGIN_MS + 5_000),
         _timing(
             frontier="2026-08-27",
-            remaining=0),
+            source_final=False, remaining=0),
     ])
     instance._causal_timing = lambda: next(timings)
 

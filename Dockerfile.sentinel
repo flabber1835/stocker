@@ -49,7 +49,7 @@ COPY docs/sentinel-handoff/00_README/ ./docs/sentinel-handoff/00_README/
 COPY config/paper-observation-boundary.json \
      /app/config/paper-observation-boundary.json
 COPY sentinel/ /app/sentinel/
-COPY data/sharadar/ /app/data/sharadar/
+COPY data/market-history/ /app/data/market-history/
 
 # GO runs the current production strategy's operational parity proof in this
 # exact image. The legacy forward-chain runner and tape remain available to

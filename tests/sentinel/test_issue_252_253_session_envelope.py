@@ -5,7 +5,7 @@ import pytest
 
 from sentinel.feed import (
     authority, coherence, recent_reconciliation, renormalize, session_envelope,
-    sep_reconciliation, sharadar,
+    sep_reconciliation, archive_tables,
 )
 
 
@@ -75,17 +75,17 @@ def test_two_identical_off_window_sep_traversals_refuse_before_fingerprinting():
 
     def fetch(table, params=None, **_kwargs):
         nonlocal calls
-        assert table == sharadar.SEP
+        assert table == archive_tables.SEP
         calls += 1
         return [_sep("2026-08-20")]
 
-    guarded = authority.StableSharadarFetch(
+    guarded = authority.StableTableFetch(
         fetch, after_session="2026-08-20", operation="daily-sep")
     with pytest.raises(
             session_envelope.SourceSessionEnvelopeViolation,
             match="session_before_request"):
         list(guarded(
-            sharadar.SEP,
+            archive_tables.SEP,
             {"date.gte": "2026-08-21", "date.lte": "2026-08-24"}))
     # The first traversal is rejected before it can become the first stable
     # fingerprint. Repetition cannot turn the same invalid row into authority.
@@ -97,18 +97,18 @@ def test_failed_observation_retries_cleanly_without_partial_stability_state():
 
     def fetch(table, params=None, **_kwargs):
         nonlocal calls
-        assert table == sharadar.SEP
+        assert table == archive_tables.SEP
         calls += 1
         if calls == 1:
             return [_sep("2026-08-20")]
         return [_sep("2026-08-21"), _sep("2026-08-24", "BBB")]
 
-    guarded = authority.StableSharadarFetch(
+    guarded = authority.StableTableFetch(
         fetch, after_session="2026-08-20", operation="retry-regression")
     params = {"date.gte": "2026-08-21", "date.lte": "2026-08-24"}
     with pytest.raises(session_envelope.SourceSessionEnvelopeViolation):
-        list(guarded(sharadar.SEP, params))
-    replay = list(guarded(sharadar.SEP, params))
+        list(guarded(archive_tables.SEP, params))
+    replay = list(guarded(archive_tables.SEP, params))
     assert [row["date"] for row in replay] == ["2026-08-21", "2026-08-24"]
     assert calls == 3   # one refused traversal, then two agreeing valid ones
 
@@ -118,16 +118,16 @@ def test_primary_seed_sep_refuses_before_stability_or_candidate_mutation():
 
     def fetch(table, params=None, **_kwargs):
         nonlocal calls
-        assert table == sharadar.SEP
+        assert table == archive_tables.SEP
         calls += 1
         return [_sep("2026-08-22")]
 
-    guarded = coherence.StableSharadarFetch(fetch, seed_mode=True)
+    guarded = coherence.StableTableFetch(fetch, seed_mode=True)
     with pytest.raises(
             session_envelope.SourceSessionEnvelopeViolation,
             match="non_xnys_session"):
         list(guarded(
-            sharadar.SEP,
+            archive_tables.SEP,
             {"date.gte": "2026-08-21", "date.lte": "2026-08-24"}))
     assert calls == 1
 
@@ -137,16 +137,16 @@ def test_primary_sfp_reference_path_refuses_before_its_first_fingerprint():
 
     def fetch(table, params=None, **_kwargs):
         nonlocal calls
-        assert table == sharadar.SFP
+        assert table == archive_tables.SFP
         calls += 1
         return [_sfp("2026-08-25")]
 
-    guarded = coherence.StableSharadarFetch(fetch)
+    guarded = coherence.StableTableFetch(fetch)
     with pytest.raises(
             session_envelope.SourceSessionEnvelopeViolation,
             match="session_after_request"):
         guarded(
-            sharadar.SFP,
+            archive_tables.SFP,
             {"ticker": "SPY,BIL", "date.gte": "2026-08-21",
              "date.lte": "2026-08-24"})
     assert calls == 1
@@ -160,7 +160,7 @@ def test_annual_reconciliation_refuses_before_staging_or_local_comparison(
 
     def fetch(table, params=None, **_kwargs):
         nonlocal calls
-        assert table == sharadar.SEP
+        assert table == archive_tables.SEP
         calls += 1
         return [_sep(off_session)]
 
@@ -191,7 +191,7 @@ def test_renormalization_refuses_stable_off_window_history_before_replay():
 
     def fetch(table, params=None, **_kwargs):
         nonlocal calls
-        assert table == sharadar.SEP
+        assert table == archive_tables.SEP
         calls += 1
         return [_sep("2026-08-20")]
 
@@ -208,14 +208,14 @@ def test_valid_sep_stability_protocol_is_unchanged_after_envelope_validation():
 
     def fetch(table, params=None, **_kwargs):
         nonlocal calls
-        assert table == sharadar.SEP
+        assert table == archive_tables.SEP
         calls += 1
         return list(rows)
 
-    guarded = authority.StableSharadarFetch(
+    guarded = authority.StableTableFetch(
         fetch, after_session="2026-08-20", operation="renormalization")
     replay = list(guarded(
-        sharadar.SEP,
+        archive_tables.SEP,
         {"date.gte": "2026-08-21", "date.lte": "2026-08-24"}))
     assert replay == rows
     assert calls == 2

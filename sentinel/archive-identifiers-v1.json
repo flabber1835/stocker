@@ -1,0 +1,33 @@
+{
+  "BOOK_SCHEMA": "sentinel-sharadar-book-semantics/v1",
+  "NORMALIZATION": "sentinel.sharadar-current-window/1",
+  "PROVIDER": "SHARADAR",
+  "REFERENCES_SCHEMA": "sentinel.rolling-sharadar-references/1",
+  "RETIRED_CREDENTIAL": "SHARADAR_API_KEY",
+  "TRIAL_ACTIONS": "SHARADAR_ACTIONS",
+  "TRIAL_NORMALIZED_ACTIONS": "PUBLISHED_NORMALISED_BAR_AND_SHARADAR_ACTIONS",
+  "UNIVERSE": "BROAD_SHARADAR_COMMON_EQUITY",
+  "feed": {
+    "ARCHIVE_CACHE_PROVIDER": "https://data.nasdaq.com/api/v3/datatables/SHARADAR",
+    "ACTIONS_RECONCILE_V10": "sharadar-actions-export-reconcile:v10",
+    "ACTIONS_RECONCILE_KIND_V10": "sharadar-actions-export-reconcile/v10",
+    "CORPORATE_ACTION_IDENTITY": "sharadar-ticker-at-effective-session",
+    "SEP_WATERMARK_KIND": "sharadar-sep-lastupdated/v1",
+    "SEP_WATERMARK": "sharadar-sep-lastupdated:v1",
+    "ACTIONS_RECONCILE_V6": "sharadar-actions-export-reconcile:v6",
+    "ACTIONS_RECONCILE_KIND_V6": "sharadar-actions-export-reconcile/v6",
+    "SPLIT_REPLAY": "sharadar-unresolved-split-replay:v1:",
+    "SPLIT_REPLAY_KIND": "sharadar-unresolved-split-replay/v2",
+    "SPLIT_REPLAY_KIND_V1": "sharadar-unresolved-split-replay/v1",
+    "RECENT_RECONCILE": "sharadar-sep-recent-export-reconcile:v1",
+    "RECENT_RECONCILE_KIND": "sharadar-sep-recent-export-reconcile/v1",
+    "ROLLING_COMPARISON": "sentinel.sharadar-rolling-comparison/1",
+    "ROLLING_SOURCE": "sentinel.rolling-sharadar-source/1",
+    "KEYSET_RECONCILE": "sharadar-sep-keyset-reconcile:v1",
+    "KEYSET_RECONCILE_KIND": "sharadar-sep-keyset-reconcile/v1",
+    "SOURCE_COVERAGE_PREFIX": "Sharadar SEP seed eligible-set coverage refused: ",
+    "SOURCE_COLLISION_PREFIX": "Sharadar canonical source-key duplicate refused: ",
+    "REVIEWED_SECONDARY": "reviewed Sharadar secondary-class unit source-onset sparsity around TICKERS firstpricedate",
+    "REVIEWED_TERMINAL": "reviewed exchange-confirmed terminal no-trade session despite Sharadar TICKERS lastpricedate"
+  }
+}

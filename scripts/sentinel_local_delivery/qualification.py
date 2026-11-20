@@ -19,7 +19,7 @@ HANDOVER_INPUTS = frozenset({'scripts/sentinel_maintenance_reader_handover.py',
     'scripts/sentinel_backup_integrity_report.py', 'scripts/sentinel_backup_renewal.py',
     'scripts/sentinel_backup_deadlines.py', 'scripts/sentinel_maintenance_process.py',
     'scripts/sentinel_backup_lock.py', 'scripts/sentinel_lock_ownership.py',
-    'scripts/sentinel_env.py'})
+    'scripts/sentinel_env.py', 'scripts/go-archive-format-v1.json'})
 _HEX = re.compile(r'[0-9a-f]{64}\Z')
 
 

@@ -333,14 +333,32 @@ def retain(media, receipt, image, now, segment_size):
     return {"retention_ready": True, "base_removed": len(remove), "kept": sorted(keep), **result}
 
 
+def market_reservation(now):
+    """Use the installed runtime calendar; host Python has no exchange library."""
+    from datetime import timedelta
+    from sentinel.feed import calendar
+    instant = datetime.fromtimestamp(now, timezone.utc)
+    try:
+        opened, closed = calendar.session_window(instant.date())
+    except calendar.NonSessionDate:
+        return False
+    except (calendar.CalendarUnavailable, ImportError, ValueError):
+        return None
+    margin = timedelta(hours=1)
+    return opened - margin <= instant < closed + margin
+
+
 def main():
     signal.alarm(540)
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=("observe", "observe-current", "retain"))
     parser.add_argument("--root", default="/backup")
     parser.add_argument("--system-id", required=True)
+    parser.add_argument('--market-at', type=int)
     parser.add_argument('--timeout-seconds',type=int,default=540)
     args = parser.parse_args()
+    if args.market_at is not None and args.action == 'retain':
+        parser.error('only base observation accepts a market clock')
     if not 1 <= args.timeout_seconds <= 540 or (args.action != 'observe-current' and args.timeout_seconds != 540):
         parser.error('only read-only observation accepts a shorter budget')
     if args.timeout_seconds != 540: signal.alarm(args.timeout_seconds)
@@ -360,6 +378,8 @@ def main():
                     request = decode(raw)
                     result = retain(media, request["receipt"], request["image"],
                                     request["now"], request["segment_size"])
+        if args.market_at is not None:
+            result = {'selected': result, 'market_reserved': market_reservation(args.market_at)}
         print(json.dumps(result, sort_keys=True))
         return 0
     except (Refused, OSError, ValueError, KeyError, TypeError) as exc:

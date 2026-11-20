@@ -384,9 +384,8 @@ def load_plan(conn, plan_id: str) -> Optional[ExecutionPlan]:
 def latest_plan(conn) -> Optional[ExecutionPlan]:
     """The newest UNSUPERSEDED plan — the only one that may be executed.
 
-    Ordered by `created_at` then `plan_id` so the answer is total even when two
-    plans land in the same transaction timestamp; a non-deterministic "latest"
-    would be worse than none. Wholly unstamped legacy plans are historical and
+    Competing stamped plans have no unique current authority. Wholly unstamped
+    legacy plans are historical and
     deliberately unexecutable, so current-plan discovery skips them. That lets
     preparation create a stamped replacement which supersedes the legacy row;
     direct :func:`load_plan` remains a refusal for that same row.
@@ -409,8 +408,10 @@ def latest_plan(conn) -> Optional[ExecutionPlan]:
             raise PlanAuthorityMissing(
                 f"plan {row[0]!r} has a corrupt partial rollout-authority "
                 "stamp")
-        if stamped_plan_id is None:
-            stamped_plan_id = str(row[0])
+        if stamped_plan_id is not None:
+            raise PlanAuthorityMissing(
+                "multiple stamped plans are both current; supersession is ambiguous")
+        stamped_plan_id = str(row[0])
     if stamped_plan_id is not None and unstamped_plan_ids:
         raise PlanAuthorityMissing(
             "stamped and unstamped plans are both current; no plan is "

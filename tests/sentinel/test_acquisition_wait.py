@@ -6,7 +6,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from sentinel.feed import preparation_wait as driver, rolling_jobs as jobs, sharadar
+from sentinel.feed import preparation_wait as driver, rolling_jobs as jobs, archive_tables
 
 # CI keeps host helpers in the inspection tree, outside the runtime import path.
 REPO = Path(os.environ.get("SENTINEL_REPO_ROOT") or Path(__file__).resolve().parents[2])
@@ -30,7 +30,7 @@ def setup(monkeypatch, **updates):
 
 def test_wait_respects_retry_time_and_reuses_exact_job(monkeypatch, capsys):
     conn, state = setup(monkeypatch)
-    prepare = Mock(side_effect=[sharadar.SharadarRetryDeferred(25), {"published": True}])
+    prepare = Mock(side_effect=[archive_tables.RetryDeferred(25), {"published": True}])
     sleeps = []
     def sleep(seconds):
         assert conn.in_transaction is False
@@ -48,7 +48,7 @@ def test_deadline_expires_without_retrying_or_renewing(monkeypatch):
     conn, state = setup(monkeypatch, remaining_seconds=4.)
     expire = Mock()
     monkeypatch.setattr(jobs, "expire", expire)
-    prepare = Mock(side_effect=sharadar.SharadarRetryDeferred(25))
+    prepare = Mock(side_effect=archive_tables.RetryDeferred(25))
     def sleep(seconds):
         assert seconds == 4
         state["remaining_seconds"] = 0
@@ -59,7 +59,7 @@ def test_deadline_expires_without_retrying_or_renewing(monkeypatch):
 
 
 @pytest.mark.parametrize("error", [ValueError("integrity"), KeyboardInterrupt(),
-                                  sharadar.SharadarRetryDeferred(30)])
+                                  archive_tables.RetryDeferred(30)])
 def test_unrecorded_or_unrecognized_failure_is_not_retried(monkeypatch, error):
     conn, _ = setup(monkeypatch, state="ACQUIRING")
     prepare = Mock(side_effect=error)
@@ -72,7 +72,7 @@ def test_unrecorded_or_unrecognized_failure_is_not_retried(monkeypatch, error):
 
 def test_source_final_change_stops_before_next_attempt(monkeypatch):
     conn, _ = setup(monkeypatch)
-    prepare = Mock(side_effect=sharadar.SharadarRetryDeferred(30))
+    prepare = Mock(side_effect=archive_tables.RetryDeferred(30))
     check = Mock(side_effect=[None, ValueError("target changed")])
     with pytest.raises(ValueError, match="target changed"):
         driver.run(conn, "job", prepare=prepare, check_target=check, sleep=Mock())
@@ -108,7 +108,7 @@ def test_publication_racing_with_busy_claim_returns_existing_receipt(monkeypatch
 
 def test_operator_interrupt_during_wait_exits_immediately(monkeypatch):
     conn, _ = setup(monkeypatch)
-    prepare = Mock(side_effect=sharadar.SharadarRetryDeferred(30))
+    prepare = Mock(side_effect=archive_tables.RetryDeferred(30))
     with pytest.raises(KeyboardInterrupt):
         driver.run(conn, "job", prepare=prepare, check_target=lambda: None,
                    sleep=Mock(side_effect=KeyboardInterrupt))

@@ -82,7 +82,7 @@ def _checkout_commit() -> str:
 
 
 def run_scenario(scenario: Scenario, *, server_dsn: str, output: Path) -> dict:
-    from sentinel.feed import ingest, publication, readiness, sharadar, store
+    from sentinel.feed import ingest, publication, readiness, store
 
     output.mkdir(parents=True, exist_ok=False)
     commit = _checkout_commit()
@@ -122,10 +122,10 @@ def run_scenario(scenario: Scenario, *, server_dsn: str, output: Path) -> dict:
                                 side_effect=RuntimeError("scheduled publication interruption")))
                         try:
                             if index == 0:
-                                # This seed is explicitly non-certifying. Strict HTTP still executes.
+                                # This seed is explicitly non-certifying. It consumes captured table rows.
                                 ingest.seed(conn, date_from=str(scenario.seed_start),
                                     date_to=str(step.through),
-                                    fetch=lambda *a, **kw: sharadar.fetch_table(*a, **kw))
+                                    fetch=provider.fetch_rows)
                             else:
                                 daily = (ingest.daily if scenario.acquisition_mode == "bounded_operational"
                                          else ingest._daily)

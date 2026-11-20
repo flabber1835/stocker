@@ -404,7 +404,7 @@ def _economic_input_identity(
 
     Raw prices, actions and session-effective identity remain exact.  The
     canonical raw-compatible volume is represented by raw-close dollar
-    liquidity rather than by volume alone, because Sharadar's adjusted close
+    liquidity rather than by volume alone, because the source's adjusted close
     and reported volume are inversely rescaled by later splits.
     """
     source = _published_input_value(published, strategy_prices)
@@ -885,6 +885,7 @@ class PostgresShadowObservationStore:
     def __init__(self, conn, *, observation_id: str, commit_genesis: bool = True,
                  records_from: str | None = None, stream_state: bool = False) -> None:
         self.conn = conn
+        self._ledger_prefix = None
         self.commit_genesis = commit_genesis
         self.records_from = records_from
         self.stream_state = stream_state
@@ -959,9 +960,16 @@ class PostgresShadowObservationStore:
         if not isinstance(value, dict):
             raise ShadowObservationRefused(f"{where} is not an object")
         try:
+            self._ledger_prefix = None
+            versions = None if self.stream_state else {}
+            def remember(prefix):
+                if prefix.groups:
+                    prefix.rows = {group['ref']: versions[group['ref']] for group in prefix.groups}
+                    self._ledger_prefix = prefix
             return observation_storage.decode(value, loads=_compact_json_decoder(
                 number_type=Decimal if exact_numbers else float),
-                ledger_reader=lambda name: observation_storage._read_ledger_chunk(self.conn, name))
+                ledger_reader=lambda name: observation_storage._read_ledger_chunk(self.conn, name, versions),
+                remember_prefix=remember if versions is not None else None)
         except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
             raise ShadowObservationRefused(f'{where}: invalid observation storage: {exc}') from exc
 
@@ -1064,7 +1072,7 @@ class PostgresShadowObservationStore:
             candidate.get("session"), where="shadow observation append session")
         name = self._name(session)
         observation_storage.insert(self.conn, name=name, session=session,
-                                   candidate=candidate, state_field="state")
+                                   candidate=candidate, state_field="state", prefix=self._ledger_prefix)
         with self.conn.cursor() as cur:
             self._compact_decoder(cur, exact_numbers=True)
             cur.execute(

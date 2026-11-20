@@ -3,7 +3,7 @@
 Two clocks are independent:
 
 ``SESSION FRONTIER`` discovers new market dates.
-``MUTATION WATERMARK`` discovers old SEP rows Sharadar changed later.
+``MUTATION WATERMARK`` discovers old SEP rows Source changed later.
 
 SEP exposes the latter as date-valued ``lastupdated``.  The durable cursor
 re-reads the complete preceding update date and advances only after the
@@ -15,7 +15,7 @@ dividends, rejections and anomaly evidence remain coherent.
 ACTIONS has no documented mutation timestamp.  Ordinary daily pagination is
 useful for additions but cannot prove negative space: two identical partial
 traversals are stable, not necessarily complete.  Production complete
-reconciliation therefore uses Nasdaq Data Link's whole-table Exporter snapshot,
+historical reconciliation therefore requires the recorded whole-table export,
 whose ``fresh`` state carries a vendor ``data_snapshot_time`` and table
 ``last_refreshed_time``.  The reconciliation cursor is earned every decision day
 only after that stronger source boundary succeeds.  Changed split/dividend rows
@@ -23,6 +23,7 @@ then trigger bounded SEP re-normalization against the candidate ACTIONS
 generation before one atomic corpus publication activates both.
 """
 from __future__ import annotations
+from sentinel import archive_identifiers
 
 import datetime as dt
 import hashlib
@@ -37,34 +38,34 @@ from sentinel.core.terminal import (
 )
 from sentinel.feed import (
     action_source, anomalies, authority, calendar, publication, recovery,
-    renormalize, sharadar, snapshot_export, store, universe)
+    renormalize, archive_tables, snapshot_export, store, universe)
 
-SEP_CURSOR_NAME = "sharadar-sep-lastupdated:v1"
+SEP_CURSOR_NAME = archive_identifiers.FEED['SEP_WATERMARK']
 # New name on purpose whenever split semantics change: a cursor earned under an
 # older resolver must never suppress replay under newer economic semantics.
 # v6 re-earns every retained split disposition after the sub-2% explicit split
 # corroboration fix introduced for TRI 2026-05-04.  v5 remains historical
 # evidence only and cannot authorize the corrected interpretation.
-ACTIONS_CURSOR_NAME = "sharadar-actions-export-reconcile:v6"
-ACTIONS_CURSOR_KIND = "sharadar-actions-export-reconcile/v6"
+ACTIONS_CURSOR_NAME = archive_identifiers.FEED['ACTIONS_RECONCILE_V6']
+ACTIONS_CURSOR_KIND = archive_identifiers.FEED['ACTIONS_RECONCILE_KIND_V6']
 # Full ACTIONS authority must cover the decision frontier itself.  A 7-day
 # cadence allowed a same-day omitted dividend/terminal action to coexist with a
 # READY frontier.  One vendor export per decision day is intentionally stronger.
-ACTIONS_RECONCILE_DAYS = int(os.getenv("SHARADAR_ACTIONS_RECONCILE_DAYS", "1"))
+ACTIONS_RECONCILE_DAYS = int(os.getenv("SENTINEL_ACTIONS_RECONCILE_DAYS", "1"))
 ACTIONS_FULL_WINDOW_START = "1900-01-01"
 _SPLIT_SEMANTIC_ACTIONS = frozenset(SHARE_SPLIT_ACTIONS) | {"adrratiosplit"}
 _UNRESOLVED_SPLIT_KINDS = (
     "SPLIT_DISAGREEMENT", "SPLIT_ONLY_DERIVED",
     "SEAM_SPLIT_UNCORROBORATED", "AMBIGUOUS_SPLIT_MULTIPLICITY")
-_UNRESOLVED_SPLIT_REPLAY_PREFIX = "sharadar-unresolved-split-replay:v1:"
-_UNRESOLVED_SPLIT_REPLAY_SCHEMA = "sharadar-unresolved-split-replay/v2"
+_UNRESOLVED_SPLIT_REPLAY_PREFIX = archive_identifiers.FEED['SPLIT_REPLAY']
+_UNRESOLVED_SPLIT_REPLAY_SCHEMA = archive_identifiers.FEED['SPLIT_REPLAY_KIND']
 
 
 class MutationCursorUnavailable(RuntimeError):
     """No complete source proof has established where incremental CDC may begin."""
 
 
-class SharadarMutationRefused(RuntimeError):
+class SourceMutationRefused(RuntimeError):
     """A historical vendor mutation cannot be applied without guessing."""
 
 
@@ -85,7 +86,7 @@ class LastUpdatedTrackingFetch:
 
     def __call__(self, table, params=None, **kwargs):
         rows = self._fetch(table, params, **kwargs)
-        if table != sharadar.SEP:
+        if table != archive_tables.SEP:
             return rows
 
         def replay():
@@ -95,7 +96,7 @@ class LastUpdatedTrackingFetch:
                     try:
                         observed = dt.date.fromisoformat(str(value))
                     except ValueError as exc:
-                        raise SharadarMutationRefused(
+                        raise SourceMutationRefused(
                             f"SEP lastupdated {value!r} is not an ISO date") from exc
                     if (self.max_sep_lastupdated is None
                             or observed > self.max_sep_lastupdated):
@@ -130,13 +131,13 @@ def _cursor_price_window(state, *, name):
         return None
     if (name != SEP_CURSOR_NAME or not isinstance(price_window, list)
             or len(price_window) != 2 or not all(isinstance(s, str) for s in price_window)):
-        raise SharadarMutationRefused(f"source cursor {name} has invalid price scope")
+        raise SourceMutationRefused(f"source cursor {name} has invalid price scope")
     try:
         bounds = [dt.date.fromisoformat(s).isoformat() for s in price_window]
     except ValueError as exc:
-        raise SharadarMutationRefused(f"source cursor {name} has invalid price scope") from exc
+        raise SourceMutationRefused(f"source cursor {name} has invalid price scope") from exc
     if bounds != price_window or bounds[0] > bounds[1]:
-        raise SharadarMutationRefused(f"source cursor {name} has invalid price scope")
+        raise SourceMutationRefused(f"source cursor {name} has invalid price scope")
     return tuple(price_window)
 
 
@@ -160,35 +161,35 @@ def _read_cursor(conn, name: str, kind: str) -> Optional[SourceCursor]:
         try:
             state = json.loads(str(raw))
         except (TypeError, ValueError) as exc:
-            raise SharadarMutationRefused(
+            raise SourceMutationRefused(
                 f"source cursor {name} is not valid JSON") from exc
     required = {"kind", "processed_through", "publication_version"}
     if (not isinstance(state, dict) or not required.issubset(state)
             or set(state) - required - {"price_window"} or state.get("kind") != kind):
-        raise SharadarMutationRefused(
+        raise SourceMutationRefused(
             f"source cursor {name} has an unknown durable state shape")
     price_window = _cursor_price_window(state, name=name)
     try:
         through = dt.date.fromisoformat(str(state["processed_through"]))
         version = int(state["publication_version"])
     except (TypeError, ValueError) as exc:
-        raise SharadarMutationRefused(
+        raise SourceMutationRefused(
             f"source cursor {name} has invalid date/version evidence") from exc
     row_date = (row[0] if isinstance(row[0], dt.date)
                 else dt.date.fromisoformat(str(row[0])))
     if row_date != through:
-        raise SharadarMutationRefused(
+        raise SourceMutationRefused(
             f"source cursor {name} row date disagrees with its state")
     with conn.cursor() as cur:
         cur.execute(
             "SELECT 1 FROM sentinel_corpus_publications WHERE version=%s",
             (version,))
         if cur.fetchone() is None:
-            raise SharadarMutationRefused(
+            raise SourceMutationRefused(
                 f"source cursor {name} names missing publication v{version}")
     current = publication.require_current(conn)
     if version > current.version:
-        raise SharadarMutationRefused(
+        raise SourceMutationRefused(
             f"source cursor {name} is ahead of current publication v{current.version}")
     return SourceCursor(kind=kind, processed_through=through,
                         publication_version=version,
@@ -196,7 +197,7 @@ def _read_cursor(conn, name: str, kind: str) -> Optional[SourceCursor]:
 
 
 def load_sep_cursor(conn) -> Optional[SourceCursor]:
-    return _read_cursor(conn, SEP_CURSOR_NAME, "sharadar-sep-lastupdated/v1")
+    return _read_cursor(conn, SEP_CURSOR_NAME, archive_identifiers.FEED['SEP_WATERMARK_KIND'])
 
 
 def load_actions_cursor(conn) -> Optional[SourceCursor]:
@@ -212,7 +213,7 @@ def _write_cursor(conn, *, name: str, kind: str, through: dt.date,
     price_window = ((capture.start, capture.end)
                     if capture is not None and name == SEP_CURSOR_NAME else None)
     if prior is not None and through < prior.processed_through:
-        raise SharadarMutationRefused(
+        raise SourceMutationRefused(
             f"source cursor {name} cannot move backward from "
             f"{prior.processed_through} to {through}")
     with conn.cursor() as cur:
@@ -220,7 +221,7 @@ def _write_cursor(conn, *, name: str, kind: str, through: dt.date,
             "SELECT 1 FROM sentinel_corpus_publications WHERE version=%s",
             (int(publication_version),))
         if cur.fetchone() is None:
-            raise SharadarMutationRefused(
+            raise SourceMutationRefused(
                 f"cannot advance {name} to nonexistent publication "
                 f"v{publication_version}")
         state = {
@@ -245,7 +246,7 @@ def _write_cursor(conn, *, name: str, kind: str, through: dt.date,
 def establish_sep_cursor_after_seed(conn, *, through: dt.date,
                                     publication_version: int) -> SourceCursor:
     return _write_cursor(
-        conn, name=SEP_CURSOR_NAME, kind="sharadar-sep-lastupdated/v1",
+        conn, name=SEP_CURSOR_NAME, kind=archive_identifiers.FEED['SEP_WATERMARK_KIND'],
         through=through, publication_version=publication_version)
 
 
@@ -253,7 +254,7 @@ def establish_sep_cursor_after_complete_reconciliation(
         conn, *, through: dt.date, publication_version: int) -> SourceCursor:
     """Bootstrap CDC only after a full current-source value/key proof."""
     return _write_cursor(
-        conn, name=SEP_CURSOR_NAME, kind="sharadar-sep-lastupdated/v1",
+        conn, name=SEP_CURSOR_NAME, kind=archive_identifiers.FEED['SEP_WATERMARK_KIND'],
         through=through, publication_version=publication_version)
 
 
@@ -292,16 +293,16 @@ def _mutation_digest(rows: Iterable[Mapping]) -> tuple[int, str]:
 def _stable_rows(fetch, table: str, params: Mapping[str, str]) -> list[dict]:
     first = [dict(row) for row in fetch(table, params)]
     second = [dict(row) for row in fetch(table, params)]
-    if table == sharadar.ACTIONS:
+    if table == archive_tables.ACTIONS:
         one = authority.observe_actions(first)
         two = authority.observe_actions(second)
         authority.require_stable(table, one, two)
-    elif table == sharadar.SEP:
+    elif table == archive_tables.SEP:
         c1, d1 = _mutation_digest(first)
         c2, d2 = _mutation_digest(second)
         if (c1, d1) != (c2, d2):
             raise authority.VendorPublicationUnstable(
-                f"Sharadar SEP mutation set changed across two complete "
+                f"source SEP mutation set changed across two complete "
                 f"observations: rows {c1:,}->{c2:,}, fingerprint "
                 f"{d1[:16]}->{d2[:16]}")
     else:
@@ -331,24 +332,24 @@ def _validate_sep_mutation_rows(conn, rows: Iterable[Mapping], *,
             updated = dt.date.fromisoformat(str(updated_raw))
             session_date = dt.date.fromisoformat(session)
         except (TypeError, ValueError) as exc:
-            raise SharadarMutationRefused(
+            raise SourceMutationRefused(
                 f"SEP mutation row {ticker!r}/{session!r} has invalid date "
                 f"or lastupdated {updated_raw!r}") from exc
         if not lo <= updated <= hi:
-            raise SharadarMutationRefused(
+            raise SourceMutationRefused(
                 f"SEP mutation row {ticker}/{session} lies outside requested "
                 f"lastupdated interval {lo}..{hi}")
         if not ticker:
-            raise SharadarMutationRefused(
+            raise SourceMutationRefused(
                 f"SEP mutation row on {session} has no ticker")
         if session_date < published_from or session_date > published_through:
             continue
         if resolver(ticker, session) is None:
-            raise SharadarMutationRefused(
+            raise SourceMutationRefused(
                 f"SEP mutation {ticker}/{session} has no permanent identity; "
                 "refusing to advance the mutation watermark past it")
         if not _positive(row.get("closeunadj")):
-            raise SharadarMutationRefused(
+            raise SourceMutationRefused(
                 f"SEP mutation {ticker}/{session} has no positive raw close; "
                 "refusing to preserve stale local economics while advancing CDC")
         dates.append(session_date.isoformat())
@@ -392,7 +393,7 @@ def _action_change_dates(conn, rows: Iterable[Mapping]) -> list[str]:
             try:
                 dt.date.fromisoformat(value)
             except ValueError as exc:
-                raise SharadarMutationRefused(
+                raise SourceMutationRefused(
                     f"changed ACTIONS row has invalid date {value!r}") from exc
             dates.add(value)
     return sorted(dates)
@@ -404,10 +405,10 @@ def _validate_action_snapshot_window(rows: Iterable[Mapping], *, hi: dt.date) ->
         try:
             observed = dt.date.fromisoformat(value)
         except ValueError as exc:
-            raise SharadarMutationRefused(
+            raise SourceMutationRefused(
                 f"complete ACTIONS snapshot has invalid date {value!r}") from exc
         if observed < dt.date.fromisoformat(ACTIONS_FULL_WINDOW_START) or observed > hi:
-            raise SharadarMutationRefused(
+            raise SourceMutationRefused(
                 f"complete ACTIONS snapshot row {row.get('ticker')}/{value} lies "
                 f"outside claimed authority window "
                 f"{ACTIONS_FULL_WINDOW_START}..{hi.isoformat()}")
@@ -439,12 +440,12 @@ def _retained_market_bounds(conn) -> tuple[str, str]:
         candidates.extend(str(value) for value in published if value is not None)
 
     if not candidates:
-        raise SharadarMutationRefused(
+        raise SourceMutationRefused(
             "published corpus has no retained SEP market boundary for ACTIONS "
             "reconciliation")
     sessions = calendar.sessions_in_range(min(candidates), max(candidates))
     if not sessions:
-        raise SharadarMutationRefused(
+        raise SourceMutationRefused(
             "published SEP market boundary contains no XNYS session")
     return sessions[0], sessions[-1]
 
@@ -553,19 +554,19 @@ def _load_unresolved_split_markers(conn) -> dict[str, dict]:
     for name, row_session, raw in rows:
         state = raw if isinstance(raw, dict) else json.loads(str(raw))
         legacy = (isinstance(state, dict) and state.get("schema")
-                  == "sharadar-unresolved-split-replay/v1")
+                  == archive_identifiers.FEED['SPLIT_REPLAY_KIND_V1'])
         fields = expected_fields if legacy else expected_fields | {"source_sha256"}
         if (not isinstance(state, dict) or set(state) != fields
                 or (not legacy and state.get("schema")
                     != _UNRESOLVED_SPLIT_REPLAY_SCHEMA)):
-            raise SharadarMutationRefused(
+            raise SourceMutationRefused(
                 f"unresolved split replay marker {name} has invalid durable state")
         try:
             observed_version = int(state["observation_publication_version"])
             replayed_version = int(state["replayed_publication_version"])
             marker_session = dt.date.fromisoformat(str(state["session"])).isoformat()
         except (TypeError, ValueError) as exc:
-            raise SharadarMutationRefused(
+            raise SourceMutationRefused(
                 f"unresolved split replay marker {name} has invalid version/date") \
                 from exc
         reconstructed = _unresolved_split_marker_name(state)
@@ -579,7 +580,7 @@ def _load_unresolved_split_markers(conn) -> dict[str, dict]:
                 or any(ch not in "0123456789abcdef" for ch in source)
                 or observed_version > replayed_version
                 or replayed_version > current.version):
-            raise SharadarMutationRefused(
+            raise SourceMutationRefused(
                 f"unresolved split replay marker {name} is incoherent with "
                 "published corpus authority")
         out[str(name)] = state
@@ -619,7 +620,7 @@ def _record_unresolved_split_replay_markers(
         return
     for start, end in windows:
         if start > end:
-            raise SharadarMutationRefused(
+            raise SourceMutationRefused(
                 f"unresolved split marker replay window is reversed: {start}>{end}")
     _ensure_cursor_table(conn)
     replayed_version = int(replayed_publication_version)
@@ -638,7 +639,7 @@ def _record_unresolved_split_replay_markers(
             continue
         observed_version = int(row["publication_version"])
         if observed_version > replayed_version:
-            raise SharadarMutationRefused(
+            raise SourceMutationRefused(
                 "unresolved split marker observation is newer than the replay "
                 f"publication v{replayed_version}")
         if observed_version != replayed_version:
@@ -665,17 +666,17 @@ def _record_unresolved_split_replay_markers(
                  json.dumps(state, sort_keys=True)))
 
 
-def reconcile_actions_if_due(conn, *, fetch=sharadar.fetch_table,
+def reconcile_actions_if_due(conn, *, fetch=archive_tables.fetch_table,
                              through: str, force: bool = False
                              ) -> Optional[SourceCursor]:
     """Reconcile complete ACTIONS and replay affected split/dividend bar windows."""
     store._assert_corpus_locked(conn)
     if ACTIONS_RECONCILE_DAYS < 1:
-        raise ValueError("SHARADAR_ACTIONS_RECONCILE_DAYS must be >= 1")
+        raise ValueError("SENTINEL_ACTIONS_RECONCILE_DAYS must be >= 1")
     hi = dt.date.fromisoformat(str(through))
     prior_cursor = load_actions_cursor(conn)
     if prior_cursor is not None and prior_cursor.processed_through > hi:
-        raise SharadarMutationRefused(
+        raise SourceMutationRefused(
             f"ACTIONS reconciliation cursor {prior_cursor.processed_through} is "
             f"ahead of requested reconciliation through {hi}; refusing to treat "
             "future durable authority as inside the reconciliation cadence")
@@ -688,26 +689,26 @@ def reconcile_actions_if_due(conn, *, fetch=sharadar.fetch_table,
             and (hi - prior_cursor.processed_through).days < ACTIONS_RECONCILE_DAYS):
         return prior_cursor
 
-    params = sharadar.date_params(ACTIONS_FULL_WINDOW_START, hi.isoformat())
-    if fetch is sharadar.fetch_table:
+    params = archive_tables.date_params(ACTIONS_FULL_WINDOW_START, hi.isoformat())
+    if fetch is archive_tables.fetch_table:
         rows, source_evidence = snapshot_export.fetch_complete_actions(
             through=hi.isoformat())
     else:
-        rows = _stable_rows(fetch, sharadar.ACTIONS, params)
+        rows = _stable_rows(fetch, archive_tables.ACTIONS, params)
         source_evidence = {
             "authority": "injected-double-observation/v1",
             "source_rows": len(rows),
         }
     _validate_action_snapshot_window(rows, hi=hi)
     if not rows:
-        raise SharadarMutationRefused(
-            "complete Sharadar ACTIONS reconciliation returned zero rows; "
+        raise SourceMutationRefused(
+            "complete Source ACTIONS reconciliation returned zero rows; "
             "refusing to turn a suspicious empty source into mass removals")
 
     distinct = action_source.distinct_rows(rows)
     prior_active = _active_action_rows(conn)
     if prior_active and len(distinct) < int(len(prior_active) * 0.90):
-        raise SharadarMutationRefused(
+        raise SourceMutationRefused(
             f"complete ACTIONS source shrank from {len(prior_active):,} active "
             f"rows to {len(distinct):,}; refusing mass-removal authority "
             "without inspection")
@@ -780,7 +781,7 @@ def reconcile_actions_if_due(conn, *, fetch=sharadar.fetch_table,
 
 __all__ = [
     "ACTIONS_RECONCILE_DAYS", "LastUpdatedTrackingFetch",
-    "MutationCursorUnavailable", "SEP_CURSOR_NAME", "SharadarMutationRefused",
+    "MutationCursorUnavailable", "SEP_CURSOR_NAME", "SourceMutationRefused",
     "SourceCursor", "establish_sep_cursor_after_complete_reconciliation",
     "establish_sep_cursor_after_seed", "load_actions_cursor", "load_sep_cursor",
     "reconcile_actions_if_due",

@@ -51,7 +51,7 @@ sys.path.insert(0, str(ROOT / "shared"))
 from tests.support.postgres import _EphemeralPostgres  # noqa: E402
 
 from sentinel.feed import (domains, ingest, maintenance, publication, repair,
-                           sharadar, universe)  # noqa: E402
+                           archive_tables, universe)  # noqa: E402
 from sentinel.feed import store as S  # noqa: E402
 
 
@@ -362,13 +362,13 @@ def _fetch(sep_rows, action_rows=None, reconciliation_rows=None):
 
     def fetch(table, params=None, **kw):
         params = dict(params or {})
-        if table == sharadar.TICKERS:
+        if table == archive_tables.TICKERS:
             return list(ticker_rows)
         lo = params.get("date.gte", "0000-00-00")
         hi = params.get("date.lte", "9999-99-99")
-        if table == sharadar.ACTIONS:
+        if table == archive_tables.ACTIONS:
             return [r for r in action_rows if lo <= r["date"] <= hi]
-        if table == sharadar.SFP:
+        if table == archive_tables.SFP:
             return []
         source_rows = sep_rows
         # In this end-to-end regression the full rotating proof asks for the

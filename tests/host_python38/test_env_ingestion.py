@@ -46,9 +46,10 @@ LOADERS = {
 ERRORS = (env.EnvRefused, GO.ValidationRefused, DEPLOY.DeployRefused,
           RUNTIME.RuntimeSelectionRefused, BOOTSTRAP.BootstrapRefused, ValueError)
 CANARY = "PRIVATE_CANARY_91c64"
+RETIRED_KEY = env.ARCHIVE_V1["retired_api_key"]
 BASE = {
     "SENTINEL_POSTGRES_PASSWORD": "synthetic-database-password",
-    "SHARADAR_API_KEY": CANARY + "_sharadar",
+    RETIRED_KEY: CANARY + "_retired",
     "SENTINEL_BACKUP_DIR": "/synthetic/external/backup",
     "ALPACA_API_KEY": CANARY + "_alpaca",
     "ALPACA_SECRET_KEY": CANARY + "_secret",
@@ -172,12 +173,12 @@ class EnvHarness(unittest.TestCase):
         self.assertEqual(env.load(self.path), expected)
 
     def test_failed_load_does_not_partially_update_process(self):
-        self.write(raw=b"SHARADAR_API_KEY=new\nBROKEN\n")
-        with mock.patch.dict(os.environ, {"SHARADAR_API_KEY": "old"}, clear=True):
+        self.write(raw=f"{RETIRED_KEY}=new\nBROKEN\n".encode())
+        with mock.patch.dict(os.environ, {RETIRED_KEY: "old"}, clear=True):
             for loader in (GO.merged_environment, DEPLOY.merged_environment):
                 with self.assertRaises(ERRORS):
                     loader(self.path)
-                self.assertEqual(dict(os.environ), {"SHARADAR_API_KEY": "old"})
+                self.assertEqual(dict(os.environ), {RETIRED_KEY: "old"})
 
     def test_explicit_empty_process_value_is_authoritative_and_refused(self):
         self.write()
@@ -189,7 +190,7 @@ class EnvHarness(unittest.TestCase):
                     env.validate(resolved, profile="go")
 
     def test_process_override_cannot_hide_malformed_file(self):
-        self.write(raw=b"SHARADAR_API_KEY=bad\nSHARADAR_API_KEY=again\n")
+        self.write(raw=f"{RETIRED_KEY}=bad\n{RETIRED_KEY}=again\n".encode())
         with mock.patch.dict(os.environ, BASE, clear=True):
             with self.assertRaises(GO.ValidationRefused):
                 GO.merged_environment(self.path)
@@ -200,7 +201,7 @@ class EnvHarness(unittest.TestCase):
             for loader in (GO.merged_environment, DEPLOY.merged_environment):
                 resolved = loader(self.path)
                 self.assertIn("ALPACA_API_KEY", resolved)
-                self.assertNotIn("SHARADAR_API_KEY", resolved)
+                self.assertNotIn(RETIRED_KEY, resolved)
                 self.assertNotIn("NDL_BASE_URL", resolved)
 
     def test_file_size_and_line_size_bounds(self):
@@ -367,7 +368,7 @@ class EnvHarness(unittest.TestCase):
     def shell_repo(self):
         scripts = self.root / "scripts"
         scripts.mkdir(exist_ok=True)
-        for name in ("sentinel_env.py", "sentinel-env.sh", "sentinel-compose.sh", "sentinel_postgres_helpers.py", "sentinel-autonomous-deploy.sh", "sentinel-go-validate.sh", "sentinel-bringup.sh", "sentinel_lock_ownership.py"):
+        for name in ("sentinel_env.py", "go-archive-format-v1.json", "sentinel-env.sh", "sentinel-compose.sh", "sentinel_postgres_helpers.py", "sentinel-autonomous-deploy.sh", "sentinel-go-validate.sh", "sentinel-bringup.sh", "sentinel_lock_ownership.py"):
             shutil.copyfile(ROOT / "scripts" / name, scripts / name)
         launcher = scripts / "sentinel-autonomous-deploy.sh"
         launcher.write_text(launcher.read_text().replace(
@@ -386,7 +387,7 @@ class EnvHarness(unittest.TestCase):
             (binary / name).write_text(
                 "#!" + sys.executable + "\nimport json, os, sys\nfrom pathlib import Path\n"
                 "Path('effects').open('a').write('" + name + "\\n')\n"
-                "Path('selected.json').write_text(json.dumps({k:v for k,v in os.environ.items() if k.startswith(('SENTINEL_', 'SHARADAR_', 'ALPACA_', 'COMPOSE_'))}))\n"
+                "Path('selected.json').write_text(json.dumps({k:v for k,v in os.environ.items() if k.startswith(('SENTINEL_', 'ALPACA_', 'COMPOSE_', " + repr(env.RETIRED_ENV_PREFIXES[0]) + "))}))\n"
                 + ("if sys.argv[1] == 'symbolic-ref': print('main')\n"
                    "elif sys.argv[1] == 'rev-parse': print('a'*40)\n" if name == "git" else ""))
             (binary / name).chmod(0o700)
@@ -483,17 +484,18 @@ class EnvHarness(unittest.TestCase):
 
     def test_compose_consumes_file_values_literally_and_process_wins(self):
         process = self.shell_repo()
-        values = dict(BASE, SHARADAR_API_KEY="$(touch PWNED); `touch PWNED2` #hash $HOME")
+        values = dict(BASE, **{RETIRED_KEY: "$(touch PWNED); `touch PWNED2` #hash $HOME"})
         self.write(values)
         # Quote the intentional whitespace-prefixed hash.
         self.path.write_text(self.path.read_text().replace(
-            "SHARADAR_API_KEY=" + values["SHARADAR_API_KEY"],
-            "SHARADAR_API_KEY='" + values["SHARADAR_API_KEY"] + "'"))
+            RETIRED_KEY + "=" + values[RETIRED_KEY],
+            RETIRED_KEY + "='" + values[RETIRED_KEY] + "'"))
         process["ALPACA_API_KEY"] = "process-wins"
+        process[RETIRED_KEY] = "ambient-retired-canary"
         result = self.run_shell("sentinel-compose.sh", process, "--run", "up", "-d")
         self.assertEqual(result.returncode, 0, result.stderr)
         selected = json.loads((self.root / "selected.json").read_text())
-        self.assertNotIn("SHARADAR_API_KEY", selected)
+        self.assertNotIn(RETIRED_KEY, selected)
         self.assertEqual(selected["ALPACA_API_KEY"], "process-wins")
         self.assertEqual(selected["SENTINEL_BACKUP_DIR"], BASE["SENTINEL_BACKUP_DIR"])
         self.assertEqual(selected["COMPOSE_DISABLE_ENV_FILE"], "1")
@@ -507,7 +509,7 @@ class EnvHarness(unittest.TestCase):
         process.update(BASE)
         self.write()
         (self.root / "scripts/sentinel_env.py").write_text(
-            "import sys\nsys.stdout.buffer.write(b'SHARADAR_API_KEY=partial\\0')\nraise SystemExit(7)\n")
+            f"import sys\nsys.stdout.buffer.write(b'{RETIRED_KEY}=partial\\0')\nraise SystemExit(7)\n")
         result = self.run_shell("sentinel-compose.sh", process, "--run", "up")
         self.assertEqual(result.returncode, 2)
         self.assertFalse((self.root / "effects").exists())
@@ -1017,7 +1019,7 @@ for key, values in {
     "ALPACA_BASE_URL": ("https://api.alpaca.markets", "https://paper-api.alpaca.markets.evil", "http://paper-api.alpaca.markets", ""),
     "SENTINEL_POSTGRES_PASSWORD": ("has@sign", "has:colon", "has/slash", "has#hash", "has%escape", "has?query", "has space"),
     "SENTINEL_PUBLICATION_RECEIPT_KEY": ("too-short", "replace-with-an-independent-long-random-value"),
-    "SHARADAR_API_KEY": ("line\nbreak", "nul\0byte", "invisible\u200b", "control\x1b"),
+    "ALPACA_SECRET_KEY": ("line\nbreak", "nul\0byte", "invisible\u200b", "control\x1b"),
 }.items():
     for index, value in enumerate(values):
         setattr(EnvHarness, "test_semantic_%s_%d" % (key, index), _semantic_case(key, value, False))

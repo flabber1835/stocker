@@ -52,13 +52,15 @@ class AutonomousDeploy(core.AutonomousDeploy):
         """Read the exact readiness object as JSON without parsing terminal prose."""
         code = r'''
 import json, os
-from sentinel.feed import operational_snapshot, readiness, readers, store
+from sentinel.feed import operational_snapshot, readiness, rolling_go_inputs, store
 c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
 try:
-    result = readers.readiness(c)
-    current = readers.current(c)
-    if readers.is_rolling(current):
+    rolling_go_inputs.require_schemas(c)
+    with rolling_go_inputs.pinned(c) as current:
+        if not rolling_go_inputs.is_rolling(current):
+            raise RuntimeError("ROLLING_PUBLICATION_REQUIRED")
         operational_snapshot.require_alpaca_openfigi(c, current)
+        result = rolling_go_inputs.assessment(c, current)
     readiness.save_snapshot(c, result)
     checks = [
         {'name': item.name, 'status': item.status,
@@ -67,7 +69,7 @@ try:
     ]
     print(json.dumps({
         'ready': bool(result.ready),
-        'rolling': any(item['name'] == 'rolling publication binding' for item in checks),
+        'rolling': True,
         'checks': checks,
         'failures': [item for item in checks if item['status'] == 'FAIL'],
     }, default=str))
@@ -96,161 +98,8 @@ finally:
                     "structured data readiness contains a malformed check")
         return verdict
 
-    def _freshness_wait_requirements(
-            self, verdict: Mapping) -> Optional[Tuple[Tuple[str, ...], int]]:
-        """Return exact vendor evidence needed for retryable staleness.
-
-        A failure merely NAMED freshness is not enough. Calendar-unavailable,
-        anomalous-ahead, and malformed freshness states are not publication lag.
-        The retryable state is a normal, evaluable corpus behind by named closed
-        sessions. The vendor probe deliberately reuses the canonical frontier
-        population minimum already computed by readiness. It never invents a
-        second acceptance threshold; it only decides when one authoritative
-        `feed-daily` attempt is warranted. Full readiness remains the sole policy.
-        """
-        failures = verdict.get("failures") or []
-        if verdict.get("rolling") is True:
-            return ((), 0) if (len(failures) == 1 and
-                failures[0].get("name") == "rolling source-final frontier") else None
-        if (len(failures) != 1
-                or str(failures[0].get("name") or "") != "freshness"):
-            return None
-        value = failures[0].get("value")
-        if not isinstance(value, dict):
-            return None
-        missing = value.get("missing_sessions")
-        if (value.get("evaluable") is not True
-                or value.get("ahead") is True
-                or not isinstance(missing, list)
-                or not missing):
-            return None
-        sessions = tuple(str(item) for item in missing if str(item))
-        if len(sessions) != len(missing) or list(sessions) != sorted(sessions):
-            return None
-
-        population = next(
-            (item for item in (verdict.get("checks") or [])
-             if str(item.get("name") or "") == "frontier population"), None)
-        population_value = (
-            population.get("value") if isinstance(population, dict) else None)
-        minimum = (population_value.get("minimum")
-                   if isinstance(population_value, dict) else None)
-        if (not isinstance(population, dict)
-                or population.get("status") != "PASS"
-                or not isinstance(minimum, int) or minimum <= 0):
-            raise core.DeployRefused(
-                "freshness-only wait has no trustworthy frontier-population floor")
-        return sessions, minimum
-
-    def _vendor_publication_probe(
-            self, sessions: Sequence[str], minimum_rows: int) -> Mapping:
-        """Read-only proof that SEP, TICKERS and SPY cover missing sessions.
-
-        The real ingest refreshes TICKERS before SEP and resolves each price row
-        against that NEW metadata. The NAS exposed why SEP alone is insufficient:
-        roughly one full session of extra SEP rows arrived while the frontier
-        stayed Friday and roughly that many rows were dropped. That is consistent
-        with vendor TICKERS intervals still ending at the old frontier.
-
-        Nasdaq Tables row filters are dataset-specific. Do not make the safety
-        gate depend on an undocumented assumption that Sharadar TICKERS exposes
-        `table` or `lastpricedate` as server-side filters. Request only the narrow
-        TICKERS columns using the standard qopts column selector, paginate the
-        table, then filter `table=SEP` and interval coverage locally. Build a
-        resolver from those current vendor rows and count positive-price SEP rows
-        that resolve for each missing session. A positive finite SPY SFP
-        `closeadj` is required too. Nothing is written.
-        """
-        requested = tuple(str(item) for item in sessions)
-        if not requested or list(requested) != sorted(requested):
-            raise core.DeployRefused(
-                "vendor publication probe sessions are malformed")
-        if not isinstance(minimum_rows, int) or minimum_rows <= 0:
-            raise core.DeployRefused(
-                "vendor publication probe minimum is malformed")
-        code = r'''
-import json, math, sys
-from sentinel.feed import sharadar, universe
-sessions = tuple(x for x in sys.argv[1].split(',') if x)
-targets = set(sessions)
-all_ticker_rows = list(sharadar.fetch_table(sharadar.TICKERS, {
-    'qopts.columns': 'table,permaticker,ticker,firstpricedate,lastpricedate,isdelisted',
-}))
-ticker_rows = []
-for row in all_ticker_rows:
-    if str(row.get('table') or '').strip().upper() != 'SEP':
-        continue
-    last = str(row.get('lastpricedate') or '')[:10]
-    if last and last >= sessions[0]:
-        ticker_rows.append(row)
-resolver = universe.IdentityResolver(universe.listings_from_rows(ticker_rows)).resolve
-seen = {session: set() for session in sessions}
-params = sharadar.date_params(sessions[0], sessions[-1])
-for row in sharadar.fetch_table(sharadar.SEP, params):
-    session = str(row.get('date') or '')
-    if session not in targets:
-        continue
-    ticker = str(row.get('ticker') or '').strip().upper()
-    try:
-        raw = float(row.get('closeunadj'))
-    except (TypeError, ValueError):
-        raw = float('nan')
-    sid = resolver(ticker, session) if ticker else None
-    if sid is not None and math.isfinite(raw) and raw > 0:
-        seen[session].add(str(sid))
-spy = set()
-spy_params = {'ticker': 'SPY', **params}
-for row in sharadar.fetch_table(sharadar.SFP, spy_params):
-    session = str(row.get('date') or '')
-    if session not in targets:
-        continue
-    try:
-        value = float(row.get('closeadj'))
-    except (TypeError, ValueError):
-        value = float('nan')
-    if math.isfinite(value) and value > 0:
-        spy.add(session)
-print(json.dumps({
-    'ticker_rows_total': len(all_ticker_rows),
-    'sep_ticker_rows_reaching_window': len(ticker_rows),
-    'sep_resolved_positive_securities': {s: len(seen[s]) for s in sessions},
-    'spy_sessions': sorted(spy),
-}))
-'''.strip()
-        result = self.runner.run(self.base_compose + [
-            "--profile", "cli", "run", "--rm", "-T",
-            "--entrypoint", "python", "sentinel", "-c", code,
-            ",".join(requested)], capture=True)
-        probe = core._json_output(result, label="Sharadar publication probe")
-        counts = probe.get("sep_resolved_positive_securities")
-        spy = probe.get("spy_sessions")
-        ticker_rows_total = probe.get("ticker_rows_total")
-        sep_ticker_rows = probe.get("sep_ticker_rows_reaching_window")
-        if (not isinstance(counts, dict) or not isinstance(spy, list)
-                or not isinstance(ticker_rows_total, int)
-                or ticker_rows_total < 0
-                or not isinstance(sep_ticker_rows, int)
-                or sep_ticker_rows < 0
-                or set(counts) != set(requested)
-                or any(not isinstance(counts[s], int) or counts[s] < 0
-                       for s in requested)):
-            raise core.DeployRefused(
-                "Sharadar publication probe returned malformed evidence")
-        ready = (
-            all(counts[session] >= minimum_rows for session in requested)
-            and set(spy) == set(requested))
-        return {
-            "ready": ready,
-            "minimum_resolved_positive_securities": minimum_rows,
-            "vendor_ticker_rows_total": ticker_rows_total,
-            "vendor_sep_ticker_rows_reaching_window": sep_ticker_rows,
-            "sep_resolved_positive_securities": {
-                s: counts[s] for s in requested},
-            "spy_sessions": sorted(str(item) for item in spy),
-        }
-
     def _write_deployment_state(self, state: str, *, attempt: int,
-                                failures, vendor_probe=None) -> None:
+                                failures) -> None:
         """Retain the staged/waiting fact beside the deployment evidence."""
         payload = {
             "schema": core.DEPLOY_SCHEMA,
@@ -260,8 +109,6 @@ print(json.dumps({
             "attempt": int(attempt),
             "failures": list(failures or []),
         }
-        if vendor_probe is not None:
-            payload["vendor_probe"] = dict(vendor_probe)
         path = self.attempt_dir / "deployment-state.json"
         temporary = self.attempt_dir / "deployment-state.json.tmp"
         temporary.write_text(
@@ -286,163 +133,17 @@ print(json.dumps({
             str(item.get("name") or "UNKNOWN") for item in failures)
         raise core.DeployRefused("%s: %s" % (reason, names or "UNKNOWN"))
 
-    def _wait_for_data(self, *, deadline: float) -> None:
-        """Wait until the current corpus is ready, without repeated full ingests."""
-        if getattr(self, "_operational_source_only", False):
-            raise core.DeployRefused(
-                "operational install cannot wait for its quiesced shadow "
-                "publisher; run GO again")
-        attempt = 1
-        previous_positive_frontier = None
-        stable_positive_polls = 0
-        while True:
-            self._assert_wait_fence()
-            verdict = self._readiness_verdict()
-            if verdict.get("ready") is True:
-                self._base_cli(["check-data"])
-                self._write_deployment_state(
-                    "DATA_READY", attempt=attempt, failures=[])
-                return
-            requirements = self._freshness_wait_requirements(verdict)
-            if requirements is None:
-                self._refuse_data_readiness(
-                    verdict, attempt=attempt,
-                    reason="data readiness left the retryable "
-                           "vendor-publication state")
-            sessions, minimum_rows = requirements
-            failures = verdict.get("failures") or []
-            detail = str(
-                failures[0].get("detail") or "freshness is not current")
-            probe = self._vendor_publication_probe(sessions, minimum_rows)
-
-            frontier = tuple(
-                (session,
-                 probe["sep_resolved_positive_securities"][session])
-                for session in sessions)
-            positive_frontier = bool(frontier) and all(
-                count > 0 for _session, count in frontier)
-            signature = (tuple(sessions), frontier)
-            if positive_frontier:
-                if signature == previous_positive_frontier:
-                    stable_positive_polls += 1
-                else:
-                    previous_positive_frontier = signature
-                    stable_positive_polls = 1
-            else:
-                previous_positive_frontier = None
-                stable_positive_polls = 0
-            stabilized = (
-                stable_positive_polls >= _PUBLICATION_STABILIZATION_POLLS)
-            trigger_authoritative_readiness = (
-                probe.get("ready") is True or stabilized)
-            probe = dict(probe)
-            probe["stable_positive_polls"] = stable_positive_polls
-            probe["stabilized"] = stabilized
-            probe["trigger_authoritative_readiness"] = (
-                trigger_authoritative_readiness)
-            self._write_deployment_state(
-                "WAITING_FOR_DATA", attempt=attempt, failures=failures,
-                vendor_probe=probe)
-
-            print("\nDEPLOYMENT STAGED: WAITING_FOR_DATA", flush=True)
-            print("  automation: disabled and kill switch engaged", flush=True)
-            print("  reason: %s" % detail, flush=True)
-            counts = ", ".join(
-                "%s=%d/%d" % (
-                    session,
-                    probe["sep_resolved_positive_securities"][session],
-                    minimum_rows) for session in sessions)
-            print("  vendor TICKERS rows total: %d; SEP reaching window: %d" %
-                  (probe["vendor_ticker_rows_total"],
-                   probe["vendor_sep_ticker_rows_reaching_window"]), flush=True)
-            print("  vendor resolved SEP: %s" % counts, flush=True)
-            print("  vendor SPY sessions: %s" %
-                  (", ".join(probe["spy_sessions"]) or "none"), flush=True)
-            if stabilized and probe.get("ready") is not True:
-                print(
-                    "  vendor SEP frontier stable across %d positive polls; "
-                    "running authoritative ingest/readiness" %
-                    _PUBLICATION_STABILIZATION_POLLS, flush=True)
-
-            if trigger_authoritative_readiness:
-                self._base_cli(["feed-daily"])
-                verdict = self._readiness_verdict()
-                if verdict.get("ready") is True:
-                    self._base_cli(["check-data"])
-                    self._write_deployment_state(
-                        "DATA_READY", attempt=attempt, failures=[])
-                    print(
-                        "  data readiness recovered; continuing the same "
-                        "deployment attempt", flush=True)
-                    return
-                self._refuse_data_readiness(
-                    verdict, attempt=attempt,
-                    reason="Sharadar publication trigger fired but the corpus "
-                           "remained unready after ingest")
-
-            remaining = int(max(0, deadline - time.monotonic()))
-            if remaining <= 0:
-                raise core.DeployRefused(
-                    "timed out waiting for current Sharadar data; automation "
-                    "remains fenced")
-            sleep_for = min(self.cfg.data_retry_seconds, remaining)
-            print(
-                "  probing vendor again in %ds (wait budget %ds)" %
-                (sleep_for, remaining), flush=True)
-            time.sleep(sleep_for)
-            attempt += 1
-
     def refresh_data(self) -> None:
-        """Refresh once, or wait read-only through ordinary post-close lag."""
-        self.phase("data: current daily ingest and full readiness contract")
-        deadline = time.monotonic() + self.cfg.data_wait_timeout_seconds
+        """The installation owner may renew inputs only under its durable fence."""
         self._assert_wait_fence()
         verdict = self._readiness_verdict()
-        requirements = self._freshness_wait_requirements(verdict)
-
-        if getattr(self, "_operational_source_only", False):
-            if verdict.get("rolling") is not True:
-                raise core.DeployRefused(
-                    "operational deployment requires rolling Alpaca inputs")
-            if verdict.get("ready") is not True:
-                self._refuse_data_readiness(
-                    verdict, attempt=1,
-                    reason="rolling GO publication is not ready while the "
-                           "shadow publisher is quiesced; run GO again")
-            self._base_cli(["check-data"])
-            self.runner.run(self.base_compose + ["up", "-d", "sentinel-panel"])
-            self._write_deployment_state("DATA_READY", attempt=1, failures=[])
-            return
-
-        if verdict.get("rolling") is True:
-            if verdict.get("ready") is not True:
-                self._refuse_data_readiness(
-                    verdict, attempt=1,
-                    reason="rolling inputs require authenticated source-final preparation")
-            self._base_cli(["check-data"])
-            self.runner.run(self.base_compose + ["up", "-d", "sentinel-panel"])
-            self._write_deployment_state("DATA_READY", attempt=1, failures=[])
-            return
-
-        if requirements is None:
-            self._base_cli(["feed-daily"])
-            verdict = self._readiness_verdict()
-            if verdict.get("ready") is True:
-                self._base_cli(["check-data"])
-                self.runner.run(
-                    self.base_compose + ["up", "-d", "sentinel-panel"])
-                self._write_deployment_state(
-                    "DATA_READY", attempt=1, failures=[])
-                return
-            requirements = self._freshness_wait_requirements(verdict)
-            if requirements is None:
-                self._refuse_data_readiness(
-                    verdict, attempt=1,
-                    reason="current data readiness failed outside the "
-                           "retryable vendor-publication state")
-
+        if verdict.get("rolling") is not True:
+            raise core.DeployRefused("operational deployment requires rolling Alpaca inputs")
+        if verdict.get("ready") is not True:
+            self._refuse_data_readiness(verdict, attempt=1, reason="rolling GO publication is not ready")
+        self._base_cli(["check-data"])
         self.runner.run(self.base_compose + ["up", "-d", "sentinel-panel"])
-        self._wait_for_data(deadline=deadline)
+        self._write_deployment_state("DATA_READY", attempt=1, failures=[])
 
     def _verify_signing_key_is_trusted(self) -> None:
         """Before transition, prove the private key itself matches an ACTIVE root."""
@@ -608,12 +309,8 @@ c.rollback(); c.close()
     def rotate_observation_authority(self) -> Tuple[str, str]:
         verdict = self._readiness_verdict()
         if verdict.get("ready") is not True:
-            if self._freshness_wait_requirements(verdict) is None:
-                self._refuse_data_readiness(
-                    verdict, attempt=1,
-                    reason="data readiness changed before authority creation")
-            deadline = time.monotonic() + self.cfg.data_wait_timeout_seconds
-            self._wait_for_data(deadline=deadline)
+            self._refuse_data_readiness(
+                verdict, attempt=1, reason="data readiness changed before authority creation")
         result = super().rotate_observation_authority()
         predecessor_key = self.predecessor_key_id
         if (self.cfg.revoke_previous_signing_key and predecessor_key

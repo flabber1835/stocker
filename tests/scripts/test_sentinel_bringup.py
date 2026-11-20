@@ -23,44 +23,6 @@ sys.modules[spec.name] = bringup
 spec.loader.exec_module(bringup)
 
 
-def test_base_source_final_deferred_is_non_authoritative_without_overlay():
-    decision = bringup.source_decision({
-        "status": "DEFERRED",
-        "reason_code": "SHARADAR_SOURCE_NOT_FINAL",
-    })
-    assert decision.proceed is False
-    assert decision.reason_code == "SHARADAR_SOURCE_NOT_FINAL"
-
-
-def test_local_recovery_required_may_handoff_to_go():
-    decision = bringup.source_decision({
-        "status": "RECOVERY_REQUIRED",
-        "reason_code": "LOCAL_DATA_PREPARATION_REQUIRED",
-    })
-    assert decision.proceed is True
-
-
-def test_clean_liveness_pass_may_handoff_to_go():
-    decision = bringup.source_decision({
-        "status": "PASS",
-        "reason_code": "SHARADAR_LIVENESS_OK",
-    })
-    assert decision.proceed is True
-
-
-def test_refused_source_liveness_blocks():
-    decision = bringup.source_decision({
-        "status": "REFUSED",
-        "reason_code": "SHARADAR_LIVENESS_UNAVAILABLE",
-    })
-    assert decision.proceed is False
-
-
-def test_unknown_source_state_fails_closed():
-    with pytest.raises(bringup.BringupRefused):
-        bringup.source_decision({"status": "MAYBE", "reason_code": "UNKNOWN"})
-
-
 def _backup_status(code: str, *, returncode: int = 4):
     return subprocess.CompletedProcess(
         ["bash", "scripts/sentinel-backup-status.sh"],
@@ -97,7 +59,7 @@ def test_unclassified_backup_failure_fails_closed():
 def test_launcher_uses_go_lifecycle_lock_but_never_runs_certification_or_recovery():
     source = LAUNCHER.read_text(encoding="utf-8")
     assert "scripts/sentinel_go_lock.py" in source
-    assert "scripts/sentinel_bringup_install_anytime.py" in source
+    assert "scripts/sentinel_bringup.py" in source
     assert 'phase "LOCAL DURABILITY + IMAGE"' in source
     assert "sentinel-go-validate.sh" not in "\n".join(
         line for line in source.splitlines()
@@ -136,31 +98,10 @@ def test_recover_flag_is_compatibility_only_and_go_owns_recovery():
     assert "Alpaca/OpenFIGI acquisition, rolling publication" in source
 
 
-def test_fast_liveness_has_hard_diagnostic_fetch_budgets():
-    source = MODULE.read_text(encoding="utf-8")
-    assert 'run_env["SHARADAR_FETCH_TIMEOUT"] = "15"' in source
-    assert 'run_env["SHARADAR_FETCH_RETRIES"] = "2"' in source
-    assert 'run_env["SHARADAR_429_BACKOFF_CAP"] = "15"' in source
-    assert 'run_env["SHARADAR_FETCH_MAX_PAGES"] = "2"' in source
-
-
-def test_liveness_probe_cannot_drift_into_certification_scale_source_work():
-    source = LIVENESS.read_text(encoding="utf-8")
-    forbidden = (
-        "_stable_rows",
-        "CanonicalSourceFetch",
-        "SepUpdateEnvelope",
-        "identity_refresh",
-        "HistoricalIdentityMutation",
-        "sharadar.TICKERS",
-        "sentinel_go_24x7_entry",
-        "_deployment_preparation_probe",
-    )
-    for token in forbidden:
-        assert token not in source
-    assert "'ticker': 'AAPL'" in source
-    assert "'ticker': 'SPY'" not in source
-    assert "dt.timedelta(days=14)" in source
+def test_source_report_does_not_grant_network_or_broker_authority():
+    source = MODULE.read_text()
+    assert "_source_liveness_report" not in source
+    assert "go._with_market_data_authority" not in source
 
 
 def test_repairable_backup_handoff_reuses_certified_go_classifier():

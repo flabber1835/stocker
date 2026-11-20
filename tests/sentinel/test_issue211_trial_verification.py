@@ -1,6 +1,8 @@
 """Issue #211 — financial green is an earned, immutable session fact."""
 from __future__ import annotations
 
+from sentinel import archive_identifiers as archive_ids
+
 import json
 import hashlib
 from datetime import date, datetime, timedelta, timezone
@@ -1438,7 +1440,7 @@ def test_success_certificate_binds_strategy_evidence_and_split_target(
         "accrued_session": effective_session.isoformat(), "shares": "12",
         "per_share": "0.25", "amount": "3.00",
         "reported_per_share": "0.25", "source_row_ids": ["action-bil"],
-        "source": "SHARADAR_ACTIONS", "settlement_lag_sessions": None,
+        "source": archive_ids.TRIAL_ACTIONS, "settlement_lag_sessions": None,
     }
     monkeypatch.setattr(
         trial, "_expected_effective_equity_dividends", lambda *_: [])

@@ -1,4 +1,4 @@
-"""Sharadar cross-table coherence and historical-seed authority.
+"""Source cross-table coherence and historical-seed authority.
 
 Issue #177 established that a successful table traversal is not publication
 proof. This module adds the remaining source contracts without changing that
@@ -7,7 +7,7 @@ seed chunks are validated session-by-session before any row can reach the
 candidate ingest.
 
 The authoritative design, field list, and historical calibration live in
-``docs/sharadar-publication-authority.md``.
+``docs/archive_tables-publication-authority.md``.
 """
 from __future__ import annotations
 
@@ -235,7 +235,7 @@ def assert_tickers_metadata(rows: Iterable[Mapping]) -> list[Mapping]:
     relevant = _sep_ticker_rows(rows)
     if not relevant:
         raise TickerMetadataIncomplete(
-            "Sharadar TICKERS exposed no table=SEP rows; source partition "
+            "Source TICKERS exposed no table=SEP rows; source partition "
             "authority is missing or incomplete")
 
     total = len(relevant)
@@ -244,7 +244,7 @@ def assert_tickers_metadata(rows: Iterable[Mapping]) -> list[Mapping]:
         share = present / total
         if share < minimum:
             raise TickerMetadataIncomplete(
-                f"Sharadar TICKERS SEP {label} is present on "
+                f"source TICKERS SEP {label} is present on "
                 f"{present:,}/{total:,} rows ({share:.4%}); source authority "
                 f"requires at least {minimum:.2%}")
     return relevant
@@ -275,7 +275,7 @@ def assert_daily_sep_listing_population(
         }
         if not expected:
             raise SepListingPopulationIncomplete(
-                f"Sharadar TICKERS predicts no SEP listings for observed "
+                f"source TICKERS predicts no SEP listings for observed "
                 f"session {session}; source tables disagree on the frontier")
         got = {str(t).upper() for t in observed[session] if str(t).strip()}
         present = len(got.intersection(expected))
@@ -285,7 +285,7 @@ def assert_daily_sep_listing_population(
             sample = ", ".join(missing[:8])
             suffix = (f" (+{len(missing) - 8} more)" if len(missing) > 8 else "")
             raise SepListingPopulationIncomplete(
-                f"Sharadar SEP {session} contains {present:,}/{len(expected):,} "
+                f"source SEP {session} contains {present:,}/{len(expected):,} "
                 f"tickers ({coverage:.3%}) whose same stable TICKERS listing "
                 f"interval says they should be priced; source authority requires "
                 f"at least {minimum:.1%}. Missing: {sample}{suffix}. Two "
@@ -298,14 +298,14 @@ def assert_seed_history(sessions: Mapping[str, SeedSessionCounts], *,
     """Validate one full historical SEP chunk before any row is replayed."""
     if not sessions:
         raise SeedHistoryIncomplete(
-            f"Sharadar SEP seed {date_from}..{date_to} returned no sessions")
+            f"source SEP seed {date_from}..{date_to} returned no sessions")
 
     expected = list(calendar.sessions_in_range(date_from, date_to))
     missing = [session for session in expected if session not in sessions]
     if missing:
         sample = ", ".join(missing[:5])
         raise SeedHistoryIncomplete(
-            f"Sharadar SEP seed {date_from}..{date_to} is missing "
+            f"source SEP seed {date_from}..{date_to} is missing "
             f"{len(missing)} exchange session(s): {sample}")
 
     domains = (
@@ -319,7 +319,7 @@ def assert_seed_history(sessions: Mapping[str, SeedSessionCounts], *,
         counts = sessions[session]
         if counts.rows < MIN_SEED_SESSION_ROWS:
             raise SeedHistoryIncomplete(
-                f"Sharadar SEP seed {session} contains only {counts.rows:,} "
+                f"source SEP seed {session} contains only {counts.rows:,} "
                 f"rows; calibrated full-source floor is "
                 f"{MIN_SEED_SESSION_ROWS:,}")
         for label, attr, minimum in domains:
@@ -327,7 +327,7 @@ def assert_seed_history(sessions: Mapping[str, SeedSessionCounts], *,
             share = present / counts.rows
             if share < minimum:
                 raise SeedHistoryIncomplete(
-                    f"Sharadar SEP seed {session} {label} is present/resolved "
+                    f"source SEP seed {session} {label} is present/resolved "
                     f"on {present:,}/{counts.rows:,} rows ({share:.1%}); "
                     f"requires at least {minimum:.0%}")
 
@@ -344,12 +344,12 @@ def assert_seed_history(sessions: Mapping[str, SeedSessionCounts], *,
         ratio = populations[i] / median if median else 1.0
         if ratio < MIN_SEED_LOCAL_POPULATION_RATIO:
             raise SeedHistoryIncomplete(
-                f"Sharadar SEP seed {session} population {populations[i]:,} "
+                f"source SEP seed {session} population {populations[i]:,} "
                 f"is {ratio:.1%} of its local median {median:,.1f}; calibrated "
                 f"source floor is {MIN_SEED_LOCAL_POPULATION_RATIO:.0%}")
 
 
-class StableSharadarFetch(authority.StableSharadarFetch):
+class StableTableFetch(authority.StableTableFetch):
     """Issue-177 stability plus TICKERS/SFP bracketing and seed validation."""
 
     def __init__(self, fetch, *, protect_sep=None,
@@ -386,9 +386,9 @@ class StableSharadarFetch(authority.StableSharadarFetch):
         self._sfp_kwargs = None
 
     def __call__(self, table, params=None, **kwargs):
-        from sentinel.feed import sharadar
+        from sentinel.feed import archive_tables
 
-        if table == sharadar.TICKERS:
+        if table == archive_tables.TICKERS:
             if self._tickers_first is not None:
                 raise RuntimeError(
                     "TICKERS was requested again before corroboration")
@@ -407,7 +407,7 @@ class StableSharadarFetch(authority.StableSharadarFetch):
             self._seed_resolver = universe.IdentityResolver(listings)
             return relevant
 
-        if table == sharadar.SFP:
+        if table == archive_tables.SFP:
             if self._sfp_first is not None:
                 raise RuntimeError("SFP was requested again before corroboration")
             rows = list(self._fetch(table, params, **kwargs))
@@ -418,13 +418,13 @@ class StableSharadarFetch(authority.StableSharadarFetch):
 
         params = params or {}
         rows = super().__call__(table, params, **kwargs)
-        if table == sharadar.ACTIONS and self._tickers_rows is not None:
+        if table == archive_tables.ACTIONS and self._tickers_rows is not None:
             from sentinel.feed.symbol_identity import RENAME_TYPES, SymbolProjection
             if self._identity_fetch is not None:
                 expected = [row for row in self._identity_actions
                             if params["date.gte"] <= str(row["date"]) <= params["date.lte"]]
                 actual = [row for row in rows if row.get("action") in RENAME_TYPES]
-                authority.require_stable(sharadar.ACTIONS, authority.observe_actions(expected),
+                authority.require_stable(archive_tables.ACTIONS, authority.observe_actions(expected),
                                          authority.observe_actions(actual))
             self.identity_projection = SymbolProjection(
                 self._tickers_rows, (*self._identity_actions, *rows),
@@ -433,7 +433,7 @@ class StableSharadarFetch(authority.StableSharadarFetch):
             self._seed_resolver = self.identity_projection.resolver()
             self._tickers_listings = tuple(universe.listings_from_rows(
                 (*self._tickers_rows, *self.identity_projection.alias_rows)))
-        if table != sharadar.SEP:
+        if table != archive_tables.SEP:
             return rows
 
         if (self._protect_sep(params)
@@ -448,17 +448,17 @@ class StableSharadarFetch(authority.StableSharadarFetch):
         return self._validated_seed_replay(rows, params)
 
     def _require_reference_sources_stable(self) -> None:
-        from sentinel.feed import sharadar
+        from sentinel.feed import archive_tables
         if self._identity_fetch is not None:
             from sentinel.feed.symbol_identity import stable_rename_rows
             current = stable_rename_rows(self._identity_fetch, through=self._identity_through)
-            authority.require_stable(sharadar.ACTIONS,
+            authority.require_stable(archive_tables.ACTIONS,
                                      authority.observe_actions(self._identity_actions),
                                      authority.observe_actions(current))
 
         if self._tickers_first is not None:
             rows = list(self._fetch(
-                sharadar.TICKERS, dict(self._tickers_params or {}),
+                archive_tables.TICKERS, dict(self._tickers_params or {}),
                 **dict(self._tickers_kwargs or {})))
             relevant = assert_tickers_metadata(rows)
             authority.require_stable(
@@ -469,7 +469,7 @@ class StableSharadarFetch(authority.StableSharadarFetch):
 
         if self._sfp_first is not None:
             rows = list(self._fetch(
-                sharadar.SFP, dict(self._sfp_params or {}),
+                archive_tables.SFP, dict(self._sfp_params or {}),
                 **dict(self._sfp_kwargs or {})))
             authority.require_stable("SFP", self._sfp_first, observe_sfp(rows))
             self._sfp_first = None

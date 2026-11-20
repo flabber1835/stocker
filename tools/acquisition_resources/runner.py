@@ -98,8 +98,8 @@ def run(args):
                 "--memory", str(limit), "--memory-swap", str(limit), "--cpus", str(args.worker_cpus),
                 "--mount", f"type=volume,src={volumes[1]},dst=/var/lib/sentinel",
                 "-e", "SENTINEL_STATE_DIR=/var/lib/sentinel",
-                "-e", "NDL_BASE_URL=http://provider:8080/api/v3/datatables/SHARADAR",
-                "-e", "SHARADAR_ALLOW_INSECURE_BASE_URL=1", "-e", "SHARADAR_API_KEY=resource-fixture-only",
+                "-e", "ALPACA_API_KEY=fixture-data-id", "-e", "ALPACA_SECRET_KEY=fixture-data-secret",
+                "-e", "OPENFIGI_API_KEY=fixture-mapping",
                 "-e", "RESOURCE_DSN=postgresql://postgres:resource-fixture-only@database/postgres",
                 image, "-u", "-m", "tools.acquisition_resources.worker", "--profile", args.profile,
                 "--cycles", str(args.cycles))

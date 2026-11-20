@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from sentinel import archive_identifiers as archive_ids
+
 import contextlib
 import datetime as dt
 from types import SimpleNamespace
@@ -19,7 +21,7 @@ def _proof(rows, key="a", value="b"):
 
 def test_public_sep_wrapper_refuses_cursor_after_frozen_ceiling(monkeypatch):
     cursor = maintenance.SourceCursor(
-        kind="sharadar-sep-lastupdated/v1",
+        kind=archive_ids.FEED['SEP_WATERMARK_KIND'],
         processed_through=dt.date(2026, 9, 7),
         publication_version=12)
     monkeypatch.setattr(maintenance, "load_sep_cursor", lambda conn: cursor)
@@ -28,7 +30,7 @@ def test_public_sep_wrapper_refuses_cursor_after_frozen_ceiling(monkeypatch):
         lambda *a, **k: (_ for _ in ()).throw(
             AssertionError("stronger cursor must terminate in public wrapper")))
 
-    with pytest.raises(maintenance.SharadarMutationRefused, match="ahead of"):
+    with pytest.raises(maintenance.SourceMutationRefused, match="ahead of"):
         source_authority.reconcile_sep_mutations(
             object(), fetch=object(), through="2026-09-06", reobserve_equal=True)
 
@@ -36,7 +38,7 @@ def test_public_sep_wrapper_refuses_cursor_after_frozen_ceiling(monkeypatch):
 def test_daily_reuses_one_frozen_source_ceiling_for_rotation_and_sep(monkeypatch):
     conn = object()
     cursor = maintenance.SourceCursor(
-        kind="sharadar-sep-lastupdated/v1",
+        kind=archive_ids.FEED['SEP_WATERMARK_KIND'],
         processed_through=dt.date(2026, 9, 6),
         publication_version=12)
     progress = SimpleNamespace(run_id="daily-run")
@@ -53,7 +55,7 @@ def test_daily_reuses_one_frozen_source_ceiling_for_rotation_and_sep(monkeypatch
     monkeypatch.setattr(
         ingest.feed_store, "latest_visible_session", lambda _conn: "2026-09-04")
     monkeypatch.setattr(
-        ingest.source_authority, "StableSharadarFetch",
+        ingest.source_authority, 'StableTableFetch',
         lambda fetch, **kwargs: fetch)
     monkeypatch.setattr(
         ingest.recovery, "extended_overlap_days", lambda _conn, days: days)

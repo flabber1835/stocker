@@ -37,7 +37,7 @@ and explain remaining references; remove obsolete active instructions and
 credentials from CI rather than manufacturing a migration or destroying data.
 Remove obsolete credential prerequisites from active host and paper runbooks;
 their source requirements must agree with the current environment validator.
-For example, `data/sharadar/source-corrections-v1.json`, published feed/schema
+For example, `data/market-history/source-corrections-v1.json`, published feed/schema
 identifiers and the shared normalization API remain compatibility inputs. Tests
 that prove retired credentials are rejected or stripped also remain necessary.
 New software evidence names current Alpaca/OpenFIGI provider qualification

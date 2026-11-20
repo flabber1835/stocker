@@ -118,7 +118,7 @@ def test_script_process_can_load_production_session_calendar(tmp_path):
     completed = subprocess.run(
         [sys.executable, "-c",
          "import runpy,sys; h=runpy.run_path(sys.argv[1]); "
-         "assert len(h['_session_days']()) >= 427", str(PATH)],
+         "assert h['_latest_closed_session']().isoformat()", str(PATH)],
         cwd=tmp_path, env=env, text=True, capture_output=True, timeout=30,
         check=False,
     )
@@ -155,6 +155,7 @@ def test_full_go_budget_covers_measured_work_and_preserves_refusal(monkeypatch):
 
     monkeypatch.setattr(harness, '_bootstrap_financial_fixture',
                         lambda: prepared.append(True))
+    monkeypatch.setattr(harness, '_fixture_cli', contextlib.nullcontext)
     monkeypatch.setattr(observability, '_streaming_run', replay_timing)
     assert harness._invoke().returncode == 0
     assert prepared == [True]
@@ -173,201 +174,31 @@ def test_full_go_budget_covers_measured_work_and_preserves_refusal(monkeypatch):
     assert int(matched[2]) == 180
 
 
-def test_fixture_pages_satisfy_consumed_sharadar_protocol():
-    required = {
-        "SEP": {"ticker", "date", "open", "close", "closeunadj", "volume", "lastupdated"},
-        "SFP": {"ticker", "date", "open", "close", "closeadj", "closeunadj"},
-        "ACTIONS": {"date", "action", "ticker", "name", "value", "contraticker", "contraname"},
-        "TICKERS": {"table", "permaticker", "ticker", "category", "relatedtickers",
-                    "firstpricedate", "lastpricedate", "sector", "isdelisted", "exchange"},
-    }
-    day = harness._latest_closed_session().isoformat()
-    for table in required:
-        page = harness._payload(table, {"date": [day]})
-        names = [item["name"] for item in page["datatable"]["columns"]]
-        assert required[table].issubset(names)
-        assert page["meta"] == {"next_cursor_id": None}
-        assert all(len(row) == len(names) for row in page["datatable"]["data"])
-
-
-def test_fixture_vendor_clock_is_bound_to_latest_closed_session(monkeypatch):
-    closed = dt.date(2026, 9, 11)
-    monkeypatch.setattr(harness, "_latest_closed_session", lambda: closed)
-    monkeypatch.setattr(harness, "_session_days", lambda: (closed,))
-
-    sep = harness._payload("SEP", {"ticker": ["SPY"]})["datatable"]["data"]
-    tickers = harness._payload("TICKERS", {})["datatable"]["data"]
-
-    assert sep[0][harness.SEP_COLUMNS.index("lastupdated")] == closed.isoformat()
-    assert tickers[0][harness.TICKER_COLUMNS.index("lastupdated")] == closed.isoformat()
-
-
-def test_fixture_supplies_an_issuer_key_for_every_security():
-    rows = harness._payload("TICKERS", {})["datatable"]["data"]
-    related = harness.TICKER_COLUMNS.index("relatedtickers")
-
-    assert len(rows) == len(harness.TICKERS)
-    assert all(row[related] == row[harness.TICKER_COLUMNS.index("ticker")]
-               for row in rows)
-
-
-def test_fixture_supplies_seed_reference_tickers():
-    page = harness._payload("SFP", {"ticker": ["SPY,BIL"]})
-    assert {row[0] for row in page["datatable"]["data"]} == {"SPY", "BIL"}
-
-
-def test_fixture_is_large_enough_for_readiness_history():
-    page = harness._payload("SEP", {"ticker": ["SPY"]})
-    by_spy = [row for row in page["datatable"]["data"] if row[0] == "SPY"]
-    assert len(by_spy) >= 427
-    assert len({row[1] for row in by_spy}) >= 427
-
-
-def test_fixture_supports_the_current_cash_adjudication_migration(monkeypatch):
-    import datetime as dt
-    from decimal import Decimal
-    from sentinel.feed import actions, actions_reconcile_v7
-    monkeypatch.setattr(harness, "_session_days", lambda: tuple(
-        dt.date(2026, 5, day) for day in (1, 4, 5)))
-    payload = harness._payload("ACTIONS", {})["datatable"]
-    columns = [item["name"] for item in payload["columns"]]
-    rows = [{**dict(zip(columns, row)), "source_row_id": f"fixture-source-{i}"}
-            for i, row in enumerate(payload["data"])]
-    monkeypatch.setattr(actions, "active_rows", lambda *_a, **_k: rows)
-
-    class Connection:
-        def cursor(self):
-            return self
-        def __enter__(self):
-            return self
-        def __exit__(self, *_args):
-            pass
-        def execute(self, sql, params):
-            assert params[:2] == ("TRI", "2026-05-04")
-        def fetchall(self):
-            return [("fixture-TRI", Decimal("1.435518"))]
-
-    audit = actions_reconcile_v7._cash_adjudication_audit(
-        Connection(), run_id="fixture", dates=["2026-05-04"],
-        windows=[("2026-05-01", "2026-05-05")])
-    assert len(audit) == 1
-    assert audit[0]["source_amount"] == "1.36"
-    assert audit[0]["normalized_bar_dividend_per_share"] == "1.435518"
-    assert "TRI" in harness.TICKERS
-    assert len(harness.TICKERS) == 4_000
-
-
-def test_fixture_represents_the_complete_tri_cash_and_consolidation(monkeypatch):
-    import datetime as dt
-    from decimal import Decimal
-    from sentinel.feed import actions_map, corporate_action_authority as authority
-    from sentinel.feed.domains import normalise_sep_rows
-
-    days = tuple(dt.date(2026, 5, day) for day in (1, 4, 5))
-    monkeypatch.setattr(harness, "_session_days", lambda: days)
-
-    def records(table):
-        payload = harness._payload(table, {})["datatable"]
-        names = [item["name"] for item in payload["columns"]]
-        return [dict(zip(names, row)) for row in payload["data"]]
-
-    sep = [row for row in records("SEP") if row["ticker"] == "TRI"]
-    actions = records("ACTIONS")
-    sessions = [day.isoformat() for day in days]
-    splits, ambiguous = actions_map.split_rows_from_actions(actions, sessions)
-    resolved = authority.resolve_dividends(actions, sessions)
-    normalized = list(normalise_sep_rows(
-        sep, resolve_identity=lambda *_args: "TRI",
-        authoritative_splits=splits, dividends=resolved.dividends))
-    event = next(row.vendor for row in normalized
-                 if row.vendor.session == "2026-05-04")
-
-    assert not ambiguous
-    assert event.split_ratio == pytest.approx(0.984560)
-    assert event.dividend_per_share == pytest.approx(
-        float(Decimal("1.435518") / Decimal("0.984560")))
-
-
-@pytest.mark.parametrize("action,expected", [
-    ("dividend", {"dividend"}), ("split", {"split"}),
-    ("dividend,split", {"dividend", "split"}),
-    ("tickerchangeto,tickerchangefrom", set()),
-])
-def test_fixture_action_filter_preserves_the_complete_unfiltered_table(monkeypatch, action, expected):
-    monkeypatch.setattr(harness, "_session_days", lambda: (
-        dt.date(2026, 5, 1), dt.date(2026, 5, 4), dt.date(2026, 5, 5)))
-    for export in (False, True):
-        options = {"qopts.export": ["true"]} if export else {}
-        complete = harness._payload("ACTIONS", options)["datatable"]["data"]
-        selected = harness._payload("ACTIONS", {**options, "action": [action]})["datatable"]["data"]
-        assert {row[1] for row in complete} == {"relation", "dividend", "split"}
-        assert {row[1] for row in selected} == expected
-        assert selected == [row for row in complete if row[1] in expected]
-
-
-@pytest.mark.parametrize("publish_selection", [True, False], ids=["selected", "stale"])
-def test_bootstrapped_fixture_leaves_a_bounded_real_backup_authority(
-        monkeypatch, tmp_path, publish_selection):
-    from sentinel import backup_runtime_authority as authority
-    from tests.backup.lab import Database, Media, SEGMENT_SIZE, wal_name
-
-    world = Database(Media(tmp_path / "media"))
-    monkeypatch.setenv(authority.AUTHORITY_ENV, authority.AUTHORITY_VALUE)
-    # Scale the byte budget, not the production decision, to keep this proof
-    # small. The simulated bulk load exceeds the initial base's restore horizon.
-    monkeypatch.setattr(authority, "RUNTIME_MAX_VERIFIED_BYTES", 4 * SEGMENT_SIZE)
+@pytest.mark.parametrize("initial", ["0", "1", ""])
+def test_cold_go_establishes_real_backup_before_schema_and_requires_empty_history(monkeypatch, tmp_path, initial):
+    calls = []
+    key = 'fixture-receipt-key-'+'1'*32
+    (tmp_path/'.env').write_text('SENTINEL_PUBLICATION_RECEIPT_KEY='+key)
+    monkeypatch.setattr(harness, 'ROOT', tmp_path)
     monkeypatch.setattr(harness, "_FIXTURE_READY", False)
-    monkeypatch.setattr(harness, "SEEDED_PUBLICATION", None)
-    monkeypatch.setattr(harness, "VALIDATED_RUNTIME_POINTER", tmp_path / "selector")
-    monkeypatch.setattr(harness, "_git_head", lambda: "a" * 40)
-    monkeypatch.setattr(harness, "_compose_service_container_id", lambda *_a, **_k: "b" * 64)
-    monkeypatch.setattr(harness, "_publication_identity", lambda **_k: {"version": 1})
-    settings = {"NDL_BASE_URL": "http://fixture.invalid"}
-    monkeypatch.setattr(harness, "_SOURCE_SETTINGS", settings)
-    seeded = False
-    analyzed = False
-
-    def run_host(argv, *, env, timeout):
-        nonlocal seeded, analyzed
-        output = ""
-        if "config" in argv:
-            output = json.dumps({"services": {"sentinel": {"environment": settings}}})
-        elif "feed-seed" in argv:
-            authority.require(world, operation="fixture bulk seed")
-            for index in range(6, 10):
-                world.media.segment(index)
-            world.frontier = wal_name(9)
-            seeded = True
-        elif any("ANALYZE sentinel_bars" in str(item) for item in argv):
-            assert seeded
-            analyzed = True
-        elif "scripts/sentinel-base-backup.sh" in argv and seeded:
-            # A new physical generation moves the required recovery horizon;
-            # old WAL remains retained and never acquires new checksum authority.
-            previous = world.media.backup
-            world.media.backup = world.media.base / "base-20260910T120000Z"
-            shutil.copytree(previous, world.media.backup)
-            (world.media.backup / "backup_manifest").write_text(json.dumps({
-                "WAL-Ranges": [{"Timeline": 1, "End-LSN": "0/800040"}],
-            }))
-            (world.media.backup / "sentinel-recovery-marker").write_text(
-                world.media.metadata.replace("0/300040", "0/900040").replace(
-                    wal_name(3), wal_name(9)))
-            if publish_selection:
-                world.media.selection.write_text(
-                    f"schema=sentinel.runtime-base/1\nsystem_identifier={world.system_id}\n"
-                    f"base_backup={world.media.backup.name}\n")
-        return subprocess.CompletedProcess(argv, 0, stdout=output)
-
-    monkeypatch.setattr(harness, "_run_host", run_host)
-    harness._bootstrap_financial_fixture()
-    assert seeded and analyzed and harness._FIXTURE_READY
-    if not publish_selection:
-        with pytest.raises(authority.BackupRuntimeRefused, match="integrity bytes"):
-            authority.require(world, operation="GO with stale pre-seed selection")
-        return
-    proven = authority.require(world, operation="GO after fixture bootstrap")
-    assert proven["wal_segments"] == 2
+    monkeypatch.setattr(harness, "VALIDATED_RUNTIME_POINTER", tmp_path / "selection")
+    monkeypatch.setattr(harness, "_git_head", lambda: "a"*40)
+    monkeypatch.setattr(harness, "_compose_service_container_id", lambda *a, **k: "b"*64)
+    def host(argv, **kw):
+        calls.append(argv)
+        if 'schema.ensure_schema' in argv[-1]:
+            assert '-e' in argv and 'SENTINEL_PUBLICATION_RECEIPT_KEY' in argv
+            assert kw['env']['SENTINEL_PUBLICATION_RECEIPT_KEY'] == key
+        return subprocess.CompletedProcess(argv, 0, stdout=initial if "SELECT count(*)" in argv[-1] else "")
+    monkeypatch.setattr(harness, "_run_host", host)
+    if initial == "0":
+        harness._bootstrap_financial_fixture()
+        assert harness.SEEDED_PUBLICATION == {"version": 0, "visible_frontier": None}
+    else:
+        with pytest.raises(harness.HarnessFailure, match="empty publication history"):
+            harness._bootstrap_financial_fixture()
+    assert next(i for i,row in enumerate(calls) if 'scripts/sentinel-base-backup.sh' in row) < next(
+        i for i,row in enumerate(calls) if 'schema.ensure_schema' in row[-1])
 
 
 def test_publication_observer_authenticates_with_the_fixture_receipt_key(
@@ -479,8 +310,7 @@ def test_compose_go_child_gets_alpaca_keys_only_for_preparation():
     go_child = compose.split("  sentinel:\n", 1)[1].split("  sentinel-panel:\n", 1)[0]
     assert "ALPACA_API_KEY:" not in go_child
     assert "ALPACA_SECRET_KEY:" not in go_child
-    assert "SHARADAR_API_KEY:" not in go_child
-    assert "NDL_BASE_URL:" not in go_child
+    assert "OPENFIGI_API_KEY:" not in go_child
     preparation = (ROOT / "scripts/sentinel_go_validate.py").read_text(encoding="utf-8")
     assert '"--env", "ALPACA_API_KEY"' in preparation
     assert '"--env", "ALPACA_SECRET_KEY"' in preparation
@@ -493,71 +323,106 @@ def test_phase_parser_is_stage_sensitive():
     ]
 
 
-@pytest.mark.parametrize("missing", ["NDL_BASE_URL", "SHARADAR_ALLOW_INSECURE_BASE_URL",
-                                     "SHARADAR_FETCH_RETRIES", "SHARADAR_FETCH_BACKOFF"])
-def test_fixture_refuses_dropped_container_transport_setting(missing):
-    expected = {"NDL_BASE_URL": "http://127.0.0.1:8000",
-                "SHARADAR_ALLOW_INSECURE_BASE_URL": "1",
-                "SHARADAR_FETCH_RETRIES": "1", "SHARADAR_FETCH_BACKOFF": "0"}
-    actual = dict(expected)
-    harness._require_local_source({"services": {"sentinel": {"environment": actual}}}, expected)
-    actual.pop(missing)
-    with pytest.raises(harness.HarnessFailure, match="local Sharadar"):
-        harness._require_local_source({"services": {"sentinel": {"environment": actual}}}, expected)
+def test_preparation_child_uses_native_clients_against_isolated_http_fixture(monkeypatch):
+    from sentinel.feed import alpaca_transport, openfigi, publisher_pipeline
+    from sentinel.feed.alpaca_source import AlpacaSource
+    monkeypatch.setenv('ALPACA_API_KEY', 'fixture-data-id')
+    monkeypatch.setenv('ALPACA_SECRET_KEY', 'fixture-data-secret')
+    monkeypatch.setenv('OPENFIGI_API_KEY', 'fixture-mapping')
+    monkeypatch.setattr(publisher_pipeline, '_operational_source', publisher_pipeline._operational_source)
+    child = ['compose', 'run', '--entrypoint', 'python', 'sentinel', '-c',
+             "marker = 'SENTINEL_GO_PREPARATION='"]
+    with harness._source_server(end='2026-09-25', bind='127.0.0.1') as port:
+        address = f'http://127.0.0.1:{port}'
+        assert harness.fixture_docker_arguments(['compose', 'up'], address) == ['compose', 'up']
+        exec(harness.fixture_docker_arguments(child, address)[-1], {})
+        source = publisher_pipeline._operational_source(None, None, None, corrections=None, verify_during_coverage=False)
+        assert isinstance(source, AlpacaSource)
+        assets, _ = source.client.get(alpaca_transport.ASSETS)
+        selected = openfigi.inventory(assets)[2:3]
+        mapped, _ = source.classifier.mapping(selected)
+        assert openfigi.classify(selected[0], mapped[0])[0]
+        bars = list(source.client.pages(alpaca_transport.BAR_URL, {'symbols': 'S00000,SPY', 'timeframe':'1Day',
+            'adjustment':'raw', 'feed':'sip', 'start':'2026-09-21', 'end':'2026-09-22', 'limit': 1}, key='bars'))
+        assert len(bars) == 4 and {tuple(page) for page,_ in bars} == {('S00000',), ('SPY',)}
+        actions = list(source.client.pages(alpaca_transport.ACTION_URL, {'start':'2026-09-01',
+            'end':'2026-09-30', 'limit': 2}, key='corporate_actions'))
+        assert len(actions) == 2 and actions[0][0]['cash_dividends'][0]['rate'] == '0.01'
+        harness.require_provider_requests(harness.SOURCE_REQUESTS)
+        for endpoint in ('/v2/assets', '/v3/mapping', '/v2/stocks/bars', '/v1/corporate-actions'):
+            with pytest.raises(harness.HarnessFailure, match='incomplete'):
+                harness.require_provider_requests([r for r in harness.SOURCE_REQUESTS if r['endpoint'] != endpoint])
+        monkeypatch.setenv('ALPACA_SECRET_KEY', 'unexpected')
+        with pytest.raises(ValueError, match='only synthetic'):
+            source.client.get(alpaca_transport.ASSETS)
 
+def test_go_preparation_publishes_authenticated_native_history_and_reuses_it(monkeypatch, tmp_path):
+    from datetime import datetime, timedelta, timezone
+    from sentinel import backup_runtime_authority, identity, operational_schema, retained_go, schema
+    from sentinel.feed import operational_snapshot, publisher_pipeline, publication, rolling_builder
+    from sentinel.feed import rolling_go_inputs, rolling_store, runtime_schema, store
+    from tests.support.postgres import _EphemeralPostgres
+    from tools.acquisition_resources.fixtures import Profile
 
-def test_real_source_membrane_consumes_local_pages_and_complete_exports(monkeypatch):
-    import httpx
-    from types import SimpleNamespace
-    from sentinel.feed import sharadar, snapshot_export, snapshot_source, source_authority, symbol_identity
-    monkeypatch.setenv("SHARADAR_API_KEY", "e2e-sharadar-key")
-    monkeypatch.setattr(sharadar, "ALLOW_INSECURE_BASE_URL", True)
-    monkeypatch.setattr(sharadar, "FETCH_MAX_RETRIES", 1)
-    monkeypatch.setattr(harness, "PAGE_SIZE", 4_000)
-    monkeypatch.setattr(harness, "_latest_closed_session", lambda: dt.date(2026, 9, 22))
-    with harness._source_server() as port:
-        def local_only(request):
-            assert request.url.host == "127.0.0.1" and request.url.port == port
+    # This reduced cardinality run exercises real production formation and
+    # publication. The full GO campaign uses the production equity floor.
+    profile = Profile(name='pr', securities=3, tickers=4, actions=7)
+    monkeypatch.setattr(rolling_builder, 'MIN_ADMITTED_COMMON_STOCKS', 3)
+    monkeypatch.setattr(backup_runtime_authority, 'POLICY_MARKER', tmp_path/'no-backup-media')
+    monkeypatch.setattr(identity, 'require_feed_producer_identity',
+                        lambda: {'schema':'fixture-producer/1','git_commit':'a'*40})
+    monkeypatch.setattr(publisher_pipeline, '_operational_source', publisher_pipeline._operational_source)
+    monkeypatch.setenv('ALPACA_API_KEY', 'fixture-data-id')
+    monkeypatch.setenv('ALPACA_SECRET_KEY', 'fixture-data-secret')
+    monkeypatch.setenv('OPENFIGI_API_KEY', 'fixture-mapping')
+    monkeypatch.setenv(publication.RECEIPT_KEY_ENV, 'fixture-publication-receipt-'+'1'*32)
+    target = "2026-09-25"
+    monkeypatch.setattr(operational_snapshot, '_now', lambda: datetime(2026, 9, 26, tzinfo=timezone.utc))
+    server = _EphemeralPostgres()
+    server.start()
+    try:
+        with harness._source_server(profile=profile, end=target, bind='127.0.0.1') as port, store.connect(server.sync_dsn) as db:
+            schema.ensure_schema(db)
+            runtime_schema.migrate_feed_schema(db)
+            operational_schema.install_quiescent(db)
+            child = ['compose','run','--entrypoint','python','sentinel','-c',"mark='SENTINEL_GO_PREPARATION='"]
+            exec(harness.fixture_docker_arguments(child, f'http://127.0.0.1:{port}')[-1], {})
+            deadline = datetime.now(timezone.utc) + timedelta(minutes=5)
+            receipt = retained_go.prepare(db, target_session=target, absolute_deadline=deadline)
+            with rolling_go_inputs.pinned(db) as active:
+                assert active.window_end == target and active.version == receipt['data_version']
+            manifest = rolling_store.manifest(db, receipt['candidate_id'])
+            assert manifest.provider == 'ALPACA_OPENFIGI'
+            assert manifest.bar_count == len(manifest.window.sessions)*3 == 426*3
+            original = list(harness.SOURCE_REQUESTS)
+            harness.require_provider_requests(original)
+            again = retained_go.prepare(db, target_session=target, absolute_deadline=deadline)
+            assert again['candidate_id'] == receipt['candidate_id']
+            assert harness.SOURCE_REQUESTS == original
+    finally:
+        server.stop()
 
-        # The real HTTP socket is scoped to this test's loopback server.
-        http = SimpleNamespace(
-            Client=lambda **kw: httpx.Client(
-                trust_env=False, event_hooks={"request": [local_only]}, **kw),
-            TimeoutException=httpx.TimeoutException, TransportError=httpx.TransportError,
-        )
-        monkeypatch.setattr(sharadar, "NDL_BASE", f"http://127.0.0.1:{port}")
-        days = harness._session_days()
-        def identity_fetch(table, params):
-            return snapshot_source.fetch_table(table, params, http=http)
-        renames = symbol_identity.stable_rename_rows(identity_fetch, through=days[-1].isoformat())
-        assert renames == []
-        guarded = source_authority.StableSharadarFetch(
-            snapshot_source.fetch_table, seed_mode=True,
-            identity_actions=renames, identity_through=days[-1].isoformat(), identity_fetch=identity_fetch)
-        tickers = list(guarded(sharadar.TICKERS, http=http))
-        assert {row["ticker"] for row in tickers} == set(harness.TICKERS)
-        interval = sharadar.date_params(days[-2].isoformat(), days[-1].isoformat())
-        actions_window = sharadar.date_params("1900-01-01", days[-1].isoformat())
-        captured_actions = list(guarded(sharadar.ACTIONS, actions_window, http=http))
-        assert {row["action"] for row in captured_actions} == {"relation", "dividend", "split"}
-        list(guarded(sharadar.SFP, {"ticker": "SPY,BIL", **interval}, http=http))
-        seeded = list(guarded(sharadar.SEP, interval, http=http))
-        assert len(seeded) == 2 * len(harness.TICKERS)
-        assert guarded.seed_coverage_evidence["missing_eligible_total"] == 0
-        assert sum(item == {"table": "SEP", "channel": "pages"}
-                   for item in harness.SOURCE_REQUESTS) >= 4
-        actions, evidence = snapshot_export.fetch_complete_actions(
-            through=days[-1].isoformat(), http=http)
-        assert actions[0]["action"] == "relation"
-        assert {row["action"] for row in actions} <= {
-            "relation", "dividend", "split"}
-        assert actions[0]["action"] == "relation"
-        snapshot_export.require_actions_refresh(
-            through=days[-1].isoformat(), evidence=evidence, http=http)
-        prices, _ = snapshot_export.fetch_complete_sep(
-            start=days[-2].isoformat(), end=days[-1].isoformat(), http=http)
-        assert len(prices) == 2 * len(harness.TICKERS)
-        observed = {(item["table"], item["channel"]) for item in harness.SOURCE_REQUESTS}
-        assert {("TICKERS", "pages"), ("TICKERS", "export"), ("TICKERS", "download"),
-                ("ACTIONS", "export"), ("ACTIONS", "download"),
-                ("SEP", "export"), ("SEP", "download")} <= observed
+def test_shadow_host_account_probe_reaches_only_the_refusing_local_fixture(monkeypatch):
+    import urllib.request
+    from urllib.error import URLError
+    from scripts import sentinel_go_validate as go
+    monkeypatch.setattr(harness.shutil, 'which', lambda *args, **kwargs: '/usr/bin/docker')
+    monkeypatch.setattr(urllib.request, '_opener', None)
+    with harness._source_server(end='2026-09-25', bind='127.0.0.1') as port:
+        local = f'http://127.0.0.1:{port}'
+        monkeypatch.setattr(harness, '_SOURCE_SETTINGS', dict(address=local))
+        with harness._fixture_cli({}) as private_env, monkeypatch.context() as host:
+            for key in ('HTTPS_PROXY', 'https_proxy', 'NO_PROXY', 'no_proxy'):
+                host.setenv(key, private_env[key])
+            errors = []
+            def observe(request, **kwargs):
+                try:
+                    return urllib.request.urlopen(request, **kwargs)
+                except URLError as exc:
+                    errors.append(str(exc.reason))
+                    raise
+            gate, _ = go.probe_alpaca_account(env=dict(ALPACA_API_KEY='fixture-data-id',
+                ALPACA_SECRET_KEY='fixture-data-secret'), now_text='2026-09-25T21:00:00Z', urlopen=observe)
+            assert gate.status != go.PASS
+            assert len(errors) == 1 and '403' in errors[0]
+            assert not harness.SOURCE_REQUESTS

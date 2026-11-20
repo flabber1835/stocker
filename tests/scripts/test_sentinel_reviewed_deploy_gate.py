@@ -96,7 +96,7 @@ def _bundle(tmp_path, *, env=None, dual=False):
             status=go.PASS,
             runtime_image_digest=RUNTIME,
             schema_migration_attempted=True,
-            bounded_sharadar_daily_attempted=True,
+            bounded_market_data_daily_attempted=True,
             broker_mutation_attempts=0,
             evidence_sha256="2" * 64),
         database_health=go.DatabaseHealthSummary(
@@ -113,13 +113,13 @@ def _bundle(tmp_path, *, env=None, dual=False):
                 "warmup_revision_sessions": 252,
             },
             measured_milliseconds={
-                "bounded_sharadar_ingest": 1_000,
+                "bounded_market_data_ingest": 1_000,
                 "full_forward_decision_replay": 2_000,
                 "warmup_revision_scan": 3_000,
                 "combined_pretrade_work": 6_000,
             },
             threshold_milliseconds={
-                "bounded_sharadar_ingest": go.MAX_BOUNDED_INGEST_MS,
+                "bounded_market_data_ingest": go.MAX_BOUNDED_INGEST_MS,
                 "full_forward_decision_replay": (
                     go.MAX_FULL_FORWARD_DECISION_REPLAY_MS),
                 "warmup_revision_scan": go.MAX_WARMUP_REVISION_SCAN_MS,
@@ -270,10 +270,10 @@ def test_deployer_independently_refuses_slow_database_health_claim(tmp_path):
     def make_slow(validation):
         health = validation["database_financial_health"]
         measured = health["measured_milliseconds"]
-        measured["bounded_sharadar_ingest"] = 7_200_001
+        measured["bounded_market_data_ingest"] = 7_200_001
         measured["combined_pretrade_work"] = sum(
             measured[name] for name in (
-                "bounded_sharadar_ingest",
+                "bounded_market_data_ingest",
                 "full_forward_decision_replay",
                 "warmup_revision_scan"))
         health["deadline_milliseconds"]["measured_remaining_margin"] = (
@@ -419,3 +419,31 @@ def test_partial_review_arguments_refuse_and_no_args_stays_fenced():
         deploy.deployment_request(
             mode="shadow", validation_bundle=None, confirmation=None,
             env=_env(), now=NOW, invoke=ReadOnlyHost())
+
+def test_archived_v1_report_preserves_original_identity_without_current_admission(tmp_path):
+    from sentinel_env import ARCHIVE_V1 as wire
+    base = _bundle(tmp_path)
+
+    def archived(raw):
+        raw["schema"] = wire["validation_schema"]
+        prep = raw["preparation"]
+        prep["schema"] = wire["preparation_schema"]
+        prep[wire["preparation_attempted"]] = prep.pop("bounded_market_data_daily_attempted")
+        prep["database_mutation_scope"][1] = wire["ingestion_scope"]
+        health = raw["database_financial_health"]
+        health["schema"] = wire["health_schema"]
+        for field in ("measured_milliseconds","threshold_milliseconds"):
+            if "bounded_market_data_ingest" in health.get(field, {}):
+                health[field][wire["ingestion_milliseconds"]] = health[field].pop("bounded_market_data_ingest")
+        for gate in raw["gates"]:
+            if gate["id"] == "market_data_readiness":
+                gate["id"] = wire["readiness_gate"]
+
+    prior = _rewrite_validation_bundle(base, tmp_path, archived)
+    read = deploy.read_archive_validation(prior.path, confirmation=prior.sha256)
+    assert read["schema"] == wire["validation_schema"]
+    assert any(g["id"] == wire["readiness_gate"] for g in read["gates"])
+    with pytest.raises(deploy.DeployRefused):
+        deploy.read_archive_validation(prior.path, confirmation="0" * 64)
+    with pytest.raises(deploy.DeployRefused):
+        deploy.parse_reviewed_validation_bundle(prior.path, mode="shadow", confirmation=prior.sha256, now=NOW)

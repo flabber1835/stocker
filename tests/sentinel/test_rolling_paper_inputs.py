@@ -1,4 +1,6 @@
 """Real snapshot/shadow inputs at the simulated paper execution membrane."""
+
+from sentinel import archive_identifiers as archive_ids
 import asyncio
 from dataclasses import replace
 from datetime import date, timedelta
@@ -117,7 +119,7 @@ def test_broker_resolver_releases_full_reference_bundle(monkeypatch):
 
     class Reference:
         def __init__(self):
-            self.manifest = SimpleNamespace(provider="SHARADAR")
+            self.manifest = SimpleNamespace(provider=archive_ids.PROVIDER)
             self.resolver = SimpleNamespace(resolve=lambda symbol, day: ("past", symbol, day))
             self.actions = [object()]
 
@@ -880,7 +882,7 @@ def test_automation_refresh_consumes_current_shadow_without_acquisition(conn, pu
             pass
     runtime = object.__new__(automation_runtime.ProductionAutomation)
     runtime._dual_run_enabled = True
-    # This shared fixture publishes retained historical Sharadar material.
+    # This shared fixture publishes retained historical market data.
     # Explicitly select its research mode instead of bypassing constructor state.
     runtime._operational_source_only = False
     runtime._shadow_observation_id, runtime._shadow_starting_cash = OBS, 100000

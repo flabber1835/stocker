@@ -48,7 +48,7 @@ def _preparation():
         status=go.PASS,
         runtime_image_digest=RUNTIME_DIGEST,
         schema_migration_attempted=True,
-        bounded_sharadar_daily_attempted=True,
+        bounded_market_data_daily_attempted=True,
         broker_mutation_attempts=0,
         evidence_sha256="1" * 64,
         elapsed_milliseconds=1_000)
@@ -60,7 +60,7 @@ def _database_base(*, prospective=False, structural_failure=None, sessions=252):
     if structural_failure is not None:
         checks[structural_failure] = False
     measured = {
-        "bounded_sharadar_ingest": 1_000,
+        "bounded_market_data_ingest": 1_000,
         "full_forward_decision_replay": 2_000,
         "warmup_revision_scan": 3_000,
         "combined_pretrade_work": 6_000,
@@ -80,7 +80,7 @@ def _database_base(*, prospective=False, structural_failure=None, sessions=252):
         },
         measured_milliseconds=measured,
         threshold_milliseconds={
-            "bounded_sharadar_ingest": go.MAX_BOUNDED_INGEST_MS,
+            "bounded_market_data_ingest": go.MAX_BOUNDED_INGEST_MS,
             "full_forward_decision_replay": go.MAX_FULL_FORWARD_DECISION_REPLAY_MS,
             "warmup_revision_scan": go.MAX_WARMUP_REVISION_SCAN_MS,
             "combined_pretrade_work": go.MAX_COMBINED_PRETRADE_WORK_MS,
@@ -104,9 +104,7 @@ def _waiting_probes(*, sessions=252):
     gates = {}
     for gate_id in go.GATE_IDS:
         status = go.PASS
-        if gate_id == "sharadar_readiness":
-            status = go.NOT_PROVEN
-        elif gate_id == "database_financial_health":
+        if gate_id == "database_financial_health":
             status = go.FAIL
         gates[gate_id] = go.make_gate(
             gate_id, status, NOW_TEXT, {"test": True})
@@ -169,63 +167,16 @@ def test_structural_database_health_survives_expired_session_window_only():
         broken.to_dict(), runtime_image_digest=RUNTIME_DIGEST) is False
 
 
-def test_temporal_readiness_classifier_accepts_only_nonfinal_freshness(monkeypatch):
-    monkeypatch.setattr(
-        go, "_resolve_compose_args", lambda runner, env: ["-f", "compose.yml"])
-
-    class Runner:
-        def run(self, argv, *, env=None, cwd=ROOT):
-            payload = {
-                "ready": False,
-                "only_nonfinal_freshness": True,
-                "failure_count": 1,
-                "missing_session_count": 1,
-                "transaction_read_only": True,
-            }
-            return subprocess.CompletedProcess(
-                argv, 0,
-                stdout="SENTINEL_GO_WAIT_READINESS=" + json.dumps(payload) + "\n",
-                stderr="")
-
-    assert install_go._readiness_wait_is_temporal(
-        Runner(),
-        env={"SENTINEL_POSTGRES_PASSWORD": "x"},
-        runtime_ref=RUNTIME_DIGEST) is True
-
-
-def test_temporal_readiness_classifier_rejects_real_data_failure(monkeypatch):
-    monkeypatch.setattr(
-        go, "_resolve_compose_args", lambda runner, env: ["-f", "compose.yml"])
-
-    class Runner:
-        def run(self, argv, *, env=None, cwd=ROOT):
-            payload = {
-                "ready": False,
-                "only_nonfinal_freshness": False,
-                "failure_count": 2,
-                "missing_session_count": 1,
-                "transaction_read_only": True,
-            }
-            return subprocess.CompletedProcess(
-                argv, 0,
-                stdout="SENTINEL_GO_WAIT_READINESS=" + json.dumps(payload) + "\n",
-                stderr="")
-
-    assert install_go._readiness_wait_is_temporal(
-        Runner(),
-        env={"SENTINEL_POSTGRES_PASSWORD": "x"},
-        runtime_ref=RUNTIME_DIGEST) is False
-
-
-def test_failed_preparation_skips_temporal_readiness_subprocess(monkeypatch):
+def test_failed_rolling_readiness_is_never_reclassified_by_a_second_probe(monkeypatch):
     from dataclasses import replace
     probes = _waiting_probes()
-    failed = replace(probes, preparation=replace(probes.preparation, status=go.FAIL))
-    monkeypatch.setattr(install_go, "_BASE_PHASED", lambda *a, **k: failed)
-    monkeypatch.setattr(install_go, "_readiness_wait_is_temporal",
-                        lambda *a, **k: pytest.fail("failed prerequisite cannot run readiness"))
+    gates = dict(probes.gates)
+    gates['market_data_readiness'] = replace(gates['market_data_readiness'], status=go.FAIL)
+    monkeypatch.setattr(install_go, '_BASE_PHASED', lambda *a, **k: replace(
+        probes, gates=gates, subject_values={}))
     result = install_go.run_installable_phased(object())
-    assert result.preparation.status == go.FAIL
+    assert result.gates['market_data_readiness'].status == go.FAIL
+    assert install_go.WAIT_POLICY_SUBJECT not in result.subject_values
 
 
 def test_waiting_install_preserves_truthful_session_and_database_no_go():
@@ -287,6 +238,10 @@ def test_waiting_contract_rejects_transient_publication_binding():
     finally:
         go.derive_verdicts = original_derive
     assert install_deploy._waiting_contract(document, mode="dual") is True
+    broken = json.loads(json.dumps(document))
+    next(item for item in broken["gates"] if item["id"] == "market_data_readiness")["status"] = go.FAIL
+    with pytest.raises(install_deploy.core.DeployRefused):
+        install_deploy._waiting_contract(broken, mode="dual")
     document = json.loads(json.dumps(document))
     document["subjects"].append({
         "kind": "data_publication", "digest": "4" * 64})
@@ -296,7 +251,7 @@ def test_waiting_contract_rejects_transient_publication_binding():
         install_deploy._waiting_contract(document, mode="dual")
 
 
-def test_deferred_wait_never_enters_vendor_path_before_target_source_final(
+def test_deferred_wait_never_refreshes_before_target_source_final(
         monkeypatch):
     instance = object.__new__(install_deploy.InstallAnytimeDeploy)
     instance.cfg = SimpleNamespace(
@@ -313,12 +268,12 @@ def test_deferred_wait_never_enters_vendor_path_before_target_source_final(
     instance._readiness_verdict = lambda: (
         events.append("readiness") or {"ready": True})
     instance._base_cli = lambda *_args, **_kwargs: events.append("check-data")
-    instance._wait_for_data = lambda **_kwargs: events.append("vendor-wait")
+    import sentinel_install_source_refresh as renewal
+    monkeypatch.setattr(renewal, "refresh", lambda *a, **k: pytest.fail("premature refresh"))
     monkeypatch.setattr(install_deploy.time, "sleep", lambda _seconds: None)
 
     result = instance._wait_until_causal_ready()
     assert result["target_source_final"] is True
-    assert "vendor-wait" not in events
     assert events.count("readiness") == 1
     assert events.index("readiness") > events.index("state")
 
@@ -343,42 +298,6 @@ def test_operational_install_refreshes_eligible_stale_go_once(monkeypatch):
     instance._write_deployment_state = lambda *_a, **_k: None
     assert instance._wait_until_causal_ready()["frontier"] == "2026-08-27"
     assert calls == ["2026-08-27"]
-
-
-def test_vendor_catchup_is_allowed_only_after_target_source_final(monkeypatch):
-    instance = object.__new__(install_deploy.InstallAnytimeDeploy)
-    instance.cfg = SimpleNamespace(
-        data_wait_timeout_seconds=60, data_retry_seconds=1)
-    timings = iter([
-        _timing(source_final=True, prospective=True),
-        _timing(
-            source_final=True, prospective=True,
-            frontier="2026-08-27")])
-    verdicts = iter([
-        {
-            "ready": False,
-            "failures": [{
-                "name": "freshness",
-                "value": {
-                    "evaluable": True,
-                    "ahead": False,
-                    "missing_sessions": ["2026-08-27"]}}],
-            "checks": [{
-                "name": "frontier population", "status": "PASS",
-                "value": {"minimum": 100}}]},
-        {"ready": True}])
-    events = []
-    instance._assert_wait_fence = lambda: events.append("fence")
-    instance._causal_timing = lambda: next(timings)
-    instance._readiness_verdict = lambda: next(verdicts)
-    instance._wait_for_data = lambda **_kwargs: events.append("vendor-wait")
-    instance._base_cli = lambda *_args, **_kwargs: events.append("check-data")
-    instance._write_deployment_state = lambda *args, **kwargs: events.append("state")
-    monkeypatch.setattr(install_deploy.time, "sleep", lambda _seconds: None)
-
-    result = instance._wait_until_causal_ready()
-    assert result["frontier"] == "2026-08-27"
-    assert events.count("vendor-wait") == 1
 
 
 def test_deferred_dual_uses_quiesced_boundary_before_publication_binding(monkeypatch):

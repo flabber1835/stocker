@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from sentinel import archive_identifiers as archive_ids
+
 import importlib.util
 import json
 import os
@@ -357,7 +359,7 @@ def test_backup_audit_digest_is_folded_into_preparation_evidence():
         status=backup.go.PASS,
         runtime_image_digest=RUNTIME_REF,
         schema_migration_attempted=True,
-        bounded_sharadar_daily_attempted=True,
+        bounded_market_data_daily_attempted=True,
         broker_mutation_attempts=0,
         evidence_sha256="1" * 64,
         elapsed_milliseconds=123,
@@ -374,7 +376,7 @@ def test_backup_audit_digest_is_folded_into_preparation_evidence():
         "authorized_database_mutation_scopes": [
             "VERIFIED_BASE_BACKUP_RECOVERY_MARKER",
             "SCHEMA_MIGRATION",
-            "BOUNDED_SHARADAR_DAILY_INGEST",
+            "BOUNDED_MARKET_DATA_DAILY_INGEST",
         ],
     })
 
@@ -439,7 +441,7 @@ def horizon_failure(job=None, **changes):
     from sentinel_go_backup_retry import FAILURE
     value = dict(phase="DAILY_CATCHUP", error_type="BackupHorizonExceeded",
                  reason_code="BACKUP_RUNTIME_HORIZON_EXCEEDED",
-                 schema_migration_attempted=True, bounded_sharadar_daily_attempted=True,
+                 schema_migration_attempted=True, bounded_market_data_daily_attempted=True,
                  resume_job_id=job or str(uuid4()))
     value.update(changes)
     return _cp(1, err=FAILURE + json.dumps(value) + "\n")
@@ -492,7 +494,7 @@ def run_overlay(monkeypatch, runner):
 def successful_child():
     return _cp(0, out="SENTINEL_GO_PREPARATION=" + json.dumps(dict(
         schema_migrated=True, source_not_before_satisfied=True, following_open_future=True,
-        bounded_sharadar_daily=True, publication_current=True)))
+        bounded_market_data_daily=True, publication_current=True)))
 
 
 def test_healthy_start_then_growth_renews_exact_backup_and_resumes(monkeypatch):
@@ -523,13 +525,13 @@ def test_healthy_start_then_growth_renews_exact_backup_and_resumes(monkeypatch):
         assert env["ALPACA_API_KEY"] == "broker-key"
         assert env["ALPACA_SECRET_KEY"] == "broker-secret"
         assert "SENTINEL_PAPER_ACCOUNT_ID" not in env
-        assert "SHARADAR_API_KEY" not in env
+        assert archive_ids.RETIRED_CREDENTIAL not in env
 
 
 @pytest.mark.parametrize("changes", [
     {"error_type": "BackupRuntimeRefused"}, {"phase": "PUBLICATION_CHECK"},
     {"reason_code": "PREPARATION_DAILY_CATCHUP_FAILED"}, {"resume_job_id": None},
-    {"resume_job_id": "not-a-job"}, {"bounded_sharadar_daily_attempted": "true"},
+    {"resume_job_id": "not-a-job"}, {"bounded_market_data_daily_attempted": "true"},
 ])
 def test_horizon_text_without_exact_resumable_signal_never_renews(monkeypatch, changes):
     runner = GrowingWalRunner([horizon_failure(**changes), successful_child()])
@@ -552,7 +554,7 @@ def test_renewal_failure_never_reaches_next_preparation(monkeypatch, failure):
     assert not result.complete and not backup.phase._PHASE["prepared"]
     assert len(runner.preparations) == (3 if failure == "limit" else 1)
     if failure in {"copy", "verify", "limit"}:
-        assert result.schema_migration_attempted and result.bounded_sharadar_daily_attempted
+        assert result.schema_migration_attempted and result.bounded_market_data_daily_attempted
         assert json.loads(backup._AUDIT_PATH.read_text())["status"] == "REFUSED"
 
 

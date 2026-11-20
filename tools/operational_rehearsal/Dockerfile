@@ -6,7 +6,7 @@ COPY scripts /qualification/scripts
 COPY tools /qualification/tools
 COPY tests /qualification/tests
 COPY docs /qualification/docs
-COPY data/sharadar /qualification/data/sharadar
+COPY data /qualification/data
 COPY config /qualification/config
 WORKDIR /qualification
 ENV PYTHONPATH=/qualification:/qualification/shared:/qualification/scripts

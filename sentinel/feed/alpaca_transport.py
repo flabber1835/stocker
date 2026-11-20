@@ -13,13 +13,14 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import Request
 
 import httpx
 
-from sentinel.feed import rolling_work
+from sentinel.feed import provider_budget, provider_http, rolling_work
 from sentinel.trading_environment import TradingEndpoint
 
 DATA = "https://data.alpaca.markets"
@@ -30,6 +31,7 @@ ALLOWED = frozenset((ASSETS, BAR_URL, ACTION_URL))
 MAX_RESPONSE_BYTES = 32 * 1024 * 1024
 MAX_PAGES = 2000
 MAX_RETRIES = 4
+NETWORK_FAILURES = (URLError, TimeoutError, OSError, httpx.TransportError)
 MIN_REQUEST_INTERVAL_SECONDS = 0.35  # Basic historical-data allowance: 200/min.
 
 
@@ -79,10 +81,67 @@ class AlpacaTransportRefused(RuntimeError):
 class AlpacaTransportUnavailable(AlpacaTransportRefused):
     """A bounded retry budget ended on a retryable provider/transport failure."""
 
+    def __init__(self, message, *, delay=10):
+        super().__init__(message)
+        self.delay = delay
 
-class _NoRedirect(HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
+
+def request_timeout():
+    left = provider_budget.remaining()
+    if left is not None and left <= 0:
+        raise AlpacaTransportUnavailable("source acquisition deadline exhausted")
+    return 45.0 if left is None else min(45.0, left)
+
+
+def provider_pause(seconds, sleep):
+    left = provider_budget.remaining()
+    if left is not None and seconds >= left:
+        raise AlpacaTransportUnavailable("provider wait exceeds acquisition deadline", delay=seconds)
+    sleep(seconds)
+    request_timeout()
+
+
+def check_provider(provider):
+    request_timeout()
+    delay = provider_budget.cooldown_remaining(provider)
+    if delay:
+        raise AlpacaTransportUnavailable("provider rate limit is still active", delay=delay)
+
+
+def rate_limit(provider, headers, *, default):
+    text = headers.get('Retry-After') if headers else None
+    try:
+        delay = max(1, int(text))
+    except (TypeError, ValueError):
+        try:
+            delay = max(1, parsedate_to_datetime(text).timestamp() - time.time())
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            delay = default
+    provider_budget.defer_for(delay, provider=provider)
+    return delay
+
+
+def read_bounded(response, limit):
+    # read1 bounds each iteration to a single underlying read on HTTPResponse.
+    read = getattr(response, 'read1', response.read)
+    raw = bytearray()
+    while len(raw) <= limit:
+        request_timeout()
+        chunk = read(min(64 * 1024, limit + 1 - len(raw)))
+        if not chunk:
+            break
+        raw.extend(chunk)
+    request_timeout()
+    return raw
+
+
+def request_bytes(request, limit, *, opener=None, pooled=None):
+    if opener is None:
+        return (pooled or provider_http.fetch)(request, limit)
+    with opener.open(request, timeout=request_timeout()) as response:
+        if response.status != 200:
+            raise AlpacaTransportRefused("provider returned a non-200 response")
+        return read_bounded(response, limit)
 
 
 class Client:
@@ -93,8 +152,7 @@ class Client:
             if base_url is None else base_url)
         self.assets_url = self.trading_endpoint.assets_url
         self._allowed = frozenset((self.assets_url, BAR_URL, ACTION_URL))
-        self._opener = opener or build_opener(_NoRedirect())
-        self._injected_opener = opener is not None
+        self._opener = opener
         self._pool = None
         self._sleep = sleeper
         self._clock = clock or (lambda: datetime.now(timezone.utc))
@@ -105,43 +163,22 @@ class Client:
     @contextmanager
     def pooled(self):
         """Keep connections alive only during an owned acquisition operation."""
-        if self._injected_opener or self._pool is not None:
+        if self._opener is not None or self._pool is not None:
             yield
             return
-        with httpx.Client(timeout=45.0, follow_redirects=False,
-                          limits=httpx.Limits(max_connections=2, max_keepalive_connections=2)) as pool:
+        with provider_http.pool() as pool:
             self._pool = pool
             try:
                 yield
             finally:
                 self._pool = None
 
-    def _response_bytes(self, request):
-        if self._pool is None:
-            with self._opener.open(request, timeout=45) as response:
-                if response.status != 200:
-                    raise AlpacaTransportRefused("provider returned a non-200 response")
-                return response.read(MAX_RESPONSE_BYTES + 1)
-
-        headers = dict(request.header_items())
-        headers['Accept-Encoding'] = 'identity'
-        with self._pool.stream('GET', request.full_url, headers=headers) as response:
-            if response.status_code != 200:
-                raise HTTPError(request.full_url, response.status_code,
-                                response.reason_phrase, response.headers, None)
-            raw = bytearray()
-            for chunk in response.iter_raw(chunk_size=64 * 1024):
-                raw.extend(chunk[:MAX_RESPONSE_BYTES + 1 - len(raw)])
-                if len(raw) > MAX_RESPONSE_BYTES:
-                    break
-            return raw
-
     def _pace(self):
         now = self._monotonic()
         if self._last_request is not None:
             delay = self._interval - (now - self._last_request)
             if delay > 0:
-                self._sleep(delay)
+                provider_pause(delay, self._sleep)
                 now = self._monotonic()
         self._last_request = now
 
@@ -163,13 +200,14 @@ class Client:
             rolling_work.checkpoint()
             with _measure(metrics, 'pacing'):
                 self._pace()
+            check_provider(DATA)
             request = Request(url, headers=headers, method="GET")
             if metrics is not None:
                 metrics.requests += 1
                 metrics.retries += int(attempt > 0)
             try:
                 with _measure(metrics, 'http'):
-                    raw = self._response_bytes(request)
+                    raw = request_bytes(request, MAX_RESPONSE_BYTES, opener=self._opener, pooled=self._pool)
                     if metrics is not None:
                         metrics.response_bytes += len(raw)
                     if len(raw) > MAX_RESPONSE_BYTES:
@@ -180,6 +218,7 @@ class Client:
                         value = raw.decode("utf-8-sig") if text else json.loads(raw)
                     except (UnicodeError, ValueError):
                         raise AlpacaTransportRefused("provider response is not valid UTF-8/JSON") from None
+                    request_timeout()
                     return value, {"endpoint": endpoint, "params": params,
                                    "observed_at": observed,
                                    "sha256": hashlib.sha256(raw).hexdigest(),
@@ -192,17 +231,15 @@ class Client:
                 if exc.code == 429:
                     if metrics is not None:
                         metrics.rate_limits += 1
-                    raw_wait = exc.headers.get("Retry-After", "1") if exc.headers else "1"
-                    try:
-                        wait = min(60, max(1, int(raw_wait)))
-                    except (TypeError, ValueError):
-                        wait = 60
-            except (URLError, TimeoutError, OSError, httpx.TransportError):
+                    wait = rate_limit(DATA, exc.headers, default=60)
+            except NETWORK_FAILURES:
                 wait = 0
+            if wait and (wait > 60 or attempt + 1 == MAX_RETRIES):
+                raise AlpacaTransportUnavailable("provider rate limit exceeds retry window", delay=wait)
             if attempt + 1 == MAX_RETRIES:
                 break
             with _measure(metrics, 'retry_backoff'):
-                self._sleep(max(wait, min(2 ** attempt, 8)))
+                provider_pause(max(wait, min(2 ** attempt, 8)), self._sleep)
         raise AlpacaTransportUnavailable("provider request exhausted its retry budget")
 
     def pages(self, endpoint: str, params: dict, *, key: str):

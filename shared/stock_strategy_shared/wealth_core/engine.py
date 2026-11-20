@@ -199,7 +199,7 @@ class WealthCoreConfig:
     volatility_profile: str = DEFAULT_VOLATILITY_PROFILE
     # Sessions between a dividend's EX-DATE and the cash landing. An ADOPTED
     # CONVENTION, in the config hash, because no data source we have carries a
-    # payment date: SHARADAR/ACTIONS has date/action/ticker/value/contra* and
+    # payment date: ACTIONS has date/action/ticker/value/contra* and
     # nothing else, so the pay date is genuinely unavailable rather than merely
     # unmapped.
     #

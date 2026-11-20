@@ -9,7 +9,7 @@ The recovered classifier's headline result is 7,061/7,061 sessions exact over
 panel of the PRE-CORRECTION replay.
 
 The engine in this repository is the corrected lineage. So before anyone spends
-hours regenerating a panel from raw Sharadar, there is a cheaper question:
+hours regenerating a panel from the historical raw corpus, there is a cheaper question:
 
 ```text
 do the two preserved tapes describe the same book, and if not, from when

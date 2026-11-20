@@ -100,7 +100,7 @@ EDGES = (
     ),
     AuthorityEdge(
         "backup_to_database_mutation", "restore horizon", "schema/feed mutation",
-        "backup durability authority", "scripts/sentinel_go_validate_entry.py",
+        "backup durability authority", "scripts/sentinel_go_preparation_runtime.py",
         ("backup_guard.require_writes_permitted", "SCHEMA_MIGRATION"),
         "docker_postgres", True,
     ),
@@ -112,10 +112,10 @@ EDGES = (
     ),
     AuthorityEdge(
         "preparation_to_publication", "rolling snapshot preparation", "current publication",
-        "publication completeness", "scripts/sentinel_go_24x7_entry.py",
+        "publication completeness", "scripts/sentinel_go_preparation_runtime.py",
         ("retained_go.prepare(c, target_session=target,",
          "resume_job_id=os.environ.get('SENTINEL_GO_RESUME_JOB_ID')",
-         "rolling_go_inputs.current(c)", "publication_current", "bounded_sharadar_daily"),
+         "rolling_go_inputs.current(c)", "publication_current", "bounded_market_data_daily"),
         "docker_postgres", True,
     ),
     AuthorityEdge(
@@ -125,9 +125,9 @@ EDGES = (
         "docker_postgres",
     ),
     AuthorityEdge(
-        "publication_to_readiness", "current publication", "Sharadar readiness",
+        "publication_to_readiness", "current publication", "market data readiness",
         "read-only readiness proof", "scripts/sentinel_go_validate.py",
-        ("probe_sharadar_readiness", "BEGIN TRANSACTION READ ONLY"),
+        ("probe_market_data_readiness", "BEGIN TRANSACTION READ ONLY"),
         "docker_postgres",
     ),
     AuthorityEdge(

@@ -8,7 +8,7 @@ import sys
 
 import pytest
 
-from sentinel.feed import coherence, seed_capture, sharadar, source_authority
+from sentinel.feed import coherence, seed_capture, archive_tables, source_authority
 
 ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT") or Path(__file__).resolve().parents[2])
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -59,20 +59,20 @@ def test_real_seed_capture_refuses_mismatch_and_accepts_consistent_reference(
 
     def fetch(table, params=None):
         calls.append(table)
-        rows = {sharadar.TICKERS: listings, sharadar.SEP: bars,
-                sharadar.ACTIONS: [], sharadar.SFP: [
+        rows = {archive_tables.TICKERS: listings, archive_tables.SEP: bars,
+                archive_tables.ACTIONS: [], archive_tables.SFP: [
                     {"ticker": "SPY", "date": DAY, "closeadj": 600.0}]}[table]
         return [dict(row) for row in rows]
 
-    guarded = source_authority.StableSharadarFetch(fetch, seed_mode=True)
-    params = sharadar.date_params(DAY, DAY)
+    guarded = source_authority.StableTableFetch(fetch, seed_mode=True)
+    params = archive_tables.date_params(DAY, DAY)
     with seed_capture.CapturedRows() as captured:
-        captured.capture(guarded, sharadar.TICKERS)
-        captured.capture(guarded, sharadar.ACTIONS, params)
-        captured.capture(guarded, sharadar.SFP, params)
+        captured.capture(guarded, archive_tables.TICKERS)
+        captured.capture(guarded, archive_tables.ACTIONS, params)
+        captured.capture(guarded, archive_tables.SFP, params)
         if missing:
             with pytest.raises(coherence.SeedHistoryIncomplete) as caught:
-                captured.capture(guarded, sharadar.SEP, params)
+                captured.capture(guarded, archive_tables.SEP, params)
             payload = json.loads(str(caught.value).split(": ", 1)[1])
             assert payload["session"] == DAY
             assert payload["expected_eligible"] == 5606
@@ -80,15 +80,15 @@ def test_real_seed_capture_refuses_mismatch_and_accepts_consistent_reference(
             assert [row["ticker"] for row in payload["missing_eligible"]] == missing
             assert payload["unresolved_source_tickers"] == unresolved
             assert guarded.seed_coverage_evidence is None
-            assert all(key[0] != sharadar.SEP for key in captured.files)
+            assert all(key[0] != archive_tables.SEP for key in captured.files)
             namespace = {}
             exec(go_entry._PREPARATION_CODE.split("\ndef emit_failure", 1)[0], namespace)
             detail = namespace["failure_detail"](caught.value)["detail"]
             for symbol in missing + unresolved:
                 assert symbol in detail
         else:
-            captured.capture(guarded, sharadar.SEP, params)
-            replay = list(captured(sharadar.SEP, params))
+            captured.capture(guarded, archive_tables.SEP, params)
+            replay = list(captured(archive_tables.SEP, params))
             assert replay == bars  # Preserve source prices, units and symbols.
             assert guarded.seed_coverage_evidence["received_eligible_total"] == 5606
             assert guarded.seed_coverage_evidence["missing_eligible_total"] == 0
@@ -96,10 +96,10 @@ def test_real_seed_capture_refuses_mismatch_and_accepts_consistent_reference(
                 assert guarded._seed_resolver.resolve(bar["ticker"], DAY) == str(old["permaticker"])
         spools = list(captured.files.values())
     assert all(spool.closed for spool in spools)
-    assert calls.count(sharadar.SEP) == 2
-    assert calls.count(sharadar.TICKERS) == 2
-    assert calls.count(sharadar.ACTIONS) == 2
-    assert calls.count(sharadar.SFP) == 2
+    assert calls.count(archive_tables.SEP) == 2
+    assert calls.count(archive_tables.TICKERS) == 2
+    assert calls.count(archive_tables.ACTIONS) == 2
+    assert calls.count(archive_tables.SFP) == 2
 
 
 def test_unresolved_symbol_diagnostic_is_bounded_and_order_independent():

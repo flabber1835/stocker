@@ -26,6 +26,8 @@ class AutomationComposeArgumentBoundary(unittest.TestCase):
         shutil.copyfile(WRAPPER, scripts / WRAPPER.name)
         shutil.copyfile(ENV_BRIDGE, scripts / ENV_BRIDGE.name)
         shutil.copyfile(ENV_PARSER, scripts / ENV_PARSER.name)
+        registry = ENV_PARSER.with_name("go-archive-format-v1.json")
+        shutil.copyfile(registry, scripts / registry.name)
         (scripts / "sentinel_host_python.py").write_text(
             "raise SystemExit(0)\n", encoding="utf-8")
         (self.root / ".env").write_text(

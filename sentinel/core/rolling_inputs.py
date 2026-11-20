@@ -1,5 +1,6 @@
 """Snapshot-native input material. No publication, shadow or trading authority."""
 from __future__ import annotations
+from sentinel import archive_identifiers
 
 from dataclasses import dataclass, field as dataclass_field
 from datetime import date
@@ -71,7 +72,7 @@ class SnapshotReferences:
         reference = rolling_store.load_evidence(conn, self.manifest.reference_sha256)
         reference_schema = ("sentinel.rolling-alpaca-openfigi-references/1"
                             if self.manifest.provider == "ALPACA_OPENFIGI" else
-                            "sentinel.rolling-sharadar-references/1")
+                            archive_identifiers.REFERENCES_SCHEMA)
         identity_schema = (self.manifest.provider == 'ALPACA_OPENFIGI'
                            and reference.get('schema') == 'sentinel.rolling-alpaca-openfigi-references/3')
         cash_schema = (self.manifest.provider == 'ALPACA_OPENFIGI'

@@ -2,9 +2,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from sentinel.feed import ingest, seed_capture, sharadar, snapshot_export
+from sentinel.feed import ingest, seed_capture, archive_tables, snapshot_export
 from sentinel.feed.authority import VendorPublicationUnstable
-from tests.support.table_export import _Http, _Response, _status
 from tests.sentinel.test_issue_178_seed_reference_bracketing import _ticker, _sep
 from tests.sentinel.test_issue_246_identity_rebuild import (
     pg, conn, _publish_base, _candidate_rows,
@@ -17,37 +16,9 @@ def evidence():
             "last_refreshed_time": "2026-08-19T21:59:00Z", "source_rows": 1}
 
 
-@pytest.mark.parametrize("status", [
-    _status(refreshed="2026-08-19T22:01:00Z", snapshot="2026-08-19T22:02:00Z"),
-    _status(snapshot="2026-08-19T21:58:00Z"),
-])
-def test_changed_actions_refresh_refuses(status, monkeypatch):
-    monkeypatch.setenv("SHARADAR_API_KEY", "unit-key")
-    http = _Http([_Response(payload=status)])
-    with pytest.raises(VendorPublicationUnstable):
-        snapshot_export.require_actions_refresh(
-            through="2026-08-19", evidence=evidence(), http=http)
-    assert len(http.client.calls) == 1
-
-
-@pytest.mark.parametrize("state", ["creating", "regenerating"])
-def test_pending_actions_refresh_defers_without_using_old_file(state, monkeypatch):
-    monkeypatch.setenv("SHARADAR_API_KEY", "unit-key")
-    http = _Http([_Response(payload=_status(state=state))])
-    with pytest.raises(snapshot_export.ExportPending, match=f"status={state}"):
-        snapshot_export.require_actions_refresh(
-            through="2026-08-19", evidence=evidence(), http=http)
-    assert len(http.client.calls) == 1
-    assert http.client.calls[0][1]["qopts.export"] == "true"
-
-
-def test_refresh_corroboration_downloads_no_second_file(monkeypatch):
-    monkeypatch.setenv("SHARADAR_API_KEY", "unit-key")
-    http = _Http([_Response(payload=_status())])
-    snapshot_export.require_actions_refresh(
-        through="2026-08-19", evidence=evidence(), http=http)
-    assert len(http.client.calls) == 1
-    assert http.client.calls[0][1]["qopts.export"] == "true"
+def test_historical_actions_cannot_be_reused_as_fresh_remote_corroboration():
+    with pytest.raises(archive_tables.CaptureRequired):
+        snapshot_export.require_actions_refresh(through="2026-08-19", evidence=evidence())
 
 
 def test_single_actions_file_replayed_after_independent_refresh(monkeypatch):
@@ -61,21 +32,21 @@ def test_single_actions_file_replayed_after_independent_refresh(monkeypatch):
     monkeypatch.setattr(snapshot_export, "fetch_complete_actions", export)
     monkeypatch.setattr(snapshot_export, "require_actions_refresh", refresh)
     source = seed_capture.ActionsSnapshotSource(lambda *a, **k: pytest.fail("paged ACTIONS"))
-    params = sharadar.date_params("1900-01-01", "2026-08-19")
-    first = list(source(sharadar.ACTIONS, params))
+    params = archive_tables.date_params("1900-01-01", "2026-08-19")
+    first = list(source(archive_tables.ACTIONS, params))
     first[0]["value"] = "corrupted consumer"
-    assert list(source(sharadar.ACTIONS, params))[0]["value"] == "1"
+    assert list(source(archive_tables.ACTIONS, params))[0]["value"] == "1"
     assert calls == ["export", "refresh"]
     with pytest.raises(ValueError, match="request changed"):
-        list(source(sharadar.ACTIONS, sharadar.date_params("1900-01-01", "2026-08-20")))
+        list(source(archive_tables.ACTIONS, archive_tables.date_params("1900-01-01", "2026-08-20")))
 
 
 def test_capture_failure_closes_files_and_refuses_unknown_request():
     with seed_capture.CapturedRows() as captured:
-        captured.capture(lambda *a: [{"date": "2026-08-18"}], sharadar.SEP, {"x": "1"})
+        captured.capture(lambda *a: [{"date": "2026-08-18"}], archive_tables.SEP, {"x": "1"})
         spool = next(iter(captured.files.values()))
         with pytest.raises(KeyError):
-            list(captured(sharadar.SEP, {"x": "2"}))
+            list(captured(archive_tables.SEP, {"x": "2"}))
     assert spool.closed
 
 
@@ -84,11 +55,11 @@ def test_real_seed_guard_checks_refresh_before_database_replay(monkeypatch):
     events = []
     def raw(table, params=None, **kwargs):
         events.append(table)
-        if table == sharadar.TICKERS:
+        if table == archive_tables.TICKERS:
             return [_ticker()]
-        if table == sharadar.SFP:
+        if table == archive_tables.SFP:
             return [{"ticker": "SPY", "date": "2026-08-18", "closeadj": 100}]
-        assert table == sharadar.SEP
+        assert table == archive_tables.SEP
         return [_sep("2026-08-18")]
     monkeypatch.setattr(snapshot_export, "fetch_complete_actions", lambda **k: (
         [{"date": "2026-08-18", "ticker": "AAA", "action": "dividend",
@@ -97,17 +68,17 @@ def test_real_seed_guard_checks_refresh_before_database_replay(monkeypatch):
         events.append("refresh")
         raise VendorPublicationUnstable("changed")
     monkeypatch.setattr(snapshot_export, "require_actions_refresh", changed)
-    guarded = coherence.StableSharadarFetch(seed_capture.ActionsSnapshotSource(raw))
+    guarded = coherence.StableTableFetch(seed_capture.ActionsSnapshotSource(raw))
     with seed_capture.CapturedRows() as captured:
-        captured.capture(guarded, sharadar.TICKERS)
-        captured.capture(guarded, sharadar.ACTIONS,
-                         sharadar.date_params("1900-01-01", "2026-08-19"))
-        captured.capture(guarded, sharadar.SFP,
-                         sharadar.date_params("2026-08-17", "2026-08-19"))
+        captured.capture(guarded, archive_tables.TICKERS)
+        captured.capture(guarded, archive_tables.ACTIONS,
+                         archive_tables.date_params("1900-01-01", "2026-08-19"))
+        captured.capture(guarded, archive_tables.SFP,
+                         archive_tables.date_params("2026-08-17", "2026-08-19"))
         with pytest.raises(VendorPublicationUnstable):
-            captured.capture(guarded, sharadar.SEP,
-                             sharadar.date_params("2026-08-17", "2026-08-19"))
-        assert all(key[0] != sharadar.SEP for key in captured.files)
+            captured.capture(guarded, archive_tables.SEP,
+                             archive_tables.date_params("2026-08-17", "2026-08-19"))
+        assert all(key[0] != archive_tables.SEP for key in captured.files)
     assert events == ["TICKERS", "SFP", "SEP", "SEP", "refresh"]
 
 
@@ -115,9 +86,9 @@ def test_postgres_identity_capture_failure_preserves_published_corpus(conn, monk
     from sentinel.feed import coherence, publication, store
     base = _publish_base(conn)
     def raw(table, params=None, **kwargs):
-        if table == sharadar.TICKERS:
+        if table == archive_tables.TICKERS:
             return _candidate_rows()
-        if table == sharadar.SFP:
+        if table == archive_tables.SFP:
             return [{"ticker": "SPY", "date": "2026-08-20", "closeadj": 100}]
         return [dict(_sep("2026-08-20"), ticker="BTLN")]
     monkeypatch.setattr(snapshot_export, "fetch_complete_actions", lambda **k: (
@@ -129,7 +100,7 @@ def test_postgres_identity_capture_failure_preserves_published_corpus(conn, monk
     # Small fixture exercises real identity preflight and PostgreSQL state;
     # the existing exact-population tests cover the 4,000-security seed floor.
     def guarded_source(fetch, **kwargs):
-        guarded = coherence.StableSharadarFetch(kwargs["acquisition_fetch"])
+        guarded = coherence.StableTableFetch(kwargs["acquisition_fetch"])
         guarded.preflight_seed_membership = lambda **kwargs: None  # Non-production small source.
         guarded.preflight_seed_identity = lambda **kwargs: None
         guarded.begin_seed_capture = lambda: None
@@ -158,7 +129,7 @@ def test_acquisition_precedes_candidate_and_identity_reuses_source(
     tracked = SimpleNamespace(max_sep_lastupdated=None)
     def guarded(table, params=None):
         events.append("capture_" + table)
-        if table == sharadar.SEP and capture_fails:
+        if table == archive_tables.SEP and capture_fails:
             raise VendorPublicationUnstable("refresh changed")
         return [{"table": table, "date": "2026-08-18"}]
     guarded.preflight_seed_membership = lambda **kwargs: events.append("membership_sample")
@@ -180,7 +151,7 @@ def test_acquisition_precedes_candidate_and_identity_reuses_source(
     monkeypatch.setattr(ingest, "_seed_authority", lambda **k: authority)
     def mutate(conn, **kwargs):
         events.append("candidate")
-        assert list(kwargs["fetch"](sharadar.TICKERS))[0]["table"] == "TICKERS"
+        assert list(kwargs["fetch"](archive_tables.TICKERS))[0]["table"] == "TICKERS"
         if identity_changed:
             assert kwargs["identity_rebuild_plan"] is plan
         return "done"

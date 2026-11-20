@@ -32,7 +32,7 @@ from sentinel.core.decision import build_execution_plan
 from sentinel.core.kernel import advance_session
 from sentinel.core.session import SessionState
 from sentinel.execution import alpaca, broker_cash, executor, journal, reconcile
-from sentinel.feed import calendar, ingest, publication, readiness, sharadar, store
+from sentinel.feed import calendar, ingest, publication, readiness, archive_tables, store
 from sentinel.paper.preparation import _fresh_warmed_state, _load_marks_and_tickers
 from sentinel.strategy import owned_impairment_strategy as _default_paper_strategy
 from sentinel.shadow_observation import SHADOW_WARMUP_SESSIONS
@@ -64,7 +64,7 @@ def write(path, value):
 def environment(path, root):
     values = {
         "SENTINEL_BACKUP_DIR": str(root), "SENTINEL_POSTGRES_PASSWORD": "syntheticpassword",
-        "SHARADAR_API_KEY": "synthetic-market-only", "ALPACA_API_KEY": "simulation-key",
+        "ALPACA_API_KEY": "simulation-key",
         "ALPACA_SECRET_KEY": "simulation-secret", "ALPACA_BASE_URL": broker.PAPER_URL,
         "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL": "https://alerts.example.test/synthetic",
         "SENTINEL_PUBLICATION_RECEIPT_KEY": "synthetic-publication-receipt-" * 3,
@@ -192,7 +192,7 @@ class Lifecycle:
                 # checkpoint, using the production incarnation recorder.
                 alpaca.database_incarnation(conn)
                 ingest.seed(conn, date_from=market.START, date_to=self.day,
-                            fetch=lambda *a, **kw: sharadar.fetch_table(*a, **kw))
+                            fetch=lambda *a, **kw: archive_tables.fetch_table(*a, **kw))
                 compare_corpus(self.provider.step.expected, observed_corpus(conn))
                 self.coverage.update({"startup", "production_seed", "physical_archive"})
             return self
@@ -281,7 +281,7 @@ class Lifecycle:
         with self.connection() as conn:
             try:
                 ingest.daily(conn, today=day)
-            except sharadar.SharadarRequestError as exc:
+            except archive_tables.RequestError as exc:
                 conn.rollback()
                 if not self.data_bad:
                     raise

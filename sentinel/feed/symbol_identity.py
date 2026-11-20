@@ -52,7 +52,7 @@ def _pair_claims(changes_from: dict[Claim, set[str]], changes_to: dict[Claim, se
 
     for from_claim in changes_from:
         day, primary, old = from_claim
-        # Sharadar can restate BOTH primary labels, including older events.
+        # Source can restate BOTH primary labels, including older events.
         # The contra fields carry the event's old/new symbols in this form.
         for to_claim in to_groups.get((day, primary), ()):
             add(from_claim, to_claim)
@@ -257,11 +257,11 @@ __all__ = ["RENAME_TYPES", "SCHEMA", "SymbolProjection"]
 
 def stable_rename_rows(fetch, *, through: str) -> list[dict]:
     """A small identity-only preflight, never publication permission."""
-    from sentinel.feed import authority, sharadar
+    from sentinel.feed import authority, archive_tables
     params = {"action": ",".join(RENAME_TYPES), "date.gte": "1900-01-01", "date.lte": through}
-    first = list(fetch(sharadar.ACTIONS, params))
-    second = list(fetch(sharadar.ACTIONS, params))
-    authority.require_stable(sharadar.ACTIONS, authority.observe_actions(first),
+    first = list(fetch(archive_tables.ACTIONS, params))
+    second = list(fetch(archive_tables.ACTIONS, params))
+    authority.require_stable(archive_tables.ACTIONS, authority.observe_actions(first),
                              authority.observe_actions(second))
     return second
 

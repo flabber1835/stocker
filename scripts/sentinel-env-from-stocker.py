@@ -28,7 +28,7 @@ dropped by construction rather than by anyone remembering to.
 
 Not to stdout, not to a log, not in an error. The report names variables and
 says what happened to them. That is deliberate: this runs on a NAS over SSH,
-and a terminal that has echoed a Sharadar key has put it in scrollback, in the
+and a terminal that has echoed a provider key has put it in scrollback, in the
 shell history of anyone who scrolled, and in any transcript of the session.
 
 ## Usage
@@ -125,15 +125,6 @@ DELIBERATELY_UNSET = {
         "selected explicitly in the new reviewed execution configuration; never inherit a stale legacy price band",
     "SENTINEL_PAPER_DEBUG_WINDOW":
         "session-specific signed paper authorization requires fresh explicit selection; never inherit a legacy debug window",
-    "SHARADAR_API_KEY":
-        "historical research only; never copy into deployed Sentinel environment",
-    "SHARADAR_FETCH_TIMEOUT": "historical research tuning only",
-    "SHARADAR_FETCH_RETRIES": "historical research tuning only",
-    "SHARADAR_FETCH_BACKOFF": "historical research tuning only",
-    "SHARADAR_429_BACKOFF_CAP": "historical research tuning only",
-    "NDL_BASE_URL": "historical Data Link override, not Nasdaq directory input",
-    "SHARADAR_ALLOW_INSECURE_BASE_URL":
-        "development transport opt-in must be selected explicitly, never inherited",
     "SENTINEL_REVIEWED_DEPLOYMENT_MODE":
         "selected by the reviewed deployment workflow, never inherited",
     "SENTINEL_SHADOW_OBSERVATION_ID":
@@ -164,6 +155,11 @@ DELIBERATELY_UNSET = {
 
 #: Dropped, and NAMED in the report rather than dropped silently. Anyone who
 #: believed these were in force needs to be told they are not.
+DELIBERATELY_UNSET.update({
+    name: "Retired provider configuration is never copied into a new deployment"
+    for name in sentinel_env.ARCHIVE_V1["retired_env_names"]
+})
+
 INERT_SAFETY = {
     "PAPER_ONLY", "LIVE_TRADING_ENABLED", "KILL_SWITCH",
     "MAX_ORDER_NOTIONAL", "MAX_ORDER_PCT",

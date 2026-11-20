@@ -188,3 +188,64 @@ def test_total_ledger_decode_budget_and_reserved_envelope_are_enforced(monkeypat
         storage.decode(encoded)
     with pytest.raises(ValueError, match='reserved ledger'):
         storage.encode({**value, storage.LEDGER_KEY:{}}, 'state')
+
+
+def test_daily_append_only_encodes_new_tail_after_restart(conn, monkeypatch):
+    schema.ensure_schema(conn)
+    initial = record(count=4096)
+    writer = shadow.PostgresShadowObservationStore(conn, observation_id='compact-ledger')
+    writer.append(initial)
+    conn.commit()
+    resumed = shadow.PostgresShadowObservationStore(conn, observation_id='compact-ledger')
+    assert resumed.records()[0] == initial
+    sizes, writes = [], []
+    pack, write = storage._pack_events, storage._write_ledger_chunk
+    def observe_pack(events, **kwargs):
+        sizes.append(len(events))
+        return pack(events, **kwargs)
+    def observe_write(*args):
+        writes.append(1)
+        return write(*args)
+    monkeypatch.setattr(storage, '_pack_events', observe_pack)
+    monkeypatch.setattr(storage, '_write_ledger_chunk', observe_write)
+    next_record = record(count=4097, session='2026-09-15')
+    resumed.append(next_record)
+    assert sizes == [1] and writes == []
+    assert resumed.records()[-1] == next_record
+
+
+@pytest.mark.parametrize(('old', 'new'), [(0, False), (1, 1.0), (0.0, -0.0)])
+def test_prefix_comparison_preserves_exact_json_spelling(old, new):
+    prefix = storage.LedgerPrefix()
+    raw = storage._json([{'value': old}]).encode('ascii')
+    prefix.add({'count': 1}, raw, prefix.sequence)
+    assert prefix.matches([{'value': old}])
+    assert not prefix.matches([{'value': new}])
+    prefix = storage.LedgerPrefix()
+    prefix.add({'count': 1}, b'[{"value": 1}]', prefix.sequence)
+    assert not prefix.matches([{'value': 1}])
+
+
+@pytest.mark.parametrize("load_before_change", [False, True])
+def test_chunk_session_replacement_cannot_authorize_prefix_reuse(conn, load_before_change):
+    schema.ensure_schema(conn)
+    stored = shadow.PostgresShadowObservationStore(conn, observation_id="compact-ledger")
+    first = record(count=storage.LEDGER_GROUP_SIZE)
+    stored.append(first)
+    conn.commit()
+    resumed = shadow.PostgresShadowObservationStore(conn, observation_id="compact-ledger")
+    if load_before_change:
+        assert resumed.records() == [first]
+    ref, state = conn.execute(
+        "SELECT cursor_name,state FROM sentinel_processed_sessions WHERE cursor_name LIKE %s",
+        (storage.LEDGER_PREFIX + "%",)).fetchone()
+    state["session"] = "2026-01-05"
+    conn.execute("UPDATE sentinel_processed_sessions SET session=%s,state=%s::jsonb WHERE cursor_name=%s",
+                 (state["session"], json.dumps(state), ref))
+    conn.commit()
+    if load_before_change:
+        with pytest.raises(ValueError, match="existing ledger chunk differs"):
+            resumed.append(record(count=storage.LEDGER_GROUP_SIZE + 1, session="2026-09-15"))
+    else:
+        with pytest.raises(shadow.ShadowObservationRefused, match="ledger chunk session differs"):
+            resumed.records()

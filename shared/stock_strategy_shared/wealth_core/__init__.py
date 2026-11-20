@@ -8,9 +8,7 @@ is what makes cross-engine parity testable rather than aspirational.
 
 SPECIFICATION PROVENANCE. Every rule implemented here traces to the written
 Wealth Core v1 assignment of 2026-08-03. The five cited research artifacts
-(CERTIFIED_SHARADAR_WEALTH_REPORT.md, STOCKER_WEALTH_CORE_V1.yaml,
-CERTIFIED_SHARADAR_SYMBOLIC_REPORT.md, WEALTH_ACCUMULATION_STRATEGY.yaml,
-REPRODUCIBILITY_MANIFEST.json) did NOT reach this repository and are not the
+(the certification reports, strategy definitions and reproducibility manifest) did NOT reach this repository and are not the
 source of anything below. Where the assignment forced a choice it does not
 state, the choice is a named configuration field with a documented default and
 is listed in docs/wealth-core-v1.md under "unresolved details" — never inlined

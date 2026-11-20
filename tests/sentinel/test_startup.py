@@ -11,6 +11,7 @@ for the interface being narrow.
 from __future__ import annotations
 
 import asyncio
+from functools import partial
 import sys
 from pathlib import Path
 
@@ -24,7 +25,7 @@ from fakes import FakeBroker  # noqa: E402
 from sentinel.ownership import OpenOrder, OwnershipState  # noqa: E402
 from sentinel.startup import (  # noqa: E402
     OwnershipNotEstablished,
-    establish_ownership,
+    establish_ownership as establish,
 )
 from sentinel.store import InMemoryOwnershipStore, ownership_established, record  # noqa: E402
 
@@ -39,8 +40,29 @@ def run(coro):
     return asyncio.run(coro)
 
 
+from sentinel.execution.identity import DeploymentIdentity
+from tests.sentinel.test_migration_recovery_remediation import conn, pg
+
+
+@pytest.fixture
+def establish_ownership(conn):
+    return partial(establish, conn=conn, deployment=DeploymentIdentity("test", "sim", "paper", 1))
+
+
+def test_missing_journal_or_deployment_refuses_before_observe_or_cancel():
+    class Unreachable(FakeBroker):
+        async def observe(self):
+            pytest.fail("unbound migration reached the broker")
+    deployment = DeploymentIdentity("test", "sim", "paper", 1)
+    for missing in ({}, {"conn": object()}, {"deployment": deployment}):
+        with pytest.raises(OwnershipNotEstablished, match="journal and deployment"):
+            run(establish(broker=Unreachable({"A": 2}), store=InMemoryOwnershipStore(), **missing))
+    from sentinel.broker import AlpacaSentinelBroker
+    assert not hasattr(AlpacaSentinelBroker, "close_position")
+
+
 class TestTheHandover:
-    def test_a_legacy_book_is_liquidated_exactly_once_and_ownership_recorded(self):
+    def test_a_legacy_book_is_liquidated_exactly_once_and_ownership_recorded(self, establish_ownership):
         broker = FakeBroker({"AAPL": 10, "MSFT": 5, "NVDA": 2})
         store = InMemoryOwnershipStore()
         result = run(establish_ownership(broker=broker, store=store, sleep=_noop_sleep))
@@ -59,7 +81,7 @@ class TestTheHandover:
         assert states.index(S.FLAT_CONFIRMED) < states.index(
             S.SENTINEL_OWNERSHIP_ESTABLISHED)
 
-    def test_legacy_orders_are_cancelled_before_any_close(self):
+    def test_legacy_orders_are_cancelled_before_any_close(self, establish_ownership):
         broker = FakeBroker(
             {"AAPL": 10}, [OpenOrder(order_id="legacy-buy", ticker="NVDA", side="buy")]
         )
@@ -67,21 +89,21 @@ class TestTheHandover:
                                 sleep=_noop_sleep))
         assert broker.cancelled == ["legacy-buy"]
 
-    def test_an_already_flat_account_establishes_ownership_without_trading(self):
+    def test_an_already_flat_account_establishes_ownership_without_trading(self, establish_ownership):
         broker = FakeBroker({})
         result = run(establish_ownership(broker=broker, store=InMemoryOwnershipStore(),
                                          sleep=_noop_sleep))
         assert broker.closes == []
         assert result.bootstrap_allowed is True
 
-    def test_slow_fills_do_not_provoke_duplicate_closes(self):
+    def test_slow_fills_do_not_provoke_duplicate_closes(self, establish_ownership):
         """Four cycles of a working sell must still produce ONE close."""
         broker = FakeBroker({"AAPL": 10}, fills_after=4)
         run(establish_ownership(broker=broker, store=InMemoryOwnershipStore(),
                                 sleep=_noop_sleep))
         assert broker.closes == ["AAPL"]
 
-    def test_a_refused_close_is_retried_and_does_not_abort_the_others(self):
+    def test_a_refused_close_is_retried_and_does_not_abort_the_others(self, establish_ownership):
         broker = FakeBroker({"AAPL": 10, "MSFT": 5}, fail_close={"AAPL"})
         with pytest.raises(OwnershipNotEstablished):
             run(establish_ownership(broker=broker, store=InMemoryOwnershipStore(),
@@ -89,7 +111,7 @@ class TestTheHandover:
         assert "MSFT" in broker.closes          # the healthy one still went
         assert broker.closes.count("AAPL") > 1  # the halted one was retried
 
-    def test_an_unclosable_book_REFUSES_bootstrap(self):
+    def test_an_unclosable_book_REFUSES_bootstrap(self, establish_ownership):
         """Wealth Core must not start onto an account whose ownership is
         unresolved — it could not tell the legacy book from its own."""
         broker = FakeBroker({"AAPL": 10}, fail_close={"AAPL"})
@@ -101,7 +123,7 @@ class TestTheHandover:
 
 
 class TestRestartSafety:
-    def test_restart_after_ownership_NEVER_touches_the_book(self):
+    def test_restart_after_ownership_NEVER_touches_the_book(self, establish_ownership):
         """The falsifier, at the orchestrator level: a full Wealth Core book, a
         store that already says we own it, and a restart."""
         broker = FakeBroker({"AAPL": 100, "MSFT": 200, "GOOG": 50})
@@ -116,7 +138,7 @@ class TestRestartSafety:
         assert result.cycles == 0
         assert broker.positions == {"AAPL": 100, "MSFT": 200, "GOOG": 50}
 
-    def test_restart_mid_liquidation_does_not_duplicate(self):
+    def test_restart_mid_liquidation_does_not_duplicate(self, establish_ownership):
         """First run dies after submitting; second run resumes against a broker
         that already carries the working sell."""
         broker = FakeBroker({"AAPL": 10, "MSFT": 5}, fills_after=99)
@@ -134,7 +156,7 @@ class TestRestartSafety:
                 f"{ticker} was closed twice across the restart — a second close "
                 f"while the first works sells into a SHORT position")
 
-    def test_a_second_full_run_is_a_no_op(self):
+    def test_a_second_full_run_is_a_no_op(self, establish_ownership):
         broker = FakeBroker({"AAPL": 10})
         store = InMemoryOwnershipStore()
         run(establish_ownership(broker=broker, store=store, sleep=_noop_sleep))

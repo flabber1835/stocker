@@ -1246,7 +1246,7 @@ def test_real_preparation_catalog_to_json_and_resume_contract(current_catalog, p
                 exec(code, {})
         completed = subprocess.CompletedProcess([], 1 if horizon else 0, output.getvalue(), '')
         summary = _probe(monkeypatch, completed)
-        assert summary.schema_migration_attempted and summary.bounded_sharadar_daily_attempted
+        assert summary.schema_migration_attempted and summary.bounded_market_data_daily_attempted
         assert summary.broker_mutation_attempts == 0 and len(calls) == 1
         assert reader.execute('SELECT 1').fetchone()[0] == 1
         if horizon:
@@ -1258,7 +1258,7 @@ def test_real_preparation_catalog_to_json_and_resume_contract(current_catalog, p
             assert serialized['completed_before_validation_boundary'] is True
             assert serialized['schema_migration_attempted'] is True
             assert serialized['database_mutation_scope'] == [
-                'SCHEMA_MIGRATION', 'BOUNDED_SHARADAR_DAILY_INGEST']
+                'SCHEMA_MIGRATION', 'BOUNDED_MARKET_DATA_DAILY_INGEST']
             payload = json.loads(output.getvalue().split('SENTINEL_GO_PREPARATION=', 1)[1])
             assert payload['following_open_future'] is False
     finally:

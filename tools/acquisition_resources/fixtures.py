@@ -1,27 +1,22 @@
-"""Disk-streamed Tables fixture, kept outside the measured acquisition worker."""
+"""Synthetic Alpaca SIP and OpenFIGI HTTP endpoints for isolated qualification."""
 from __future__ import annotations
 
 import argparse
-import csv
-from datetime import date, timedelta
-import hashlib
-from http.server import BaseHTTPRequestHandler, HTTPServer
-import io
-import itertools
+from collections import Counter
+from datetime import date
+from functools import lru_cache
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
-from pathlib import Path
-import shutil
-from urllib.parse import parse_qs, urlparse
-import zipfile
+from urllib.parse import parse_qs
 
 from pydantic import BaseModel, Field
 
-from sentinel.feed.rolling_contract import FormationWindow, PriceWindow
-from sentinel.feed.operational_source import _months
+from sentinel.feed import calendar
+from sentinel.feed.rolling_contract import CurrentFormationWindow, PriceWindow
 from tools.acquisition_resources.profiles import SPECS
 
+
 END = "2026-09-25"
-REFRESH = "2026-09-26T00:00:00+00:00"
 
 
 class Profile(BaseModel):
@@ -32,146 +27,110 @@ class Profile(BaseModel):
     formation: bool = True
 
     def window(self):
-        return (FormationWindow if self.formation else PriceWindow).through(END)
+        return (CurrentFormationWindow if self.formation else PriceWindow).through(END)
 
 
 PROFILES = {name: Profile(name=name, **spec) for name, spec in SPECS.items()}
-COLUMNS = {
-    "SEP": ["ticker", "date", "open", "high", "low", "close", "closeunadj", "volume", "lastupdated"],
-    "SFP": ["ticker", "date", "open", "close", "closeadj", "closeunadj", "volume"],
-    "ACTIONS": ["date", "action", "ticker", "name", "value", "contraticker", "contraname"],
-    "TICKERS": ["table", "permaticker", "ticker", "name", "category", "relatedtickers",
-                "firstpricedate", "lastpricedate", "sector", "isdelisted", "exchange"],
-}
 
 
-def rows(profile, table, lo=None, hi=None):
-    window = profile.window()
-    if table == "TICKERS":
-        for i in range(profile.tickers):
-            active = i < profile.securities
-            yield ["SEP", str(i + 1), f"S{i:05}", f"Synthetic security {i:05}",
-                   "Domestic Common Stock", None,
-                   str(window.start) if active else "1990-01-01",
-                   END if active else "2000-01-01", "Technology", "N" if active else "Y", "NYSE"]
-    elif table == "ACTIONS":
-        for i in range(profile.actions):
-            # Unique semantic records with realistic names and decimal spelling.
-            day = date(1960, 1, 1) + timedelta(days=90 * (i // profile.securities))
-            yield [str(day), "dividend", f"S{i % profile.securities:05}",
-                   f"Synthetic Corporation {i % profile.securities:05} ordinary cash distribution",
-                   "0.125", None, None]
-    else:
-        for day in window.sessions:
-            if lo and not lo <= str(day) <= hi:
-                continue
-            count = 2 if table == "SFP" else profile.securities
-            for i in range(count):
-                if table == "SFP":
-                    yield [("SPY", "BIL")[i], str(day), "100", "101", "102", "101", "1000000"]
-                else:
-                    # Vary price text across rows without allocating a full table.
-                    price = f"{50 + i % 900}.{day.day:02}"
-                    yield [f"S{i:05}", str(day), price, price, price, price, price,
-                           str(100000 + i), END]
+@lru_cache(maxsize=256)
+def sessions(first, last):
+    return calendar.sessions_in_range(first, last)
 
 
-def export_key(table, lo=None, hi=None):
-    return table + (f"-{lo}-{hi}" if table == "SEP" else "")
+def handler(profile, *, end=END, requests=None):
+    counts = Counter()
+    pay = calendar.previous_sessions(end, 3)[0]
 
-
-def build(profile, root):
-    root.mkdir(parents=True, exist_ok=True)
-    window = profile.window()
-    requests = [("ACTIONS", None, None), ("TICKERS", None, None)]
-    requests += [("SEP", lo, hi) for lo, hi in _months(str(window.start), END)]
-    manifest = {}
-    for table, lo, hi in requests:
-        key = export_key(table, lo, hi)
-        path = root / (key + ".zip")
-        count = 0
-        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED, compresslevel=1) as archive:
-            info = zipfile.ZipInfo(table + ".csv", (2000, 1, 1, 0, 0, 0))
-            info.compress_type = zipfile.ZIP_DEFLATED
-            with archive.open(info, "w") as raw:
-                with io.TextIOWrapper(raw, encoding="utf-8", newline="") as stream:
-                    writer = csv.writer(stream)
-                    writer.writerow(COLUMNS[table])
-                    for row in rows(profile, table, lo, hi):
-                        writer.writerow(row)
-                        count += 1
-            uncompressed = archive.getinfo(table + ".csv").file_size
-        with path.open("rb") as stream:
-            sha = hashlib.file_digest(stream, "sha256").hexdigest()
-        manifest[key] = dict(rows=count, compressed_bytes=path.stat().st_size,
-                             csv_bytes=uncompressed, sha256=sha)
-    return manifest
-
-
-def handler(profile, root, manifest):
     class Handler(BaseHTTPRequestHandler):
-        downloads = 0
-        transferred = 0
-        def log_message(self, *_args):
-            pass  # No authenticated URL logging, including synthetic credentials.
-        def do_GET(self):
-            parsed = urlparse(self.path)
-            query = parse_qs(parsed.query)
-            table = Path(parsed.path).stem.upper()
-            if parsed.path == "/metrics":
-                payload = dict(downloads=self.downloads, transferred_bytes=self.transferred,
-                               manifest=manifest, profile=profile.model_dump())
-            elif parsed.path.startswith("/exports/"):
-                key = Path(parsed.path).stem
-                if key not in manifest:
-                    self.send_error(404)
-                    return
-                path = root / (key + ".zip")
-                self.send_response(200)
-                self.send_header("Content-Length", str(path.stat().st_size))
-                self.end_headers()
-                with path.open("rb") as stream:
-                    shutil.copyfileobj(stream, self.wfile, length=65536)
-                type(self).downloads += 1
-                type(self).transferred += path.stat().st_size
-                return
-            elif table in COLUMNS and query.get("qopts.export") == ["true"]:
-                key = export_key(table, query.get("date.gte", [None])[0], query.get("date.lte", [None])[0])
-                if key not in manifest:
-                    self.send_error(404)
-                    return
-                payload = {"datatable_bulk_download": {
-                    "file": {"status": "fresh", "data_snapshot_time": REFRESH,
-                             "link": f"http://{self.headers['Host']}/exports/{key}.zip"},
-                    "datatable": {"last_refreshed_time": REFRESH}}}
-            elif table in {"TICKERS", "SFP"}:
-                offset = int(query.get("qopts.cursor_id", ["0"])[0])
-                page = list(itertools.islice(rows(profile, table), offset, offset + 5001))
-                cursor = str(offset + 5000) if len(page) > 5000 else None
-                payload = {"datatable": {"columns": [{"name": c, "type": "text"} for c in COLUMNS[table]],
-                                         "data": page[:5000]}, "meta": {"next_cursor_id": cursor}}
-            else:
+        def send_json(self, path, payload):
+            raw = json.dumps(payload, separators=(',', ':')).encode()
+            counts[path] += 1
+            if requests is not None:
+                requests.append({'endpoint': path, 'method': self.command})
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+        def do_CONNECT(self):
+            # A host-side financial account probe can never escape the fixture.
+            self.send_error(403)
+
+        def do_POST(self):
+            if self.path != '/v3/mapping':
                 self.send_error(404)
                 return
-            body = json.dumps(payload).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            jobs = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            if not 1 <= len(jobs) <= 100 or any(job['idType'] != 'TICKER' or job['exchCode'] != 'US' for job in jobs):
+                self.send_error(400)
+                return
+            def result(symbol):
+                admitted = symbol.startswith('S') and symbol[1:].isdigit() and int(symbol[1:]) < profile.securities
+                kind = 'Common Stock' if admitted else 'ETF'
+                return {'data': [{'ticker': symbol, 'exchCode': 'US', 'marketSector': 'Equity',
+                    'compositeFIGI': 'C-' + symbol, 'shareClassFIGI': 'S-' + symbol,
+                    'securityType': kind, 'securityType2': kind}]}
+            self.send_json(self.path, [result(job['idValue']) for job in jobs])
+
+        def do_GET(self):
+            path, _, query = self.path.partition('?')
+            q = {key: values[0] for key, values in parse_qs(query).items()}
+            if path == '/metrics':
+                self.send_json(path, dict(counts))
+            elif path == '/v2/assets':
+                self.send_json(path, [{'id': f'id-{i}', 'symbol': f'S{i:05}', 'name': f'Issuer {i}',
+                    'exchange': 'NYSE', 'status': 'active', 'class': 'us_equity'} for i in range(profile.tickers)] +
+                    [{'id': s, 'symbol': s, 'name': s, 'exchange': 'ARCA', 'status': 'active', 'class': 'us_equity'}
+                     for s in ('BIL', 'SPY')])
+            elif path == '/v2/stocks/bars':
+                if q.get('feed') != 'sip' or q.get('adjustment') not in ('split', 'raw', 'all') or q.get('timeframe') != '1Day':
+                    self.send_error(400)
+                    return
+                symbols = q['symbols'].split(',')
+                days = sessions(q['start'][:10], q['end'][:10])
+                size = len(days)
+                first, last, token = self.page(q, len(symbols)*size)
+                bars = {}
+                for index in range(first, last):
+                    symbol, day = symbols[index // size], days[index % size]
+                    n = (date.fromisoformat(day) - date(2020, 1, 1)).days
+                    price = round(100 + (0.001 if symbol == 'BIL' else 0.04)*n +
+                                  (int(symbol[1:]) % 100 if symbol[1:].isdigit() else 0), 4)
+                    bars.setdefault(symbol, []).append({'t': day+'T12:00:00Z', 'o': price,
+                        'h': price, 'l': price, 'c': price, 'v': 1000000})
+                self.send_json(path, {'bars': bars, 'next_page_token': token})
+            elif path == '/v1/corporate-actions':
+                first, last, token = self.page(q, profile.actions)
+                # Stable facts across adjacent windows and query overlap. Only
+                # one observed cash action applies to a selected ordinary stock.
+                if not q['start'] <= pay <= q['end']:
+                    first, last, token = 0, 0, None
+                rows = [{'id': f'dividend-{i}', 'symbol': 'S00000' if not i else f'OTHER{i}',
+                         'process_date': pay, 'ex_date': pay, 'payable_date': pay, 'rate': '0.01',
+                         'foreign': False, 'currency': 'USD'} for i in range(first, last)]
+                self.send_json(path, {'corporate_actions': {'cash_dividends': rows}, 'next_page_token': token})
+            else:
+                self.send_error(404)
+
+        def page(self, query, count):
+            first = int(query.get('page_token', '0'))
+            last = min(count, first + int(query['limit']))
+            return first, last, str(last) if last < count else None
+
+        def log_message(self, *args):
+            pass
+
     return Handler
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--profile", choices=PROFILES, required=True)
-    parser.add_argument("--root", type=Path, default=Path("/fixtures"))
+    parser.add_argument('--profile', choices=PROFILES, required=True)
     args = parser.parse_args()
-    profile = PROFILES[args.profile]
-    manifest = build(profile, args.root)
-    print(json.dumps({"event": "fixture_ready", "profile": profile.name}), flush=True)
-    HTTPServer(("0.0.0.0", 8080), handler(profile, args.root, manifest)).serve_forever()
+    ThreadingHTTPServer(('0.0.0.0', 8080), handler(PROFILES[args.profile])).serve_forever()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

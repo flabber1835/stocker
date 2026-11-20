@@ -14,6 +14,7 @@ from sentinel.feed import operational_snapshot as snapshots, rolling_jobs, publi
 from tools import sentinel_operational_parity as parity
 from tests.sentinel.test_rolling_initialization import ready, OBS  # noqa: F401
 from tests.sentinel.test_operational_snapshot import operational_source  # noqa: F401
+from tests.sentinel.test_alpaca_operational_snapshot import alpaca_path  # noqa: F401
 from tests.sentinel.test_rolling_snapshot_publisher import conn, pg, source  # noqa: F401
 
 TARGET = "2026-09-14"
@@ -365,8 +366,17 @@ def test_database_health_refuses_a_missing_publication_pin(conn, published, monk
     assert health.inspect(conn, database_url=conn.info.dsn)["checks"]["publication_pin_excludes_writers"] is False
 
 
-def test_supported_go_preparation_and_readiness_payloads_use_rolling(conn, published, monkeypatch, capsys):
+def test_supported_go_preparation_and_readiness_payloads_use_rolling(conn, alpaca_path, monkeypatch, capsys):
+    from sentinel import schema
+    from sentinel.core import window_policy
     from sentinel.feed import store
+    from sentinel.feed.rolling_contract import CurrentFormationWindow
+    from sentinel.strategy import production_strategy
+    schema.ensure_schema(conn)
+    strategy = production_strategy()[1]
+    assert window_policy.enabled(strategy)
+    alpaca_path.window = CurrentFormationWindow.through(TARGET)
+
     monkeypatch.syspath_prepend(str(ROOT / "scripts"))
     import sentinel_go_24x7_entry as entry
     assert Path(entry.__file__).resolve() == (ROOT / "scripts/sentinel_go_24x7_entry.py").resolve()
@@ -383,12 +393,13 @@ def test_supported_go_preparation_and_readiness_payloads_use_rolling(conn, publi
             pass
     monkeypatch.setattr(store, "connect", lambda dsn: Borrowed())
     monkeypatch.setenv("SENTINEL_DATABASE_URL", "test-connection")
-    monkeypatch.setenv("SENTINEL_GO_PREPARATION_DEADLINE", "2026-09-29T20:00:00+00:00")
+    from datetime import timedelta
+    monkeypatch.setenv("SENTINEL_GO_PREPARATION_DEADLINE", (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat())
     exec(entry._PREPARATION_CODE, {})
     output = capsys.readouterr().out
     prepared = json.loads(next(line.split("=", 1)[1] for line in output.splitlines()
                                if line.startswith("SENTINEL_GO_PREPARATION=")))
-    assert prepared["publication_current"] and prepared["bounded_sharadar_daily"]
+    assert prepared["publication_current"] and prepared["bounded_market_data_daily"]
     assert backup_calls == ["NAS financial preparation"]
     assert prepared['schema_migrated'] is True
     exec(entry.go._READINESS_CODE, {})

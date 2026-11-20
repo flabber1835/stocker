@@ -89,14 +89,21 @@ def test_read_only_post_is_fixed_and_credentials_are_absent_from_evidence(monkey
     assert not any(key.lower().startswith('apca-') for key in calls[0].headers)
 
 
-def test_free_pacing_and_retries_are_bounded_without_secret_errors(monkeypatch):
+def test_free_pacing_and_retries_are_bounded_without_secret_errors(monkeypatch, tmp_path):
+    from sentinel.feed import provider_budget
+    monkeypatch.setenv('SENTINEL_STATE_DIR', str(tmp_path))
     monkeypatch.delenv('OPENFIGI_API_KEY',raising=False)
     delays=[]; calls=[]
     class Opener:
         def open(self, request, timeout):
             calls.append(request)
             raise HTTPError(openfigi.ENDPOINT,429,'test-secret',{},None)
-    client=openfigi.Client(opener=Opener(),sleeper=delays.append,monotonic=lambda:0)
+    now = [0]
+    monkeypatch.setattr(provider_budget.time, 'time', lambda: now[0])
+    def sleep(delay):
+        delays.append(delay)
+        now[0] += delay
+    client=openfigi.Client(opener=Opener(),sleeper=sleep,monotonic=lambda:0)
     with pytest.raises(AlpacaTransportUnavailable) as error:
         client.mapping([asset()])
     assert client.batch_size==10 and len(calls)==4 and 2.5 in delays

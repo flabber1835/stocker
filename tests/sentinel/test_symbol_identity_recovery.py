@@ -5,7 +5,7 @@ import copy
 
 import pytest
 
-from sentinel.feed import (authority, coherence, seed_capture, sharadar,
+from sentinel.feed import (authority, coherence, seed_capture, archive_tables,
                            source_authority, source_probe, symbol_identity)
 from test_seed_symbol_transition import OLD_LISTINGS, RESTATED_BARS
 
@@ -96,26 +96,26 @@ def test_rename_join_obeys_actual_seed_capture_gates(fault):
 
     def fetch(table, params=None):
         calls.append(table)
-        if table == sharadar.ACTIONS:
+        if table == archive_tables.ACTIONS:
             return RENAMES[:-1] if fault == "moving-actions" and calls.count(table) == 2 else RENAMES
-        return {sharadar.TICKERS: listings, sharadar.SEP: bars,
-                sharadar.SFP: [{"ticker": "SPY", "date": days[0], "closeadj": 600}]}[table]
+        return {archive_tables.TICKERS: listings, archive_tables.SEP: bars,
+                archive_tables.SFP: [{"ticker": "SPY", "date": days[0], "closeadj": 600}]}[table]
 
-    guarded = source_authority.StableSharadarFetch(fetch, seed_mode=True)
-    params = sharadar.date_params(days[0], THROUGH)
+    guarded = source_authority.StableTableFetch(fetch, seed_mode=True)
+    params = archive_tables.date_params(days[0], THROUGH)
     with seed_capture.CapturedRows() as captured:
-        captured.capture(guarded, sharadar.TICKERS)
-        captured.capture(guarded, sharadar.ACTIONS, params)
-        captured.capture(guarded, sharadar.SFP, params)
+        captured.capture(guarded, archive_tables.TICKERS)
+        captured.capture(guarded, archive_tables.ACTIONS, params)
+        captured.capture(guarded, archive_tables.SFP, params)
         if fault:
             with pytest.raises((coherence.SeedHistoryIncomplete,
                                 source_authority.SourceAuthorityRefused,
                                 authority.VendorPublicationUnstable)):
-                captured.capture(guarded, sharadar.SEP, params)
+                captured.capture(guarded, archive_tables.SEP, params)
             assert guarded.seed_coverage_evidence is None
         else:
-            captured.capture(guarded, sharadar.SEP, params)
-            assert list(captured(sharadar.SEP, params)) == bars
+            captured.capture(guarded, archive_tables.SEP, params)
+            assert list(captured(archive_tables.SEP, params)) == bars
             assert guarded.seed_coverage_evidence["received_eligible_total"] == 4 * 5606
 
 
@@ -123,19 +123,19 @@ def test_small_probe_follows_restated_actions_but_never_publishes():
     calls = []
     def fetch(table, params):
         calls.append((table, params))
-        if table == sharadar.TICKERS:
+        if table == archive_tables.TICKERS:
             return OLD_LISTINGS
-        if table == sharadar.ACTIONS:
+        if table == archive_tables.ACTIONS:
             field = "ticker" if "ticker" in params else "contraticker"
             wanted = set(params[field].split(","))
             return [row for row in RENAMES if row[field] in wanted]
-        assert table == sharadar.SEP
+        assert table == archive_tables.SEP
         assert params["date.gte"] == params["date.lte"] == "2026-09-08"
         return RESTATED_BARS
     source_probe.require_recovery_probe(
         {"session": "2026-09-08", "identities": ["111101", "113467"]},
         through=THROUGH, fetch=fetch)
-    assert sum(table == sharadar.SEP for table, _ in calls) == 2
+    assert sum(table == archive_tables.SEP for table, _ in calls) == 2
     assert all(set(params["ticker"].split(",")) <= {"CYCN", "KRSA", "PHGE", "HLSQ"}
                for table, params in calls if "ticker" in params)
 
@@ -212,22 +212,22 @@ def test_daily_overlap_cannot_forget_an_older_unresolved_rename(missing):
         bars.extend(dict(row, date=day, lastupdated=day) for row in RESTATED_BARS)
 
     def fetch(table, params=None):
-        if table == sharadar.ACTIONS:
+        if table == archive_tables.ACTIONS:
             return [r for r in RENAMES if params["date.gte"] <= r["date"] <= params["date.lte"]]
-        return {sharadar.TICKERS: rows, sharadar.SEP: bars,
-                sharadar.SFP: [{"ticker": "SPY", "date": day, "closeadj": 600}]}[table]
+        return {archive_tables.TICKERS: rows, archive_tables.SEP: bars,
+                archive_tables.SFP: [{"ticker": "SPY", "date": day, "closeadj": 600}]}[table]
 
-    guarded = source_authority.StableSharadarFetch(
+    guarded = source_authority.StableTableFetch(
         fetch, after_session="2026-09-24", identity_actions=RENAMES,
         identity_through=day, identity_fetch=fetch)
-    list(guarded(sharadar.TICKERS))
-    list(guarded(sharadar.ACTIONS, sharadar.date_params("2026-09-14", day)))
-    list(guarded(sharadar.SFP, sharadar.date_params(day, day)))
+    list(guarded(archive_tables.TICKERS))
+    list(guarded(archive_tables.ACTIONS, archive_tables.date_params("2026-09-14", day)))
+    list(guarded(archive_tables.SFP, archive_tables.date_params(day, day)))
     if missing:
         with pytest.raises(coherence.SepListingPopulationIncomplete, match="renamed identities"):
-            list(guarded(sharadar.SEP, sharadar.date_params(day, day)))
+            list(guarded(archive_tables.SEP, archive_tables.date_params(day, day)))
     else:
-        assert list(guarded(sharadar.SEP, sharadar.date_params(day, day))) == bars
+        assert list(guarded(archive_tables.SEP, archive_tables.date_params(day, day))) == bars
 
 
 def test_nas_split_units_still_use_the_existing_independent_price_check():

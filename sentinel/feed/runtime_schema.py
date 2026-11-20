@@ -601,8 +601,13 @@ def _validate_catalog(catalog) -> None:
 
 def _validate_views(cur) -> None:
     from sentinel.feed.history_retention_catalog import require_recovery_pin
+    from sentinel.feed.retention_schema import DDL as retention_ddl
     require_recovery_pin(cur)
-    for statement in ACQUISITION_DDL:
+    lock_guards = tuple(statement for statement in retention_ddl if statement.startswith((
+        'CREATE OR REPLACE FUNCTION sentinel_retention_locks()',
+        'CREATE OR REPLACE FUNCTION sentinel_acquisition_retention_locks()',
+    )))
+    for statement in (*lock_guards, *ACQUISITION_DDL):
         if statement.startswith("CREATE OR REPLACE FUNCTION"):
             function = statement.split("FUNCTION ")[1].split("(")[0]
             signature = "text" if function.endswith("part_pinned") else ""

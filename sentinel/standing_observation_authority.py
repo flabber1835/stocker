@@ -12,7 +12,7 @@ This module is deliberately narrow:
 * the normal Ed25519 signature, durable lifecycle, key/certificate revocation,
   account binding, rollout, runtime and strategy checks remain mandatory;
 * historical/admin certificates keep their ordinary bounded lifetime;
-* current Sharadar metadata may advance after activation.  Daily
+* published reference data may advance after activation.  Daily
   ingest/publication/readiness owns whether that new data is authoritative;
   freezing TICKERS bytes to activation day would make normal market metadata
   evolution an artificial kill switch.

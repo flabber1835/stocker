@@ -16,6 +16,8 @@ import zipfile
 
 import pytest
 
+from sentinel.archive_identifiers import PROVIDER as ARCHIVE_PROVIDER
+
 ROOT = Path(os.environ.get('SENTINEL_REPO_ROOT', Path(__file__).resolve().parents[2]))
 SOURCE = ROOT/'scripts/sentinel-split-sep-bulk.py'
 spec = importlib.util.spec_from_file_location('sep_splitter_fault_contract', SOURCE)
@@ -39,7 +41,7 @@ def generation(tmp_path, phase='PREPARED', *, original=True):
     backup_dir = out/('.sentinel-sep-backup.'+TOKEN)
     backup_dir.mkdir()
     entries = []
-    for final in (out/'SHARADAR_SEP_1998.csv.gz', fp):
+    for final in (out/f'{ARCHIVE_PROVIDER}_SEP_1998.csv.gz', fp):
         is_fp = final == fp
         staged = (fp.parent/('.'+fp.name+'.sep-staging.'+TOKEN)
                   if is_fp else staging/final.name)
@@ -79,7 +81,7 @@ def test_streamed_sha_is_exact(tmp_path, content):
 
 
 def test_year_writer_exact_fingerprint_dates_tickers_and_idempotent_close(tmp_path):
-    path = tmp_path/'SHARADAR_SEP_1998.csv.gz'
+    path = tmp_path/f'{ARCHIVE_PROVIDER}_SEP_1998.csv.gz'
     writer = splitter.YearWriter(path, HEADER)
     rows = [('SPY,1998-02-02,20\n', '1998-02-02', 'SPY'),
             ('BIL,1998-01-02,10\n', '1998-01-02', 'BIL'),
@@ -118,7 +120,7 @@ def test_abort_closes_owned_raw_stream_even_when_gzip_close_fails(tmp_path, monk
 
 @pytest.mark.parametrize('case', ['missing', 'wrong-name', 'header', 'empty', 'changed'])
 def test_year_validation_rejects_missing_bad_header_or_drift(tmp_path, case):
-    path = tmp_path/'SHARADAR_SEP_1998.csv.gz'
+    path = tmp_path/f'{ARCHIVE_PROVIDER}_SEP_1998.csv.gz'
     text = '' if case == 'empty' else ('price\n1\n' if case == 'header' else HEADER)
     if case != 'missing':
         path.write_bytes(gzip.compress(text.encode(), mtime=0))
@@ -214,8 +216,8 @@ def test_marker_root_schema_type_and_path_refusal_preserves_every_byte(tmp_path,
 INVALID_ENTRY = [None, {}, {'extra': 1}, {'had_original': 1}, {'sha256': None},
     {'sha256': 'x'*64}, {'backup_sha256': None}, {'backup_sha256': 7},
     {'backup_sha256': '0'*63}, {'final': None}, {'final': 3}, {'staged': []},
-    {'backup': {}}, {'final': '/escaped/SHARADAR_SEP_1998.csv.gz'},
-    {'final': 'SHARADAR_SEP_bad.csv.gz'}, {'staged': '/escaped/member'},
+    {'backup': {}}, {'final': f'/escaped/{ARCHIVE_PROVIDER}_SEP_1998.csv.gz'},
+    {'final': f'{ARCHIVE_PROVIDER}_SEP_bad.csv.gz'}, {'staged': '/escaped/member'},
     {'backup': '/escaped/backup'}, {'staged': ''}, {'backup': '\x00'}]
 
 
@@ -384,8 +386,8 @@ def test_real_split_skips_malformed_outside_and_blank_rows_preserves_exact_accep
     assert report['rows_outside_year_range'] == {'1997': 1}
     assert report['source_zip_sha256'] == sha(archive.read_bytes())
     expected = HEADER+'SPY,1998-02-02,20\nBIL,1998-01-02,10\nSPY,1998-03-03,21\n'
-    assert gzip.decompress((out/'SHARADAR_SEP_1998.csv.gz').read_bytes()).decode() == expected
-    assert gzip.decompress((out/'SHARADAR_SEP_1999.csv.gz').read_bytes()).decode() == HEADER
+    assert gzip.decompress((out/f'{ARCHIVE_PROVIDER}_SEP_1998.csv.gz').read_bytes()).decode() == expected
+    assert gzip.decompress((out/f'{ARCHIVE_PROVIDER}_SEP_1999.csv.gz').read_bytes()).decode() == HEADER
     assert report['years']['1998']['first_date'] == '1998-01-02'
     assert 'EMPTY years' in capsys.readouterr().out
     assert not (out/splitter.PROMOTION_MARKER).exists()
@@ -396,7 +398,7 @@ def test_real_split_skips_malformed_outside_and_blank_rows_preserves_exact_accep
     replacement = zip_csv(tmp_path/'next.zip', HEADER+'BIL,1999-01-01,101\n')
     assert invoke(monkeypatch, replacement, out, fp, force=True) == 0
     assert json.loads(fp.read_text())['rows_written'] == 1
-    assert gzip.decompress((out/'SHARADAR_SEP_1999.csv.gz').read_bytes()).decode() == HEADER+'BIL,1999-01-01,101\n'
+    assert gzip.decompress((out/f'{ARCHIVE_PROVIDER}_SEP_1999.csv.gz').read_bytes()).decode() == HEADER+'BIL,1999-01-01,101\n'
     assert not any(p.name.startswith('.sentinel-sep-') for p in out.iterdir())
 
 
@@ -420,7 +422,7 @@ def test_quoted_csv_fields_are_not_silently_dropped_or_misfingerprinted(tmp_path
     report = json.loads(fp.read_text())
     assert report['rows_written'] == 2 and report['malformed_rows_skipped'] == 0
     assert report['years']['1998']['distinct_tickers'] == 1
-    assert gzip.decompress((out/'SHARADAR_SEP_1998.csv.gz').read_bytes()).decode() == HEADER+'"PRIVATE,TICKER",1998-01-02,20\n'
+    assert gzip.decompress((out/f'{ARCHIVE_PROVIDER}_SEP_1998.csv.gz').read_bytes()).decode() == HEADER+'"PRIVATE,TICKER",1998-01-02,20\n'
 
 
 @pytest.mark.parametrize('boundary', ['before-marker', 'after-backup', 'after-first-promotion'])
@@ -428,7 +430,7 @@ def test_failed_main_leaves_only_owned_recoverable_checkpoint(tmp_path, monkeypa
     archive = zip_csv(tmp_path/'bulk.zip')
     out, fp = tmp_path/'years', tmp_path/'fp.json'
     assert invoke(monkeypatch, archive, out, fp, last=1998) == 0
-    old = {str(p):p.read_bytes() for p in (out/'SHARADAR_SEP_1998.csv.gz', fp)}
+    old = {str(p):p.read_bytes() for p in (out/f'{ARCHIVE_PROVIDER}_SEP_1998.csv.gz', fp)}
     replacement = zip_csv(tmp_path/'new.zip', HEADER+'BIL,1998-03-01,30\n')
     actual_marker = splitter._write_json_fsynced
     actual_replace = os.replace

@@ -1,7 +1,7 @@
 """Diagnostic sampling must preserve the reviewed full-history contract."""
 import pytest
 
-from sentinel.feed import coherence, sharadar, source_authority, universe
+from sentinel.feed import coherence, archive_tables, source_authority, universe
 
 
 def test_context_dependent_onset_exception_stays_with_full_capture():
@@ -12,17 +12,17 @@ def test_context_dependent_onset_exception_stays_with_full_capture():
     calls = []
     bar = dict(ticker="SOCAU", date=last, close=10, closeunadj=10, open=10, volume=100)
     def fetch(table, params):
-        assert table == sharadar.SEP
+        assert table == archive_tables.SEP
         calls.append(params)
         return [bar] if params["date.gte"] == last else []
-    guarded = source_authority.StableSharadarFetch(fetch, seed_mode=True)
+    guarded = source_authority.StableTableFetch(fetch, seed_mode=True)
     # This unit isolates sampling against already captured authority. Export,
     # bracketing, SQL and publication are covered by test_exported_symbol_identity.
     projection = source_authority.SeedListingProjection([listing], source_digest="a" * 64)
     resolver = universe.IdentityResolver(universe.listings_from_rows([listing]))
     guarded._seed_projection, guarded._seed_resolver = projection, resolver
     guarded.preflight_seed_membership(date_from=first, date_to=last)
-    assert calls == [sharadar.date_params(last, last)] * 2
+    assert calls == [archive_tables.date_params(last, last)] * 2
     assert guarded.seed_coverage_evidence is None
     coverage = source_authority.SeedCoverageAccumulator(projection, resolver.resolve)
     try:

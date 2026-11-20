@@ -1,4 +1,6 @@
 """Fresh deployed ingress reaches the original signed predicate without runtime."""
+
+from sentinel import archive_identifiers as archive_ids
 from datetime import datetime,timedelta,timezone
 import json
 import os
@@ -91,7 +93,7 @@ def signed_health(pg,tmp_path,monkeypatch):
         'SENTINEL_PUBLICATION_RECEIPT_KEY':'private-health-fixture-key-'*3,
         'ALPACA_API_KEY':'private-fixture-not-a-credential',
         'ALPACA_SECRET_KEY':'private-fixture-not-a-credential',
-        'SHARADAR_API_KEY':'','SENTINEL_PAPER_ACCOUNT_ID':'',
+        archive_ids.RETIRED_CREDENTIAL:'','SENTINEL_PAPER_ACCOUNT_ID':'',
         **{name:'a'*64 for name in ('SENTINEL_VALIDATED_SOURCE_IDENTITY_SHA256',
             'SENTINEL_VALIDATED_SHADOW_CONFIG_SHA256','SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256',
             'SENTINEL_REVIEWED_VALIDATION_BUNDLE_SHA256')},

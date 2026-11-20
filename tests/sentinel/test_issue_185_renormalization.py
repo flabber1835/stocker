@@ -1,6 +1,8 @@
 """Historical SEP/ACTIONS corrections must replay canonical session boundaries."""
 from __future__ import annotations
 
+from sentinel import archive_identifiers as archive_ids
+
 import datetime as dt
 from types import SimpleNamespace
 
@@ -53,7 +55,7 @@ def test_sep_mutation_validation_refuses_unknown_permanent_identity(monkeypatch)
         "ticker": "AAA", "date": "2020-01-02",
         "lastupdated": "2026-08-18", "closeunadj": 10.0,
     }
-    with pytest.raises(maintenance.SharadarMutationRefused, match="no permanent identity"):
+    with pytest.raises(maintenance.SourceMutationRefused, match="no permanent identity"):
         maintenance._validate_sep_mutation_rows(
             object(), [row], lo=__import__("datetime").date(2026, 8, 17),
             hi=__import__("datetime").date(2026, 8, 18),
@@ -69,7 +71,7 @@ def test_sep_mutation_validation_refuses_missing_new_raw_price(monkeypatch):
         "ticker": "AAA", "date": "2020-01-02",
         "lastupdated": "2026-08-18", "closeunadj": None,
     }
-    with pytest.raises(maintenance.SharadarMutationRefused, match="no positive raw close"):
+    with pytest.raises(maintenance.SourceMutationRefused, match="no positive raw close"):
         maintenance._validate_sep_mutation_rows(
             object(), [row], lo=__import__("datetime").date(2026, 8, 17),
             hi=__import__("datetime").date(2026, 8, 18),
@@ -177,9 +179,9 @@ def test_semantic_reearn_includes_accepted_resolved_direct_and_adr_dates(
 
 @pytest.mark.parametrize("old_epoch", ["v4", "v5", "v6"])
 def test_legacy_cursor_cannot_bypass_v7_semantic_reearn(old_epoch):
-    old_name = f"sharadar-actions-export-reconcile:{old_epoch}"
+    old_name = archive_ids.FEED['ACTIONS_RECONCILE_V10'].removesuffix('v10') + old_epoch
     old_state = {
-        "kind": f"sharadar-actions-export-reconcile/{old_epoch}",
+        "kind": archive_ids.FEED['ACTIONS_RECONCILE_KIND_V10'].removesuffix('v10') + old_epoch,
         "processed_through": "2026-08-21",
         "publication_version": 41,
     }
@@ -218,4 +220,4 @@ def test_legacy_cursor_cannot_bypass_v7_semantic_reearn(old_epoch):
 
     conn = Conn()
     assert maintenance.load_actions_cursor(conn) is None
-    assert conn.requested == ["sharadar-actions-export-reconcile:v10"]
+    assert conn.requested == [archive_ids.FEED['ACTIONS_RECONCILE_V10']]

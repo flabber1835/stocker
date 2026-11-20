@@ -354,7 +354,7 @@ class TestReprojectionNotReplay:
                            marks={"P-AAA": D("100")})
         assert out.plan.target_basket == {"P-AAA": D("1500")}
 
-    def test_a_withdrawal_while_SHARADAR_is_unavailable_still_REDUCES(self, conn):
+    def test_a_withdrawal_while_market_data_is_unavailable_still_REDUCES(self, conn):
         """Case 4. A withdrawal creates an obligation the account must meet.
 
         The missed-open asymmetry decides it: reductions may execute late,

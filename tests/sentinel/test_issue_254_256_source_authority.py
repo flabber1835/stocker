@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from sentinel.feed import ingest, maintenance, sharadar, source_authority, staging
+from sentinel.feed import ingest, maintenance, archive_tables, source_authority, staging
 
 
 def _sep(ticker="AAA", date="2026-08-21", *,
@@ -30,7 +30,7 @@ def test_seed_watermark_refuses_future_without_partial_maximum():
         update_ceiling="2026-08-24")
     with pytest.raises(source_authority.SepUpdateEnvelopeViolation,
                        match="causal ceiling"):
-        list(tracker(sharadar.SEP))
+        list(tracker(archive_tables.SEP))
     assert tracker.max_sep_lastupdated is None
 
 
@@ -39,13 +39,13 @@ def test_seed_watermark_malformed_refuses_and_exact_ceiling_passes():
         _fetch([_sep(lastupdated="bad")]), update_ceiling="2026-08-24")
     with pytest.raises(source_authority.SepUpdateEnvelopeViolation,
                        match="strict ISO date"):
-        list(bad(sharadar.SEP))
+        list(bad(archive_tables.SEP))
     assert bad.max_sep_lastupdated is None
 
     exact = maintenance.LastUpdatedTrackingFetch(
         _fetch([_sep(lastupdated="2026-08-24")]),
         update_ceiling="2026-08-24")
-    assert list(exact(sharadar.SEP))
+    assert list(exact(archive_tables.SEP))
     assert exact.max_sep_lastupdated == dt.date(2026, 8, 24)
 
 
@@ -72,7 +72,7 @@ def test_production_complete_seed_separates_vendor_clock_from_market_frontier(
         _fetch([_sep(
             "ZTEKF", date="2025-12-31", lastupdated="2026-09-03")]),
         update_ceiling="2026-09-03")
-    rows = list(tracker(sharadar.SEP))
+    rows = list(tracker(archive_tables.SEP))
     assert rows[0]["ticker"] == "ZTEKF"
     assert tracker.max_sep_lastupdated == dt.date(2026, 9, 3)
 
@@ -80,7 +80,7 @@ def test_production_complete_seed_separates_vendor_clock_from_market_frontier(
 def test_abandoned_seed_traversal_cannot_commit_watermark():
     tracker = maintenance.LastUpdatedTrackingFetch(
         _fetch([_sep("A"), _sep("B")]), update_ceiling="2026-08-24")
-    rows = tracker(sharadar.SEP)
+    rows = tracker(archive_tables.SEP)
     next(rows)
     rows.close()
     assert tracker.max_sep_lastupdated is None
@@ -93,7 +93,7 @@ def test_cdc_exact_update_interval_refuses_outside_or_missing(value):
     guarded = source_authority.CanonicalSourceFetch(
         _fetch([_sep(lastupdated=value)]), sep_update_envelope=envelope)
     with pytest.raises(source_authority.SepUpdateEnvelopeViolation):
-        list(guarded(sharadar.SEP, {
+        list(guarded(archive_tables.SEP, {
             "lastupdated.gte": "2026-08-01",
             "lastupdated.lte": "2026-08-05"}))
 
@@ -104,12 +104,12 @@ def test_cdc_exact_update_interval_edges_pass(value):
         "2026-08-01", "2026-08-05")
     guarded = source_authority.CanonicalSourceFetch(
         _fetch([_sep(lastupdated=value)]), sep_update_envelope=envelope)
-    assert list(guarded(sharadar.SEP, {
+    assert list(guarded(archive_tables.SEP, {
         "lastupdated.gte": "2026-08-01",
         "lastupdated.lte": "2026-08-05"}))
 
 
-def _duplicate_message(rows, table=sharadar.SEP):
+def _duplicate_message(rows, table=archive_tables.SEP):
     with pytest.raises(source_authority.CanonicalSourceDuplicate) as caught:
         list(source_authority.validated_source_rows(table, rows))
     return str(caught.value)
@@ -136,12 +136,12 @@ def test_identical_duplicate_and_sfp_duplicate_refuse_actions_unchanged():
 
     sfp = {"ticker": "SPY", "date": "2026-08-21", "closeadj": 600.0}
     assert '"table":"SFP"' in _duplicate_message(
-        [sfp, dict(sfp, closeadj=601.0)], sharadar.SFP)
+        [sfp, dict(sfp, closeadj=601.0)], archive_tables.SFP)
 
     actions = [{"ticker": "AAA", "date": "2026-08-21", "action": "split"},
                {"ticker": "AAA", "date": "2026-08-21", "action": "dividend"}]
     assert list(source_authority.CanonicalSourceFetch(_fetch(actions))(
-        sharadar.ACTIONS)) == actions
+        archive_tables.ACTIONS)) == actions
 
 
 def _ticker(permaticker, ticker, category, first="2026-08-21",

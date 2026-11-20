@@ -24,7 +24,7 @@ const expandedDetail = {dataset: {detailKey: 'shadow-holdings'}, open: true,
   querySelector: () => ({focus: options => { assert.equal(options.preventScroll, true); focusRestored = true; }})};
 const document = {
   activeElement: {closest: () => expandedDetail},
-  body: { dataset: { generatedAt: input.wake === 'invalid-date' ? 'invalid' :
+  body: { dataset: { controllerVersion:input.script.match(/sentinelDashboardControllerVersion = "([^"]+)"/)[1], generatedAt: input.wake === 'invalid-date' ? 'invalid' :
       input.wake === 'future-date' ? new Date(stamp + 10000).toISOString() : input.generated,
       maxAgeSeconds: input.budget,
       refreshPending: ['initial-pending','resume-initial-pending','partial-short-pending'].includes(input.wake) ? 'true' : 'false',
@@ -52,7 +52,7 @@ class Parser {
   parseFromString(html) {
     return { fixtureValue:html, currentRegions: ['partial','partial-same','partial-new'].includes(html),
       getElementById: () => html === 'incomplete' ? null : {},
-      body: { dataset: { generatedAt: html === 'invalid-date' ? 'invalid' :
+      body: { dataset: { controllerVersion:input.script.match(/sentinelDashboardControllerVersion = "([^"]+)"/)[1], generatedAt: html === 'invalid-date' ? 'invalid' :
         new Date(html === 'stale' ? now - 120000 : html === 'future' ? now + 10000 :
           html === 'partial-same' ? stamp : now).toISOString(),
         maxAgeSeconds: ({'invalid-budget': 'invalid', 'zero-budget': '0',

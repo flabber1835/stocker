@@ -8,7 +8,7 @@ import tempfile
 from contextlib import contextmanager
 from contextvars import ContextVar
 
-from sentinel.feed import acquisition_work, calendar, progress, sharadar, snapshot_export
+from sentinel.feed import acquisition_work, calendar, progress, archive_tables, snapshot_export
 
 MAX_PRICE_SESSIONS = 300
 _CURRENT = ContextVar("sentinel_operational_source", default=None)
@@ -81,9 +81,9 @@ class OperationalCapture:
                 "explicit maintenance is required for older inputs")
 
     def preflight(self, *, wait=False):
-        requests = [(sharadar.ACTIONS, {"date.gte": "1900-01-01", "date.lte": self.end}),
-                    (sharadar.TICKERS, {})]
-        requests.extend((sharadar.SEP, sharadar.date_params(lo, hi))
+        requests = [(archive_tables.ACTIONS, {"date.gte": "1900-01-01", "date.lte": self.end}),
+                    (archive_tables.TICKERS, {})]
+        requests.extend((archive_tables.SEP, archive_tables.date_params(lo, hi))
                         for lo, hi in _months(self.start, self.end))
         with progress.phase("source_preflight", date_from=self.start, date_to=self.end):
             from sentinel.feed.export_readiness import probe_all
@@ -96,13 +96,13 @@ class OperationalCapture:
                         raise
                     try:
                         acquisition_work.pause(pending.delay)
-                    except sharadar.SharadarRetryDeferred:
+                    except archive_tables.RetryDeferred:
                         raise pending from None
         self._require_sep_generation(self.snapshots)
 
     @staticmethod
     def _require_sep_generation(snapshots):
-        markers = {s.refreshed for s in snapshots if s.table == sharadar.SEP}
+        markers = {s.refreshed for s in snapshots if s.table == archive_tables.SEP}
         if len(markers) != 1:
             from sentinel.feed.authority import VendorPublicationUnstable
             raise VendorPublicationUnstable("bounded SEP export partitions crossed a table refresh")
@@ -115,7 +115,7 @@ class OperationalCapture:
                 if checked.refreshed != captured.refreshed:
                     from sentinel.feed.authority import VendorPublicationUnstable
                     raise VendorPublicationUnstable(
-                        f"Sharadar {captured.table} refresh changed during bounded acquisition; "
+                        f"source {captured.table} refresh changed during bounded acquisition; "
                         "captured inputs cannot publish")
 
     def acquire(self):
@@ -128,9 +128,9 @@ class OperationalCapture:
         if not self.snapshots:
             self.preflight(wait=True)
         required = {
-            sharadar.SEP: {"ticker", "date", "open", "close", "closeunadj", "volume", "lastupdated"},
-            sharadar.ACTIONS: {"date", "action", "ticker", "name", "value", "contraticker", "contraname"},
-            sharadar.TICKERS: {"table", "permaticker", "ticker"},
+            archive_tables.SEP: {"ticker", "date", "open", "close", "closeunadj", "volume", "lastupdated"},
+            archive_tables.ACTIONS: {"date", "action", "ticker", "name", "value", "contraticker", "contraname"},
+            archive_tables.TICKERS: {"table", "permaticker", "ticker"},
         }
         total = len(self.snapshots)
         for index, snapshot in enumerate(self.snapshots, 1):
@@ -141,9 +141,9 @@ class OperationalCapture:
                 rows, evidence = snapshot_export.download_snapshot(
                     snapshot, required=required[snapshot.table])
                 if not rows:
-                    raise snapshot_export.SharadarSnapshotExportError(
-                        f"Sharadar {snapshot.table} bounded export returned zero rows")
-                if snapshot.table == sharadar.SEP:
+                    raise snapshot_export.SnapshotExportError(
+                        f"source {snapshot.table} bounded export returned zero rows")
+                if snapshot.table == archive_tables.SEP:
                     from sentinel.feed import session_envelope
                     rows = session_envelope.validate_rows(
                         rows, source="SEP", date_from=snapshot.params["date.gte"],
@@ -151,10 +151,10 @@ class OperationalCapture:
                 batch = []
                 for row in rows:
                     day = str(row.get("date") or "")
-                    if snapshot.table != sharadar.TICKERS and not (
+                    if snapshot.table != archive_tables.TICKERS and not (
                             snapshot.params["date.gte"] <= day <= snapshot.params["date.lte"]):
                         raise OperationalAcquisitionRefused(
-                            f"Sharadar {snapshot.table} export returned off-window date {day}")
+                            f"source {snapshot.table} export returned off-window date {day}")
                     batch.append((
                         snapshot.table, day, str(row.get("lastupdated") or ""),
                         str(row.get("ticker") or ""), str(row.get("action") or ""), json.dumps(row)))
@@ -179,9 +179,9 @@ class OperationalCapture:
         self.acquire()
         rows = self.db.execute(
             "SELECT day, payload FROM source WHERE table_code=? AND day<?",
-            (sharadar.SEP, str(before_session)))
+            (archive_tables.SEP, str(before_session)))
         latest = {}
-        details = {"table": sharadar.SEP, "date_from": self.start, "date_to": str(before_session)}
+        details = {"table": archive_tables.SEP, "date_from": self.start, "date_to": str(before_session)}
         with progress.phase("source_replay", **details) as count:
             for day, payload in rows:
                 row = json.loads(payload)
@@ -196,15 +196,15 @@ class OperationalCapture:
                 for sid, (_, close, raw) in latest.items()}
 
     def fetch_rows(self, table, params=None):
-        if table not in (sharadar.SEP, sharadar.ACTIONS, sharadar.TICKERS):
+        if table not in (archive_tables.SEP, archive_tables.ACTIONS, archive_tables.TICKERS):
             raise OperationalAcquisitionRefused("unsupported operational snapshot table")
         params = dict(params or {})
         allowed = {"date.gte", "date.lte", "lastupdated.gte", "lastupdated.lte", "ticker"}
-        if table == sharadar.ACTIONS:
+        if table == archive_tables.ACTIONS:
             allowed.add("action")
         if set(params) - allowed:
             raise OperationalAcquisitionRefused("unsupported operational snapshot request")
-        if table == sharadar.SEP:
+        if table == archive_tables.SEP:
             self.require_window(params.get("date.gte", self.start), params.get("date.lte", self.end))
         self.acquire()
         clauses, values = ["table_code=?"], [table]
@@ -219,8 +219,8 @@ class OperationalCapture:
                 clauses.append(field + " IN (" + ",".join("?" for _ in selected) + ")")
                 values.extend(selected)
         details = {"table": table,
-                   "date_from": params.get("date.gte", self.start if table == sharadar.SEP else ""),
-                   "date_to": params.get("date.lte", self.end if table == sharadar.SEP else "")}
+                   "date_from": params.get("date.gte", self.start if table == archive_tables.SEP else ""),
+                   "date_to": params.get("date.lte", self.end if table == archive_tables.SEP else "")}
         if "lastupdated.gte" in params:
             details["updated_from"] = params["lastupdated.gte"]
         if "lastupdated.lte" in params:
@@ -237,7 +237,7 @@ class OperationalCapture:
     def export_rows(self, table, params, *, required):
         rows = list(self.fetch_rows(table, params))
         if any(not required.issubset(row) for row in rows):
-            raise snapshot_export.SharadarSnapshotExportError("captured export lacks required columns")
+            raise snapshot_export.SnapshotExportError("captured export lacks required columns")
         parts = [e for e in self.evidence if e["table"] == table]
         return rows, {**parts[0], "source_rows": len(rows), "parts": parts,
                       "window": dict(params or {})}

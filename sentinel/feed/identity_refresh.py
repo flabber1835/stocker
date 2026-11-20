@@ -13,11 +13,11 @@ import datetime as dt
 from typing import Iterable, Mapping
 
 from sentinel.feed import (
-    authority, coherence, maintenance_impl, sharadar, snapshot_source,
+    authority, coherence, maintenance_impl, archive_tables, snapshot_source,
     source_authority, universe)
 
 
-class SepMutationIdentityRefused(maintenance_impl.SharadarMutationRefused):
+class SepMutationIdentityRefused(maintenance_impl.SourceMutationRefused):
     """A mutation row cannot be assigned to one permanent security identity."""
 
     def __init__(self, ticker: str, session: str, reason_code: str):
@@ -67,15 +67,15 @@ def validate_sep_mutation_rows(
             updated = dt.date.fromisoformat(str(updated_raw))
             session_date = dt.date.fromisoformat(session)
         except (TypeError, ValueError) as exc:
-            raise maintenance_impl.SharadarMutationRefused(
+            raise maintenance_impl.SourceMutationRefused(
                 f"SEP mutation row {ticker!r}/{session!r} has invalid date "
                 f"or lastupdated {updated_raw!r}") from exc
         if not lo <= updated <= hi:
-            raise maintenance_impl.SharadarMutationRefused(
+            raise maintenance_impl.SourceMutationRefused(
                 f"SEP mutation row {ticker}/{session} lies outside requested "
                 f"lastupdated interval {lo}..{hi}")
         if not ticker:
-            raise maintenance_impl.SharadarMutationRefused(
+            raise maintenance_impl.SourceMutationRefused(
                 f"SEP mutation row on {session} has no ticker")
         # CDC owns historical rows already inside published market authority.
         # Rows outside that retained horizon belong to ordinary daily ingest or
@@ -88,7 +88,7 @@ def validate_sep_mutation_rows(
             if not source_aliases.excludes(identity, ticker):
                 raise SepMutationIdentityRefused(ticker, session, reason)
         if not maintenance_impl._positive(row.get("closeunadj")):
-            raise maintenance_impl.SharadarMutationRefused(
+            raise maintenance_impl.SourceMutationRefused(
                 f"SEP mutation {ticker}/{session} has no positive raw close; "
                 "refusing to preserve stale local economics while advancing CDC")
         if security_id is not None:
@@ -113,7 +113,7 @@ def assert_candidate_history_safe(conn, rows: Iterable[Mapping]) -> None:
     """Apply the routine-ingest identity guard without writing source rows."""
     payload = _candidate_payload(rows)
     if not payload:
-        raise maintenance_impl.SharadarMutationRefused(
+        raise maintenance_impl.SourceMutationRefused(
             "current TICKERS candidate contains no permanent SEP identity rows")
     universe.assert_candidate_listing_history_safe(conn, payload=payload)
 
@@ -153,9 +153,9 @@ def stable_current_tickers(
     """GET-only proof of one complete, structural, stable current TICKERS view."""
     canonical = source_authority.CanonicalSourceFetch(
         fetch, validate_tickers=True)
-    first = list(canonical(sharadar.TICKERS))
+    first = list(canonical(archive_tables.TICKERS))
     first = list(coherence.assert_tickers_metadata(first))
-    second = list(canonical(sharadar.TICKERS))
+    second = list(canonical(archive_tables.TICKERS))
     second = list(coherence.assert_tickers_metadata(second))
     authority.require_stable(
         "TICKERS", coherence.observe_tickers(first),
@@ -178,7 +178,7 @@ class PinnedInitialTickersFetch:
         self._served_tickers = False
 
     def __call__(self, table, params=None, **kwargs):
-        if table == sharadar.TICKERS and not self._served_tickers:
+        if table == archive_tables.TICKERS and not self._served_tickers:
             self._served_tickers = True
             return [dict(row) for row in self._rows]
         return self._fetch(table, params, **kwargs)
@@ -215,7 +215,7 @@ def prevalidate_pending_sep_mutations(
         lo, hi, context="prepublication SEP CDC identity proof")
     guarded = source_authority.CanonicalSourceFetch(
         fetch, sep_update_envelope=envelope)
-    rows = maintenance_impl._stable_rows(guarded, sharadar.SEP, params)
+    rows = maintenance_impl._stable_rows(guarded, archive_tables.SEP, params)
     market_start, market_end = maintenance_impl._retained_market_bounds(conn)
     return validate_sep_mutation_rows(
         conn, rows, lo=lo, hi=hi,

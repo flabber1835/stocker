@@ -7,7 +7,7 @@ from stock_strategy_shared.wealth_core.adapter import apply_dividends
 from stock_strategy_shared.wealth_core.engine import WealthCoreConfig
 from stock_strategy_shared.wealth_core.feed import VendorBar
 from stock_strategy_shared.wealth_core.ledger import Ledger
-from stock_strategy_shared.wealth_core.sharadar_domains import (
+from stock_strategy_shared.wealth_core.price_domains import (
     raw_compatible_volume,
     raw_dividend_per_share,
 )

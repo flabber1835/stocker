@@ -22,7 +22,7 @@ from tests.support.postgres import _EphemeralPostgres  # noqa: E402
 from sentinel.feed import maintenance as M  # noqa: E402
 from sentinel.feed import publication as P  # noqa: E402
 from sentinel.feed import readiness as R  # noqa: E402
-from sentinel.feed import sharadar  # noqa: E402
+from sentinel.feed import archive_tables  # noqa: E402
 from sentinel.feed import store as S  # noqa: E402
 from sentinel.feed import universe as U  # noqa: E402
 from sentinel.feed.domains import NormalisedBar  # noqa: E402
@@ -125,7 +125,7 @@ def load(conn, n_sessions=300, *, open_=99.0, volume=1e6, actions=True,
     }])
 
     def source(table, params=None, **_kw):
-        if table != sharadar.ACTIONS:
+        if table != archive_tables.ACTIONS:
             return []
         params = dict(params or {})
         lo = params.get("date.gte", "0000-00-00")

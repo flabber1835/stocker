@@ -115,7 +115,10 @@ def run_bounded(argv, *, env=None, timeout=900.0, private_group=True, stdin=None
             pass  # Outer group supervisor still enforces the invocation limit.
         process.stdout.close()
         process.stderr.close()
-        if executor is not None: executor.shutdown(wait=True,cancel_futures=True)
+        if executor is not None:
+            if future is not None:
+                future.cancel()
+            executor.shutdown(wait=True)
 
 
 def emit_result(result):

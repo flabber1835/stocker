@@ -192,7 +192,7 @@ def _runtime_schema_test_double_compat(request, monkeypatch):
 
     if not module_name.startswith(_ISSUE_178_SOURCE_AUTHORITY_PREFIX):
         # Issue #178 makes the production source contract deliberately stricter:
-        # real TICKERS authority must identify its Sharadar product explicitly,
+        # real TICKERS authority must identify its source table explicitly,
         # and historical SEP chunks must satisfy calibrated full-source floors.
         # A large body of older unit tests intentionally models neither thing:
         # their injected vendors use one/few rows and pre-date the TICKERS

@@ -101,7 +101,7 @@ def _waiting_contract(validation: Mapping, *, mode: str) -> bool:
             or preparation.get("schema") != core.VALIDATION_PREPARATION_SCHEMA
             or preparation.get("status") != "PASS"
             or preparation.get("schema_migration_attempted") is not True
-            or preparation.get("bounded_sharadar_daily_attempted") is not True
+            or preparation.get("bounded_market_data_daily_attempted") is not True
             or preparation.get("completed_before_validation_boundary") is not True
             or preparation.get("broker_mutation_attempts") != 0
             or core._HEX64.fullmatch(
@@ -122,7 +122,7 @@ def _waiting_contract(validation: Mapping, *, mode: str) -> bool:
     statuses = _gate_statuses(validation)
     install_gates = (
         "git_identity", "certified_suite_no_skips",
-        "wealth_core_nas_parity", "alpaca_paper_account",
+        "wealth_core_nas_parity", "market_data_readiness", "alpaca_paper_account",
         "zero_mutation_boundary",
     )
     if any(statuses[name] != "PASS" for name in install_gates):
@@ -155,8 +155,7 @@ def _normalized_waiting_validation(validation: Mapping) -> dict:
     database["checks"]["prospective_trading_window"] = True
 
     for gate in value["gates"]:
-        if gate["id"] in {
-                "database_financial_health", "sharadar_readiness"}:
+        if gate["id"] == "database_financial_health":
             gate["status"] = "PASS"
     value["shadow_state"]["fresh"] = True
     value["shadow_state"]["internally_coherent"] = True
@@ -196,29 +195,7 @@ def parse_reviewed_validation_bundle(
         now: Optional[datetime] = None):
     """Validate original bytes first, then reuse the retained strict parser."""
     path = Path(path).expanduser().resolve()
-    try:
-        raw = path.read_bytes()
-    except OSError as exc:
-        raise core.DeployRefused("validation bundle is unreadable") from exc
-    if core._sha256(raw) != str(confirmation or ""):
-        raise core.DeployRefused(
-            "reviewed-GO confirmation does not match the validation bundle")
-
-    members = core._read_validation_members(path)
-    if members["README.txt"] != core.VALIDATION_README:
-        raise core.DeployRefused("validation README differs from the fixed contract")
-    manifest_inputs = {
-        name: payload for name, payload in members.items()
-        if name not in {"manifest.json", "SHA256SUMS"}
-    }
-    if members["manifest.json"] != core._manifest_expected(manifest_inputs):
-        raise core.DeployRefused("validation manifest does not match member bytes")
-    sha_inputs = {
-        name: payload for name, payload in members.items()
-        if name != "SHA256SUMS"
-    }
-    if members["SHA256SUMS"] != core._sha_sums_expected(sha_inputs):
-        raise core.DeployRefused("validation SHA256SUMS does not match member bytes")
+    _, members = core._verified_bundle_members(path, confirmation)
 
     validation = core._json_object(
         members["validation.json"], label="validation.json")
@@ -286,7 +263,7 @@ try:
     if frontier is None or current.window_end != frontier:
         raise RuntimeError('current publication/frontier disagree')
     now = datetime.now(timezone.utc)
-    target = calendar.latest_closed_session(now)
+    target = operational_snapshot.source_final_session(now)
     final_at = publication_not_before(target)
     execution = calendar.next_session(target)
     execution_open, _ = calendar.session_window(execution)
@@ -337,53 +314,12 @@ finally:
             and value["remaining_ms"] > 0)
 
     def _data_timing_eligible(self, value: Mapping) -> bool:
-        if getattr(self, '_operational_source_only', False):
-            return value.get('target_source_final') is True
-        return self._timing_eligible(value)
-
-    def _assert_causal_vendor_window(
-            self, *, sessions: Optional[Sequence[str]] = None) -> None:
-        """Recheck the exact session window before any Sharadar-side operation."""
-        target = getattr(self, "_causal_wait_target", None)
-        if target is None:
-            return
-        timing = self._causal_timing()
-        if (timing.get("target") != target
-                or not self._timing_eligible(timing)):
-            raise CausalSessionExpired(
-                "causal vendor wait lost its exact target or following-open cutoff")
-        if sessions is None:
-            return
-        requested = tuple(str(item) for item in sessions)
-        if not requested:
-            raise core.DeployRefused("causal vendor wait requested no sessions")
-        try:
-            target_date = datetime.strptime(target, "%Y-%m-%d").date()
-            requested_dates = tuple(
-                datetime.strptime(item, "%Y-%m-%d").date()
-                for item in requested)
-        except ValueError as exc:
-            raise core.DeployRefused(
-                "causal vendor wait session identity is malformed") from exc
-        if any(item > target_date for item in requested_dates):
-            raise core.DeployRefused(
-                "causal vendor wait requested a session newer than its final target")
-
-    def _vendor_publication_probe(
-            self, sessions: Sequence[str], minimum_rows: int) -> Mapping:
-        self._assert_causal_vendor_window(sessions=sessions)
-        return super()._vendor_publication_probe(sessions, minimum_rows)
+        return value.get("target_source_final") is True
 
     def _base_cli(self, args: Sequence[str], *, capture: bool = False,
-                  check: bool = True, timeout: Optional[float] = None
-                  ) -> subprocess.CompletedProcess:
-        if (getattr(self, "_operational_source_only", False)
-                and args and args[0] in {"feed-daily", "feed-seed"}):
-            raise core.DeployRefused(
-                "operational deployment cannot run legacy Sharadar ingestion")
-        if (list(args) == ["feed-daily"]
-                and getattr(self, "_causal_wait_target", None) is not None):
-            self._assert_causal_vendor_window()
+                  check: bool = True, timeout: Optional[float] = None):
+        if args and args[0] in {"feed-daily", "feed-seed"}:
+            raise core.DeployRefused("installation writes market data only through the fenced rolling publisher")
         return super()._base_cli(args, capture=capture, check=check, timeout=timeout)
 
     def _wait_until_causal_ready(self) -> Mapping:
@@ -400,8 +336,7 @@ finally:
                 raise core.ActivationPending(
                     "timed out waiting for a causally eligible source-final session; "
                     "automation remains fenced")
-            if (getattr(self, "_operational_source_only", False)
-                    and self._data_timing_eligible(timing)
+            if (self._data_timing_eligible(timing)
                     and timing["frontier"] != timing["target"]):
                 from sentinel_install_source_refresh import refresh
                 refresh(self, timing=timing, deadline=deadline)
@@ -429,27 +364,9 @@ finally:
                     self._write_deployment_state(
                         "DATA_READY_CAUSAL", attempt=attempt, failures=[])
                     return timing
-                if getattr(self, "_operational_source_only", False):
-                    self._refuse_data_readiness(
-                        verdict, attempt=attempt,
-                        reason="reviewed rolling GO publication is not ready "
-                               "while its publisher is quiesced; run GO again")
-                if self._freshness_wait_requirements(verdict) is None:
-                    self._refuse_data_readiness(
-                        verdict, attempt=attempt,
-                        reason="installation data readiness has a non-temporal failure")
-                self._causal_wait_target = str(timing["target"])
-                try:
-                    self._wait_for_data(deadline=deadline)
-                except CausalSessionExpired as exc:
-                    self._write_deployment_state(
-                        "WAITING_FOR_NEXT_CAUSAL_SESSION", attempt=attempt,
-                        failures=[{
-                            "name": "session_timing", "detail": str(exc)}])
-                finally:
-                    self._causal_wait_target = None
-                attempt += 1
-                continue
+                self._refuse_data_readiness(
+                    verdict, attempt=attempt,
+                    reason="reviewed rolling GO publication is not ready while its publisher is quiesced")
 
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -503,7 +420,7 @@ finally:
             source_identity_sha256=reviewed.source_identity_sha256,
             now_text=now_text, subject_values=subjects,
             timing_values=timings)
-        readiness = go.probe_sharadar_readiness(
+        readiness = go.probe_market_data_readiness(
             runner, env=self.env,
             commit=reviewed.git_commit,
             runtime_ref=reviewed.runtime_image_digest,

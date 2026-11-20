@@ -60,7 +60,9 @@ class Httpx:
         self.client_options = []
         outer = self
 
-        class Client:
+        from tests.sentinel.activity_stream_fixture import ActivityStreamClient
+
+        class Client(ActivityStreamClient):
             def __init__(self, **kwargs):
                 outer.client_options.append(kwargs)
 
@@ -432,8 +434,25 @@ class MemoryCursor:
         if q.startswith("select session,amount,detail from sentinel_cash_flows"):
             self.one = self.conn.cash_flows.get(params[0])
             return
+        if q.startswith("select flow_id,session,amount,detail from sentinel_cash_flows"):
+            self.all = [(fid, *row) for fid, row in sorted(self.conn.cash_flows.items())
+                        if fid.startswith(params[0])]
+            return
+        if q.startswith("with recursive nodes"):
+            name, namespace = params
+            while name in self.conn.cursors:
+                body = json.loads(self.conn.cursors[name][1])
+                self.all.append((name, body))
+                if body["parent"] is None:
+                    break
+                name = namespace + body["parent"]
+            return
         if q.startswith("insert into sentinel_processed_sessions"):
             name, session, state = params
+            if "returning 1" in q:
+                if name in self.conn.cursors:
+                    return
+                self.one = (1,)
             self.conn.cursors[name] = (date.fromisoformat(str(session)), state)
             return
         if q.startswith("select flow_id, session, amount, detail, recorded_at"):
@@ -550,7 +569,8 @@ def test_timestamp_cursor_upgrade_replays_binding_then_uses_event_id():
     assert first.activity_identity_scheme == broker_cash.ACTIVITY_IDENTITY_SCHEME
     assert second.activity_identity_scheme == broker_cash.ACTIVITY_IDENTITY_SCHEME
     stored = json.loads(conn.cursors[cursor_name][1])
-    assert stored["kind"] == "broker-cash-activity/v3"
+    assert stored["kind"] == "broker-cash-activity/v5"
+    assert stored["membership_root"] == second.membership_root
     assert stored["last_event_id"] == second.last_event_id
     assert stored["activity_identity_scheme"] == (
         broker_cash.ACTIVITY_IDENTITY_SCHEME)
