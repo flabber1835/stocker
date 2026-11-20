@@ -1,11 +1,8 @@
-"""Canonical identity and cardinality diagnostics for Source ACTIONS rows.
+"""Canonical identity and cardinality of recorded ACTIONS rows.
 
-the source's source row grain is the complete seven-column row delivered by the
-datatable, not ``(ticker, date, action)``.  Several rows may legitimately share
-that economic-event key (relationship rows are the production example).  This
-module gives the received content a stable identity without consulting row
-order, and therefore lets ingestion distinguish an exact repeat from a sibling
-row or a vendor restatement.
+A source observation includes all seven fields. Several relationship rows can
+share a ticker, date and action. Full-row identity distinguishes exact repeats,
+sibling rows and restatements independently of their ordering.
 """
 from __future__ import annotations
 

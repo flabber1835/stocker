@@ -279,6 +279,10 @@ class Boundary:
             return ""
         if command[:3] == ["docker", "image", "inspect"]:
             return "f" * 40
+        if command[:3] == ["docker", "rm", "-f"]:
+            assert any("observe-current" in call and "--name" in call
+                       and call[call.index("--name") + 1] == command[3] for call in self.calls)
+            return ""
         if command[:3] in (["docker", "volume", "ls"], ["docker", "network", "ls"]):
             return ""
         if "WHERE kind='BASE_BACKUP'" in joined:

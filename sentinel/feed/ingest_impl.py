@@ -1,7 +1,7 @@
-"""Seed and daily ingest — fetch, normalise, write, publish progress.
+"""Read, normalize and publish batches from historical captures.
 
 ```text
-source  ->  domains.normalise_sep_rows  ->  store.write_bars
+capture ->  domains.normalise_sep_rows  ->  store.write_bars
                         |                            |
                         +--------- IngestRun.chunk ---+
                                      publishes committed progress per year
@@ -16,7 +16,7 @@ daily   everything since the newest session already stored, plus a small
 ```
 
 **The daily fetch deliberately overlaps.** Resuming strictly after the last
-stored session would never revisit a bar, and Source restates: a split or a
+stored session would never revisit a bar, and later captures can revise it. A split or a
 correction lands on rows already written. The upserts are idempotent, so
 re-fetching a short tail costs one small request and repairs silently. Resuming
 without overlap would leave a stale bar in place forever, and the trailing stop

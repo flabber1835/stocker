@@ -1,8 +1,7 @@
-"""Canonical Source seed/daily ingestion and PIT/source authority.
+"""Seed and advance historical table captures and verify their point-in-time evidence.
 
-The public module owns seed/daily orchestration. Lower-level normalization,
-storage and recovery helpers are static dependencies; import order and
-monkeypatch location are not part of the production control path.
+This module owns publication for the original table layout. The live rolling
+publisher acquires Alpaca and OpenFIGI inputs through a separate entry point.
 """
 from __future__ import annotations
 
@@ -149,7 +148,7 @@ class _InjectedSeedAuthority:
 
 
 class _SeedAuthority:
-    """Production seed proof state with explicit lifecycle transitions."""
+    """Track the completeness evidence for an archived seed."""
 
     def __init__(self, *, boundary: str, tracked, source_fetch,
                  market_start: str, market_end: str, resolve_identity):
@@ -549,7 +548,7 @@ def _daily(conn, *, fetch: Callable[..., Iterable[dict]] = archive_tables.fetch_
 
 def daily(conn, *, fetch=archive_tables.fetch_table, resolve_identity=None,
           overlap_days=DAILY_OVERLAP_DAYS, today=None):
-    """Production daily reads one bounded snapshot; replay sources stay offline."""
+    """Advance the historical layout using a bounded capture or an explicit replay source."""
     from sentinel.feed import operational_source
     if (today is not None and fetch in (archive_tables.fetch_table, snapshot_source.fetch_table)
             and operational_source.current() is None):

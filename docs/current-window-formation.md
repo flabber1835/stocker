@@ -31,23 +31,16 @@ and restart, daily replacement after formation, unchanged gap/correction policy,
 no historical execution commands, and rejection of cold or forged startup proof.
 The additive feed migration admits 426-session storage beside 300 and 379.
 
-## Offline provider comparison capture
+## Offline provider comparison
 
-A separate command downloads Sharadar and Alpaca for an explicit common symbol
-set and 300-session axis, stores original response rows and preprocessed rows on
-disk, and records coverage and acquisition parameters. It grants no publication,
-strategy or broker authority and submits no orders. Sharadar stays production.
+Historical comparisons use captured rows and their original price domains.
+On the shared symbol and session axis, compare as-traded opens and closes,
+split-only signal closes and unadjusted volume. Preserve the source identity,
+metadata and corporate actions with each observation. For historical equity
+rows, reconstruct the raw open using the ratio of as-traded to signal close.
+For Alpaca, retain the SIP feed and adjustment mode. Rebase adjusted series
+before comparing returns across different starting bases.
 
-Compare raw open/close, split-only signal close and raw volume in separate named
-fields. Preserve original prices/metadata/actions and provider identities; do not
-infer permanent identity equivalence from matching symbols. Alpaca uses explicit
-SIP and adjustment modes; Sharadar raw open is derived with closeunadj/close.
-Provider-adjusted levels can have different bases, so subsequent analysis must
-compare returns/rebased series rather than assuming equal absolute levels.
-
-Use bounded HTTP timeouts/retries/pagination, environment credentials, secret-free
-errors and request manifests. Save each completed response atomically and reuse
-only an exact matching request on resume. Never treat an interrupted page chain
-as complete. Acquisition is GET-only. Offline preprocessing can be rerun without
-credentials or requests. Output stays untracked and no statistical comparison or
-strategy simulation is embedded in the downloader.
+Current GO and daily formation consume the validated Alpaca/OpenFIGI rolling
+publication. Comparison artifacts remain offline. See the
+[current operating contract](sentinel-deployment.md).

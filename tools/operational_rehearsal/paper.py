@@ -7,9 +7,9 @@ from datetime import timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 
-from sentinel import binding, paper
+from sentinel import binding, informational_paper_mirror, paper
 from sentinel.config import DEFAULT_BASE_URL
-from sentinel.execution import certification, journal
+from sentinel.execution import certification, evidence_projection, journal
 from sentinel.execution.contract import BrokerAccountIdentity
 from sentinel.execution.guarded import AutomationExecutionGrant
 from sentinel.execution.simulator import SimulatedBroker
@@ -19,11 +19,49 @@ from sentinel.feed import calendar
 from sentinel.paper import preparation, inspection, execution, recovery, validation
 
 
+def fresh_broker():
+    return SimulatedBroker(account=BrokerAccountIdentity('alpaca', 'offline-simulator'),
+                           equity=Decimal('50000'), cash=Decimal('50000'))
+
+
+def bind_fixture_account(conn):
+    from sentinel.empty_account import bind_empty_account
+    result = asyncio.run(bind_empty_account(conn=conn, broker=fresh_broker(),
+        deployment_id='joint-rehearsal', expected_account='offline-simulator',
+        consume_authority=lambda: 'a' * 64, poll_seconds=0))
+    assert result.stable_observations == 2
+
+
+def prepare_with_progress(conn, args):
+    def progress():
+        proof = evidence_projection.load(conn, 'MIRROR')
+        conn.rollback()
+        return proof['through'], proof['body']['event_after_plan']
+
+    previous = progress()
+    deadline = time.monotonic() + AutomationConfig().callback_deadline_seconds
+    while time.monotonic() < deadline:
+        try:
+            return asyncio.run(paper.prepare_paper_plan(**args))
+        except paper.PaperRetryableRefused as exc:
+            if not isinstance(exc.__cause__, informational_paper_mirror.InformationalPaperMirrorPending):
+                raise
+            conn.rollback()
+            current = progress()
+            if current <= previous:
+                raise AssertionError('daily mirror retry made no durable progress') from exc
+            print(json.dumps(dict(event='daily_mirror_progress', through=current[0],
+                                  after_plan=current[1])), flush=True)
+            previous = current
+    raise TimeoutError('daily mirror did not become current in the callback budget')
+
+
 class PaperTape:
     def __init__(self, conn, patch, *, observation_id):
         self.patch, self.observation_id = patch, observation_id
-        self.bound = binding.bind(conn, deployment_id='joint-rehearsal',
-                                 broker='alpaca', broker_account_id='offline-simulator')
+        self.bound = binding.require(conn)
+        assert (self.bound.deployment_id, self.bound.broker, self.bound.broker_account_id) == (
+            'joint-rehearsal', 'alpaca', 'offline-simulator')
         conn.execute("INSERT INTO sentinel_system_certificates "
             "(certificate_sha256,manifest_bytes,manifest,allowed_rollout_modes) "
             "VALUES (%s,'{}'::bytea,'{}'::jsonb,'[\"CONTROLLER\"]'::jsonb)", ('a'*64,))
@@ -31,8 +69,7 @@ class PaperTape:
         conn.execute("INSERT INTO sentinel_rollout_events (version,from_mode,to_mode,certificate_sha256,reason) "
             "VALUES (2,'PINNED_1_00','CONTROLLER',%s,'offline synthetic authority')", ('a'*64,))
         conn.commit()
-        self.broker = SimulatedBroker(account=BrokerAccountIdentity('alpaca', 'offline-simulator'),
-                                     equity=Decimal('50000'), cash=Decimal('50000'))
+        self.broker = fresh_broker()
         self.broker.capabilities = replace(self.broker.capabilities,
             account_close_valuation=False, recent_fill_history=False)
         patch.setattr(inspection, 'require_certified', certification.require_certified_adapter)
@@ -60,6 +97,7 @@ class PaperTape:
         patch.setattr(validation, '_validate_broker_grant', measured)
 
     def cycle(self, conn, *, day, now, state_sha256):
+        self.broker.now = now
         callbacks = []
         def callback(name, function):
             start = time.monotonic()
@@ -76,10 +114,10 @@ class PaperTape:
         args = dict(conn=conn, broker=self.broker, through=day,
             expected_account='offline-simulator', dual_shadow_observation_id=self.observation_id,
             dual_shadow_starting_cash=50000, now_et=now, base_url=DEFAULT_BASE_URL)
-        plan = callback('prepare', lambda: asyncio.run(paper.prepare_paper_plan(**args)))
+        plan = callback('prepare', lambda: prepare_with_progress(conn, args))
         assert plan.state_fingerprint == state_sha256
         assert plan.sessions_replayed == plan.warmup_sessions == 0
-        assert callback('prepare-restart', lambda: asyncio.run(paper.prepare_paper_plan(**args))).plan == plan.plan
+        assert callback('prepare-restart', lambda: prepare_with_progress(conn, args)).plan == plan.plan
         grant = AutomationExecutionGrant('EXECUTE', 'joint-'+day, 1, 'offline', 1,
             'offline-simulator', self.bound.takeover_epoch, 'CONTROLLER', 2, 'a'*64)
         for module in (execution, validation):

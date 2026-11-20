@@ -77,8 +77,9 @@ wants it pinned explicitly:
 - `SENTINEL_DEPLOY_SIGNING_KEY_FILE`
 - `SENTINEL_DEPLOY_SIGNING_KEY_ID`
 
-Existing secrets (PostgreSQL, backup target, Sharadar, and Alpaca PAPER) remain
-in `.env`; process environment still overrides file values. The deployer parses
+Keep PostgreSQL, backup and Alpaca PAPER credentials in the deployment
+environment. OpenFIGI accepts an optional API key. Process environment
+values take precedence over `.env`. The deployer parses
 `.env` literally instead of sourcing shell code, so an unquoted database
 password containing `#` is not silently truncated.
 
@@ -99,7 +100,7 @@ There is deliberately no automatic inherited-book migration.
 ## What the deployer does now
 
 The validation command may already have applied the bundle's explicitly
-reported, exact-candidate schema migration and bounded Sharadar daily ingest.
+reported, exact-candidate schema migration and bounded rolling publication.
 That closes the old-schema/BIL-tail upgrade gap before the read-only parity and
 readiness evidence is produced. With a reviewed bundle, before disturbing the
 running services the deployer verifies the
@@ -124,7 +125,7 @@ running Sentinel automation container. Its current `run()` path then:
    transition-time corpus change refuses;
 6. persists the reviewed source/config/data-publication/bundle facts while
    still fenced;
-7. starts `sentinel-shadow` with no Alpaca credential/account environment and
+7. starts `sentinel-shadow` with its market-data credentials and without a PAPER account binding, then
    waits for the current decision-close attestation;
 8. in dual mode, proves the exact PAPER account, signed observation authority,
    and current plan-to-shadow session/state/data/allocation match, then starts
@@ -133,11 +134,11 @@ running Sentinel automation container. Its current `run()` path then:
 
 The shadow service independently recomputes the reviewed publication subject
 inside the held genesis publication pin, closing the final recheck-to-container
-start window. It also refuses to trust or ingest a decision-session frontier
-before 23:45 `America/New_York`, 15 minutes after the documented second daily
-updates for [Sharadar SEP](https://data.nasdaq.com/databases/SEP) and
-[Sharadar SFP](https://data.nasdaq.com/databases/SFP), while retaining the
-strict following-XNYS-open cutoff.
+start window. The actual XNYS close permits acquisition under
+`ALPACA_OPENFIGI_VALIDATED_CLOSED_SESSION_V2`. The shadow accepts the frontier
+once its coverage, corroboration and publication checks pass. A prospective
+decision retains the strict following-XNYS-open cutoff. Software installation
+has its own independent receipt and fence. See the [operating contract](sentinel-deployment.md).
 
 On no-argument success the terminal ends with:
 

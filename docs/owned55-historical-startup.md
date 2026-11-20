@@ -93,13 +93,14 @@ Alpaca's [asset catalogue](https://alpaca.markets/sdks/python/api_reference/trad
 does not document historical as-of sector or issuer-classification queries.
 Its [corporate-actions endpoint](https://docs.alpaca.markets/us/reference/corporateactions-1)
 warns that record-creation timing is not guaranteed. Neither establishes the
-missing historical metadata authority. Sharadar remains the production source.
+missing historical metadata authority. This September decision used the
+source that supplied the captured historical dataset. For current GO, use the
+[market-data operating contract](sentinel-deployment.md#market-inputs-and-daily-plan).
 
-Following the owner's instruction to proceed, fresh GO selects
-`CURRENT_INFORMATION_INITIALIZATION_V1`: the admitted current Sharadar snapshot's
-classification and first-price dates, permanent identities and dated symbol
-mappings are applied to historical prices. This can change initial holdings and
-controller state relative to a historical metadata archive. It initializes a
+For that rollout, fresh GO selected `CURRENT_INFORMATION_INITIALIZATION_V1`.
+The admitted snapshot's classification and first-price dates, permanent identities and dated symbol
+mappings were applied to historical prices. That choice can change initial
+holdings and controller state relative to a historical metadata archive. It initializes a
 portfolio using information available at startup; it does not claim historical
 PIT reconstruction. The separate `HISTORICAL_PIT_V1` research candidate policy
 continues to require dated metadata. The policies have different commitments.

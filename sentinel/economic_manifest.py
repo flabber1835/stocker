@@ -15,11 +15,11 @@ from pathlib import Path
 import re
 from functools import lru_cache
 
-MANIFEST_SHA256 = 'baf1176ba2631afd443c39de805403ffbc393b8c4072e36dec0e5a059dc3147a'
+MANIFEST_SHA256 = '93c89da9e1e4862d5aaf47dfa345f2774cdf82ac7ba78e4946b1d4f98d3d41f0'
 MANIFEST = Path(__file__).with_name('economic-implementation-v2.json')
 PREDECESSOR = 'b2e308bb664718da373175f1a7d988d07b159ae2'
 PREDECESSOR_DATA_SEMANTICS_SHA256 = '38c750bd9bb244bc71600aaeba8c4aad22d2095747f4199e9ac4e0bd433425cb'
-RETIREMENT_SHA256 = '577c582691291f8aa747cd83e75a5f176819ac42db22d104ed09f0d39625c5ce'
+RETIREMENT_SHA256 = '4263d51eff9e9cc50d3bce78d7c6b8e56ee17c3f51cc6b2eec635e10d8b8e575'
 COMPACT_WINDOW_MODULE = 'sentinel.core.window_material'
 COMPACT_WINDOW_SHA256 = 'ce7ef77041f9b4fd5f8517254a6e39053a202ef34740535e4570fddd65e57435'
 SNAPSHOT_ADMISSION_SHA256 = '8b7cba0d389fa93aa597c4cf95923b359ae414c01cf91e1457cd656e6329bc2a'
@@ -245,22 +245,23 @@ def identity(*, schema):
         installed = transition['module'] if transition else name
         raw = _module_raw(installed)
         dependencies = local_imports(raw, module_name=installed)
+        approved_edges = transition['dependencies'] if transition else value['dependencies'][name]
+        if dependencies != approved_edges:
+            raise EconomicManifestRefused('ECONOMIC_DEPENDENCY_CHANGED:'+name)
+        if transition:
+            if transition['contribution'] != expected[name]:
+                raise EconomicManifestRefused('ECONOMIC_CONTRIBUTION_CHANGED:'+name)
+            if any(port_digests[port] != profile['ports'][port] for port in transition['ports']):
+                raise EconomicManifestRefused('ECONOMIC_PORT_CHANGED:'+name)
         if name == 'sentinel.feed.rolling_builder':
-            if dependencies != (transition['dependencies'] if transition else value['dependencies'][name]):
-                raise EconomicManifestRefused('ECONOMIC_DEPENDENCY_CHANGED:'+name)
             actual[name] = page_contribution(name, raw, profile)
             continue
-        if (transition is not None and _sha(raw) == transition['after']
-                and all(port_digests[port] == profile['ports'][port] for port in transition['ports'])):
-            if dependencies != transition['dependencies'] or transition['contribution'] != expected[name]:
-                raise EconomicManifestRefused('ECONOMIC_DEPENDENCY_CHANGED:'+name)
+        if transition and _sha(raw) == transition['after']:
             if name in profile['reverse']:
                 raw = previous_source(name, raw, profile)
             else:
-                actual[name] = transition['contribution']
+                actual[name] = expected[name]
                 continue
-        elif dependencies != value['dependencies'][name]:
-            raise EconomicManifestRefused('ECONOMIC_DEPENDENCY_CHANGED:'+name)
         if name in performance_source_basis.BASELINES:
             actual[name] = performance_source_basis.contribution(name,raw)
         elif name in operation_read_source_basis.BASELINES:

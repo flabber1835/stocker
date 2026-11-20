@@ -348,6 +348,9 @@ def test_preparation_child_uses_native_clients_against_isolated_http_fixture(mon
         actions = list(source.client.pages(alpaca_transport.ACTION_URL, {'start':'2026-09-01',
             'end':'2026-09-30', 'limit': 2}, key='corporate_actions'))
         assert len(actions) == 2 and actions[0][0]['cash_dividends'][0]['rate'] == '0.01'
+        later = list(source.client.pages(alpaca_transport.ACTION_URL, {'start': '2026-10-01',
+            'end': '2026-10-02', 'limit': 2}, key='corporate_actions'))
+        assert [page['cash_dividends'] for page, _ in later] == [[]]
         harness.require_provider_requests(harness.SOURCE_REQUESTS)
         for endpoint in ('/v2/assets', '/v3/mapping', '/v2/stocks/bars', '/v1/corporate-actions'):
             with pytest.raises(harness.HarnessFailure, match='incomplete'):

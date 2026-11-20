@@ -245,3 +245,24 @@ def test_disconnected_but_well_formed_plan_membership_refused_live_and_on_restor
     conn.rollback()
     with pytest.raises(restore_validation.RestoreValidationRefused, match="outside the account cash chain"):
         restore_validation.validate_restored_database(conn)
+
+
+def test_fee_membership_observation_releases_authority_after_failure(monkeypatch, case):
+    initial = case["initial"]
+    next_state = replace(initial, processed_through=initial.processed_through + timedelta(seconds=1))
+    owner, other = object(), object()
+    observed = {owner: initial, other: next_state}
+    monkeypatch.setattr(broker_cash, "load_activity_state", lambda conn, **_: observed[conn])
+    def read(conn):
+        return broker_cash._membership_state(conn, initial.broker, initial.account_id)
+    @broker_cash.share_membership_observation
+    def admission(conn):
+        assert read(conn) == initial
+        observed[conn] = next_state
+        assert read(conn) == initial and read(other) == next_state
+        raise RuntimeError("interrupted")
+    with pytest.raises(RuntimeError, match="interrupted"):
+        admission(owner)
+    assert read(owner) == next_state
+    with pytest.raises(broker_cash.BrokerCashAuthorityRefused, match="actual current"):
+        broker_cash._current_cash_ledger(owner, activity_state=initial)

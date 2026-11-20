@@ -41,6 +41,10 @@ def main():
 
             def do_POST(self):
                 if self.path == '/complete':
+                    requested = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+                    if len(cycles) != requested['cycles'] or not 2 <= len(cycles) <= 4:
+                        self.answer({'error': 'incomplete daily cycles'}, 409)
+                        return
                     finished[0] = True
                     self.answer({'complete': True})
                     return
@@ -71,7 +75,6 @@ def main():
             server.handle_request()
         server.server_close()
     conn.close()
-    assert len(cycles) == 3
     print(json.dumps(dict(event='result', daily_cycles=cycles, measurement=measure.result()),
                      sort_keys=True), flush=True)
 

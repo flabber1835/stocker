@@ -5,13 +5,10 @@ The rotating year audit eventually proves deep history, but Wealth Core's curren
 decision depends directly on its trailing close/liquidity window and must not wait
 weeks for that year to rotate back into inspection.
 
-This module therefore proves the exact required Wealth Core close window after
-all daily SEP/ACTIONS mutation work has finished. Production acquisition uses a
-fresh Nasdaq whole-file export, then the existing canonical reconciliation path
-normalizes it against permanent identity and compares exact keys and persisted
-strategy values with the current published corpus. Injected test/simulation
-sources remain injected and are subjected to the existing two-observation source
-stability proof rather than unexpectedly reaching the production network.
+After daily SEP and ACTIONS updates, historical replay checks the required
+close window against the recorded export. Reconciliation compares the exact
+keys and normalized values with the published corpus. An explicit row reader
+must supply two stable observations.
 
 The dedicated cursor is deliberately separate from the long-history rotation.
 Readiness requires it to cover the published decision frontier, so a deletion or
@@ -61,10 +58,8 @@ def _year_windows(start: str, end: str):
 def reconcile_recent(conn, *, through: str, fetch=None, observation_ceiling=None):
     """Prove the complete current Wealth Core history window against source.
 
-    ``fetch=None`` is the production contract and uses the fresh whole-export
-    membrane. Production captures one source-observation boundary through the
-    shared authority helper; callers may inject it explicitly for deterministic
-    orchestration/tests. An explicit injected fetch stays deterministic/offline.
+    The default reader opens the complete captured export for the requested
+    period. An explicit reader supplies independent historical observations.
     """
     store._assert_corpus_locked(conn)
     requested = dt.date.fromisoformat(str(through))
@@ -75,12 +70,12 @@ def reconcile_recent(conn, *, through: str, fetch=None, observation_ceiling=None
             f"is ahead of requested reconciliation through {requested}; refusing "
             "to traverse source under future durable authority")
 
-    production = fetch is None
-    source_fetch = _export_fetch if production else fetch
+    use_capture = fetch is None
+    source_fetch = _export_fetch if use_capture else fetch
     if observation_ceiling is None:
         observation_ceiling = (
             seed_coherence.capture_update_ceiling()
-            if production else requested.isoformat())
+            if use_capture else requested.isoformat())
     source_ceiling = sep_reconciliation._strict_ceiling(observation_ceiling)
     if source_ceiling < requested:
         raise sep_reconciliation.SepReconciliationStateInvalid(
@@ -100,7 +95,7 @@ def reconcile_recent(conn, *, through: str, fetch=None, observation_ceiling=None
         sep_reconciliation.reconcile_year(
             conn, fetch=source_fetch, year=year, start=lo, end=hi,
             observation_ceiling=source_ceiling,
-            require_complete_export=production)
+            require_complete_export=use_capture)
 
     current = publication.require_current(conn)
     return maintenance._write_cursor(

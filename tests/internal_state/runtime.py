@@ -192,7 +192,7 @@ class Lifecycle:
                 # checkpoint, using the production incarnation recorder.
                 alpaca.database_incarnation(conn)
                 ingest.seed(conn, date_from=market.START, date_to=self.day,
-                            fetch=lambda *a, **kw: archive_tables.fetch_table(*a, **kw))
+                            fetch=self.provider.fetch_rows)
                 compare_corpus(self.provider.step.expected, observed_corpus(conn))
                 self.coverage.update({"startup", "production_seed", "physical_archive"})
             return self

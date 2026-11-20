@@ -1,6 +1,8 @@
 """HTTPX streaming interface for synthetic finite broker routes."""
 from contextlib import asynccontextmanager
 
+import httpx
+
 
 class ActivityStreamClient:
     @asynccontextmanager
@@ -9,9 +11,14 @@ class ActivityStreamClient:
         assert kwargs.pop("timeout") == 60.0
         response = await self.get(url, **kwargs)
 
-        async def lines():
-            for line in response.text.splitlines():
-                yield line
+        async def chunks():
+            payload = response.text.encode("utf-8")
+            for start in range(0, len(payload), 97):
+                yield payload[start:start + 97]
 
-        response.aiter_lines = lines
-        yield response
+        streamed = httpx.Response(response.status_code, content=chunks(),
+                                  request=httpx.Request(method, url))
+        try:
+            yield streamed
+        finally:
+            await streamed.aclose()

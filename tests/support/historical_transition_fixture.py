@@ -182,10 +182,10 @@ def write(root, name, expected=None):
     sha = expected if expected is not None else target().get(name, baseline_catalog()['files'].get(name))
     assert sha in known[name], 'fixture must name an authenticated historical hash'
     actual_path = transition_registry.ROOT / name
-    raw = actual_path.read_bytes()
+    raw = actual_path.read_bytes() if actual_path.is_file() else None
     # Real plain bytes are retained where they independently match the named
     # historical record, allowing guard-mutation falsifiers to remain concrete.
-    if hashlib.sha256(raw).hexdigest() != sha:
+    if raw is None or hashlib.sha256(raw).hexdigest() != sha:
         raw = _marker(name, sha)
     path = root / name
     path.parent.mkdir(parents=True, exist_ok=True)

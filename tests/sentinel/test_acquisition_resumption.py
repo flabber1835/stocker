@@ -215,20 +215,25 @@ def drive(conn, job, monkeypatch):
 
 
 def real_exports(source, monkeypatch, tmp_path):
-    """Keep actual ZIP parsing, checksum/cache, source validation and staging."""
+    """Stage independent ZIP captures and observe verified archive reads."""
     import csv
+    import hashlib
     import io
     import zipfile
     from sentinel.feed import acquisition_work
     monkeypatch.setenv("SENTINEL_STATE_DIR", str(tmp_path))
-    downloads = Counter()
-    def transfer(client, link, *, details, **kwargs):
-        table = details["table"]
+    reads = Counter()
+    cache = acquisition_work.cache_root()
+    def key(snapshot):
+        return snapshot.table, tuple(sorted(snapshot.params.items()))
+    def stage(snapshot):
+        path = cache / (acquisition_work.file_key(snapshot) + ".zip")
+        if path.exists() or key(snapshot) in reads:
+            return snapshot
+        table = snapshot.table
         rows = source[table]
         if table == "SEP":
-            rows = [r for r in rows if details["date_from"] <= r["date"] <= details["date_to"]]
-        key = (table, details["date_from"], details["date_to"])
-        downloads[key] += 1
+            rows = [r for r in rows if snapshot.params["date.gte"] <= r["date"] <= snapshot.params["date.lte"]]
         body = io.StringIO(newline="")
         writer = csv.DictWriter(body, fieldnames=list(rows[0]))
         writer.writeheader()
@@ -236,21 +241,30 @@ def real_exports(source, monkeypatch, tmp_path):
         blob = io.BytesIO()
         with zipfile.ZipFile(blob, "w", zipfile.ZIP_DEFLATED) as archive:
             archive.writestr(table + ".csv", body.getvalue())
-        return blob.getvalue()
-    monkeypatch.setattr(snapshot_export, "_safe_download", transfer)
+        data = blob.getvalue()
+        path.write_bytes(data)
+        path.with_suffix(".sha256").write_bytes(hashlib.sha256(data).hexdigest().encode())
+        return snapshot
+    read = acquisition_work.read_cached
+    def counted(snapshot):
+        reads[key(snapshot)] += 1
+        return read(snapshot)
+    monkeypatch.setattr(acquisition_work, "read_cached", counted)
     monkeypatch.setattr(snapshot_export, "download_snapshot", REAL_DOWNLOAD)
-    return downloads, acquisition_work.cache_root()
+    return reads, cache, stage
 
 
 def test_repeated_pauses_cache_eviction_and_repackaging_do_not_redownload(conn, source, monkeypatch, tmp_path):
     from dataclasses import replace
     from datetime import timedelta
     job = formation_job(conn, source)
-    downloads, cache = real_exports(source, monkeypatch, tmp_path)
+    reads, cache, stage = real_exports(source, monkeypatch, tmp_path)
     probe = snapshot_export.probe_snapshot
     epoch = [0]
-    monkeypatch.setattr(snapshot_export, "probe_snapshot", lambda *a, **kw:
-        replace(probe(*a, **kw), snapshot=probe(*a, **kw).snapshot + timedelta(seconds=epoch[0])))
+    def observed(*args, **kwargs):
+        snapshot = probe(*args, **kwargs)
+        return stage(replace(snapshot, snapshot=snapshot.snapshot + timedelta(seconds=epoch[0])))
+    monkeypatch.setattr(snapshot_export, "probe_snapshot", observed)
     calls = [0]
     def interrupted(snapshot, **kwargs):
         if snapshot.table == "SEP":
@@ -264,7 +278,7 @@ def test_repeated_pauses_cache_eviction_and_repackaging_do_not_redownload(conn, 
     monkeypatch.setattr(snapshot_export, "download_snapshot", interrupted)
     result = drive(conn, job, monkeypatch)
     assert result and epoch[0] >= 5
-    assert len(downloads) == 21 and set(downloads.values()) == {1}
+    assert len(reads) == 21 and set(reads.values()) == {1}
     assert conn.execute("SELECT COUNT(*) FROM sentinel_acquisition_prices").fetchone()[0] == 758
     assert conn.execute("SELECT COUNT(*) FROM sentinel_snapshot_comparisons").fetchone()[0] == 1
 
@@ -507,7 +521,7 @@ def test_successor_never_renews_exhausted_deadline(conn, source):
 @pytest.mark.parametrize('component', ['TICKERS.ASSETS','TICKERS.PLAN','TICKERS.FIGI.1'])
 def test_metadata_successor_does_not_parse_suffix_as_date(conn,source,capsys,component):
     from sentinel.feed.acquisition_parts import successor
-    import sentinel_go_feed_progress as host_progress
+    from scripts import sentinel_go_feed_progress as host_progress
     job = formation_job(conn,source)
     lease = jobs.claim(conn,job,lease_seconds=600)
     deadline = jobs.status(conn,job)['deadline']

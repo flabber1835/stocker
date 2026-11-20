@@ -1,4 +1,4 @@
-"""Direct, bounded Source transport for comparison snapshots, not a seed."""
+"""Read bounded historical captures for snapshot comparisons."""
 from __future__ import annotations
 from sentinel import archive_identifiers
 

@@ -21,9 +21,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from functools import wraps
 from itertools import batched
 from fractions import Fraction
 from collections.abc import Collection, Mapping as MappingView
@@ -330,11 +332,40 @@ def membership_prefixes(conn, broker, account_id, root):
     return prefixes
 
 
+_membership_observation = ContextVar("native_cash_membership_observation", default=None)
+
+
+def share_membership_observation(function):
+    """Reuse only actual durable cursors inside one synchronous cash decision."""
+    @wraps(function)
+    def observed(conn, *args, **kwargs):
+        token = _membership_observation.set((conn, {}))
+        try:
+            return function(conn, *args, **kwargs)
+        finally:
+            _membership_observation.reset(token)
+    return observed
+
+
+def _membership_state(conn, broker, account_id):
+    observation = _membership_observation.get()
+    if observation is None or observation[0] is not conn:
+        return load_activity_state(conn, broker=broker, account_id=account_id)
+    states = observation[1]
+    key = (broker, account_id)
+    if key not in states:
+        states[key] = load_activity_state(conn, broker=broker, account_id=account_id)
+    return states[key]
+
+
 def _read_members(conn, broker, account_id, root):
-    state = load_activity_state(conn, broker=broker, account_id=account_id)
+    return _members_at_root(conn, _membership_state(conn, broker, account_id), root)
+
+
+def _members_at_root(conn, state, root):
     if state is None or state.membership_root is None:
         raise BrokerCashAuthorityRefused("plan membership has no anchored account cash cursor")
-    prefixes = membership_prefixes(conn, broker, account_id, state.membership_root)
+    prefixes = membership_prefixes(conn, state.broker, state.account_id, state.membership_root)
     if root not in prefixes:
         raise BrokerCashAuthorityRefused("plan membership is outside the account cash chain")
     return prefixes[root]
@@ -371,8 +402,7 @@ def _native_cash_ledger(conn, *, broker: str, account_id: str):
 def _current_cash_ledger(conn, *, activity_state: CashActivityState):
     if (activity_state.broker != "alpaca"
             or activity_state.activity_identity_scheme != ACTIVITY_IDENTITY_SCHEME
-            or load_activity_state(conn, broker=activity_state.broker,
-                                   account_id=activity_state.account_id) != activity_state):
+            or _membership_state(conn, activity_state.broker, activity_state.account_id) != activity_state):
         raise BrokerCashAuthorityRefused(
             "native cash membership requires the actual current Activity-SSE cursor")
     rows = _native_cash_ledger(conn, broker=activity_state.broker,
@@ -993,7 +1023,7 @@ def record_plan_baseline(conn, *, plan_id: str, decision_session: date,
         if load_activity_state(conn, broker=activity_state.broker, account_id=activity_state.account_id) != activity_state:
             raise BrokerCashAuthorityRefused("native membership requires the actual current Activity-SSE cursor")
         if return_baseline or pending_postings:
-            members = tuple(sorted(_read_members(conn, activity_state.broker, activity_state.account_id, root).items()))
+            members = tuple(sorted(_members_at_root(conn, activity_state, root).items()))
         else:
             members = tuple(_membership_tip(conn, activity_state).items())
     else:

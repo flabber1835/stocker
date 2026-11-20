@@ -1,6 +1,5 @@
 """Operational replacement is scoped, atomic, and preserves older authority."""
 
-from sentinel import archive_identifiers as archive_ids
 from datetime import date
 import json
 import subprocess
@@ -191,6 +190,7 @@ def test_container_probe_diagnostics_retain_cause_without_child_output(
 
 def test_canonical_cold_seed_publishes_300_sessions_with_one_sep_acquisition(conn, monkeypatch):
     from datetime import datetime, timezone
+    from functools import partial
     from sentinel.feed import coherence, ingest, archive_tables, snapshot_export as export
     from sentinel.feed.corporate_action_authority import CASH_ADJUDICATION_AUTHORITIES
     from sentinel import backup_guard
@@ -227,7 +227,6 @@ def test_canonical_cold_seed_publishes_300_sessions_with_one_sep_acquisition(con
         return [{"ticker": fund, "date": s, "open": 99, "close": 100, "closeadj": 100, "closeunadj": 100,
                  "volume": 1000000} for fund in ("SPY", "BIL") for s in sessions
                 if params["date.gte"] <= s <= params["date.lte"]]
-    monkeypatch.setenv(archive_ids.RETIRED_CREDENTIAL, "unit-key")
     monkeypatch.setattr(export, "probe_snapshot", probe)
     monkeypatch.setattr(export, "download_snapshot", download)
     monkeypatch.setattr(export, "require_actions_refresh",
@@ -236,10 +235,8 @@ def test_canonical_cold_seed_publishes_300_sessions_with_one_sep_acquisition(con
     def historical(table, params=None):
         return captured_rows(table, params) if table in {archive_tables.SEP, archive_tables.ACTIONS} else paged(table, params)
     monkeypatch.setattr(archive_tables, "fetch_table", historical)
-    original_seed = ingest.seed
-    def seed_from_capture(conn, **kwargs):
-        return original_seed(conn, fetch=historical, **kwargs)
-    monkeypatch.setattr(ingest, "seed", seed_from_capture)
+    monkeypatch.setattr(ingest, "seed", partial(ingest.seed, fetch=historical))
+    monkeypatch.setattr(ingest, "daily", partial(ingest.daily, fetch=historical))
     # This small deterministic source exercises all production proof plumbing;
     # calibrated 4,000-security floor falsifiers remain separate and unchanged.
     monkeypatch.setattr(coherence, "MIN_SEED_SESSION_ROWS", 1)

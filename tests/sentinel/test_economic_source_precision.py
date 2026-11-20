@@ -1,82 +1,42 @@
 """Exact source decimals survive the provider and bounded-memory SEP sorter."""
 from __future__ import annotations
 
-from sentinel import archive_identifiers as archive_ids
-
+from datetime import datetime, timezone
 from decimal import Decimal
-import json
+import hashlib
+import io
+import zipfile
 import uuid
 
 import pytest
 
-from sentinel.feed import domains, archive_tables, staging, store
+from sentinel.feed import acquisition_work, domains, snapshot_export, staging, store
 from tests.support.postgres import _EphemeralPostgres
 
 
-class _Response:
-    status_code = 200
-    headers = {}
+def test_archive_preserves_exact_source_decimals(tmp_path, monkeypatch):
+    monkeypatch.setenv("SENTINEL_STATE_DIR", str(tmp_path))
+    observed = datetime(2026, 1, 3, tzinfo=timezone.utc)
+    snapshot = snapshot_export.ExportSnapshot("SEP", {}, "", observed, observed)
+    fields = ("ticker", "date", "open", "close", "closeunadj", "volume", "lastupdated")
+    csv = (",".join(fields) + "\n"
+           "AAA,2026-01-02,123456789.123456,130549280.66335685,"
+           "391647841.990070551,21438648,2026-01-03\n")
+    blob = io.BytesIO()
+    with zipfile.ZipFile(blob, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("prices.csv", csv)
+    path = acquisition_work.cache_root() / (acquisition_work.file_key(snapshot) + ".zip")
+    path.write_bytes(blob.getvalue())
+    digest = hashlib.sha256(blob.getvalue()).hexdigest()
+    path.with_suffix(".sha256").write_text(digest)
 
-    def __init__(self, content: bytes):
-        self.content = content
-
-    def raise_for_status(self):
-        return None
-
-
-class _Http:
-    class TimeoutException(Exception):
-        pass
-
-    class TransportError(Exception):
-        pass
-
-    response_content = b""
-
-    class Client:
-        def __init__(self, **_kwargs):
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            return None
-
-        def get(self, _url, params):
-            assert "api_key" in params
-            return _Response(_Http.response_content)
-
-
-def _sep_payload_raw() -> bytes:
-    columns = [
-        "ticker", "date", "open", "close", "closeunadj", "volume",
-        "lastupdated",
-    ]
-    # Literal JSON number spellings are deliberate. json.dumps(float(...)) here
-    # would perform the precision loss this test exists to prevent.
-    return (
-        '{"datatable":{"columns":['
-        + ",".join('{"name":' + json.dumps(name) + '}' for name in columns)
-        + '],"data":[["AAA","2026-01-02",123456789.123456,'
-          '130549280.66335685,391647841.99007055,21438648,'
-          '"2026-01-03"]]},"meta":{"next_cursor_id":null}}'
-    ).encode("utf-8")
-
-
-def test_provider_decodes_fractional_source_numbers_as_decimal(monkeypatch):
-    monkeypatch.setenv(archive_ids.RETIRED_CREDENTIAL, "redacted-test-key")
-    _Http.response_content = _sep_payload_raw()
-
-    rows = list(archive_tables.fetch_table(
-        archive_tables.SEP, http=_Http, sleep=lambda _seconds: None))
-
-    assert len(rows) == 1
-    row = rows[0]
-    assert row["open"] == Decimal("123456789.123456")
-    assert row["close"] == Decimal("130549280.66335685")
-    assert row["closeunadj"] == Decimal("391647841.99007055")
-    assert row["volume"] == 21438648
+    rows, evidence = snapshot_export.download_snapshot(snapshot, required=set(fields))
+    row, = rows
+    assert evidence["file_sha256"] == digest
+    assert Decimal(row["open"]) == Decimal("123456789.123456")
+    assert Decimal(row["close"]) == Decimal("130549280.66335685")
+    assert Decimal(row["closeunadj"]) == Decimal("391647841.990070551")
+    assert int(row["volume"]) == 21438648
 
 
 @pytest.fixture(scope="module")

@@ -1,9 +1,9 @@
-"""Current-source reconciliation beyond the moving market-session window.
+"""Reconcile recorded table changes beyond the moving market-session window.
 
 Two clocks are independent:
 
 ``SESSION FRONTIER`` discovers new market dates.
-``MUTATION WATERMARK`` discovers old SEP rows Source changed later.
+``MUTATION WATERMARK`` discovers revisions to previously recorded SEP rows.
 
 SEP exposes the latter as date-valued ``lastupdated``.  The durable cursor
 re-reads the complete preceding update date and advances only after the
@@ -14,8 +14,8 @@ dividends, rejections and anomaly evidence remain coherent.
 
 ACTIONS has no documented mutation timestamp.  Ordinary daily pagination is
 useful for additions but cannot prove negative space: two identical partial
-traversals are stable, not necessarily complete.  Production complete
-historical reconciliation therefore requires the recorded whole-table export,
+traversals are stable, not necessarily complete.  Complete historical
+reconciliation therefore requires the recorded whole-table export,
 whose ``fresh`` state carries a vendor ``data_snapshot_time`` and table
 ``last_refreshed_time``.  The reconciliation cursor is earned every decision day
 only after that stronger source boundary succeeds.  Changed split/dividend rows
@@ -50,7 +50,7 @@ ACTIONS_CURSOR_NAME = archive_identifiers.FEED['ACTIONS_RECONCILE_V6']
 ACTIONS_CURSOR_KIND = archive_identifiers.FEED['ACTIONS_RECONCILE_KIND_V6']
 # Full ACTIONS authority must cover the decision frontier itself.  A 7-day
 # cadence allowed a same-day omitted dividend/terminal action to coexist with a
-# READY frontier.  One vendor export per decision day is intentionally stronger.
+# READY frontier.  The recorded export must cover the decision day.
 ACTIONS_RECONCILE_DAYS = int(os.getenv("SENTINEL_ACTIONS_RECONCILE_DAYS", "1"))
 ACTIONS_FULL_WINDOW_START = "1900-01-01"
 _SPLIT_SEMANTIC_ACTIONS = frozenset(SHARE_SPLIT_ACTIONS) | {"adrratiosplit"}

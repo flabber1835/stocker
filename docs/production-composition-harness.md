@@ -224,24 +224,14 @@ the campaign matrix.
 
 `tools/production_go_e2e_audit.py` launches the supported operator shell with
 real Docker/Compose/PostgreSQL and exact source-built runtime/test images.
-The SHADOW-target run uses a local Sharadar protocol fixture with a dummy key.
-Alpaca credentials are unset, so account preflight follows the supported SHADOW
-path for a deployment without broker credentials. Broker order execution is
-outside this acceptance scope.
-The resolved CLI environment must select the local source before seed begins.
-The seed stops one XNYS session before the available fixture frontier, so the
-successful GO itself must perform source catch-up and publish the final session.
-Fixture setup creates a verified physical base backup before seeding and a new
-one after the bulk load. The latter bounds the retained WAL required for normal
-GO mutations without changing production's 1 GiB runtime verification limit.
-The before/after publication observer runs in the exact built runtime against
-the fixture PostgreSQL container, holding a read-only repeatable-read pin. This
-observer loads the same fixture receipt key through the canonical environment
-parser so it verifies the seed's signed publication chain. The test observation
-does not require an operational Compose execution override.
-When the retained window includes May 2026, the fixture includes TRI and the
-reviewed stale vendor dividend observation. The production v7 migration applies
-its own adjudication and records the canonical cash audit.
+The SHADOW-target run uses a private Alpaca/OpenFIGI fixture and synthetic
+market-data credentials. Its transport adapter is confined to the acquisition
+child. The real source preparation, validation, publication and PostgreSQL
+paths consume the fixture responses. Broker account preflight follows the
+SHADOW path. The harness establishes a physical backup before schema and
+feed writes and requires an empty publication history at startup. It records
+which source requests reached the fixture and checks the bundle's publication
+identity against the row committed in PostgreSQL.
 
 Acceptance binds the validation bundle, runtime promotion, recreated panel, and
 handoff to the same commit, images, publication, and invocation. It also requires
@@ -250,7 +240,7 @@ Current-strategy parity follows `production-certification-separation.md`.
 
 Sensitivity runs deliberately fail the actual called boundaries: host stages,
 schema/feed write authorization, schema migration, feed catch-up, final
-publication check, operational parity, Sharadar readiness, database health,
+publication check, operational parity, market-data readiness, database health,
 validation ZIP creation, requested-target proof, panel recreation, and final
 handoff write. A temporary interpreter/Docker wrapper installs only the selected
 raising mutation; all preceding production work runs normally. The successful

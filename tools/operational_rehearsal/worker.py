@@ -11,8 +11,9 @@ import signal
 import httpx
 from pytest import MonkeyPatch
 
-from sentinel import backup_runtime_authority, identity, operational_schema, schema, shadow_runtime
+from sentinel import backup_runtime_authority, identity, mirror_projection, operational_schema, schema, shadow_runtime
 from sentinel import rolling_initialization as initial, rolling_runtime, formation_bootstrap
+from sentinel.execution import journal
 from sentinel.feed import calendar, normalized_layout, operational_snapshot as snapshots
 from sentinel.feed import rolling_go_inputs as inputs, rolling_go_health, rolling_store, store
 from tools.acquisition_resources.measurement import Measurement
@@ -64,7 +65,19 @@ def run(*, small, days):
             schema.ensure_schema(conn)
             from sentinel.feed import runtime_schema
             runtime_schema.migrate_feed_schema(conn)
+            from tools.operational_rehearsal.paper import bind_fixture_account
+            bind_fixture_account(conn)
+            conn.commit()
             operational_schema.install_quiescent(conn)
+            # Start tracking before initial publication produces mirror changes.
+            for bootstrap in (journal.bootstrap_observation_integrity, mirror_projection.bootstrap_step):
+                for _ in range(100):
+                    progress = bootstrap(conn, limit=128)
+                    conn.commit()
+                    if progress['body']['stage'] == 'COMPLETE':
+                        break
+                else:
+                    raise AssertionError('private account coverage bootstrap did not complete')
         with measure.phase('GO:acquisition-publication'):
             acquired = inputs.prepare(conn, target_session='2026-09-23', budget_seconds=7200)
             manifest = rolling_store.manifest(conn, acquired['candidate_id'])
@@ -87,6 +100,20 @@ def run(*, small, days):
             health = rolling_go_health.inspect(conn, database_url=dsn)
             assert all(health['checks'].values()), health
             conn.rollback()
+        with measure.phase('GO:publication-coverage'):
+            version, through = conn.execute(
+                'SELECT version,window_end FROM sentinel_corpus_publications ORDER BY version DESC LIMIT 1').fetchone()
+            for _ in range(100):
+                proof = mirror_projection.advance(conn, checked_through=through,
+                                                  publication_version=version, limit=128)
+                conn.commit()
+                if proof['body']['checked_publication'] == version:
+                    mirror_projection.require_current(conn, current_frontier=through,
+                                                      current_publication_version=version)
+                    conn.rollback()
+                    break
+            else:
+                raise AssertionError('private cold publication coverage did not catch up')
         # The dependency image is not a deployable certified image. Record its
         # actual environment separately; only the external certification gate is
         # supplied as a fixture, not any financial or storage calculation.
@@ -140,7 +167,12 @@ def run(*, small, days):
                     'session': first.session, 'now': clock[0].isoformat(),
                     'state_sha256': first.state.state_hash})
                 response.raise_for_status()
-                results.append(response.json())
+                cycle = response.json()
+                if index == 0:
+                    assert cycle['commands'] > 0, 'initial held targets must exercise the execution membrane'
+                print(json.dumps(dict(event='paper_cycle_complete', session=first.session,
+                                      commands=cycle['commands'], guard_calls=cycle['guard_calls'])), flush=True)
+                results.append(cycle)
             with measure.phase(f'daily-{index}:duplicate-wake'):
                 before = conn.execute('SELECT count(*) FROM sentinel_corpus_publications').fetchone()[0]
                 conn.commit()
@@ -151,7 +183,7 @@ def run(*, small, days):
                 assert repeated.state.state_hash == first.state.state_hash
                 assert conn.execute('SELECT count(*) FROM sentinel_corpus_publications').fetchone()[0] == before
                 conn.rollback()
-        httpx.post('http://automation:8081/complete', timeout=30).raise_for_status()
+        httpx.post('http://automation:8081/complete', json={'cycles': days + 1}, timeout=30).raise_for_status()
         conn.close()
     return dict(event='result', verdict='PASS_SYNTHETIC_FUNCTION_COMPOSITION',
         seconds=time.monotonic()-start, fixtures=fixtures, source_sha256=source_identity(),

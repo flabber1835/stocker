@@ -1,9 +1,4 @@
-"""Static helper support for canonical Source ingest authority.
-
-Production seed/daily orchestration is owned exclusively by
-:mod:`sentinel.feed.ingest`.  This module contains only narrow helper functions
-used by that canonical owner; it exposes no seed/daily production entrypoint.
-"""
+"""Validate the source and recovery prerequisites for historical table ingestion."""
 from __future__ import annotations
 
 from sentinel import backup_runtime_authority
@@ -22,7 +17,7 @@ def _actions_reconciliation_source(fetch):
 
 
 def _recent_reconciliation_source(fetch):
-    """Production uses Exporter authority; injected sources remain injected."""
+    """Use the captured export when reconciling a historical snapshot."""
     return None if fetch is snapshot_source.fetch_table else fetch
 
 

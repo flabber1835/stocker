@@ -123,9 +123,15 @@ def test_untrusted_manifest_json_is_not_permissive(tmp_path, raw):
         retained_go.load_manifest(path)
 
 
-@pytest.mark.parametrize('mask', [0o022, 0o077])
-def test_host_reads_revision_without_broker_authority_and_mounts_exact_source(monkeypatch, mask):
+@pytest.fixture
+def host(monkeypatch):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / 'scripts'))
     import sentinel_go_24x7_entry as host
+    return host
+
+
+@pytest.mark.parametrize('mask', [0o022, 0o077])
+def test_host_reads_revision_without_broker_authority_and_mounts_exact_source(monkeypatch, mask, host):
     revision = 'a'*40
     manifest = {'schema': 'sentinel.retained-source-manifest/1', 'revision': revision, 'files': {'x.py': 'b'*64}}
     calls = []
@@ -158,17 +164,15 @@ def test_host_reads_revision_without_broker_authority_and_mounts_exact_source(mo
 
 
 @pytest.mark.skipif(os.name != 'posix', reason='Linux container DAC permission contract')
-def test_removing_manifest_permission_step_is_detected(monkeypatch):
-    import sentinel_go_24x7_entry as host
+def test_removing_manifest_permission_step_is_detected(monkeypatch, host):
     monkeypatch.setattr(host.Path, 'chmod', lambda *_args: None)
     with pytest.raises(AssertionError, match='image UID must read immutable source evidence'):
-        test_host_reads_revision_without_broker_authority_and_mounts_exact_source(monkeypatch, 0o077)
+        test_host_reads_revision_without_broker_authority_and_mounts_exact_source(monkeypatch, 0o077, host)
 
 
 @pytest.mark.parametrize('raw,exit_code', [('{}', 0), ('[]', 0), ('{"retained_revision":"bad"}', 0),
     ('{"retained_revision":null,"retained_revision":null}', 0), ('{"retained_revision":null}', 2)])
-def test_host_refuses_unproven_origin_before_financial_preparation(raw, exit_code):
-    import sentinel_go_24x7_entry as host
+def test_host_refuses_unproven_origin_before_financial_preparation(raw, exit_code, host):
     class Runner:
         def run(self, argv, **kw):
             return subprocess.CompletedProcess(argv, exit_code, raw, '')
@@ -178,8 +182,7 @@ def test_host_refuses_unproven_origin_before_financial_preparation(raw, exit_cod
 
 
 @pytest.mark.parametrize('defect', [None, 'duplicate', 'parallel_fresh', 'changed_call'])
-def test_actual_phase_contract_checks_single_retained_dispatcher(monkeypatch, defect):
-    import sentinel_go_24x7_entry as host
+def test_actual_phase_contract_checks_single_retained_dispatcher(monkeypatch, defect, host):
     import sentinel_go_phase_controller as controller
     check = controller._install_single_preparation_contract
     monkeypatch.setattr(controller.entry, 'install', lambda: None)

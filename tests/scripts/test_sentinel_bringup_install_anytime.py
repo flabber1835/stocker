@@ -30,10 +30,9 @@ def test_diagnostic_cannot_create_deployment_authority():
         assert token not in source
 
 
-def test_overlay_delegates_only_to_pre_recovery_non_authoritative_bringup():
+def test_diagnostic_delegates_acquisition_to_certified_go_without_an_overlay():
     source = MODULE.read_text(encoding="utf-8")
-    assert "import sentinel_bringup as base" in source
-    assert "return base.main()" in source
-    assert "base.source_decision = source_decision" in source
-    assert "base._print_source_report = _print_source_report" in source
-    assert "base.post_recovery_source_decision" not in source
+    assert "owns Alpaca/OpenFIGI acquisition, rolling publication" in source
+    assert "bash scripts/sentinel-go-validate.sh" in source
+    assert "import sentinel_bringup as base" not in source
+    assert not (MODULE.parent / "sentinel_bringup_source_hint.py").exists()

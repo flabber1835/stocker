@@ -385,9 +385,16 @@ def test_reader_pin_excludes_cleanup_and_incremental_retry_finishes(conn, operat
         reader.rollback()
     step = MAINTAIN(conn, batch_rows=100)
     assert step['deleted_rows'] == 100 and step['more_work']
-    for _ in range(9):
+    deleted = step['deleted_rows']
+    # Each remaining 100-row payload batch can yield once to private disposal.
+    for _ in range(2 * 8):
         step = MAINTAIN(conn, batch_rows=100)
         assert step['status'] == 'COMPLETE', step
+        assert 0 <= step['deleted_rows'] <= 100
+        deleted += step['deleted_rows']
+        if deleted == 900:
+            break
+    assert deleted == 900
     assert conn.execute('SELECT count(*) FROM sentinel_snapshot_bars WHERE candidate_id=%s', (first['candidate_id'],)).fetchone()[0] == 0
     assert len(list(rolling_store.read_bars(conn, second['candidate_id']))) == 600
     with pytest.raises(rolling_store.SnapshotStorageRefused, match='PAYLOAD_RETIRED'):

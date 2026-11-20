@@ -375,7 +375,7 @@ The contract below is built so that neither guess is ever necessary.
 ```text
 DETERMINISTIC                          MESSY
 ─────────────                          ─────
-Sharadar corpus (versioned)            broker
+Market data (versioned)                broker
       ↓                                  ↑
 Wealth Core shadow                     commands
       ↓                                  ↑
@@ -2197,7 +2197,7 @@ Certification is not one green number. Each layer makes a different claim:
 ```text
 core                Wealth Core semantics are exact
 controller          frozen input → exact transition output
-data normalization  Sharadar rows → the certified price/identity/action domains
+data normalization  published provider rows → the certified price/identity/action domains
 persistence         restart/snapshot/migration preserve deterministic state
 execution projection shadow + exposure + basis → correct desired basket
 execution machine   every crash/timeout/partial/supersession path converges

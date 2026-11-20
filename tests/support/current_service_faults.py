@@ -17,6 +17,7 @@ import uuid
 import httpx
 
 from tools.opening_gateway_qualification import Response
+from tests.sentinel.activity_stream_fixture import ActivityStreamClient
 from tests.support.current_workflow_faults import DurableWorkflowAlpaca
 
 
@@ -78,7 +79,7 @@ class ServiceProxyTransport:
     """Local RPC simulates connection loss after acceptance and during reads."""
 
     def __init__(self, provider, *, worker_pid):
-        class Client:
+        class Client(ActivityStreamClient):
             def __init__(self, **_kwargs):
                 pass
 

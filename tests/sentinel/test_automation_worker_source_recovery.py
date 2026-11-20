@@ -7,8 +7,6 @@ docs/automation-composition-regressions.md.
 """
 from __future__ import annotations
 
-from sentinel import archive_identifiers as archive_ids
-
 import asyncio
 import datetime as dt
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -21,7 +19,8 @@ from pathlib import Path
 import threading
 import time
 from types import SimpleNamespace
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit
+from urllib.request import urlopen
 
 import pytest
 
@@ -153,9 +152,9 @@ def test_worker_wait_restart_source_healing_and_transport(
 
         def do_GET(self):
             url = urlsplit(self.path)
-            table = url.path.rsplit("/", 1)[-1].split(".")[0]
+            table = url.path.rsplit("/", 1)[-1]
             params = {key: value[0] for key, value in parse_qs(url.query).items()}
-            calls.append((table, {k: v for k, v in params.items() if k != "api_key"}))
+            calls.append((table, params))
             rows = {archive_tables.TICKERS: listings + [reused], archive_tables.ACTIONS: rename if healed.is_set() else [],
                     archive_tables.SFP: [dict(ticker=t, date=day, open=100, close=100,
                                        closeadj=100, closeunadj=100)
@@ -167,11 +166,9 @@ def test_worker_wait_restart_source_healing_and_transport(
                     rows = [r for r in rows if str(r.get(key)) in params[key].split(",")]
             rows = [r for r in rows if "date" not in r or
                     params.get("date.gte", "1900-01-01") <= r["date"] <= params.get("date.lte", "9999-01-01")]
-            columns = sorted(archive_tables._REQUIRED_COLUMNS[table])
-            data = json.dumps({"datatable": {"columns": [{"name": key} for key in columns],
-                                            "data": [[r.get(key) for key in columns] for r in rows]},
-                               "meta": {"next_cursor_id": None}}).encode()
+            data = json.dumps(rows).encode()
             self.send_response(200)
+            self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
@@ -184,9 +181,12 @@ def test_worker_wait_restart_source_healing_and_transport(
     remote = manager.BrokerHost()
     workers = []
     try:
-        monkeypatch.setattr(archive_tables, "NDL_BASE", f"http://127.0.0.1:{server.server_port}")
-        monkeypatch.setattr(archive_tables, "ALLOW_INSECURE_BASE_URL", True)
-        monkeypatch.setenv(archive_ids.RETIRED_CREDENTIAL, "synthetic-worker-test-key")
+        def read_capture(table, params=None):
+            query = urlencode(params or {})
+            with urlopen(f"http://127.0.0.1:{server.server_port}/captures/{table}?{query}",
+                         timeout=10) as response:
+                return json.load(response)
+        monkeypatch.setattr(archive_tables, "fetch_table", read_capture)
         monkeypatch.setenv("SENTINEL_AUTOMATION_HOLDER_ID", "actual-worker-entrypoint")
         monkeypatch.setattr(feed_store, "latest_visible_session", REAL_LATEST)
         monkeypatch.setattr(calendar, "sessions_in_range", REAL_SESSIONS)

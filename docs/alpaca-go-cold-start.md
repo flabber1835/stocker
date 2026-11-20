@@ -61,9 +61,9 @@ The older local-full read-only Sharadar preflight is not part of this GO route.
 Both normal and local-full GO use the same bounded Alpaca preparation and
 readiness checks; retaining a separate Sharadar preflight would reintroduce a
 credential/source dependency before that preparation begins.
-The human-facing D2 banner calls this market-data readiness. Its existing
-`sharadar_readiness` evidence key stays unchanged in schema v1 so older bundle
-readers do not misparse the verdict; the gate now reads Alpaca/Nasdaq content.
+The current GO banner and bundle gate use `market_data_readiness`. The gate
+reads the authenticated Alpaca/OpenFIGI publication. Previously produced
+bundles retain their original identifiers.
 
 The selected strategy and snapshot have new source/policy identities. An old
 Sharadar publication or book cannot satisfy this GO. The first GO does not
