@@ -278,3 +278,46 @@ def test_retained_close_names_only_current_registered_work_on_the_due_session():
     for changes in ({'owner_registered': False}, {'decision_session': CLOSE.date()-timedelta(days=1)}):
         changed = replace(ingest, preparation=work.model_copy(update=changes))
         assert delivery.closing_refresh_deadline(replace(panel, rows=[worker, feed, changed])) is None
+
+
+def test_retry_wake_keeps_independent_close_ingest_visible_without_extending_retry():
+    generated = CLOSE + timedelta(seconds=33)
+    wake = generated + timedelta(milliseconds=95)
+    now = wake + timedelta(seconds=1)
+    deadline = now + timedelta(seconds=8)
+    proof = model.RecoveryEvidence(phase='AUTOMATION_PREFLIGHT_RECOVER_AVAILABILITY',
+        automatic=True, next_attempt_at=wake, deadline=wake, attempt=1)
+    cycle = replace(model.automation_cycle_row(installed=True, enabled=True, cycle_id='close',
+        decision_session=CLOSE.date(), state='RETRY_WAIT', updated_at=CLOSE, execution_open_at=OPEN),
+        recovery=proof, valid_until=wake)
+    plan = model.Row('paper_plan', 'Plan', 'NOT PREPARED', model.PENDING)
+    work = model.PreparationWork(job_id='close-job', decision_session=CLOSE.date(),
+        effective_session=OPEN.date(), state='ACQUIRING', rows_done=100, components_done=1,
+        created_at=CLOSE, updated_at=generated, last_progress_at=generated, observed_at=generated,
+        deadline=OPEN, lease_until=deadline, owner_registered=True, fence=1)
+    ingest = model.Row('ingest', 'Ingest', 'ACQUIRING', model.WARN, as_of=generated,
+                       preparation=work, valid_until=deadline)
+    feed = model.Row('feed', 'Feed', 'Closing source is being acquired', model.WARN, as_of=generated,
+        required_current=True, valid_until=deadline, recovery=model.RecoveryEvidence(
+            phase='FEED_INGEST', automatic=True, deadline=deadline))
+    worker = model.Row('shadow_worker', 'Worker', 'RUNNING', model.OK, as_of=generated,
+                       required_current=True, valid_until=deadline)
+    review = OperatorReview(scope='1'*64, head=1, reviewed_head=1, status='CLEAN',
+                            observed_at=generated, reviewed_at=generated)
+    rows = [worker, feed, ingest, cycle, plan]
+    panel = model.Panel(rows=rows, now=now, local_paper_mode=True, operator_review=review,
+        observation_current=False, observation_retained=True, observation_generated_at=generated,
+        observation_valid_until=deadline)
+    assert delivery.closing_refresh_deadline(panel) == deadline
+    assert presentation.dashboard_health(panel)['label'] == 'Refreshing closing evidence'
+    assert not delivery.row_current(panel, cycle) and not delivery.row_current(panel, plan)
+    assert not cycle.recovery.active(now)
+    for changed in (
+        replace(cycle, recovery=None),
+        replace(ingest, preparation=work.model_copy(update={'owner_registered': False})),
+        replace(feed, status=model.FAIL),
+        replace(worker, status=model.FAIL),
+    ):
+        assert delivery.closing_refresh_deadline(replace(panel, rows=[
+            changed if row.key == changed.key else row for row in rows])) is None
+    assert delivery.closing_refresh_deadline(replace(panel, now=deadline)) is None
