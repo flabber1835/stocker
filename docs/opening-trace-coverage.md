@@ -69,3 +69,22 @@ completion and verified display evidence plus continuous recorder coverage.
 Incremental events remain available after interruption, with no successful
 verdict inferred from the partial files. Pause or stop the trace through its
 own host job, independent of the application services.
+
+CSS or layout can reveal content without changing the DOM. While a document
+generation lacks rendered evidence, recheck visibility once every 100 ms in the
+finite capture. Emit visible content only after the same generation is visible
+through two animation frames, then stop rechecking it. Keep the mutation
+observer for transient states and require the same matched HTML and navigation
+timing evidence in the final report.
+
+## Browser CI runtime
+
+The November 20 browser job spent 29 minutes downloading Ubuntu packages
+and reached its 30-minute deadline before either test project ran. Use the
+official Playwright image at the version selected by the test lockfile.
+Pin its registry digest so the browsers and their system libraries are fixed.
+Give the pull its own bounded step. Keep the existing exact-source Sentinel
+image and loopback test target. The browser runner installs the locked npm
+packages and runs the complete WebKit and Chromium suite in that image. When
+the Playwright lock changes, update the browser image version and digest in
+the same change.

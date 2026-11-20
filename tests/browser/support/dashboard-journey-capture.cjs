@@ -40,6 +40,7 @@ function installRecorder({binding, opening}) {
   let shownGeneration = null;
   let rootNumber = 0;
   let meaningfulScheduled = null;
+  let visibilityRetry = null;
   let observedBanner = null;
   function visible(element) {
     if (!element) return false;
@@ -105,6 +106,27 @@ function installRecorder({binding, opening}) {
       visibility:document.visibilityState, generated_at:document.body?.dataset.generatedAt || null}));
     navigator.serviceWorker?.addEventListener('controllerchange', workers);
   }
+  function proveVisible(generation, frames) {
+    requestAnimationFrame(() => {
+      if (meaningfulScheduled !== generation) return;
+      const current = state();
+      if (current.generated_at !== generation || !current.meaningful_visible) {
+        meaningfulScheduled = null;
+        snapshot();
+        return;
+      }
+      if (frames > 1) {
+        proveVisible(generation, frames-1);
+        return;
+      }
+      meaningfulScheduled = null;
+      clearTimeout(visibilityRetry);
+      visibilityRetry = null;
+      shownGeneration = generation;
+      send({type:'meaningful-content', method:'visible_content_after_two_animation_frames', ...current});
+      navigation();
+    });
+  }
   function snapshot() {
     if (root !== document.documentElement) {
       root = document.documentElement;
@@ -124,17 +146,21 @@ function installRecorder({binding, opening}) {
     const next = state();
     const key = JSON.stringify(next);
     if (key !== signature) { signature = key; send({type:'visible-state', ...next}); }
-    if (next.meaningful_visible && shownGeneration !== next.generated_at && meaningfulScheduled !== next.generated_at) {
+    const needsProof = next.generated_at && next.generated_at !== shownGeneration;
+    if (!needsProof || next.meaningful_visible) {
+      clearTimeout(visibilityRetry);
+      visibilityRetry = null;
+    }
+    if (!needsProof) return;
+    if (next.meaningful_visible && meaningfulScheduled !== next.generated_at) {
       meaningfulScheduled = next.generated_at;
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        const current = state();
-        meaningfulScheduled = null;
-        if (current.meaningful_visible && shownGeneration !== current.generated_at) {
-          shownGeneration = current.generated_at;
-          send({type:'meaningful-content', method:'visible_content_after_two_animation_frames', ...current});
-          navigation();
-        }
-      }));
+      proveVisible(next.generated_at, 2);
+    } else if (!next.meaningful_visible && visibilityRetry === null) {
+      // A stylesheet or viewport change need not produce a DOM mutation.
+      visibilityRetry = setTimeout(() => {
+        visibilityRetry = null;
+        snapshot();
+      }, 100);
     }
   }
   const observer = new MutationObserver(records => {

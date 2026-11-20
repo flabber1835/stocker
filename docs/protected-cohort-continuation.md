@@ -178,6 +178,12 @@ exact image and namespace; this index alone is not evidence those limits pass.
 
 ## One traversal for full verification and readiness facts
 
+The [November 20 publication read design](publication-read-cost.md) supersedes
+the resolver-first scan below. The resolver now verifies reference and identity
+evidence. First execution readiness still completes one full price traversal
+under the same pin and reuses its verified facts. The separate SHADOW status
+memo follows the newer design's own scope.
+
 Decision, 2026-10-20: during the first mandatory complete snapshot verification,
 also accumulate raw per-session population and positive-domain counts, the
 bounded canonical benchmark axis, and exact `(security_id, ticker)` uses as
@@ -211,7 +217,7 @@ clauses and all execution authority/freshness guards. Economic input readers,
 canonical strategy state and the running backtest remain unchanged.
 
 Focused tests must cross the real resolver-first boundary, prove one complete
-stream before readiness, compare counts with independent SQL, exercise middle
+stream by first readiness, compare counts with independent SQL, exercise middle
 date identity errors and absent dates, and preserve corruption, action, domain,
 pin-loss, changed-generation and interrupted-scan refusals. Demonstrate guard
 removal falsifiers, detached returned material and complete old-path fallback on

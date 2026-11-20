@@ -52,6 +52,9 @@ jobs:
     name: iPhone WebKit and PWA
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # Match tests/browser/package-lock.json. The image provides both engines and their libraries.
+      PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -75,14 +78,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python tools/sentinel_ci_promote.py verify --plan /tmp/sentinel-promotion/promotion-plan.json --output /tmp/qualification-reuse.json
 
-      - name: Install the locked browser test runtime
+      - name: Pull the locked browser test runtime
         if: ${{ needs.qualification-source.outputs.mode == 'full' }}
-        run: |
-          set -euo pipefail
-          node --version
-          npm --version
-          npm ci --prefix tests/browser
-          npm run install-browsers --prefix tests/browser
+        timeout-minutes: 12
+        run: docker pull "$PLAYWRIGHT_IMAGE"
 
       - name: Exercise the real operator page in WebKit and Chromium
         if: ${{ needs.qualification-source.outputs.mode == 'full' }}
@@ -90,8 +89,9 @@ jobs:
           set -euo pipefail
           tested_sha="$(git rev-parse HEAD)"
           container="sentinel-operator-browser-${GITHUB_RUN_ID}"
+          browser="sentinel-playwright-${GITHUB_RUN_ID}"
           cleanup() {
-            docker rm -f "$container" >/dev/null 2>&1 || true
+            docker rm -f "$browser" "$container" >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
           docker build \
@@ -116,9 +116,15 @@ jobs:
           fi
           docker exec -i "$container" python -B - \
             < tests/support/browser_dom_fixture.py > /tmp/sentinel-dom-fixture.json
-          SENTINEL_DOM_FIXTURE=/tmp/sentinel-dom-fixture.json \
-            SENTINEL_BROWSER_BASE_URL=http://127.0.0.1:18004 \
-            npm test --prefix tests/browser
+          docker run --rm --init --name "$browser" --network host --shm-size=1g \
+            --user "$(id -u):$(id -g)" \
+            --mount "type=bind,source=$PWD/tests/browser,target=/work" \
+            --mount "type=bind,source=/tmp/sentinel-dom-fixture.json,target=/tmp/sentinel-dom-fixture.json,readonly" \
+            --workdir /work \
+            --env CI=true \
+            --env SENTINEL_DOM_FIXTURE=/tmp/sentinel-dom-fixture.json \
+            --env SENTINEL_BROWSER_BASE_URL=http://127.0.0.1:18004 \
+            "$PLAYWRIGHT_IMAGE" bash -euc 'node --version; npm --version; npm ci --cache /tmp/sentinel-ci-npm; npm test'
 
       - name: Retain browser failure evidence
         if: ${{ needs.qualification-source.outputs.mode == 'full' && (failure()) }}

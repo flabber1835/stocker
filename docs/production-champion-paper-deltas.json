@@ -300,7 +300,13 @@
       ],
       "composition_design": "docs/sentinel-execution-contract.md",
       "current_book_design": "docs/autonomous-paper-readiness.md",
-      "generated_ast_sha256": "002c8beb2c8f6bdc2e2eff5c7a7e2f7a29fc592ad8436baeb52f11ba9b8c01ed",
+      "fresh_strategy_identity_acceptance": [
+        "tests/sentinel/test_paper_authority_readonly.py::test_one_strategy_identity_per_check_with_fresh_identity_after_read"
+      ],
+      "fresh_strategy_identity_design": "docs/opening-trace-coverage.md",
+      "fresh_strategy_identity_predecessor_ast_sha256": "002c8beb2c8f6bdc2e2eff5c7a7e2f7a29fc592ad8436baeb52f11ba9b8c01ed",
+      "fresh_strategy_identity_reason": "Bind plan validation and signed authority to the same strategy identity derived within each fresh guard check, including a new derivation after the broker read.",
+      "generated_ast_sha256": "ad8a133fb0da956d03ce2cbd2b92c4954b00a1ee31cc8d4a139ca55d13def474",
       "market_buy_acceptance": [
         "tests/sentinel/test_automation_composition.py::test_market_paper_callbacks_wait_for_settled_cash_and_resume_same_cycle",
         "tests/sentinel/test_market_day_execution.py",
