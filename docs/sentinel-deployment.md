@@ -1,5 +1,8 @@
 # Sentinel current operating contract
 
+[Closing observation continuity](close-price-observation-continuity.md) records
+the forward-only transition and recovery through corrected historical SIP closes.
+
 [PAPER installation progress](paper-install-observation.md) describes the
 live host phase visible during a dashboard handoff and the checks that bind
 runtime selection to the signed image and the fenced database.

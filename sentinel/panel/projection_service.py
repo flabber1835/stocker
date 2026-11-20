@@ -671,6 +671,12 @@ def read(database_url, *, display=False):
             if reusable:
                 panel = replace(panel, observation_display_keys=delivery.display_keys(panel))
         from sentinel.panel import postclose_feed_wait
+        shadow_subject = current_basis.get('native', {}).get('SHADOW')
+        if (display and changed == ('SHADOW', 'PAPER') and not reusable and not retained
+                and not head_changed and owner_expiry is not None and owner_expiry > now):
+            from sentinel.panel import readiness_handoff
+            panel = readiness_handoff.publication_refresh(
+                conn, panel, subject=shadow_subject, owner_expiry=owner_expiry, now=now)
         prepare_witness = None
         if display and not reusable and not retained and not head_changed and changed == ('PAPER',):
             exposure, cycle, plan = (panel.row(key) for key in ('exposure', 'automation_cycle', 'paper_plan'))
@@ -683,7 +689,7 @@ def read(database_url, *, display=False):
                 from sentinel.automation.callback_observation import planless_prepare_boundary
                 prepare_witness = planless_prepare_boundary(conn, exposure.operational_fact.session)
         panel = postclose_feed_wait.project_panel(panel, now=now,
-            subject=current_basis.get('native', {}).get('SHADOW'), prepare_witness=prepare_witness)
+            subject=shadow_subject, prepare_witness=prepare_witness)
         finished = review.store.database_now(conn)
         lease = current_basis.get('automation_lease')
         lease_expiry = datetime.fromisoformat(lease[3]) if lease else None

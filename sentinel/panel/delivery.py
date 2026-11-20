@@ -162,7 +162,22 @@ def closing_refresh_deadline(panel):
     if not changed:
         ingest = panel.row('ingest')
         work = visible_preparation(panel)
-        if (not panel.observation_retained or not preparing or recovery.phase != 'POST_CLOSE_SOURCE_WAIT'
+        cycle = panel.row('automation_cycle')
+        queued = cycle.recovery if cycle is not None else None
+        stage = cycle.operational_fact if cycle is not None else None
+        plan = panel.row('paper_plan')
+        acquisition = (preparing and recovery.phase == 'FEED_INGEST'
+            and queued is not None and queued.phase == 'AUTOMATION_PREFLIGHT_RECOVER_AVAILABILITY'
+            and queued.automatic and not queued.operator_required
+            and queued.next_attempt_at is not None
+            and queued.deadline == queued.next_attempt_at
+            and generated < queued.deadline <= now
+            and stage is not None and stage.kind == 'AUTOMATION_CYCLE' and stage.state == 'RETRY_WAIT'
+            and cycle.as_of is not None and closed <= cycle.as_of <= generated
+            and (stage.schedule is None or stage.schedule.market_open == opened)
+            and plan is not None and plan.status == model.PENDING and plan.paper_plan is None)
+        if (not panel.observation_retained or not preparing
+                or not (recovery.phase == 'POST_CLOSE_SOURCE_WAIT' or acquisition)
                 or generated < closed or work is None or str(work.decision_session) != session
                 or not row_current(panel, ingest) or not work.active_at(now)):
             return None
