@@ -433,6 +433,8 @@ class GuardedExecutionBroker(ExecutionBroker):
                 and self._has_optional_override(self._inner, "owned_order_fills"))
 
     async def _read(self, operation: BrokerOperation, call):
+        from sentinel.opening_stage_log import broker_read
+
         if (isinstance(self._grant, FencedPaperRecoveryGrant)
                 and operation not in {BrokerOperation.IDENTIFY_ACCOUNT,
                                       BrokerOperation.OBSERVE,
@@ -442,18 +444,21 @@ class GuardedExecutionBroker(ExecutionBroker):
         try:
             if isinstance(self._grant, AutomationExecutionGrant):
                 self._grant.require_active()
-            await self._guard.before_read(self._grant, operation)
+            with broker_read(operation.value, "before_read"):
+                await self._guard.before_read(self._grant, operation)
         except BrokerAuthorityRefused:
             raise
         except Exception as exc:                              # noqa: BLE001
             raise BrokerAuthorityCheckFailed(
                 f"{operation.value} before-read authority check failed: "
                 f"{type(exc).__name__}: {exc}") from exc
-        result = await call()
+        with broker_read(operation.value, "adapter"):
+            result = await call()
         try:
             if isinstance(self._grant, AutomationExecutionGrant):
                 self._grant.require_active()
-            await self._guard.after_read(self._grant, operation, result)
+            with broker_read(operation.value, "after_read"):
+                await self._guard.after_read(self._grant, operation, result)
         except BrokerAuthorityRefused:
             raise
         except Exception as exc:                              # noqa: BLE001

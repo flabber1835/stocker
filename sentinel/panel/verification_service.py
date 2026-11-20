@@ -156,7 +156,14 @@ def observe(database_url, include_paper, expected_key):
         return result
 
 
-def diagnosed_observe(database_url, include_paper, expected_key, *, history_memo=None):
+def diagnosed_observe(database_url, include_paper, expected_key, *, history_memo=None, readiness_memo=None):
+    if readiness_memo is not None and not include_paper:
+        from sentinel.feed.shadow_readiness_memo import current_memo
+        token = current_memo.set(readiness_memo)
+        try:
+            return observer_failure.capture(observe, database_url, include_paper, expected_key)
+        finally:
+            current_memo.reset(token)
     if history_memo is None:
         return observer_failure.capture(observe, database_url, include_paper, expected_key)
     from sentinel.panel import mirror_history
@@ -654,17 +661,22 @@ def run(*, stopped=None):
                     and time.monotonic() < owner['deadline'])
         from functools import partial
         from sentinel import supervisor_io
+        from sentinel.feed.shadow_readiness_memo import ReadinessMemo
         from sentinel.panel.mirror_history import ClassificationMemo
         try:
             paper_observer = partial(diagnosed_observe, history_memo=ClassificationMemo())
         except (OSError, MemoryError):
             paper_observer = diagnosed_observe
+        try:
+            shadow_observer = partial(diagnosed_observe, readiness_memo=ReadinessMemo())
+        except (OSError, MemoryError):
+            shadow_observer = diagnosed_observe
         observer_slot = _ObserverSlot()
         supervise = partial(supervisor_io.run, cancelled=stopped.is_set, unreaped=[],
                             memory_events='/sys/fs/cgroup/memory.events.local')
         readers = {scope:financial.Reader(evidence_reader=read_projection.subject_for,
             runner=supervise,
-            observer=paper_observer if scope == 'PAPER' else diagnosed_observe,
+            observer=paper_observer if scope == 'PAPER' else shadow_observer,
             expected_keys=read_projection.PAPER_KEYS if scope == 'PAPER' else read_projection.SHADOW_KEYS,
             unknown_factory=paper_unknown if scope == 'PAPER' else None, execution_slot=observer_slot,
             retain_failed_attempt=True,

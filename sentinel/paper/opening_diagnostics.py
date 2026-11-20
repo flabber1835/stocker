@@ -60,7 +60,8 @@ def timed_execution(operation):
         trace = _StageTrace()
         token = _CURRENT.set(trace)
         try:
-            result = await operation(*args, **kwargs)
+            with opening_stage_log.broker_reads():
+                result = await operation(*args, **kwargs)
         except BaseException as exc:
             trace.finish(status="exception", exception_type=type(exc).__name__)
             raise

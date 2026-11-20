@@ -251,6 +251,14 @@ The backed owner PAPER source handover also requires the
 origin/current-source proof and fresh account scope preserve the canonical book;
 they do not extend ordinary or LIVE admission.
 
+[Opening trace coverage and callback timing](opening-trace-coverage.md) records
+the independent capture and opening diagnostics contract. [Warmed automation
+observers](idle-automation-observer-cost.md) avoid repeated process bootstrap.
+[Publication read cost](publication-read-cost.md) separates symbol identity from
+full price validation and defines bounded reuse for SHADOW verification.
+[Retention proof amortization](retention-proof-amortization.md) lets bounded
+disposal batches share proof work in one owned transaction.
+
 ## Architecture and authority
 
 Wealth Core owns the deterministic canonical holdings and immutable shadow book.

@@ -90,6 +90,30 @@ def test_terminal_transition_timer_preserves_result_and_failure(monkeypatch, cap
         automation_service._timed_terminal_transition('unknown', lambda: cycle)
 
 
+def test_opening_startup_and_broker_spans_measure_only_owned_work(monkeypatch, caplog):
+    ticks = iter(n * 1_000_000 for n in range(8))
+    monkeypatch.setattr(opening_stage_log, 'perf_counter_ns', lambda: next(ticks))
+    with caplog.at_level(logging.INFO, logger=opening_stage_log.LOGGER_NAME):
+        with opening_stage_log.broker_read('observe', 'adapter'):
+            pass
+        with opening_stage_log.callback_startup('PREPARE', 'fork'):
+            pass
+        with opening_stage_log.callback_startup('EXECUTE', 'fork'):
+            pass
+        with pytest.raises(RuntimeError, match='private error'), opening_stage_log.broker_reads():
+            for _ in range(2):
+                with opening_stage_log.broker_read('observe', 'before_read'):
+                    pass
+            with opening_stage_log.broker_read('observe', 'adapter'):
+                raise RuntimeError('private error')
+    assert caplog.messages == [
+        'automation_callback_startup stage=fork event=begin',
+        'automation_callback_startup stage=fork event=end elapsed_ms=1',
+        'paper_broker_read_timing operation=observe part=before_read count=2 elapsed_ms=2',
+        'paper_broker_read_timing operation=observe part=adapter count=1 elapsed_ms=1',
+    ]
+
+
 def test_worker_entry_emits_real_terminal_timing_with_default_logging():
     code = '''
 import logging

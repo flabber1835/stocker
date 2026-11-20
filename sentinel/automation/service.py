@@ -228,15 +228,16 @@ def _arm_parent_death_sigkill(expected_parent_pid: int) -> None:
 
 def _callback_child(
         callback, context, channel, expected_parent_pid: int,
-        process_group_ready) -> None:
+        process_group_ready, phase: str = "") -> None:
     """Execute one production callback in a disposable OS process."""
     try:
         os.setpgid(0, 0)
         process_group_ready.set()
         _arm_parent_death_sigkill(expected_parent_pid)
-        # ``fork`` inherits the parent's running-loop marker. The child owns no
-        # parent tasks or descriptors and starts one fresh loop for its callback.
-        asyncio.events._set_running_loop(None)                # noqa: SLF001
+        with opening_stage_log.callback_startup(phase, "child_entry"):
+            # ``fork`` inherits the parent's running-loop marker. The child owns no
+            # parent tasks or descriptors and starts one fresh loop for its callback.
+            asyncio.events._set_running_loop(None)                # noqa: SLF001
         value = asyncio.run(callback(context))
         if hasattr(value, "model_dump"):
             value = value.model_dump(mode="json")
@@ -1021,7 +1022,8 @@ class AutomationService:
         ``callback_deadline_seconds`` policy. Retry backoff remains independent.
         """
         if self.before_callback is not None:
-            self.before_callback()
+            with opening_stage_log.callback_startup(phase, "idle_observer_handoff"):
+                self.before_callback()
         deadline_seconds = self.config.callback_deadline_seconds
         if heartbeat_conn_factory is not None and not inspect.iscoroutinefunction(
                 callback):
@@ -1134,32 +1136,33 @@ class AutomationService:
 
         try:
             if heartbeat_conn_factory is not None:
-                try:
-                    start_conn = heartbeat_conn_factory()
-                    if start_conn is None:
-                        raise StaleLeaderRefused(
-                            "heartbeat factory supplied no owned startup connection")
-                except BaseException as exc:                  # noqa: BLE001
-                    raise StaleLeaderRefused(
-                        f"{phase} callback heartbeat failed before start: "
-                        f"{exc}") from exc
-                try:
-                    context.require_active()
-                    store.register_instance(
-                        start_conn, instance_id=self.holder_id,
-                        state=f"{phase}_CALLBACK", next_wake_at=None,
-                        callback_deadline_seconds=deadline_seconds)
-                except BaseException as exc:                  # noqa: BLE001
-                    raise StaleLeaderRefused(
-                        f"{phase} callback heartbeat failed before start: "
-                        f"{exc}") from exc
-                finally:
+                with opening_stage_log.callback_startup(phase, "callback_registration"):
                     try:
-                        start_conn.close()
-                    except BaseException as exc:                # noqa: BLE001
+                        start_conn = heartbeat_conn_factory()
+                        if start_conn is None:
+                            raise StaleLeaderRefused(
+                                "heartbeat factory supplied no owned startup connection")
+                    except BaseException as exc:                  # noqa: BLE001
                         raise StaleLeaderRefused(
-                            f"{phase} callback heartbeat failed before "
-                            f"start: {exc}") from exc
+                            f"{phase} callback heartbeat failed before start: "
+                            f"{exc}") from exc
+                    try:
+                        context.require_active()
+                        store.register_instance(
+                            start_conn, instance_id=self.holder_id,
+                            state=f"{phase}_CALLBACK", next_wake_at=None,
+                            callback_deadline_seconds=deadline_seconds)
+                    except BaseException as exc:                  # noqa: BLE001
+                        raise StaleLeaderRefused(
+                            f"{phase} callback heartbeat failed before start: "
+                            f"{exc}") from exc
+                    finally:
+                        try:
+                            start_conn.close()
+                        except BaseException as exc:                # noqa: BLE001
+                            raise StaleLeaderRefused(
+                                f"{phase} callback heartbeat failed before "
+                                f"start: {exc}") from exc
                 try:
                     process_context = multiprocessing.get_context("fork")
                 except ValueError as exc:
@@ -1172,15 +1175,17 @@ class AutomationService:
                 callback_process = process_context.Process(
                     target=_callback_child,
                     args=(callback, context, child_channel, os.getpid(),
-                          process_group_ready),
+                          process_group_ready, phase),
                     name=f"sentinel-callback-{phase.lower()}")
-                callback_process.start()
+                with opening_stage_log.callback_startup(phase, "fork"):
+                    callback_process.start()
                 callback_process._sentinel_process_group_ready = (  # noqa: SLF001
                     process_group_ready)
-                if not process_group_ready.wait(timeout=1):
-                    _kill_callback_process(callback_process)
-                    raise SoftwareDefect(
-                        "callback process group did not become ready")
+                with opening_stage_log.callback_startup(phase, "process_group"):
+                    if not process_group_ready.wait(timeout=1):
+                        _kill_callback_process(callback_process)
+                        raise SoftwareDefect(
+                            "callback process group did not become ready")
                 child_channel.close()
                 child_channel = None
                 worker = threading.Thread(
@@ -1610,8 +1615,8 @@ class AutomationService:
                 heartbeat_conn_factory=heartbeat_conn_factory, clock=clock)
 
         if cycle.state is CycleState.EXECUTING:
-            integrity.validate_cycle_lineage(conn, cycle)
             if cycle.last_fence_token != permit.fence_token:
+                integrity.validate_cycle_lineage(conn, cycle)
                 cycle = store.adopt_cycle(
                     conn, permit=permit, cycle_id=cycle.cycle_id)
                 return await self._run_recover(
@@ -1621,6 +1626,7 @@ class AutomationService:
                 raise AutomationRefused(
                     "EXECUTING cycle reached executor before immutable execute_at")
             if self._transport_expired(now=now, cycle=cycle):
+                integrity.validate_cycle_lineage(conn, cycle)
                 return await self._run_recover(
                     conn, now=now, cycle=cycle, permit=permit,
                     heartbeat_conn_factory=heartbeat_conn_factory, clock=clock)
@@ -2034,7 +2040,8 @@ class AutomationService:
     async def _run_execute(
             self, conn, *, now: datetime, cycle: CycleRecord,
             permit, heartbeat_conn_factory=None, clock=None) -> TickResult:
-        integrity.validate_cycle_lineage(conn, cycle)
+        with opening_stage_log.callback_startup("EXECUTE", "cycle_lineage"):
+            integrity.validate_cycle_lineage(conn, cycle)
         if now < cycle.execute_at:
             raise AutomationRefused(
                 "EXECUTE callback refused before immutable execute_at")
@@ -2043,7 +2050,8 @@ class AutomationService:
                 conn, now=now, cycle=cycle, permit=permit,
                 heartbeat_conn_factory=heartbeat_conn_factory, clock=clock)
         try:
-            permit = store.require_leader(conn, permit)
+            with opening_stage_log.callback_startup("EXECUTE", "leader_admission"):
+                permit = store.require_leader(conn, permit)
             raw = await self._invoke_phase(
                 "EXECUTE", CycleContext(cycle=cycle, permit=permit),
                 permit=permit,

@@ -144,7 +144,9 @@ def test_real_certified_composition_earns_and_reloads_typed_no_activity_basis(co
     with journal.writer_lock(conn, recovery_only=True):
         basis = earn(conn, case)
         assert isinstance(basis, funding.PlanCashFundingBasis)
-        assert basis.schema == "sentinel.protected-buy-funding/2"
+        assert basis.schema_id == "sentinel.protected-buy-funding/2"
+        assert basis.model_dump(mode="json")["schema"] == basis.schema_id
+        assert "schema_id" not in basis.model_dump(mode="json")
         assert basis.cash == basis.plan_cash_ceiling == D(1000)
         assert "cash_activity_sha256" not in basis.model_dump()
         assert funding.load_basis(conn, plan_id="p") == basis

@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import psycopg
 import pytest
 
@@ -17,10 +19,12 @@ def admitted_staging(monkeypatch):
     monkeypatch.setattr(retention, 'opening_execution_due', lambda _: False)
 
 
-def stage(conn):
+def stage(conn, rows=1):
     part = 'e' * 64
     conn.execute("INSERT INTO sentinel_acquisition_parts(part_id,manifest) VALUES(%s,'{}')", (part,))
-    conn.execute("INSERT INTO sentinel_acquisition_prices VALUES(%s,'2026-09-01','AAA','{}')", (part,))
+    conn.execute("INSERT INTO sentinel_acquisition_prices "
+                 "SELECT %s,'2026-09-01','ROW'||lpad(i::text,5,'0'),'{}'::jsonb "
+                 "FROM generate_series(1,%s) i", (part, rows))
     conn.commit()
 
 
@@ -33,6 +37,69 @@ def test_private_disposal_completes_while_another_backend_owns_account_and_corpu
         assert result['status'] == 'COMPLETE', result
         assert (result['deleted_acquisition_rows'], result['deleted_acquisition_parts']) == (1, 1)
         assert other.execute('SELECT count(*) FROM sentinel_acquisition_parts').fetchone() == (0,)
+
+
+@pytest.mark.parametrize('batch_rows,deleted', [(257, 257), (5000, 1024)])
+def test_private_pass_amortizes_authentication_across_bounded_deletes(
+        conn, monkeypatch, batch_rows, deleted):
+    stage(conn, rows=1100)
+    authenticate = retention._authenticate_checkpoints
+    step = retention._acquisition_step
+    proofs, batches = [], []
+
+    def counted_authentication(port):
+        proofs.append(port.execute('SELECT pg_current_xact_id()::text').fetchone()[0])
+        authenticate(port)
+
+    def counted_step(port, progress, *, batch_rows):
+        result = step(port, progress, batch_rows=batch_rows)
+        batches.append(result[1]['deleted_acquisition_rows'])
+        return result
+
+    monkeypatch.setattr(retention, '_authenticate_checkpoints', counted_authentication)
+    monkeypatch.setattr(retention, '_acquisition_step', counted_step)
+    first = retention.maintain(conn, batch_rows=batch_rows)
+    assert first['status'] == 'COMPLETE', first
+    assert first['deleted_acquisition_rows'] == deleted
+    assert batches == [128] * (deleted // 128) + ([deleted % 128] if deleted % 128 else [])
+    assert len(proofs) == 1
+    assert retention._read_progress(conn).next_class == 6
+    conn.rollback()
+
+    second = retention.maintain(conn, batch_rows=1)
+    assert second['deleted_acquisition_rows'] == 1
+    assert len(set(proofs)) == 2
+    assert conn.execute('SELECT count(*) FROM sentinel_acquisition_prices').fetchone() == (1100 - deleted - 1,)
+
+
+def test_private_pass_rolls_back_late_step_and_retains_committed_progress(conn, monkeypatch):
+    stage(conn, rows=400)
+    step = retention._acquisition_step
+    clock = 1000.0
+    deadlines = []
+
+    def make_second_step_late(port, progress, *, batch_rows):
+        nonlocal clock
+        result = step(port, progress, batch_rows=batch_rows)
+        deadlines.append(port.deadline)
+        if len(deadlines) == 1:
+            clock += .1
+        else:
+            clock = deadlines[0] + .01
+        return result
+
+    monkeypatch.setattr(retention, 'time', SimpleNamespace(monotonic=lambda: clock))
+    monkeypatch.setattr(retention, '_acquisition_step', make_second_step_late)
+    result = retention.maintain(conn)
+    assert deadlines == [1000.5, 1000.5]
+    assert result['status'] == 'RETRY'
+    assert result['class_errors'] == {'5': 'RetentionBudgetExpired'}
+    assert result['deleted_acquisition_rows'] == 128
+    assert result['progress_made']
+    assert conn.execute('SELECT count(*) FROM sentinel_acquisition_prices').fetchone() == (272,)
+    cursor = retention._read_progress(conn)
+    assert (cursor.acquisition_after, cursor.acquisition_batches_left, cursor.next_class) == (
+        'e' * 64, 0, 6)
 
 
 @pytest.mark.parametrize('table', ACQUISITION_PIN_TABLES + ('sentinel_acquisition_parts',))

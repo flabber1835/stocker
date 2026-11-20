@@ -69,6 +69,37 @@ def test_real_revision_lock_does_not_block_fresh_checks_or_publish_evidence(guar
         old(grant, BrokerOperation.IDENTIFY_ACCOUNT, None)
 
 
+def test_one_strategy_identity_per_check_with_fresh_identity_after_read(guarded_writer):
+    _, grant, arguments, _ = guarded_writer
+    original = arguments['validate_grant']
+    derived = []
+    checked = []
+    certified = []
+
+    def strategy():
+        value = dict(generation=len(derived))
+        derived.append(value)
+        return value
+
+    def validate(conn, grant, operation, result, identity):
+        original(conn, grant, operation, result)
+        checked.append(identity)
+
+    def certificate(conn, **kwargs):
+        certified.append(kwargs['strategy_identity'])
+        return SimpleNamespace(certificate_sha256=grant.certificate_sha256)
+
+    check = authority_gate.build_fresh_execution_check(
+        **dict(arguments, strategy_identity=strategy, validate_grant=validate,
+               authority_check=certificate),
+        publish_operational_evidence=False, bind_strategy_to_grant=True)
+    check(grant, BrokerOperation.IDENTIFY_ACCOUNT, None)
+    check(grant, BrokerOperation.IDENTIFY_ACCOUNT, BrokerAccountIdentity('alpaca', grant.broker_account_id))
+    assert checked == derived == [dict(generation=0), dict(generation=1)]
+    assert all(identity is checked[i // 2] for i, identity in enumerate(certified))
+    assert len(certified) == 4
+
+
 def test_callback_pass_renews_its_clock_under_the_paper_revision_lock(guarded_writer, monkeypatch):
     from contextlib import closing
     from tests.sentinel.test_automation_runtime import config, production

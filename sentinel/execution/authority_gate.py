@@ -78,6 +78,8 @@ class ConnectionFactory(Protocol):
 GrantValidator = Callable[
     [object, ExecutionGrant, BrokerOperation, object | None], None]
 IdentityProvider = Callable[[], Mapping]
+StrategyGrantValidator = Callable[
+    [object, ExecutionGrant, BrokerOperation, object | None, Mapping], None]
 
 
 def _file_sha256(path: Path) -> str:
@@ -330,10 +332,11 @@ def build_fresh_execution_check(
         *, connection_factory: ConnectionFactory, paper_base_url: str,
         runtime_identity: IdentityProvider,
         strategy_identity: IdentityProvider,
-        validate_grant: GrantValidator,
+        validate_grant: GrantValidator | StrategyGrantValidator,
         automation_config_sha256: str | None = None,
         authority_check=None, safety_authority_check=None,
-        publish_operational_evidence: bool = True
+        publish_operational_evidence: bool = True,
+        bind_strategy_to_grant: bool = False
         ) -> GrantValidator:
     """Build the synchronous fresh check used also at actual LIVE HTTP entry."""
     if not callable(connection_factory):
@@ -377,7 +380,11 @@ def build_fresh_execution_check(
                             or backup_proof.get("backup_state") == "DEGRADED"
                             or backup_proof.get("independent_archive_current", True) is not True):
                         raise AuthorityRefused("LIVE mutations require enabled qualified backups and current independent archive")
-                validate_grant(conn, grant, operation, result)
+                strategy = dict(strategy_identity()) if bind_strategy_to_grant else None
+                if strategy is None:
+                    validate_grant(conn, grant, operation, result)
+                else:
+                    validate_grant(conn, grant, operation, result, strategy)
                 rollout = load_rollout_state(conn)
                 # This observation-only recovery runs before the new GO
                 # publication and admits no fresh plan or submission. Its
@@ -387,7 +394,7 @@ def build_fresh_execution_check(
                 concrete = _authority_operation(grant, operation)
                 kwargs = dict(
                     runtime_identity=runtime_identity(),
-                    strategy_identity=strategy_identity(),
+                    strategy_identity=strategy if strategy is not None else strategy_identity(),
                     required_mode=rollout.mode,
                     paper_base_url=paper_base_url,
                     current_publication_version=(current.version if current is not None else None),
@@ -501,10 +508,11 @@ def build_fresh_execution_guard(
         *, connection_factory: ConnectionFactory, paper_base_url: str,
         runtime_identity: IdentityProvider,
         strategy_identity: IdentityProvider,
-        validate_grant: GrantValidator,
+        validate_grant: GrantValidator | StrategyGrantValidator,
         automation_config_sha256: str | None = None,
         authority_check=None, safety_authority_check=None,
-        publish_operational_evidence: bool = True
+        publish_operational_evidence: bool = True,
+        bind_strategy_to_grant: bool = False
         ) -> ExecutionBrokerGuard:
     """Create callbacks that never cache broker authority between operations."""
     check = build_fresh_execution_check(
@@ -513,7 +521,8 @@ def build_fresh_execution_guard(
         validate_grant=validate_grant,
         automation_config_sha256=automation_config_sha256,
         authority_check=authority_check, safety_authority_check=safety_authority_check,
-        publish_operational_evidence=publish_operational_evidence)
+        publish_operational_evidence=publish_operational_evidence,
+        bind_strategy_to_grant=bind_strategy_to_grant)
 
     async def before_read(grant, operation):
         check(grant, operation, None)

@@ -1,9 +1,11 @@
 """Independent journey verdicts: incomplete evidence is never product success."""
 from copy import deepcopy
+from datetime import datetime
 import importlib.util
 import os
 from pathlib import Path
 import sys
+from tempfile import TemporaryDirectory
 import unittest
 from unittest import mock
 
@@ -101,9 +103,32 @@ class DashboardJourneyRunnerContract(unittest.TestCase):
         report['responses'][-1] = {'document': {'generated_at': dates[-1]}}
         self.assertEqual(status(), 'INCOMPLETE')
         report['events'].append({'type': 'meaningful-content', 'generated_at': dates[-1]})
+        self.assertEqual(status(), 'INCOMPLETE')
+        opened = datetime.fromisoformat(dates[1]).timestamp()
+        end = datetime.fromisoformat(dates[-1]).timestamp()
+        samples = [{'type': 'coverage-sample', 'node_ms': k * 1000, 'wall_time_ms': (opened + k) * 1000}
+                   for k in range(0, int(end - opened), 2)]
+        report['events'].extend(samples)
         self.assertEqual(status(), 'PASSED_DESKTOP')
+        report['events'] = [event for event in report['events']
+                            if event.get('type') != 'coverage-sample' or not 40 <= event['node_ms']/1000 <= 60]
+        self.assertEqual(status(), 'INCOMPLETE')
+        report['events'] = [event for event in report['events'] if event.get('type') != 'coverage-sample']
+        report['events'].extend(samples)
         report['opening']['SHADOW'] = dates[0]
         self.assertEqual(status(), 'INCOMPLETE')
+
+    def test_coverage_distinguishes_an_interrupted_owner_from_a_stalled_browser(self):
+        with TemporaryDirectory() as path:
+            root = Path(path)
+            self.assertEqual(self.runner.coverage_status(root, 100), 'UNKNOWN')
+            with mock.patch.object(self.runner.time, 'time', return_value=100):
+                self.runner.publish_coverage(root, 'RUNNING', 95)
+                self.assertEqual(self.runner.coverage_status(root, 101), 'RUNNING')
+                self.assertEqual(self.runner.coverage_status(root, 111), 'STALE_RECORDER')
+                self.assertEqual(self.runner.coverage_status(root, 116), 'STALE_OWNER')
+                self.runner.publish_coverage(root, 'INCOMPLETE')
+            self.assertEqual(self.runner.coverage_status(root, 200), 'INCOMPLETE')
 
     def test_a_captured_product_failure_is_observed_failure_not_incomplete_or_success(self):
         evidence = reports()

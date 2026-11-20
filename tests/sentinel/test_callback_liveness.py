@@ -365,3 +365,95 @@ assert 'sentinel.automation_runtime' not in sys.modules
 assert 'sentinel.paper.execution' not in sys.modules
 """
     subprocess.run([sys.executable, '-c', script], check=True)
+
+
+def test_deployed_health_probe_does_not_bootstrap_application():
+    script = """
+import importlib.abc
+import runpy
+import sys
+
+class NoApplicationBootstrap(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, *args):
+        if fullname in {'pydantic', 'psycopg', 'sentinel.automation.health',
+                         'sentinel.automation_runtime', 'sentinel.execution.journal'}:
+            raise AssertionError('unexpected cold probe import: '+fullname)
+
+sys.meta_path.insert(0, NoApplicationBootstrap())
+sys.argv[:] = ['sentinel.automation_liveness']
+runpy.run_module('sentinel.automation_liveness', run_name='__main__')
+"""
+    result = subprocess.run([sys.executable, '-c', script], capture_output=True, text=True)
+    assert result.returncode == 1
+    assert '"reason": "FileNotFoundError"' in result.stdout
+    assert not result.stderr
+
+
+@pytest.mark.skipif(sys.platform != 'linux', reason='Linux supervisor process ownership')
+def test_warm_health_does_fresh_work_and_refuses_expired_supervisor(
+        tmp_path, monkeypatch, capsys):
+    import json
+
+    from sentinel.automation_health_probe import WarmHealthReader, probe
+
+    calls = multiprocessing.get_context('fork').RawValue('i', 0)
+    state_file = tmp_path/'state'
+    state_file.write_text('operational')
+
+    def observe(dsn, lease_seconds, *, connect):
+        assert dsn == 'unused' and lease_seconds == 12
+        calls.value += 1
+        ready = state_file.read_text() == 'operational'
+        return (0 if ready else 1), {'healthy': ready, 'reader_pid': os.getpid()}
+
+    monkeypatch.setattr(automation_liveness, 'observe', observe)
+    reader = WarmHealthReader('unused', 12, max_pulse_age=5, path=tmp_path/'health.sock')
+    try:
+        reader.tick()
+        deadline = time.monotonic()+4
+        while not reader.path.exists() and time.monotonic() < deadline:
+            time.sleep(.01)
+        assert probe(reader.path) == 0
+        first = json.loads(capsys.readouterr().out)
+        state_file.write_text('killed')
+        assert probe(reader.path) == 1
+        second = json.loads(capsys.readouterr().out)
+        assert calls.value == 2
+        assert first['reader_pid'] == second['reader_pid'] == reader.process.pid
+        reader.pulse.value = time.monotonic()-6
+        assert probe(reader.path) == 1
+        assert calls.value == 2
+    finally:
+        reader.close()
+    assert not reader.path.exists()
+
+
+@pytest.mark.skipif(sys.platform != 'linux', reason='Linux supervisor process ownership')
+def test_warm_health_stalled_reader_is_bounded_and_replaced(tmp_path, monkeypatch):
+    from sentinel import automation_health_probe as ipc
+
+    def stall(*_args, **_kwargs):
+        time.sleep(30)
+
+    monkeypatch.setattr(ipc, 'READ_SECONDS', .2)
+    monkeypatch.setattr(ipc, 'CLIENT_SECONDS', .4)
+    monkeypatch.setattr(automation_liveness, 'observe', stall)
+    reader = ipc.WarmHealthReader('unused', 12, max_pulse_age=5, path=tmp_path/'health.sock')
+    try:
+        reader.tick()
+        deadline = time.monotonic()+4
+        while not reader.path.exists() and time.monotonic() < deadline:
+            time.sleep(.01)
+        first_pid = reader.process.pid
+        client_at = time.monotonic()
+        assert ipc.probe(reader.path) == 1
+        assert time.monotonic()-client_at < 2
+        assert reader.started.value > 0
+        while time.monotonic() < deadline:
+            reader.tick()
+            if reader.process is not None and reader.process.pid != first_pid:
+                break
+            time.sleep(.01)
+        assert reader.process.pid != first_pid
+    finally:
+        reader.close()

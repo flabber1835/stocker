@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const fs = require('node:fs');
 const path = require('node:path');
 const {performance} = require('node:perf_hooks');
 
@@ -29,7 +30,7 @@ function serverDocument(body) {
 
 // This function executes in the browser. It observes only; it changes no HTML,
 // clocks, worker registration, request or financial state.
-function installRecorder({binding}) {
+function installRecorder({binding, opening}) {
   const send = value => {
     const record = {...value, browser_ms:performance.now(), document_time_origin_ms:performance.timeOrigin,wall_time_ms:Date.now()};
     try { window[binding](record).catch(() => {}); } catch (_) {}
@@ -154,6 +155,8 @@ function installRecorder({binding}) {
       start_ms:item.startTime, duration_ms:item.duration}))).observe({type:'paint',buffered:true});
   } catch (_) { send({type:'paint-unavailable'}); }
   snapshot();
+  if (opening) setInterval(() => send({type:'coverage-sample',
+    generated_at:document.body?.dataset.generatedAt || null}),2000);
 }
 
 function assessCapture(report) {
@@ -288,7 +291,20 @@ async function startCapture(page, options) {
   function add(event) {
     if (closed) return;
     if (report.events.length>=maxEvents) { report.capture.event_overflow=true; mark('EVENT_OVERFLOW'); finishWaiting(); return; }
-    report.events.push({...event,node_ms:nodeTime()});
+    const observed={...event,node_ms:nodeTime()};
+    report.events.push(observed);
+    if (opening && options.outputDir) {
+      try {
+        fs.appendFileSync(path.join(options.outputDir,'opening-events.jsonl'),
+          JSON.stringify(observed)+'\n',{mode:0o600});
+        if (event.type==='coverage-sample') {
+          fs.writeFileSync(path.join(options.outputDir,'opening-heartbeat'),'sample\n',{mode:0o600});
+        }
+      } catch (_) {
+        mark('COVERAGE_WRITE_FAILED');
+        finishWaiting();
+      }
+    }
     if (event.type==='meaningful-content') takeScreenshot('content');
     if (event.type==='badge-transition' && event.headline_class==='state warn') takeScreenshot('amber');
     if (opening) {
@@ -319,7 +335,7 @@ async function startCapture(page, options) {
   }
   const binding = '__sentinelJourney'+crypto.randomBytes(8).toString('hex');
   await page.exposeBinding(binding, (source,event) => { if (source.frame===page.mainFrame()) add(event); });
-  await page.addInitScript(installRecorder,{binding});
+  await page.addInitScript(installRecorder,{binding,opening:!!opening});
   function listen(name, callback) { page.on(name,callback); listeners.push([name,callback]); }
   const rootRequest = request => {
     const url = new URL(request.url());
