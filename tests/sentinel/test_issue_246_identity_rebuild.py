@@ -9,6 +9,7 @@ from sentinel.feed import identity_rebuild as IR
 from sentinel.feed import ingest as I
 from sentinel.feed import publication as P
 from sentinel.feed import recovery as R
+from sentinel.feed import runtime_schema
 from sentinel.feed import store as S
 from sentinel.feed import universe as U
 from tests.support.postgres import _EphemeralPostgres
@@ -176,6 +177,9 @@ def test_identity_rebuild_rekeys_claims_and_tombstones_atomically(conn):
 
     # Rebuilding the derived projection from raw snapshots must not resurrect
     # GGRP or LBRDK from pre-replacement evidence.
+    physical_rows = ("SELECT permaticker,ticker,ctid::text,xmin::text,xmax::text "
+                     "FROM feed_universe_current ORDER BY permaticker,ticker")
+    accepted = conn.execute(physical_rows).fetchall()
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO feed_universe_current"
@@ -189,6 +193,31 @@ def test_identity_rebuild_rekeys_claims_and_tombstones_atomically(conn):
             " ORDER BY permaticker,ticker")
         rebuilt = [(str(p), str(t)) for p, t in cur.fetchall()]
     assert rebuilt == [("P1", "BTLN"), ("P3", "KEEP"), ("P4", "NEW")]
+    assert conn.execute(physical_rows).fetchall() == accepted
+    S.migrate_schema(conn)
+    assert conn.execute(physical_rows).fetchall() == accepted
+
+
+def test_validation_cutoff_is_initialized_only_before_publication(conn):
+    def remove_cutoff():
+        conn.execute('ALTER TABLE sentinel_publication_validation_policy DISABLE TRIGGER sentinel_refuse_append_only_mutation')
+        conn.execute('DELETE FROM sentinel_publication_validation_policy')
+        conn.execute('ALTER TABLE sentinel_publication_validation_policy ENABLE TRIGGER sentinel_refuse_append_only_mutation')
+        conn.commit()
+
+    policy = 'SELECT required_after_version FROM sentinel_publication_validation_policy'
+    remove_cutoff()
+    S.migrate_schema(conn)
+    assert conn.execute(policy).fetchall() == [(0,)]
+    _publish_base(conn)
+    receipts = 'SELECT publication_version,receipt_hmac_sha256 FROM sentinel_publication_validation_receipts'
+    issued = conn.execute(receipts).fetchall()
+    assert len(issued) == 1
+    remove_cutoff()
+    with pytest.raises(runtime_schema.FeedSchemaRefused, match='missing publication validation policy'):
+        S.migrate_schema(conn)
+    assert conn.execute(policy).fetchall() == []
+    assert conn.execute(receipts).fetchall() == issued
 
 
 def test_publication_failure_rolls_back_tombstones_and_projection(conn, monkeypatch):

@@ -376,6 +376,7 @@ def test_runtime_preserves_current_archiver_clock_refusal(world):
 _RECOVERY_APPLIERS = {
     'sentinel/chain_progress_recovery.py', 'sentinel/panel/review_coverage_recovery.py',
     'sentinel/order_amount_coverage_recovery.py', 'sentinel/backup_compaction_coverage_recovery.py',
+    'sentinel/acquisition_coverage_recovery.py',
 }
 _RECOVERY_ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT") or Path(__file__).resolve().parents[2])
 
@@ -427,6 +428,9 @@ def _require_recovery_lock_owners(relative, tree):
                 elif relative == 'sentinel/backup_compaction_coverage_recovery.py':
                     assert 'coverage.require_current' in calls
                     assert 'historical_feed.require(conn, expected=historical_feed.POST_COMPACTION)' in expressions
+                elif relative == 'sentinel/acquisition_coverage_recovery.py':
+                    assert 'guards.require_successor(conn)' in expressions
+                    assert 'coverage.require_current(conn, domain)' in expressions
                 else:
                     assert 'review_schema.require_schema' in calls
     return bool(locks)
@@ -471,6 +475,8 @@ def test_dashboard_recovery_exemption_is_function_scoped(remove_owner_guard):
      'expected=historical_feed.ORIGINAL'),
     ('sentinel/backup_compaction_coverage_recovery.py', 'expected=historical_feed.POST_COMPACTION',
      'expected=historical_feed.ORIGINAL'),
+    ('sentinel/acquisition_coverage_recovery.py', 'guards.require_successor(conn)',
+     'guards.require_predecessor(conn)'),
 ])
 def test_recovery_exemption_requires_its_original_schema_target(relative, original, wrong):
     source = (_RECOVERY_ROOT / relative).read_text()
