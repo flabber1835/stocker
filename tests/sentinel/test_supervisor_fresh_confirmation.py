@@ -124,13 +124,13 @@ def test_original_observation_budget_is_preserved(monkeypatch):
     assert supervisor._snapshot('fixture', 'owned').heartbeat_age_seconds == 1
 
 
-def replace_main(monkeypatch, change):
-    tree = ast.parse(inspect.getsource(supervisor.main))
+def replace_watch(monkeypatch, change):
+    tree = ast.parse(inspect.getsource(supervisor._watch))
     change(tree)
     namespace = {}
     exec(compile(ast.fix_missing_locations(tree), '<removed-supervisor-guard>', 'exec'),
          supervisor.__dict__, namespace)
-    monkeypatch.setattr(supervisor, 'main', namespace['main'])
+    monkeypatch.setattr(supervisor, '_watch', namespace['_watch'])
 
 
 def test_removed_confirmation_is_detected(monkeypatch):
@@ -141,7 +141,7 @@ def test_removed_confirmation_is_detected(monkeypatch):
                     for item in node.body):
                 node.body = [item for item in node.body if not (
                     isinstance(item, ast.If) and '_instance_stalled' in ast.unparse(item.test))]
-    replace_main(monkeypatch, remove)
+    replace_watch(monkeypatch, remove)
     with pytest.raises(AssertionError):
         assert_resumed_worker_survives(monkeypatch)
 
@@ -154,7 +154,7 @@ def test_removed_confirmation_failure_anchor_is_detected(monkeypatch):
                     for item in node.body):
                 index = next(i for i, item in enumerate(node.body) if isinstance(item, ast.If))
                 node.body.insert(index, ast.parse('database_unreadable_since = None').body[0])
-    replace_main(monkeypatch, reset_early)
+    replace_watch(monkeypatch, reset_early)
     with pytest.raises(AssertionError, match='renewed its hard deadline'):
         assert_confirmation_loss_keeps_original_deadline(monkeypatch)
 
