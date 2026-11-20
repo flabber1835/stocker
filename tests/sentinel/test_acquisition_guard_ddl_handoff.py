@@ -17,6 +17,8 @@ pytestmark = pytest.mark.parametrize('conn', [predecessor], indirect=True)
 
 
 def test_guard_upgrade_and_second_install_preserve_authenticated_prefixes(conn):
+    conn.execute('SET search_path TO pg_catalog, public')
+    conn.commit()
     guards.require_predecessor(conn)
     initial = prefixes(conn)
     before = epoch.current(conn)
@@ -24,6 +26,7 @@ def test_guard_upgrade_and_second_install_preserve_authenticated_prefixes(conn):
     heads = {d: coverage.head(conn, d) for d in handoff.DOMAINS}
     store.migrate_schema(conn)
     guards.require_successor(conn)
+    assert conn.execute('SHOW search_path').fetchone() == ('pg_catalog, public',)
     assert epoch.current(conn) == (before[0], before[1]+4)
     assert coverage.binding(conn) == binding
     for domain in handoff.DOMAINS:

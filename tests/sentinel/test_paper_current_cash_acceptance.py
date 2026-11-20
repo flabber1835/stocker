@@ -27,10 +27,12 @@ PATH = '/v2beta1/events/activities'
 
 
 @pytest.fixture
-def conn(pg):
+def conn(pg, request):
     value = store.connect(pg.sync_dsn)
     drop_public_tables(value)
     schema.ensure_schema(value)
+    if getattr(request, 'param', None) == 'with_feed':
+        store.migrate_schema(value)
     binding.bind(value, deployment_id='cash-acceptance', broker='alpaca', broker_account_id=ACCOUNT_NUMBER)
     value.execute("UPDATE sentinel_account_binding SET established_at='2026-02-12T00:00:00Z' WHERE id=1")
     value.commit()

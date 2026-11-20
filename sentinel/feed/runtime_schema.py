@@ -651,7 +651,8 @@ def migrate_feed_schema(conn) -> None:
     from sentinel.feed.acquisition_guard_migration import migrate_if_protected
 
     try:
-        with conn.cursor() as cur, _financial_writer(conn):
+        with conn.cursor() as cur:
+            cur.execute("SET LOCAL search_path TO public, pg_temp")
             cur.execute(f"SET LOCAL lock_timeout TO '{_SCHEMA_LOCK_TIMEOUT_MS}ms'")
             cur.execute("SELECT pg_try_advisory_xact_lock(%s,%s)", _SCHEMA_LOCK)
             row = cur.fetchone()
@@ -659,13 +660,14 @@ def migrate_feed_schema(conn) -> None:
                 raise _refuse(
                     "another feed migration or runtime catalog proof holds the "
                     "feed schema lock")
-            if not migrate_if_protected(conn):
-                try:
-                    require_feed_schema(conn)
-                except FeedSchemaRefused:
-                    for statement in DDL:
-                        cur.execute(statement)
-            require_feed_schema(conn)
+            with _financial_writer(conn):
+                if not migrate_if_protected(conn):
+                    try:
+                        require_feed_schema(conn)
+                    except FeedSchemaRefused:
+                        for statement in DDL:
+                            cur.execute(statement)
+                require_feed_schema(conn)
         conn.commit()
     except BaseException:
         conn.rollback()

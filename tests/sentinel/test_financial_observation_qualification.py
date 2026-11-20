@@ -135,9 +135,8 @@ def test_cursor_replay_must_cover_exact_discovered_economics(fault):
                                                   since_event_id=rows[0]["event_id"]))
 
 
+@pytest.mark.parametrize('conn', ['with_feed'], indirect=True)
 def test_competing_current_plans_refused_by_execution_and_private_restore(conn, case):
-    from sentinel.feed import runtime_schema
-    runtime_schema.migrate_feed_schema(conn)
     second = replace(case["plan"], plan_id="other-stamped-plan")
     journal.save_plan(conn, second)
     with pytest.raises(journal.PlanAuthorityMissing, match="multiple stamped"):
@@ -227,9 +226,8 @@ def test_large_cash_frontier_stamps_new_plan_without_enumerating_history(conn, c
     with pytest.raises(broker_cash.BrokerCashAuthorityRefused, match="immutable native membership head"):
         ingest(conn, history, hours=2)
 
+@pytest.mark.parametrize('conn', ['with_feed'], indirect=True)
 def test_disconnected_but_well_formed_plan_membership_refused_live_and_on_restore(conn, case):
-    from sentinel.feed import runtime_schema
-    runtime_schema.migrate_feed_schema(conn)
     state = case["initial"]
     native_id, _ = case["baseline"].activity_membership[0]
     orphan = broker_cash._write_membership_node(conn, state, None, {native_id: "f" * 64})
