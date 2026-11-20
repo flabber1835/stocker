@@ -48,6 +48,22 @@ time unchanged, schedules a finite backed-off retry and makes the absence of
 fresh authority diagnosable. Retry admission is bounded; there is no rapid
 spawn loop or indefinite single invocation.
 
+An idle retry has one deadline from the first failure until the foreground
+admits another full observer. Subsequent heartbeat, database or lock failures
+while waiting cannot move that deadline or increase the failure count. After
+the deadline, a busy poll returns the ordinary future poll wake and keeps the
+retry eligible. The first eligible poll that passes the current safety checks
+may start an observer. Admission consumes the deadline, so a failed new
+attempt can back off again. A backwards observation clock invalidates a
+pending wall-clock deadline and requires fresh checks. Only a successful
+fenced publication resets the failure count and refreshes the evidence.
+
+During idle qualification, vary the phase of short exclusive maintenance
+holds across repeated polls. Check the recorded PASS through contention and
+recovery, including a writer held beyond the five-minute evidence lifetime.
+Every pending poll still checks mutable authority. Revocation must take effect
+during backoff, and a cancelled child awaiting reap must yield a future wake.
+
 The parent-side idle control read uses its own short-budget database connection,
 separate from financial callbacks and their existing SQL budgets. Connection
 admission and the cumulative control/lease/lifecycle/result-publication work
