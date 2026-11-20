@@ -83,6 +83,25 @@ def test_explicit_migration_is_idempotent_and_runtime_valid(migrated):
     assert second == first
 
 
+def test_unbound_lifecycle_bootstrap_preserves_existing_records_on_retry(migrated):
+    run = '00000000-0000-0000-0000-000000000614'
+    migrated.execute("INSERT INTO feed_ingest_runs(run_id,kind,status) VALUES(%s,'daily','failed')", (run,))
+    migrated.execute("INSERT INTO sentinel_action_generations"
+                     "(last_written_run_id,window_start,window_end,source_rows) "
+                     "VALUES (%s,'2026-11-19','2026-11-19',0)", (run,))
+    migrated.execute("INSERT INTO sentinel_corpus_anomalies(kind,ticker,session,last_written_run_id) "
+                     "VALUES ('SPLIT_ONLY_DERIVED','AAA','2026-11-19',%s)", (run,))
+    migrated.commit()
+    feed_store.migrate_schema(migrated)
+    events = ("SELECT state,ctid::text,xmin::text,xmax::text FROM sentinel_action_generation_events WHERE actor_run_id=%s "
+              "UNION ALL SELECT state,ctid::text,xmin::text,xmax::text FROM sentinel_anomaly_observation_events "
+              "WHERE actor_run_id=%s ORDER BY 1,2,3,4")
+    first = migrated.execute(events, (run, run)).fetchall()
+    assert [row[0] for row in first] == ['ABORTED', 'ABORTED']
+    feed_store.migrate_schema(migrated)
+    assert migrated.execute(events, (run, run)).fetchall() == first
+
+
 @pytest.mark.parametrize('name', ['sentinel_retention_locks', 'sentinel_acquisition_retention_locks'])
 def test_private_disposal_verifies_both_database_ownership_guards(migrated, name):
     migrated.execute(f'CREATE OR REPLACE FUNCTION {name}() RETURNS void LANGUAGE plpgsql AS $$ BEGIN RETURN; END $$')

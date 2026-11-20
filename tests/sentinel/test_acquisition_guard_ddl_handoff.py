@@ -4,7 +4,7 @@ import pytest
 from sentinel import deployment_fence, operational_ddl_epoch as epoch, operational_ddl_handoff as handoff
 from sentinel.operational_schema import OperationalSchemaRefused
 from sentinel.execution import evidence_projection as coverage, journal
-from sentinel.feed import acquisition_guard_migration as guards, runtime_schema, store
+from sentinel.feed import acquisition_guard_migration as guards, migration_data, publication, runtime_schema, store
 from tests.sentinel.test_dashboard_ddl_coverage import conn, pg, prefixes, unchanged_body
 from tests.support import coverage_feed_ddl
 
@@ -52,6 +52,60 @@ def test_partial_and_absent_proofs_retain_their_own_state(conn):
         coverage.require_current(conn, 'OBSERVATION')
 
 
+def test_projection_repairs_are_transactional_and_fenced_on_an_established_book(conn, monkeypatch):
+    conn.execute("INSERT INTO feed_universe_current (permaticker,ticker,snapshot_date) "
+                 "VALUES ('obsolete','GONE','2026-08-21')")
+    conn.commit()
+    before = epoch.current(conn)
+    initial = prefixes(conn)
+    with monkeypatch.context() as fault:
+        from psycopg.errors import DivisionByZero
+        fault.setattr(migration_data, '_PROJECT_CHANGED', 'SELECT 1/0')
+        with pytest.raises(DivisionByZero):
+            store.migrate_schema(conn)
+    guards.require_predecessor(conn)
+    assert epoch.current(conn) == before
+    assert prefixes(conn) == initial
+    probe = "SELECT count(*) FROM feed_universe_current WHERE ticker='GONE'"
+    assert conn.execute(probe).fetchone() == (1,)
+    store.migrate_schema(conn)
+    assert conn.execute(probe).fetchone() == (0,)
+    transferred = prefixes(conn)
+    after = epoch.current(conn)
+    conn.execute('UPDATE sentinel_automation_control SET kill_switch_engaged=false WHERE id=1')
+    conn.commit()
+    store.migrate_schema(conn)
+    conn.execute("INSERT INTO feed_universe_current (permaticker,ticker,snapshot_date) "
+                 "VALUES ('obsolete','GONE','2026-08-21')")
+    conn.commit()
+    with pytest.raises(deployment_fence.DeploymentFenceRefused, match='durable kill'):
+        store.migrate_schema(conn)
+    assert conn.execute(probe).fetchone() == (1,)
+    assert epoch.current(conn) == after
+    assert prefixes(conn) == transferred
+
+
+@pytest.mark.parametrize('table', ['action', 'anomaly'])
+def test_guard_upgrade_refuses_missing_lifecycle_evidence_on_established_book(conn, table):
+    run = '00000000-0000-0000-0000-000000000614'
+    conn.execute("INSERT INTO feed_ingest_runs(run_id,kind,status) VALUES(%s,'daily','failed')", (run,))
+    if table == 'action':
+        conn.execute("INSERT INTO sentinel_action_generations"
+                     "(last_written_run_id,window_start,window_end,source_rows) "
+                     "VALUES (%s,'2026-11-19','2026-11-19',0)", (run,))
+    else:
+        conn.execute("INSERT INTO sentinel_corpus_anomalies(kind,ticker,session,last_written_run_id) "
+                     "VALUES ('SPLIT_ONLY_DERIVED','AAA','2026-11-19',%s)", (run,))
+    conn.commit()
+    before = epoch.current(conn)
+    initial = prefixes(conn)
+    with pytest.raises(runtime_schema.FeedSchemaRefused, match='lifecycle evidence'):
+        store.migrate_schema(conn)
+    guards.require_predecessor(conn)
+    assert epoch.current(conn) == before
+    assert prefixes(conn) == initial
+
+
 def test_original_full_replay_reproduces_the_stale_proofs_and_no_automatic_repair(conn):
     initial = prefixes(conn)
     before = epoch.current(conn)
@@ -69,7 +123,7 @@ def test_original_full_replay_reproduces_the_stale_proofs_and_no_automatic_repai
 
 
 @pytest.mark.parametrize('fault', ['unfenced', 'stale_predecessor', 'bad_hmac', 'changed_binding', 'unknown_function',
-                                   'writer_busy', 'extra_ddl', 'second_domain_failure'])
+                                   'writer_busy', 'corpus_pin', 'extra_ddl', 'second_domain_failure'])
 def test_guard_upgrade_refusals_are_atomic(conn, monkeypatch, fault):
     initial = prefixes(conn)
     if fault == 'unfenced':
@@ -110,6 +164,8 @@ def test_guard_upgrade_refusals_are_atomic(conn, monkeypatch, fault):
     with store.connect(conn.info.dsn) as peer:
         if fault == 'writer_busy':
             peer.execute('SELECT pg_advisory_xact_lock(%s)', (journal.WRITER_LOCK_KEY,))
+        if fault == 'corpus_pin':
+            peer.execute('SELECT pg_advisory_xact_lock_shared(%s)', (publication.CORPUS_LOCK_KEY,))
         failures = {
             'unfenced': (deployment_fence.DeploymentFenceRefused, 'durable kill'),
             'stale_predecessor': (coverage.EvidenceCoverageRefused, 'BINDING_CHANGED'),
@@ -117,6 +173,7 @@ def test_guard_upgrade_refusals_are_atomic(conn, monkeypatch, fault):
             'changed_binding': (coverage.EvidenceCoverageRefused, 'EVIDENCE_COVERAGE_BINDING_CHANGED'),
             'unknown_function': (runtime_schema.FeedSchemaRefused, 'unexpected acquisition function'),
             'writer_busy': (OperationalSchemaRefused, 'FINANCIAL_WRITER_BUSY'),
+            'corpus_pin': (runtime_schema.FeedSchemaRefused, 'corpus writer or pinned reader'),
             'extra_ddl': (runtime_schema.FeedSchemaRefused, 'DDL advance differs'),
             'second_domain_failure': (coverage.EvidenceCoverageRefused, 'fixture second domain refused'),
         }

@@ -649,6 +649,7 @@ def migrate_feed_schema(conn) -> None:
     """Explicit atomic feed installation/upgrade; never called by runtime."""
     from sentinel.operational_schema import _financial_writer
     from sentinel.feed.acquisition_guard_migration import migrate_if_protected
+    from sentinel.feed import migration_data
 
     try:
         with conn.cursor() as cur:
@@ -661,12 +662,19 @@ def migrate_feed_schema(conn) -> None:
                     "another feed migration or runtime catalog proof holds the "
                     "feed schema lock")
             with _financial_writer(conn):
-                if not migrate_if_protected(conn):
+                migration_data.lock_corpus(conn)
+                protected = migrate_if_protected(conn)
+                install_catalog = False
+                if not protected:
                     try:
                         require_feed_schema(conn)
                     except FeedSchemaRefused:
-                        for statement in DDL:
-                            cur.execute(statement)
+                        install_catalog = True
+                if install_catalog:
+                    for statement in DDL:
+                        cur.execute(statement)
+                else:
+                    migration_data.reconcile(conn, protected=protected)
                 require_feed_schema(conn)
         conn.commit()
     except BaseException:
