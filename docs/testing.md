@@ -54,6 +54,12 @@ and retain their normal permanent ownership and complete execution requirements.
 
 ## Reproduce targeted tests
 
+Run full browser and automation qualification and their image builds on the
+GitHub-hosted CI runners or a host separate from the installed runtime. A test
+container on the same WSL VM still competes with the runtime for CPU, memory,
+and storage. For narrow qualification on that host, reuse a pinned test image
+and run a single container with explicit resource limits.
+
 Use Linux containers through Docker, Bash, GNU Make and Git. The runtime and
 test lens pin the interpreter/base image and install hash-checked dependency
 closures from `sentinel/requirements.lock` and `tests/requirements.lock`.

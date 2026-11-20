@@ -26,7 +26,7 @@ from time import monotonic as diagnostic_clock
 
 from sentinel.feed import calendar
 from sentinel.feed import observation_timing
-from sentinel import supervisor_io, shadow_budget, shadow_worker_liveness, shadow_service_status
+from sentinel import supervisor_io, shadow_budget, shadow_drain, shadow_worker_liveness, shadow_service_status
 from sentinel.backup_guard import BUSY_PROBE_SECONDS, BUSY_RETRY_MAX_SECONDS
 from sentinel import shadow_restart_recovery as restart_recovery
 from sentinel.shadow_service_config import ShadowServiceConfig, ShadowServiceWaiting
@@ -103,7 +103,6 @@ def _earned_schedule(before, measured, *, started, started_at):
 
 
 def _idle_retention(database_url):
-    from sentinel import shadow_drain
     from sentinel.feed import retention
 
     def work():
@@ -217,13 +216,18 @@ class _Heartbeat:
 def _write_heartbeat():
     HEARTBEAT_FILE.touch(exist_ok=True)
     shadow_service_status.publish(LATCH_FILE, _STATUS_INCARNATION)
-    from sentinel import shadow_drain
     shadow_drain.acknowledge_idle(LATCH_FILE.parent,
         os.environ.get('SENTINEL_DATABASE_URL',''),_STATUS_INCARNATION)
 
 
 def _latch_exists():
-    return LATCH_FILE.exists() or _pending_file().exists()
+    for marker in (LATCH_FILE, _pending_file()):
+        try:
+            marker.lstat()
+        except FileNotFoundError:
+            continue
+        return True
+    return False
 
 
 def _pending_file():
@@ -233,7 +237,6 @@ def _pending_file():
 def _arm_worker(supervisor_pid=None):
     # A positive, durable acknowledgement is required before launching work.
     # Never reuse an existing marker from an unacknowledged prior attempt.
-    from sentinel import shadow_drain
     def arm():
         attempt = uuid.uuid4().hex
         _write_marker(_pending_file(), restart_recovery.make_pending(
@@ -242,6 +245,28 @@ def _arm_worker(supervisor_pid=None):
         return attempt
     return shadow_drain.arm_or_drain(LATCH_FILE.parent,
         os.environ.get('SENTINEL_DATABASE_URL',''),_STATUS_INCARNATION,arm)
+
+
+def _retry_arm_worker(supervisor_pid):
+    # The publisher owner is still held, and supervisor_io refuses this call
+    # while the first helper can still write a pending marker.
+    if _latch_exists():
+        raise restart_recovery.RecoveryRefused('arming retry found retained state')
+    return _arm_worker(supervisor_pid)
+
+
+def _arm_worker_with_retry(stopping, started):
+    supervisor_pid = os.getpid()
+    try:
+        return supervisor_io.run(_arm_worker, supervisor_pid, timeout=2)
+    except TimeoutError as exc:
+        if stopping():
+            return None
+        _diagnostic('ARM', 'DEFERRED', error=exc, started=started)
+        time.sleep(1)
+        if stopping():
+            return None
+        return supervisor_io.run(_retry_arm_worker, supervisor_pid, timeout=2)
 
 
 def _clear_worker():
@@ -683,13 +708,15 @@ def _run_owned(owner_fd) -> int:
             arm_started = diagnostic_clock()
             _diagnostic('ARM', 'BEGIN', started=arm_started)
             try:
-                attempt = supervisor_io.run(_arm_worker, os.getpid(), timeout=2)
+                attempt = _arm_worker_with_retry(lambda: stopping, arm_started)
             except Exception as exc:
                 _diagnostic('ARM', 'FAILED', error=exc, started=arm_started)
                 supervisor_io.report('REFUSED: shadow worker could not be durably armed: '
                                      + type(exc).__name__)
                 return EXIT_REFUSED
             if attempt is None:
+                if stopping:
+                    break
                 # An authenticated drain owns admission. Existing children
                 # finished before acknowledgement; heartbeat is liveness only.
                 heartbeat()

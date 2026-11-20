@@ -20,7 +20,7 @@ _CONTAINER_STDERR = '/proc/1/fd/2'
 _STAGES = frozenset({'ARM', 'ACTIVE_PROOF', 'SPAWN', 'ACK', 'OWNERSHIP', 'OWNED_RUN',
                      'HEARTBEAT', 'SNAPSHOT', 'CONFIRMATION', 'IDLE_STALL',
                      'CALLBACK_DEADLINE', 'DATABASE_DEADLINE', 'HEALTH_PROBE'})
-_OUTCOMES = frozenset({'BEGIN', 'ACCEPTED', 'FAILED', 'TERMINATING', 'RECOVERED'})
+_OUTCOMES = frozenset({'BEGIN', 'ACCEPTED', 'DEFERRED', 'FAILED', 'TERMINATING', 'RECOVERED'})
 
 
 class ErrorDiagnostic(TypedDict):

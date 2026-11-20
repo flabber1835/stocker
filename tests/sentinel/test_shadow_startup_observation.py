@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import json
 import os
+from pathlib import Path
 import select
 import subprocess
 import sys
@@ -15,6 +16,50 @@ from sentinel import shadow_supervisor as supervisor
 from tests.sentinel.test_shadow_worker_monitoring import A, DSN, state  # noqa: F401
 
 pytestmark = pytest.mark.skipif(sys.platform != 'linux', reason='native Linux process ownership')
+
+
+def test_forked_arming_inherits_drain_code_without_reopening_it(state):
+    program = '''
+import json
+import os
+from pathlib import Path
+import sys
+
+from sentinel import shadow_supervisor as supervisor
+from sentinel import supervisor_io
+
+state = Path(sys.argv[1])
+supervisor.LATCH_FILE = state / 'shadow-supervisor-critical.json'
+supervisor.shadow_worker_liveness.ACTIVE_FILE = state / 'active.json'
+open_attempts = []
+
+def audit(event, args):
+    if event == 'open' and isinstance(args[0], str):
+        name = os.path.basename(args[0])
+        if name.startswith('shadow_drain.') and name.endswith(('.py', '.pyc')):
+            open_attempts.append(name)
+
+def observe_arm(supervisor_pid):
+    attempt = supervisor._arm_worker(supervisor_pid)
+    return attempt, open_attempts
+
+sys.addaudithook(audit)
+results = []
+for _ in range(3):
+    attempt, opened = supervisor_io.run(observe_arm, os.getpid(), timeout=2)
+    pending = json.loads(supervisor._pending_file().read_text())
+    assert pending['attempt_id'] == attempt
+    supervisor._clear_worker()
+    results.append(opened)
+print(json.dumps(results))
+'''
+    result = subprocess.run(
+        [sys.executable, '-B', '-c', program, str(state)],
+        cwd=Path(supervisor.__file__).resolve().parents[1],
+        capture_output=True, text=True, timeout=12,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == [[], [], []], 'arming helpers reopened drain code'
 
 
 def _barrier_child(monkeypatch, descriptor, *, remove_coherence=False, reusable=True):
