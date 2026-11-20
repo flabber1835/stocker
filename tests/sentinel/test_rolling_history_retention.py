@@ -633,6 +633,11 @@ def test_shadow_idle_loop_drains_then_yields_without_reacquisition(monkeypatch):
     clock, calls = [0], []
     monkeypatch.setattr(service.time, 'monotonic', lambda: clock[0])
     monkeypatch.setattr(service.time, 'sleep', lambda n: clock.__setitem__(0, clock[0] + n))
-    service._poll_after_worker(deadline=30, close_at=None, stopping=lambda: False,
-        heartbeat=lambda: None, idle_work=lambda: calls.append(clock[0]) or len(calls) < 2)
-    assert calls == [0, service.RETENTION_SPACING_SECONDS] and clock[0] == 30
+    def observe(*args, **kwargs):
+        calls.append(clock[0])
+        return len(calls) < 2, None
+    monkeypatch.setattr(service.supervisor_io, 'run', observe)
+    stopping = lambda: False
+    service._poll_after_worker(deadline=75, close_at=None, stopping=stopping,
+        heartbeat=lambda: None, idle_work=service._IdleRetention('private', stopping))
+    assert calls == [0, service.RETENTION_SPACING_SECONDS] and clock[0] == 75

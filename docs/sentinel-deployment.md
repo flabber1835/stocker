@@ -258,6 +258,8 @@ observers](idle-automation-observer-cost.md) avoid repeated process bootstrap.
 full price validation and defines bounded reuse for SHADOW verification.
 [Retention proof amortization](retention-proof-amortization.md) lets bounded
 disposal batches share proof work in one owned transaction.
+[Idle retention CPU](idle-retention-cpu.md) bounds background cleanup cadence
+and reuses authentication only after a new exact byte comparison.
 [Shadow arming recovery](shadow-arm-recovery.md) covers one bounded fresh
 admission attempt after an arming helper times out.
 

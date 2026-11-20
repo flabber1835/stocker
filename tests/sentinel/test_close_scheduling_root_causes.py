@@ -236,12 +236,56 @@ def test_unavailable_calendar_retains_routine_wake(monkeypatch):
     assert supervisor._next_acquisition_close(datetime.now(timezone.utc)) is None
 
 
+def test_idle_retention_cooldown_spans_polls_and_reserves_close(monkeypatch):
+    started = datetime.fromisoformat('2026-11-10T20:58:47+00:00')
+    clock = [0.0]
+    attempts = []
+    proof = object()
+
+    def stopping():
+        return False
+
+    monkeypatch.setattr(supervisor.time, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(supervisor.time, 'sleep', lambda delay: clock.__setitem__(0, clock[0] + delay))
+    monkeypatch.setattr(supervisor.shadow_budget, 'now', lambda: started + timedelta(seconds=clock[0]))
+    monkeypatch.setattr(supervisor.supervisor_io, 'report', lambda *a, **kw: None)
+
+    def run(fn, database_url, prior, *, timeout, cancelled):
+        assert fn is supervisor._idle_retention and database_url == 'isolated'
+        assert timeout == 7 and not cancelled()
+        attempts.append((clock[0], prior))
+        clock[0] += 2
+        if len(attempts) == 2:
+            raise TimeoutError('maintenance helper expired')
+        return True, proof
+
+    monkeypatch.setattr(supervisor.supervisor_io, 'run', run)
+    idle = supervisor._IdleRetention('isolated', stopping)
+
+    def poll(deadline, *, close_at=None):
+        supervisor._poll_after_worker(deadline=deadline, close_at=close_at,
+            stopping=stopping, heartbeat=lambda: None, idle_work=idle)
+
+    poll(20)
+    assert attempts == [(0, None)]
+    poll(50)
+    assert attempts == [(0, None), (32, proof)]
+    # The failed pass finished at t=34. At t=64 its cooldown has elapsed,
+    # but the nine-second child and reap reserve reaches the publication cut.
+    poll(95, close_at=started + timedelta(seconds=73))
+    assert clock[0] == 73 and attempts == [(0, None), (32, proof)]
+    poll(100)
+    assert attempts == [(0, None), (32, proof), (73, None)]
+
+
 @pytest.mark.parametrize('operational, omit, busy', [
     (True, False, False), (False, False, False), (True, True, False), (True, False, True),
 ])
 def test_actual_supervisor_launches_once_at_close_then_resumes_routine_poll(monkeypatch, operational, omit, busy):
-    started = datetime.fromisoformat('2026-11-10T20:59:55+00:00')
+    started = datetime.fromisoformat('2026-11-10T20:59:40+00:00')
     clock, launches, signals = [0.0], [], {}
+    idle_attempts = []
+    proof = object()
     monkeypatch.setattr(supervisor.ShadowServiceConfig, 'from_env', lambda: SimpleNamespace(
         poll_seconds=300, operational_source_only=operational, database_url='isolated'))
     monkeypatch.setattr(supervisor.shadow_budget, 'now', lambda: started + timedelta(seconds=clock[0]))
@@ -258,12 +302,20 @@ def test_actual_supervisor_launches_once_at_close_then_resumes_routine_poll(monk
     monkeypatch.setattr(supervisor, '_dependency_retry_alert', lambda: None)
     monkeypatch.setattr(supervisor, '_remove_heartbeat', lambda: None)
     monkeypatch.setattr(supervisor.shadow_worker_liveness, 'clear', lambda: None)
+
+    def idle_retention(database_url, prior):
+        assert database_url == 'isolated'
+        idle_attempts.append((clock[0], prior))
+        clock[0] += 2
+        return (True, proof) if len(idle_attempts) == 1 else (False, None)
+
+    monkeypatch.setattr(supervisor, '_idle_retention', idle_retention)
     monkeypatch.setattr(supervisor.supervisor_io, 'run', lambda fn, *a, **kw: fn(*a))
     monkeypatch.setattr(supervisor.signal, 'signal', lambda signal, callback: signals.update({signal: callback}))
     from sentinel import backup_retry
     def completed(database_url, failed_at):
-        assert database_url == 'isolated' and failed_at == started + timedelta(seconds=5)
-        return clock[0] == 15
+        assert database_url == 'isolated' and failed_at == started + timedelta(seconds=20)
+        return clock[0] == 30
     monkeypatch.setattr(backup_retry, 'completed_since', completed)
 
     def launch(*_a, **kwargs):
@@ -280,11 +332,14 @@ def test_actual_supervisor_launches_once_at_close_then_resumes_routine_poll(monk
         monkeypatch.setattr(supervisor, '_next_acquisition_close', lambda _started: None)
     assert supervisor._run_owned(42) == 0
     if busy:
-        assert launches == [0, 5, 15]
+        assert launches == [0, 20, 30]
+        assert idle_attempts == [(0, None)]
     elif not operational:
         assert launches == [0, 300, 600]
+        assert not idle_attempts
     elif omit:
         with pytest.raises(AssertionError):
-            assert launches == [0, 5, 305]
+            assert launches == [0, 20, 320]
     else:
-        assert launches == [0, 5, 305]
+        assert launches == [0, 20, 320]
+        assert idle_attempts == [(0, None), (32, proof)]

@@ -56,7 +56,7 @@ def _next_acquisition_close(started_at):
 
 RETENTION_CHILD_SECONDS = 7.0
 RETENTION_REAP_SECONDS = 2.0
-RETENTION_SPACING_SECONDS = 5.0
+RETENTION_SPACING_SECONDS = 30.0
 _UNCHANGED_PROOF_SECONDS = 600
 
 
@@ -102,18 +102,43 @@ def _earned_schedule(before, measured, *, started, started_at):
     return hint if hint.current() else None
 
 
-def _idle_retention(database_url):
+def _idle_retention(database_url, prior_witness):
     from sentinel.feed import retention
 
     def work():
         if _latch_exists():
-            return False
-        return retention.idle_pass(database_url)
+            return False, None
+        proof = retention.IdleCheckpointProof(prior_witness)
+        keep = retention.idle_pass(database_url, checkpoint_proof=proof)
+        return keep, proof.witness if keep else None
 
     # Hold the same admission lock used to request and acknowledge a drain.
     # An idle acknowledgement must cover this separate bounded child as well.
     return shadow_drain.arm_or_drain(LATCH_FILE.parent, database_url,
-                                     _STATUS_INCARNATION, work) is True
+                                     _STATUS_INCARNATION, work) or (False, None)
+
+
+class _IdleRetention:
+    """One owner carries its cleanup clock and byte witness across polls."""
+
+    def __init__(self, database_url, stopping):
+        self.database_url = database_url
+        self.stopping = stopping
+        self.ready_at = 0.0
+        self.witness = None
+
+    def __call__(self):
+        try:
+            keep, self.witness = supervisor_io.run(_idle_retention, self.database_url,
+                self.witness, timeout=RETENTION_CHILD_SECONDS, cancelled=self.stopping)
+            return keep
+        except Exception as exc:
+            self.witness = None
+            supervisor_io.report('WARNING: rolling idle maintenance unavailable: '
+                                 + type(exc).__name__)
+            return False
+        finally:
+            self.ready_at = time.monotonic() + RETENTION_SPACING_SECONDS
 
 
 def _poll_after_worker(*, deadline, close_at, stopping, heartbeat, backup_completed=None,
@@ -125,7 +150,6 @@ def _poll_after_worker(*, deadline, close_at, stopping, heartbeat, backup_comple
         return budget
 
     probe_at = time.monotonic() + BUSY_PROBE_SECONDS
-    work_at = time.monotonic()
     while not stopping():
         budget = remaining()
         if budget <= 0:
@@ -138,11 +162,10 @@ def _poll_after_worker(*, deadline, close_at, stopping, heartbeat, backup_comple
                 return
             probe_at = time.monotonic() + BUSY_PROBE_SECONDS
             continue
-        if (idle_work is not None and time.monotonic() >= work_at
+        if (idle_work is not None and time.monotonic() >= idle_work.ready_at
                 and remaining() > RETENTION_CHILD_SECONDS + RETENTION_REAP_SECONDS):
             if not idle_work():
                 idle_work = None
-            work_at = time.monotonic() + RETENTION_SPACING_SECONDS
             continue
         time.sleep(max(0.0, min(1.0, remaining())))
 
@@ -682,6 +705,8 @@ def _run_owned(owner_fd) -> int:
             terminated = True
             _terminate(active)
 
+    idle_retention = _IdleRetention(config.database_url, lambda: stopping) if getattr(
+        config, 'operational_source_only', False) else None
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     try:
@@ -830,15 +855,7 @@ def _run_owned(owner_fd) -> int:
                     config.database_url, backup_failed_at)
             elif operational and code in {
                     0, EXIT_WAITING, EXIT_AVAILABILITY, EXIT_DEPENDENCY_UNAVAILABLE}:
-                def run_idle_work():
-                    try:
-                        return supervisor_io.run(_idle_retention, config.database_url,
-                            timeout=RETENTION_CHILD_SECONDS, cancelled=lambda: stopping) is True
-                    except Exception as exc:
-                        supervisor_io.report('WARNING: rolling idle maintenance unavailable: '
-                                             + type(exc).__name__)
-                        return False
-                poll['idle_work'] = run_idle_work
+                poll['idle_work'] = idle_retention
             hint = None
             if code == 0 and before is not None:
                 hint = _earned_schedule(before, _observe_schedule(config, lambda: stopping),
