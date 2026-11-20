@@ -52,13 +52,33 @@ def test_real_conflict_survives_both_preparation_markers_and_bundle_view():
         assert view.to_dict()["source_coverage"] == payload
 
 
-def test_diagnostic_is_standalone_host_python38_and_rejects_credential_shaped_data():
-    path = ROOT / "sentinel" / "source_diagnostic.py"
+def test_raw_runtime_and_standalone_summary_enforce_the_same_public_fields():
+    path = ROOT / "sentinel" / "source_coverage_summary.py"
     ast.parse(path.read_text(), feature_version=(3, 8))
-    plain = runpy.run_path(str(path))  # No runtime feed imports required on NAS.
-    assert plain["coverage_diagnostic"](str(collision_failure()))
-    for bad in ("https://private.invalid?api_key=secret", "password", "a\nb", "x" * 257):
-        raw = source_diagnostic.PREFIX + json.dumps({"session": "2025-07-01",
-                                                    "unresolved_source_tickers": [bad]})
-        assert plain["coverage_diagnostic"](raw) is None
-    assert plain["coverage_diagnostic"](source_diagnostic.PREFIX + "x" * 40000) is None
+    standalone = runpy.run_path(str(path))
+    collect = standalone['collect_source_coverage']
+    assert source_diagnostic.coverage_diagnostic(str(collision_failure()))
+    def marker(payload):
+        return source_diagnostic.FAILURE_MARKER + json.dumps({'source_coverage': payload})
+    value = {'session': '2025-07-01', 'unexpected_eligible_total': 1, 'unknown': 'do not publish'}
+    expected = {'session': '2025-07-01', 'unexpected_eligible_total': 1}
+    assert collect(marker(value)) == expected
+    for prefix in (source_diagnostic.PREFIX, source_diagnostic.COLLISION_PREFIX):
+        assert source_diagnostic.coverage_diagnostic(prefix + json.dumps(value)) == expected
+        for bad in ("https://private.invalid?api_key=secret", "password", "a\nb", "x" * 257):
+            rejected = {"session": "2025-07-01", "unresolved_source_tickers": [bad]}
+            assert source_diagnostic.coverage_diagnostic(prefix + json.dumps(rejected)) is None
+            assert collect(marker(rejected)) is None
+    assert source_diagnostic.coverage_diagnostic(source_diagnostic.PREFIX + "x" * 40000) is None
+
+
+def test_standalone_summary_keeps_the_legacy_serialized_payload_boundary():
+    from sentinel.source_coverage_summary import MAX_STRUCTURED_CHARS, collect_source_coverage
+    assert MAX_STRUCTURED_CHARS == 32768 - len(source_diagnostic.PREFIX)
+    value = {'session': '2025-07-01', 'ignored': ''}
+    value['ignored'] = 'x' * (MAX_STRUCTURED_CHARS - len(json.dumps(value)))
+    def collect():
+        return collect_source_coverage(source_diagnostic.FAILURE_MARKER + json.dumps({'source_coverage': value}))
+    assert collect() == {'session': '2025-07-01'}
+    value['ignored'] += 'x'
+    assert collect() is None

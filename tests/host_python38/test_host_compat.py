@@ -74,7 +74,59 @@ def _manifest(*, lifecycle="FINALIZED", verdict="PASS", closure="4",
     }
 
 
+def run_phase_diagnostic_probe(scripts, cwd):
+    # -I -S models the NAS interpreter: no working directory, ambient
+    # PYTHONPATH, installed runtime package or site initialization.
+    code = r'''
+import importlib.util
+import json
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+scripts = Path(sys.argv[1]).resolve()
+sys.path.insert(0, str(scripts))
+assert importlib.util.find_spec("sentinel") is None
+from sentinel_go_verified_entry import _ORIGINAL_PHASED, controller
+assert Path(controller.__file__).resolve().parent == scripts
+assert scripts.parent not in [Path(item) for item in sys.path]
+class Captured(Exception):
+    pass
+def capture(_base, _code, _detail, _progress, covered):
+    raise Captured(covered)
+expected = dict(session='2026-10-30', expected_eligible=2, missing_eligible=['DELL'])
+marker = 'SENTINEL_GO_PREPARATION_FAILURE='
+with patch.object(controller.go, 'probe_git', return_value=(SimpleNamespace(commit='1'*40), None)), \
+     patch.object(controller.go, 'probe_alpaca_account', return_value=(None, {})), \
+     patch.object(controller, '_certify_exact_artifacts', return_value=(
+         SimpleNamespace(runtime_image_digest='fixture'), None)), \
+     patch.object(controller.entry, 'probe_prevalidation_preparation', return_value=(
+         SimpleNamespace(status=controller.go.PASS))), \
+     patch.object(controller, 'PreparationView', side_effect=capture):
+    for output, wanted in (('', None),
+            (marker + json.dumps(dict(source_coverage=expected)), expected),
+            (marker + json.dumps(dict(source_coverage=dict(
+                session='2026-10-30', missing_eligible=['password']))), None)):
+        try:
+            _ORIGINAL_PHASED(runner=SimpleNamespace(last_preparation_output=output), env={})
+        except Captured as observed:
+            assert observed.args == (wanted,), observed.args
+        else:
+            raise AssertionError('phase did not construct its preparation view')
+assert not any(key == 'sentinel' or key.startswith('sentinel.') for key in sys.modules)
+assert importlib.util.find_spec('sentinel') is None
+'''
+    return subprocess.run([sys.executable, '-I', '-S', '-B', '-c', code, str(scripts)],
+                          cwd=cwd, capture_output=True, text=True, timeout=15)
+
+
 class HostPythonCompatibilityTests(unittest.TestCase):
+
+    def test_phase_reads_structured_diagnostics_with_only_host_imports(self):
+        with tempfile.TemporaryDirectory() as isolated:
+            result = run_phase_diagnostic_probe(ROOT / 'scripts', isolated)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
 
     def test_retained_parity_validator_does_not_import_runtime_dependencies(self):
         from unittest.mock import patch

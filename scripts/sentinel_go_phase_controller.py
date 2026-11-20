@@ -374,6 +374,11 @@ def _actual_remaining_ms(runner: go.CommandRunner, *, env: Mapping[str, str],
     return None
 
 
+def _source_coverage(output):
+    companion = SCRIPT_DIR.parent / "sentinel" / "source_coverage_summary.py"
+    return runpy.run_path(str(companion))["collect_source_coverage"](output)
+
+
 def run_phased_probes(*, runner=None, env=None, now=None, urlopen=None,
                       run_suite: bool = True) -> go.ProbeResults:
     runner = runner or DiagnosticRunner()
@@ -407,8 +412,7 @@ def run_phased_probes(*, runner=None, env=None, now=None, urlopen=None,
     preparation = PreparationView(
         preparation_base, reason_code, detail,
         tuple(sentinel_go_feed_progress.collect(runner.last_preparation_output)),
-        runpy.run_path(str(SCRIPT_DIR.parent / "sentinel" / "source_diagnostic.py"))[
-            "collect_source_coverage"](runner.last_preparation_output))
+        _source_coverage(runner.last_preparation_output))
 
     # D: read-only financial readiness using the exact certified deployable runtime.
     subjects = dict(account_subjects)

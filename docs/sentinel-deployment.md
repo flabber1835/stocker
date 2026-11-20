@@ -339,6 +339,13 @@ observations the existing short retry interval without weakening verification.
 [Verification workflow simplification](verification-workflow-simplification.md)
 removes duplicate source/catalog work and intent-only installation comparisons.
 
+The GO preparation child runs in the signed runtime. It decodes source-specific
+failure messages and emits bounded, structured coverage evidence. The NAS host
+reads that evidence using Python's standard library and rechecks its public
+fields before including them in the diagnostic bundle. Host qualification runs
+this reader with the installed runtime and checkout packages absent from its
+Python import path.
+
 [Closing-cycle readiness handoff](closing-cycle-readiness-handoff.md) records the
 publication-wait, existing-cycle scheduling, measured-readiness and immutable
 trial-attempt repairs. Its qualification and PR do not change the running release.
