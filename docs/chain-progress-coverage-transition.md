@@ -40,6 +40,12 @@ changes, recreated tracking, altered prefixes or partial proofs refuse. Compare
 the source-row digests independently, so source preservation does not depend
 solely on change tracking or the DDL event counter.
 
+The historical installer ran before exclusive order amounts were introduced.
+Read its exact v2 behavioral catalog and original feed procedures during
+recovery. The same reviewed progress transition on an already v3 book retains
+its existing read path. The private qualification exercises both books and
+replays the protected 65-event feed installation after the progress change.
+
 Only the coverage inventory and its authentication may change. Preserve every
 prefix body, through-boundary, binding, incarnation and reset generation, all
 tracking history and all financial rows. Commit both domain transfers atomically;

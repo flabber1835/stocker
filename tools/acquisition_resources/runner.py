@@ -7,7 +7,7 @@ import time
 import uuid
 
 from tools.acquisition_resources.profiles import SPECS
-from tools.acquisition_resources.measurement import pairs, qualifies
+from tools.acquisition_resources.measurement import memory_limit, pairs, qualifies
 
 POSTGRES = "postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b"
 GIB = 1024 ** 3
@@ -29,7 +29,8 @@ def database_memory(name):
         "cat /sys/fs/cgroup/memory.current /sys/fs/cgroup/memory.peak "
         "/sys/fs/cgroup/memory.max /sys/fs/cgroup/memory.events /sys/fs/cgroup/memory.stat")
     lines = raw.splitlines()
-    current, peak, limit = map(int, lines[:3])
+    current, peak = map(int, lines[:2])
+    limit = memory_limit(lines[2])
     values = pairs("\n".join(lines[3:]))
     return dict(current=current, peak=peak, limit=limit,
                 working=max(0, current-values["inactive_file"]), anon=values["anon"],

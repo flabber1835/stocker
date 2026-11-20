@@ -156,6 +156,20 @@ wrong historical hash, unchanged raw identity after proof, and executed
 guard-removal falsifiers. Existing retained-origin, account, mode, source-seal
 and computational-environment refusals remain adjacent acceptance gates.
 
+The price-source cleanup changes paths and import statements in the packaged
+Wealth Core tree. Its 28 raw members commit to
+`af64a148dec7adc1c17b779b5b80cca4f34e54271959cfd459fe7d5ac8e0daf8`.
+For an October origin, compose the sealed package rename with the existing
+allocation comparison. For a retained release using the #612 package, match
+its exact Sentinel revision and full file map in the retained release catalog,
+the raw #612 and installed package commitments, and the common historical
+strategy commitment. Require backed PAPER mode and a fresh owner account check
+on new and previously stored admissions. All 28 installed files contribute to
+the raw runtime attestation. The private comparison restores the exact raw
+package hash recorded by that release before comparing the entire environment.
+At this transition, all 81 revisions in the retained release catalog share
+Wealth Core Git subtree `6d4cf76a1a9f85f7498bd1f2b247fbffd4d4739e`.
+
 ## Additional simplification findings
 
 Remove the repeated final architecture/deployment documentation blocks, keeping

@@ -90,9 +90,23 @@ def test_cgroup_working_set_excludes_inactive_file_cache(tmp_path):
         (tmp_path / name).write_text(value)
     result = measurement.cgroup(tmp_path)
     assert result["working"] == 500 and result["anon"] == 300 and result["peak"] == 950
+    (tmp_path / "memory.max").write_text("max\n")
+    unbounded = measurement.cgroup(tmp_path)
+    assert unbounded["limit"] is None and unbounded["working"] == result["working"]
+    assert not measurement.qualifies({**healthy(), "cgroup": unbounded}, 1000)
     (tmp_path / "memory.peak").unlink()
     with pytest.raises(FileNotFoundError):
         measurement.cgroup(tmp_path)
+
+
+@pytest.mark.parametrize("kernel_limit,expected", [("max", None), ("1000", 1000)])
+def test_database_sampler_uses_the_kernel_ceiling(monkeypatch, kernel_limit, expected):
+    stats = ("oom 0\noom_kill 0\nfile 100\ninactive_file 100\nactive_file 0\n"
+             "anon 400\nshmem 0\nslab_unreclaimable 0\nkernel_stack 0\npagetables 0")
+    monkeypatch.setattr(runner, "command", lambda *args: f"500\n600\n{kernel_limit}\n{stats}")
+    result = runner.database_memory("database")
+    assert result["limit"] == expected
+    assert measurement.qualifies({**healthy(), "cgroup": result}, 1000) == (expected == 1000)
 
 
 def test_native_resource_profile_reuses_retained_price_pages(tmp_path, monkeypatch):

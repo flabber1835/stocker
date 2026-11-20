@@ -49,6 +49,9 @@ and staging sizes, WAL bytes and PostgreSQL temporary spill. A frequent backgrou
 sampler measures anonymous memory and working-set high water while work runs;
 kernel cgroup lifetime peaks capture short allocations the sampler might miss.
 Report full cgroup memory (including file cache) separately from working set.
+A kernel limit of `max` is recorded as an unbounded (null) ceiling. These
+samples can describe acquisition behavior. Passing resource qualification
+requires both measured ceilings to equal their requested finite limits.
 
 A profile passes only when all semantic checks complete, container limits match,
 no OOM is recorded, and measured working-set peaks stay below 80% of the worker

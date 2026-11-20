@@ -6,15 +6,16 @@ import pytest
 
 from sentinel import backup_compaction_coverage_recovery as recovery, operational_ddl_epoch
 from sentinel.execution import evidence_projection as coverage
-from sentinel.feed import acquisition_part_schema, retention_schema, store
+from tests.support import coverage_feed_ddl as archive
 from tests.sentinel.test_dashboard_ddl_coverage import BASE, MARKER, conn, pg, prefixes, unchanged_body
 from tests.support.postgres import paused_physical_restore
 
 
 @pytest.mark.parametrize('fault', [None, 'changed_command', 'extra_ddl'])
+@pytest.mark.parametrize('conn', [archive.install], indirect=True)
 def test_physical_backup_proves_the_exact_compaction_and_installation(conn, pg, monkeypatch, fault):
-    previous_ddl = next(statement for statement in acquisition_part_schema.DDL
-                        if statement.startswith('CREATE OR REPLACE FUNCTION sentinel_acquisition_price_delete_guard'))
+    previous_ddl = archive.price_delete_guard(archive.catalog.ORIGINAL)
+    successor_ddl = archive.price_delete_guard(archive.catalog.POST_COMPACTION)
     assert hashlib.sha256(' '.join(previous_ddl.split('$$')[1].split()).encode()).hexdigest() == (
         recovery.PREDECESSOR_GUARD_SHA256)
     conn.execute(previous_ddl)
@@ -43,12 +44,12 @@ def test_physical_backup_proves_the_exact_compaction_and_installation(conn, pg, 
     assert document['witness']['ddl'] == [incarnation, recovery.BEFORE_EPOCH]
 
     for _ in range(134):
-        conn.execute(retention_schema.ACQUISITION_PRICE_DELETE_GUARD)
+        conn.execute(successor_ddl)
         conn.execute(previous_ddl)
     conn.commit()
     assert operational_ddl_epoch.current(conn) == (incarnation, 410)
     conn.rollback()
-    store.migrate_schema(conn)
+    archive.install(conn, archive.catalog.POST_COMPACTION)
     assert operational_ddl_epoch.current(conn) == (incarnation, recovery.AFTER_EPOCH)
     for domain in recovery.DOMAINS:
         with pytest.raises(coverage.EvidenceCoverageRefused, match='BINDING_CHANGED'):

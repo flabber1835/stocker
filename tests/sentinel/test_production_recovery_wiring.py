@@ -3,6 +3,9 @@ from __future__ import annotations
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import Mock
+
+import pytest
 
 from sentinel import backup_guard
 
@@ -168,26 +171,31 @@ def test_regenesis_approval_is_forwarded_to_authorized_automation():
     ) in text
 
 
-def test_nas_schema_and_recovery_mutations_cannot_bypass_backup_guard():
-    root = _repo_root()
-    entry = (root / "scripts" / "sentinel_go_validate_entry.py").read_text(
-        encoding="utf-8")
-    recovery = (root / "sentinel" / "feed" / "outage_recovery.py").read_text(
-        encoding="utf-8")
-    assert "from sentinel import backup_guard, schema" in entry
+def test_nas_preparation_refuses_before_schema_or_feed_work(monkeypatch, capsys):
+    monkeypatch.syspath_prepend(str(_repo_root() / "scripts"))
+    from sentinel_go_preparation_runtime import CODE
+    from sentinel import retained_go, schema
+    from sentinel.feed import store
 
-    # Schema bootstrap/migration is a real financial-database mutation and must
-    # remain behind the external-WAL durability fence.
-    schema_guard = entry.index("operation='NAS validation schema migration'")
-    schema_mutation = entry.index("schema.ensure_schema(c)")
-    assert schema_guard < schema_mutation
+    connection = Mock()
+    refused = Mock(side_effect=RuntimeError("backup unavailable"))
+    migrate, prepare = Mock(), Mock()
+    monkeypatch.setenv("SENTINEL_DATABASE_URL", "synthetic")
+    monkeypatch.setattr(store, "connect", lambda _: connection)
+    monkeypatch.setattr(backup_guard, "require_writes_permitted", refused)
+    monkeypatch.setattr(schema, "ensure_schema", migrate)
+    monkeypatch.setattr(retained_go, "prepare", prepare)
+    with pytest.raises(RuntimeError, match="backup unavailable"):
+        exec(CODE, {})
+    refused.assert_called_once_with(connection, operation="NAS financial preparation")
+    migrate.assert_not_called()
+    prepare.assert_not_called()
+    connection.close.assert_called_once_with()
+    assert "PREPARATION_BACKUP_DURABILITY_REFUSED" in capsys.readouterr().out
 
-    # catch_up_waiting retries the single catch_up daily/cursor reconciliation path.
-    # GO explicitly requests a current-vendor re-observation. Ordinary daily and
-    # the retained full reseed each prove the appropriate WAL durability before
-    # their mutation. A successful full seed is terminal data recovery.
-    assert "outage_recovery.catch_up_waiting(" in entry
-    assert "reobserve_current=True" in entry
+
+def test_archived_catchup_and_reseed_each_require_durable_backup():
+    recovery = (_repo_root() / "sentinel/feed/outage_recovery.py").read_text(encoding="utf-8")
     daily_guard = recovery.index('operation="canonical outage daily catch-up"')
     daily_mutation = recovery.index("ingest.daily(conn, today=target)", daily_guard)
     bulk_guard = recovery.index('operation="bounded operational corpus reseed"')
@@ -197,13 +205,3 @@ def test_nas_schema_and_recovery_mutations_cannot_bypass_backup_guard():
     assert bulk_guard < bulk_mutation
     assert recovery.count("ingest.daily(conn, today=target)") == 1
     assert 'operation="post-reseed canonical daily publication"' not in recovery
-
-    # Once catch_up returns ALREADY_CURRENT to GO, its requested source
-    # re-observation has already completed. The entry performs no second vendor
-    # ingest or mutation.
-    marker = "if recovered.mode == 'ALREADY_CURRENT':"
-    start = entry.index(marker)
-    end = entry.index("elif recovered.mode in {'BOUNDED_RESEED', 'BOUNDED_INITIAL_SEED'}:", start)
-    already_current = entry[start:end]
-    assert "ingest.daily" not in already_current
-    assert "backup_guard.require_writes_permitted" not in already_current

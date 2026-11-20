@@ -210,9 +210,22 @@ def test_equivalence_manifest_covers_every_canonical_definition():
                 else:
                     record = manifest["definitions"][node.name]
                 if node.name == 'prepare_paper_plan':
+                    writes = [statement.value for statement in ast.walk(node) if isinstance(statement, ast.Expr)
+                              and isinstance(statement.value, ast.Call)
+                              and ast.unparse(statement.value.func) == 'broker_cash.record_plan_baseline']
+                    assert len(writes) == 2
+                    for write in writes:
+                        option, = [kw for kw in write.keywords if kw.arg == 'return_baseline']
+                        assert isinstance(option.value, ast.Constant) and option.value.value is False
+                        write.keywords.remove(option)
                     source = ast.dump(node, annotate_fields=True, include_attributes=False)
                     if record['activation_backup_entry']['source_ast_sha256'] != hashlib.sha256(source.encode()).hexdigest():
                         unreviewed.append(f"unreviewed canonical paper definition: {module_name}.{node.name}")
+                if module_name == 'cash' and node.name in {'native_fee_plan_continuation', '_cash_authority_or_refuse'}:
+                    assert [ast.unparse(item) for item in node.decorator_list] == [
+                        'broker_cash.share_membership_observation'
+                    ], f"unreviewed cash membership observer: {node.name}"
+                    node.decorator_list.clear()
                 _check_and_remove_backup_gate_delta(node)
                 normalized = ast.dump(
                     node, annotate_fields=True, include_attributes=False)
@@ -231,6 +244,7 @@ def test_equivalence_manifest_covers_every_canonical_definition():
     ('_clean_or_refuse', 'reconciliation_evidence'),
     ('_plan_fill_cash', 'cash'),
     ('_cash_authority_or_refuse', 'cash'),
+    ('native_fee_plan_continuation', 'cash'),
     ('_fractional_renewal_retry_basis', 'preparation'),
     ('_local_window_resizing', 'preparation'),
     ('prepare_paper_plan', 'preparation'),

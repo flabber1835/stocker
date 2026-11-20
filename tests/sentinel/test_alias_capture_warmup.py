@@ -5,6 +5,8 @@ from types import SimpleNamespace
 import pytest
 
 from tests.support.market_replay.runtime import simulated_runtime
+from tests.support.market_replay.model import Corpus, Step
+from tests.support.market_replay.provider import Provider
 from sentinel.feed import (calendar, coherence, domains, ingest, publication, seed_capture,
                            archive_tables, snapshot_source, source_aliases, store, symbol_identity, universe)
 from test_concurrent_source_symbols import DAY, source
@@ -30,12 +32,19 @@ def test_source_clock_owns_both_seed_boundaries_across_utc_midnight(monkeypatch,
     names = ("capture_update_boundary", "capture_observation_instant", "capture_update_ceiling")
     original = tuple(getattr(seed_coherence, name) for name in names)
     at = dt.datetime.fromisoformat(instant)
-    provider = SimpleNamespace(step=SimpleNamespace(at=at))
+    observed_utc = seed_coherence.capture_observation_instant(at)
+    assert observed_utc.utcoffset() == dt.timedelta(0)
+    assert seed_coherence.capture_update_boundary(at) == at.astimezone(dt.timezone.utc).date().isoformat()
+    provider = Provider(page_size=1)
+    step = Step(name="capture_clock", at=observed_utc, through=observed_utc.date(),
+                tables={name: () for name in ("TICKERS", "ACTIONS", "SEP", "SFP")},
+                expected=Corpus(bars=(), actions=(), identities=(), spy=(), defensive=()))
+    provider.advance(step)
     with simulated_runtime(provider, commit="a" * 40):
         start = seed_coherence.capture_update_boundary()
         assert start == at.astimezone(dt.timezone.utc).date().isoformat()
         assert seed_coherence.capture_observation_instant() == at.astimezone(dt.timezone.utc)
-        provider.step.at = at + dt.timedelta(seconds=2)
+        provider.advance(step.model_copy(update={"at": observed_utc + dt.timedelta(seconds=2)}))
         end = seed_coherence.capture_update_ceiling()
         assert end == provider.step.at.astimezone(dt.timezone.utc).date().isoformat()
         source_authority.SepUpdateEnvelope.interval(start, end)

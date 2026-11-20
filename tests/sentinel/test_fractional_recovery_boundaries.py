@@ -124,7 +124,7 @@ def test_carry_only_crash_recovers_inside_original_window(database, pg, monkeypa
         defensive_security=None, rollout_state=ROLLOUT, retained_targets={SID: D(0)},
         fractional_sizing=True).plan)
     assert not successor.opening_intents and successor.target_basket == {SID: D(0)}
-    journal.save_plan(database, successor)
+    journal.adopt_current_plan(database, successor)
     record_authority(database, after, successor, basis=basis)
 
     cfg = t.config()
@@ -223,7 +223,7 @@ def test_unprojected_defensive_carry_requires_sizing_at_zero_core_exposure(datab
                                retained_targets={sid: D(0)})
     assert not successor.opening_intents and successor.target_exposure == 0
     assert successor.target_basket == {sid: D(0)}
-    journal.save_plan(database, successor)
+    journal.adopt_current_plan(database, successor)
     record_authority(database, after, successor, basis=basis)
     assert opening_sizing.requires_initial_projection(database, plan=successor, deployment=DEPLOY)
 

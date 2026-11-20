@@ -193,7 +193,7 @@ def test_shadow_service_requires_reviewed_shadow_capable_mode(mode):
 @pytest.mark.parametrize("transient", [True, False, "deadline", "source_wait", "frontier_wait"])
 def test_rolling_service_preserves_availability_retry_and_integrity_refusal(monkeypatch, transient):
     from sentinel import rolling_runtime
-    from sentinel.feed import archive_tables
+    from sentinel.feed import alpaca_transport, provider_budget
     cfg = shadow_service.ShadowServiceConfig.from_env(_env())
     monkeypatch.setattr(shadow_service, "preflight", lambda *_a, **_k: {
         "input_contract": rolling_runtime.SCHEMA, "status": "ATTESTED_STRUCTURAL"})
@@ -215,7 +215,8 @@ def test_rolling_service_preserves_availability_retry_and_integrity_refusal(monk
             from sentinel.feed.rolling_jobs import JobDeadlineExceeded
             raise JobDeadlineExceeded("elapsed")
         if transient:
-            raise archive_tables.RetryDeferred(120, 429)
+            with provider_budget.budget(1):
+                alpaca_transport.provider_pause(120, lambda _: pytest.fail("slept past deadline"))
         raise rolling_runtime.Refused("CHECKPOINT_CHANGED")
     monkeypatch.setattr(rolling_runtime, "service_advance", unavailable)
     expected = shadow_service.ShadowServiceRetry if transient else shadow_service.ShadowServiceRefused
@@ -223,6 +224,9 @@ def test_rolling_service_preserves_availability_retry_and_integrity_refusal(monk
         expected = shadow_service.ShadowServiceWaiting
     with pytest.raises(expected) as caught:
         shadow_service.advance_once(cfg)
+    if transient is True:
+        assert isinstance(caught.value.__cause__, alpaca_transport.AlpacaTransportUnavailable)
+        assert caught.value.__cause__.delay == 120
     if transient == "deadline":
         from sentinel import shadow_worker
         assert "acquisition deadline exhausted" in str(caught.value)

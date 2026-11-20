@@ -9,7 +9,7 @@ from functools import lru_cache
 import json
 from pathlib import Path
 
-from sentinel import transition_registry
+from sentinel import transition_registry, url_selected_source_basis
 from sentinel import structural_refactor_source_basis as structural
 # Capture the canonical executable reader before individual legacy fixtures
 # install their explicitly scoped historical marker reader on the module.
@@ -182,7 +182,13 @@ def write(root, name, expected=None):
     sha = expected if expected is not None else target().get(name, baseline_catalog()['files'].get(name))
     assert sha in known[name], 'fixture must name an authenticated historical hash'
     actual_path = transition_registry.ROOT / name
-    raw = actual_path.read_bytes() if actual_path.is_file() else None
+    try:
+        raw = actual_path.read_bytes()
+    except FileNotFoundError:
+        profile = url_selected_source_basis._profile()
+        if name not in profile['base_files'] or name in profile['candidate_files']:
+            raise
+        raw = None
     # Real plain bytes are retained where they independently match the named
     # historical record, allowing guard-mutation falsifiers to remain concrete.
     if raw is None or hashlib.sha256(raw).hexdigest() != sha:

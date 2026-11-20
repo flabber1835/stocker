@@ -34,14 +34,15 @@ def pg():
 
 
 @pytest.fixture
-def conn(pg, monkeypatch):
+def conn(pg, monkeypatch, request):
     name = 'dashboard_ddl_' + uuid.uuid4().hex
     with psycopg.connect(pg.sync_dsn, autocommit=True) as admin:
         admin.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(name)))
     c = store.connect(pg.sync_dsn.rsplit('/', 1)[0] + '/' + name)
     monkeypatch.setenv('SENTINEL_PUBLICATION_RECEIPT_KEY', 'private-dashboard-migration-' * 4)
     try:
-        schema.ensure_schema(c); store.migrate_schema(c)
+        schema.ensure_schema(c)
+        getattr(request, 'param', store.migrate_schema)(c)
         binding.bind(c, deployment_id='fixture-paper', broker='alpaca', broker_account_id='PA-fixture')
         broker = SimulatedBroker(account=BrokerAccountIdentity(broker='alpaca', account_id='PA-fixture'))
         for _ in range(2):

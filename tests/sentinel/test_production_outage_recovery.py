@@ -353,21 +353,22 @@ def test_shadow_financial_health_is_red_after_partial_cutoff(monkeypatch):
 
 
 def test_shadow_worker_only_classifies_true_provider_availability():
-    transport = archive_tables.RequestError(
-        "Source request failed after 6 attempt(s) (TransportError) for SEP")
+    from sentinel.feed.alpaca_transport import AlpacaTransportRefused, AlpacaTransportUnavailable
+    transport = AlpacaTransportUnavailable("provider request exhausted its retry budget")
     retry = shadow_recovery.ShadowServiceRetry("not ready")
     retry.__cause__ = transport
     assert shadow_worker._availability_failure(retry) is True
     assert shadow_worker._availability_failure(
-        archive_tables.RetryDeferred(3600, 429)) is True
+        AlpacaTransportUnavailable("provider rate limit is still active", delay=3600)) is True
     assert shadow_worker._availability_failure(
         backup_guard.BackupWriteFenced("backup offline")) is True
 
     assert shadow_worker._availability_failure(
-        archive_tables.ProtocolError("SEP: schema changed")) is False
+        archive_tables.CaptureRequired("verified historical export unavailable")) is False
     assert shadow_worker._availability_failure(
-        archive_tables.RequestError(
-            "Source request failed (HTTP 401) for SEP")) is False
+        AlpacaTransportRefused("provider refused request with HTTP 401")) is False
+    assert shadow_worker._availability_failure(
+        AlpacaTransportRefused("provider response is not valid UTF-8/JSON")) is False
     assert shadow_worker._availability_failure(RuntimeError("logic bug")) is False
 
 

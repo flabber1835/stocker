@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import os
 from pathlib import Path
 import subprocess
@@ -29,10 +30,14 @@ def test_supported_verified_preparation_removes_legacy_service_mode():
     assert '"SENTINEL_FEED_AUTHORIZED": "CLEAN_HEAD_IMAGE_V1"' in text
 
 
-def test_core_producer_rejects_historical_daily():
-    text = (ROOT / "scripts" / "sentinel_go_validate.py").read_text(
-        encoding="utf-8")
-    assert '"SENTINEL_FEED_SERVICE_MODE": "GO_VALIDATION"' in text
-    assert "schema.ensure_schema(c)" in text
-    assert "rolling_go_inputs.prepare(c, target_session=target)" in text
-    assert "ingest.daily(c, today=target)" not in text
+def test_core_producer_rejects_historical_daily(monkeypatch):
+    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
+    import sentinel_go_preparation_runtime as child
+    import sentinel_go_validate as host
+
+    assert '"SENTINEL_FEED_SERVICE_MODE": "GO_VALIDATION"' in inspect.getsource(host.probe_prevalidation_preparation)
+    assert host._PREPARATION_CODE is child.CODE
+    assert "schema.ensure_schema(c)" in child.CODE
+    assert "retained_go.prepare(c, target_session=target," in child.CODE
+    assert "absolute_deadline=rolling_go_inputs.deadline_from_host(" in child.CODE
+    assert "ingest.daily" not in child.CODE

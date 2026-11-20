@@ -1,4 +1,4 @@
-"""Restated historical ACTIONS through real HTTP adapters and seed capture."""
+"""Restated historical ACTIONS through verified archive reads and seed capture."""
 from __future__ import annotations
 
 import datetime as dt
@@ -95,17 +95,23 @@ def test_exported_full_history_covers_the_exact_nas_failed_session(fault):
                 assert tracked.seed_coverage_evidence["received_eligible_total"] == 5606
                 assert tracked.seed_coverage_evidence["missing_eligible_total"] == 0
         assert source.evidence["source_rows"] == len(exported)
-    actions_requests = [r for r in provider.transcript if r.get("table") == archive_tables.ACTIONS]
-    assert len(actions_requests) == 2  # Initial whole export and independent refresh.
-    assert all(r["channel"] == "export" for r in actions_requests)
-    assert len([r for r in provider.transcript if r["channel"] == "download"]) == 3
+    actions = [r for r in provider.transcript if r["table"] == archive_tables.ACTIONS]
+    assert [r["channel"] for r in actions] == ["export", "download", "export"]
+    initial, file, corroborated = actions
+    assert initial["observation"] == 1 and corroborated["observation"] == 2
+    assert initial["query"] == file["query"] == corroborated["query"] == actions_params
+    assert initial["digest"] == corroborated["digest"]
+    assert file["sha256"] == source.evidence["file_sha256"]
+    assert [r["table"] for r in provider.transcript if r["channel"] == "download"] == [
+        archive_tables.TICKERS, archive_tables.ACTIONS]
 
 
-def test_cheap_retry_probe_follows_all_historical_labels_over_filtered_http():
+def test_cheap_retry_probe_follows_all_historical_labels_in_filtered_observations():
     provider = nas_provider()
     with simulated_runtime(provider, commit="a" * 40):
         source_probe.require_recovery_probe(
-            {"session": HISTORICAL_DAY, "identities": ["111101", "113467"]}, through=THROUGH)
+            {"session": HISTORICAL_DAY, "identities": ["111101", "113467"]},
+            through=THROUGH, fetch=provider.fetch_rows)
     requests = [r["query"] for r in provider.transcript if r.get("table") == archive_tables.SEP]
     assert len(requests) == 2
     assert requests[0] == requests[1]
@@ -123,7 +129,8 @@ def test_cheap_retry_cannot_hide_conflicting_context_from_full_projection():
     with simulated_runtime(provider, commit="a" * 40):
         with pytest.raises(SourceDataPending, match="incomplete or ambiguous"):
             source_probe.require_recovery_probe(
-                {"session": HISTORICAL_DAY, "identities": ["111101", "113467"]}, through=THROUGH)
+                {"session": HISTORICAL_DAY, "identities": ["111101", "113467"]},
+                through=THROUGH, fetch=provider.fetch_rows)
 
 
 @pytest.mark.parametrize("fault", [None, "missing-older-pair", "missing-last-price"])

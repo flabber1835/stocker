@@ -102,6 +102,11 @@ boundaries and the current inventory. Additional DDL, changed bytes, ambiguous
 proof or a replayed witness must refuse. This operation issues no broker
 command, grants no authority and cannot enable automation.
 
+The one-time reader checks the pre-compaction and post-compaction feed catalogs
+against the releases that produced them. This preserves the original 65-event
+feed replay and both historical guard implementations across later changes
+to the operational feed schema.
+
 After installing the signed recovery release while fenced, run both steps
 through the native systemd user manager so they see the canonical USB mount.
 Use the verified pre-compaction backup and the successful installation receipt

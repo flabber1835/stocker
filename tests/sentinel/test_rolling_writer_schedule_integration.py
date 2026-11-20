@@ -184,6 +184,7 @@ def _coordinator(monkeypatch, *, ready=False, failure_phase=None,
             assert connection.depth == 0
         def corroborate(self):
             assert connection.depth == 0
+            assert 0 < publisher_pipeline.provider_budget.remaining() <= 500
         def reference_payload(self):
             return reference_payload
         def source_payload(self):
@@ -195,7 +196,6 @@ def _coordinator(monkeypatch, *, ready=False, failure_phase=None,
                         lambda _, key: source_payload if key == manifest.source_evidence_sha256
                         else reference_payload)
     monkeypatch.setattr(operational_snapshot, 'validate', lambda *_: None)
-    monkeypatch.setattr(publisher_pipeline.acquisition_work, 'budget', lambda **_: nullcontext())
     monkeypatch.setattr(publisher_pipeline.progress, 'phase', lambda *_args, **_kwargs: nullcontext())
     monkeypatch.setattr(publisher, '_record_failure',
                         lambda _connection, _lease, exc, **_: recorded.append(exc))
