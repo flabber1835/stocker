@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import asyncio
 import importlib
 import os
@@ -372,105 +373,110 @@ def test_runtime_preserves_current_archiver_clock_refusal(world):
         authority.require(world, operation="future-dated archive")
 
 
-def test_recovery_lock_exemptions_are_limited_to_nonfinancial_repair():
-    import ast
-    root = Path(os.environ.get("SENTINEL_REPO_ROOT") or Path(__file__).resolve().parents[2])
-    found = set()
-    for path in (root / "sentinel").rglob("*.py"):
-        tree = ast.parse(path.read_text())
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call) and any(
-                    kw.arg == "recovery_only" for kw in node.keywords):
-                relative = path.relative_to(root).as_posix()
-                found.add(relative)
-                assert next(kw.value.value for kw in node.keywords
-                            if kw.arg == "recovery_only") is True
-                if relative == 'sentinel/rolling_runtime.py':
-                    # Only the auxiliary health-file repair may skip the
-                    # financial backup guard. A new caller in this module
-                    # must not inherit a file-wide exemption.
-                    owners = [f for f in ast.walk(tree)
-                              if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef))
-                              and node in ast.walk(f)]
-                    assert len(owners) == 1
-                    assert owners[0].name == '_refresh_unchanged_health'
-                    assert ast.unparse(node.func) == 'journal.writer_lock'
-                if relative in {'sentinel/chain_progress_recovery.py',
-                                'sentinel/panel/review_coverage_recovery.py',
-                                'sentinel/order_amount_coverage_recovery.py',
-                                'sentinel/backup_compaction_coverage_recovery.py'}:
-                    # This explicit administrative transfer preserves the old
-                    # authenticated prefixes; it cannot exempt another caller
-                    # or a financial writer in the same module.
-                    owners = [f for f in ast.walk(tree)
-                              if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef))
-                              and node in ast.walk(f)]
-                    assert len(owners) == 1 and owners[0].name == 'apply'
-                    assert ast.unparse(node.func) == 'journal.writer_lock'
-                    calls = {ast.unparse(call.func) for call in ast.walk(owners[0])
-                             if isinstance(call, ast.Call)}
-                    assert {'validate', 'deployment_fence.require',
-                            'schema.require_runtime_schema', 'automation_store.load_control',
-                            '_source_digests', 'coverage._authenticated', 'coverage.head',
-                            'coverage._inventory_material', 'coverage.write'} <= calls
-                    if relative == 'sentinel/panel/review_coverage_recovery.py':
-                        assert {'review_schema.require_schema',
-                                'operational_schema.require_idle_connection',
-                                'operational_ddl_epoch.current'} <= calls
+_RECOVERY_APPLIERS = {
+    'sentinel/chain_progress_recovery.py', 'sentinel/panel/review_coverage_recovery.py',
+    'sentinel/order_amount_coverage_recovery.py', 'sentinel/backup_compaction_coverage_recovery.py',
+}
+_RECOVERY_ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT") or Path(__file__).resolve().parents[2])
+
+
+def _calls(tree):
+    return [node for node in ast.walk(tree) if isinstance(node, ast.Call)]
+
+
+def _require_recovery_lock_owners(relative, tree):
+    locks = [node for node in _calls(tree) if any(kw.arg == 'recovery_only' for kw in node.keywords)]
+    for node in locks:
+        flag, = (kw.value for kw in node.keywords if kw.arg == 'recovery_only')
+        assert isinstance(flag, ast.Constant) and flag.value is True
+        owners = [f for f in ast.walk(tree) if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef))
+                  and node in ast.walk(f)]
+        if relative == 'sentinel/rolling_runtime.py':
+            assert len(owners) == 1 and owners[0].name == '_refresh_unchanged_health'
+            assert ast.unparse(node.func) == 'journal.writer_lock'
+        elif relative == 'sentinel/trading.py':
+            assert len(owners) == 1 and owners[0].name == 'recover_trading_account'
+            assert ast.unparse(node.func) == 'journal.writer_lock'
+            calls = {ast.unparse(call.func) for call in _calls(owners[0])}
+            assert 'reconcile.reconcile' in calls and 'executor.execute_session' not in calls
+        elif relative in _RECOVERY_APPLIERS:
+            assert len(owners) == 1 and owners[0].name == 'apply'
+            assert ast.unparse(node.func) == 'journal.writer_lock'
+            calls = {ast.unparse(call.func) for call in _calls(owners[0])}
+            assert {'validate', 'deployment_fence.require', 'automation_store.load_control',
+                    '_source_digests', 'coverage._authenticated', 'coverage.head',
+                    'coverage._inventory_material', 'coverage.write',
+                    'operational_schema.require_idle_connection', 'operational_ddl_epoch.current'} <= calls
+            expressions = {ast.unparse(call) for call in _calls(owners[0])}
+            if relative == 'sentinel/chain_progress_recovery.py':
+                assert '_validate_progress_schema(conn, predecessor=False)' in expressions
+                validator, = (f for f in tree.body if isinstance(f, ast.FunctionDef)
+                              and f.name == '_validate_progress_schema')
+                guards = {ast.unparse(call.func) for call in _calls(validator)}
+                assert {'schema._validate_backup_infrastructure', 'schema._validate_ledgered',
+                        'schema._validate_stage4_runtime', 'operational_schema.require_schema'} <= guards
+                versions = {ast.unparse(node) for node in ast.walk(validator) if isinstance(node, ast.Compare)}
+                assert 'schema._validate_ledgered(cur, catalog, allow_previous=True) in (2, 3)' in versions
+                assert 'historical_feed.require(conn, expected=historical_feed.ORIGINAL)' in {
+                    ast.unparse(call) for call in _calls(validator)}
+            else:
+                assert {'schema.require_runtime_schema', 'operational_schema.require_schema'} <= calls
                 if relative == 'sentinel/order_amount_coverage_recovery.py':
-                    assert {'_command_digest', 'store.require_feed_schema',
-                            'operational_schema.require_idle_connection',
-                            'operational_ddl_epoch.current'} <= calls
-                if relative == 'sentinel/backup_compaction_coverage_recovery.py':
-                    assert {'store.require_feed_schema', 'operational_schema.require_idle_connection',
-                            'operational_ddl_epoch.current', 'coverage.require_current'} <= calls
-                if relative == 'sentinel/trading.py':
-                    owners = [f for f in ast.walk(tree)
-                              if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef))
-                              and node in ast.walk(f)]
-                    assert len(owners) == 1 and owners[0].name == 'recover_trading_account'
-                    assert ast.unparse(node.func) == 'journal.writer_lock'
-                    calls = {ast.unparse(call.func) for call in ast.walk(owners[0])
-                             if isinstance(call, ast.Call)}
-                    assert 'reconcile.reconcile' in calls
-                    assert 'executor.execute_session' not in calls
-    assert found == {
-        "sentinel/automation/store.py", "sentinel/paper/recovery.py",
-        "sentinel/execution/executor.py", "sentinel/rolling_runtime.py",
-        "sentinel/chain_progress_recovery.py", "sentinel/trading.py",
-        "sentinel/panel/review_coverage_recovery.py", "sentinel/order_amount_coverage_recovery.py",
-        "sentinel/backup_compaction_coverage_recovery.py"}
+                    assert '_command_digest' in calls
+                    assert "historical_feed.require(conn, expected=value['order_amount_contract_sha256'])" in expressions
+                elif relative == 'sentinel/backup_compaction_coverage_recovery.py':
+                    assert 'coverage.require_current' in calls
+                    assert 'historical_feed.require(conn, expected=historical_feed.POST_COMPACTION)' in expressions
+                else:
+                    assert 'review_schema.require_schema' in calls
+    return bool(locks)
+
+
+def test_recovery_lock_exemptions_are_limited_to_nonfinancial_repair():
+    found = set()
+    for path in (_RECOVERY_ROOT / "sentinel").rglob("*.py"):
+        relative = path.relative_to(_RECOVERY_ROOT).as_posix()
+        if _require_recovery_lock_owners(relative, ast.parse(path.read_text())):
+            found.add(relative)
+    assert found == _RECOVERY_APPLIERS | {
+        'sentinel/automation/store.py', 'sentinel/paper/recovery.py', 'sentinel/execution/executor.py',
+        'sentinel/rolling_runtime.py', 'sentinel/trading.py'}
 
 
 @pytest.mark.parametrize('remove_owner_guard', [False, True])
-def test_dashboard_recovery_exemption_is_function_scoped(monkeypatch, remove_owner_guard):
-    import ast
+def test_dashboard_recovery_exemption_is_function_scoped(remove_owner_guard):
     import inspect
-    original_parse = ast.parse
-
-    def parse(source, *args, **kwargs):
-        tree = original_parse(source, *args, **kwargs)
-        if 'sentinel.dashboard-ddl-coverage-witness/1' in source:
-            apply = next(n for n in tree.body
-                         if isinstance(n, ast.FunctionDef) and n.name == 'apply')
-            apply.name = 'unreviewed_recovery_caller'
-        return tree
-
-    check = test_recovery_lock_exemptions_are_limited_to_nonfinancial_repair
+    relative = 'sentinel/panel/review_coverage_recovery.py'
+    tree = ast.parse((_RECOVERY_ROOT / relative).read_text())
+    apply, = (f for f in tree.body if isinstance(f, ast.FunctionDef) and f.name == 'apply')
+    apply.name = 'unreviewed_recovery_caller'
     if remove_owner_guard:
-        source = inspect.getsource(check)
+        source = inspect.getsource(_require_recovery_lock_owners)
         guard = "assert len(owners) == 1 and owners[0].name == 'apply'"
         assert source.count(guard) == 1
         namespace = dict(globals())
-        exec(compile(source.replace(guard, 'assert True'), '<removed-recovery-owner-guard>', 'exec'),
-             namespace)
-        check = namespace[check.__name__]
-    monkeypatch.setattr(ast, 'parse', parse)
-    if remove_owner_guard:
-        check()
+        exec(compile(source.replace(guard, 'pass'), '<removed-recovery-owner-guard>', 'exec'), namespace)
+        assert namespace['_require_recovery_lock_owners'](relative, tree)
     else:
         with pytest.raises(AssertionError):
-            check()
+            _require_recovery_lock_owners(relative, tree)
+
+
+@pytest.mark.parametrize(('relative', 'original', 'wrong'), [
+    ('sentinel/chain_progress_recovery.py', 'predecessor=False', 'predecessor=True'),
+    ('sentinel/chain_progress_recovery.py', 'in (2, 3)', 'in (1, 2, 3)'),
+    ('sentinel/chain_progress_recovery.py', 'expected=historical_feed.ORIGINAL',
+     'expected=historical_feed.POST_COMPACTION'),
+    ('sentinel/order_amount_coverage_recovery.py', "expected=value['order_amount_contract_sha256']",
+     'expected=historical_feed.ORIGINAL'),
+    ('sentinel/backup_compaction_coverage_recovery.py', 'expected=historical_feed.POST_COMPACTION',
+     'expected=historical_feed.ORIGINAL'),
+])
+def test_recovery_exemption_requires_its_original_schema_target(relative, original, wrong):
+    source = (_RECOVERY_ROOT / relative).read_text()
+    assert source.count(original) == 1
+    with pytest.raises(AssertionError):
+        _require_recovery_lock_owners(relative, ast.parse(source.replace(original, wrong)))
 
 
 @pytest.mark.parametrize("event", ["advance", "failure"])
