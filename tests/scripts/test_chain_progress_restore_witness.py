@@ -10,6 +10,54 @@ import pytest
 ROOT=Path(os.environ.get('SENTINEL_REPO_ROOT') or Path(__file__).resolve().parents[2])
 
 
+@pytest.mark.parametrize('fault', [None, 'implicit_backup', 'full_restore', 'second_witness', 'existing_output'])
+def test_acquisition_witness_requires_a_single_physical_replay_subject(tmp_path, fault):
+    source = (ROOT / 'scripts/sentinel-restore-drill.sh').read_text()
+    parser = source[source.index('EXPECTED=""'):source.index('if [ -n "$EXPECTED" ]; then')]
+    output = tmp_path / 'witness.json'
+    args = ['--acquisition-guard-witness', str(output)]
+    if fault != 'implicit_backup':
+        args += ['--backup', '/private/base/base-20261120T073234Z']
+    if fault != 'full_restore':
+        args += ['--physical-only']
+    if fault == 'second_witness':
+        args += ['--order-amount-witness', str(tmp_path / 'other.json')]
+    if fault == 'existing_output':
+        output.write_text('retained')
+    parser += '\nprintf "%s\\n" "$WITNESS_MODULE"'
+    result = subprocess.run(['bash', '-eu', '-c', parser, 'restore', *args],
+                            cwd=ROOT, capture_output=True, text=True)
+    if fault:
+        assert result.returncode == 2 and not result.stdout
+    else:
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == 'sentinel.acquisition_coverage_recovery'
+    if fault == 'existing_output':
+        assert output.read_text() == 'retained'
+
+
+@pytest.mark.parametrize('fault', [None, 'unverified'])
+def test_acquisition_witness_authenticates_the_worker_before_reading_backup(tmp_path, fault):
+    source = (ROOT / 'scripts/sentinel-restore-drill.sh').read_text()
+    start = source.index('\nif [ "$WITNESS_MODULE" = sentinel.acquisition_coverage_recovery ]; then')
+    end = source.index('\n${COMPOSE[@]} exec -T sentinel-postgres test -d', start)
+    (tmp_path / 'scripts').mkdir()
+    (tmp_path / 'scripts/sentinel_order_amount_coverage_recovery.py').write_text(
+        'def verify_recovery_runtime(root, env, *, require_validated_pointer):\n'
+        '    assert require_validated_pointer is True\n'
+        '    assert root.name and env["SENTINEL_RUNTIME_IMAGE_REF"] == "selected"\n'
+        '    if env["FAULT"]: raise RuntimeError("uncertified")\n'
+        '    print("verified")\n')
+    env = dict(os.environ, WITNESS_MODULE='sentinel.acquisition_coverage_recovery',
+               PYTHON=sys.executable, SENTINEL_RUNTIME_IMAGE_REF='selected', FAULT=fault or '')
+    result = subprocess.run(['bash', '-eu', '-c', source[start:end]], cwd=tmp_path,
+                            env=env, capture_output=True, text=True)
+    if fault:
+        assert result.returncode != 0 and 'REFUSED: witness runtime verification failed' in result.stderr
+    else:
+        assert result.returncode == 0 and result.stdout.strip() == 'verified'
+
+
 @pytest.mark.parametrize('fault', [None, 'base', 'marker_lsn', 'checksum'])
 def test_compaction_replay_selects_only_the_verified_wal_coordinate(fault):
     source = (ROOT / 'scripts/sentinel-restore-drill.sh').read_text()
@@ -38,7 +86,7 @@ COMPOSE=(verified_chain)
         assert result.stdout == '45/62381E78'
 
 
-@pytest.mark.parametrize('kind', ['chain_progress', 'order_amount', 'backup_compaction'])
+@pytest.mark.parametrize('kind', ['chain_progress', 'order_amount', 'backup_compaction', 'acquisition_guard'])
 @pytest.mark.parametrize('fault',[None,'metadata','docker','witness','deadline','image'])
 def test_actual_paused_restore_witness_launcher_has_no_broker_or_secret_arguments(tmp_path,kind,fault):
     source=(ROOT/'scripts/sentinel-restore-drill.sh').read_text()
@@ -59,6 +107,9 @@ assert args[args.index('--network')+1]=='private-replay'
 assert args[args.index('--memory')+1]=='768m'
 assert '--snapshot' in args and '--apply' not in args
 assert args[args.index('-m')+1]==os.environ['WITNESS_MODULE']
+assert args[args.index('--backup')+1] == os.environ['NAME']
+assert args[args.index('--marker')+1] == os.environ['MARKER']
+assert args[args.index('--metadata-sha256')+1] == os.environ['METADATA_SHA256']
 assert set(forwarded)=={'SENTINEL_RESTORE_DATABASE_HOST','SENTINEL_RESTORE_DATABASE_PASSWORD','SENTINEL_PUBLICATION_RECEIPT_KEY'}
 assert forwarded['SENTINEL_RESTORE_DATABASE_PASSWORD']==os.environ['SENTINEL_POSTGRES_PASSWORD']
 assert not any(secret in arg for secret in (os.environ['SENTINEL_POSTGRES_PASSWORD'],os.environ['SENTINEL_PUBLICATION_RECEIPT_KEY']) for arg in args)
@@ -71,7 +122,8 @@ print(json.dumps({'witness':{'private_fixture':True},'hmac_sha256':'a'*64}))
     output=tmp_path/'witness.json'
     module = 'sentinel.' + {'chain_progress': 'chain_progress_recovery',
                             'order_amount': 'order_amount_coverage_recovery',
-                            'backup_compaction': 'backup_compaction_coverage_recovery'}[kind]
+                            'backup_compaction': 'backup_compaction_coverage_recovery',
+                            'acquisition_guard': 'acquisition_coverage_recovery'}[kind]
     env=dict(PATH=os.environ['PATH'],PHYSICAL_ONLY='1',WITNESS_OUTPUT=str(output), WITNESS_MODULE=module,
         SENTINEL_RUNTIME_IMAGE_REF='repo/sentinel@sha256:'+'b'*64,
         METADATA_SHA256='a'*64,SENTINEL_POSTGRES_PASSWORD='synthetic-only-password',

@@ -1,12 +1,8 @@
 """One-time recovery of the authenticated prefixes invalidated on November 15."""
 from __future__ import annotations
 
-import argparse
 import hashlib
 import hmac
-import json
-import signal
-from pathlib import Path
 from typing import Literal
 
 from psycopg import sql
@@ -16,7 +12,6 @@ from sentinel import coverage_recovery_catalog as historical_feed
 from sentinel import deployment_fence, operational_ddl_epoch, operational_schema, schema
 from sentinel.automation import store as automation_store
 from sentinel.execution import evidence_projection as coverage, evidence_schema, journal
-from sentinel.feed import store
 
 SCHEMA = 'sentinel.backup-compaction-coverage-witness/1'
 RESULT_SCHEMA = 'sentinel.backup-compaction-coverage-transfer/1'
@@ -154,40 +149,8 @@ def apply(conn, document, *, expected_backup, expected_account, expected_deploym
 
 
 def main(argv=None):
-    from sentinel.restore_validation import _database_url
-
-    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
-    mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument('--snapshot', action='store_true')
-    mode.add_argument('--apply', type=Path)
-    parser.add_argument('--backup', required=True)
-    parser.add_argument('--marker')
-    parser.add_argument('--metadata-sha256')
-    parser.add_argument('--confirm-witness-sha256')
-    parser.add_argument('--expect-account')
-    parser.add_argument('--deployment-id')
-    args = parser.parse_args(argv)
-    try:
-        signal.alarm(600)
-        with store.connect(_database_url(), connect_timeout=3, statement_timeout_ms=15000) as conn:
-            if args.snapshot:
-                result = snapshot(conn, backup=args.backup, marker=args.marker,
-                                  metadata_sha256=args.metadata_sha256)
-                conn.rollback()
-            else:
-                raw = args.apply.read_bytes()
-                _require(hashlib.sha256(raw).hexdigest() == args.confirm_witness_sha256,
-                         'exact witness confirmation required')
-                result = apply(conn, shared._document(raw), expected_backup=args.backup,
-                               expected_account=args.expect_account,
-                               expected_deployment=args.deployment_id)
-        print(json.dumps(result, sort_keys=True, separators=(',', ':')))
-        return 0
-    except Exception as exc:
-        print('REFUSED: ' + type(exc).__name__ + ': ' + str(exc))
-        return 2
-    finally:
-        signal.alarm(0)
+    from sentinel.coverage_recovery_cli import run
+    return run(__doc__, snapshot, apply, argv)
 
 
 if __name__ == '__main__':

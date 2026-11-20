@@ -647,8 +647,11 @@ def require_feed_schema(conn) -> None:
 
 def migrate_feed_schema(conn) -> None:
     """Explicit atomic feed installation/upgrade; never called by runtime."""
+    from sentinel.operational_schema import _financial_writer
+    from sentinel.feed.acquisition_guard_migration import migrate_if_protected
+
     try:
-        with conn.cursor() as cur:
+        with conn.cursor() as cur, _financial_writer(conn):
             cur.execute(f"SET LOCAL lock_timeout TO '{_SCHEMA_LOCK_TIMEOUT_MS}ms'")
             cur.execute("SELECT pg_try_advisory_xact_lock(%s,%s)", _SCHEMA_LOCK)
             row = cur.fetchone()
@@ -656,11 +659,13 @@ def migrate_feed_schema(conn) -> None:
                 raise _refuse(
                     "another feed migration or runtime catalog proof holds the "
                     "feed schema lock")
-            for statement in DDL:
-                cur.execute(statement)
-            catalog = behavioral_schema._read_runtime_catalog(cur)
-            _validate_catalog(catalog)
-            _validate_views(cur)
+            if not migrate_if_protected(conn):
+                try:
+                    require_feed_schema(conn)
+                except FeedSchemaRefused:
+                    for statement in DDL:
+                        cur.execute(statement)
+            require_feed_schema(conn)
         conn.commit()
     except BaseException:
         conn.rollback()

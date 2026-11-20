@@ -1,5 +1,4 @@
 """Native recovery host owner with external Git, CI and Docker responses only."""
-from functools import partial
 import hashlib
 import json
 import os
@@ -19,13 +18,11 @@ SHA='a'*40
 IMAGE='ghcr.io/flabber1835/stocker/sentinel@sha256:'+'b'*64
 
 
-@pytest.fixture(params=["progress", "order-amount", "backup-compaction"])
+@pytest.fixture(params=["progress", "order-amount", "backup-compaction", "acquisition-guard"])
 def operation(monkeypatch,tmp_path,request):
     kind = request.param
     owner = progress_owner if kind == 'progress' else order_amount_owner
     uses_signed_pointer = owner is order_amount_owner
-    if kind == 'backup-compaction':
-        monkeypatch.setattr(owner, 'execute', partial(owner.execute, backup_compaction=True))
     root=tmp_path/'checkout';(root/'scripts').mkdir(parents=True)
     monkeypatch.setattr(owner,'__file__',str(root/'scripts'/Path(owner.__file__).name))
     (root/'.env').write_text('SENTINEL_BACKUP_DIR=/backup\nSENTINEL_POSTGRES_PASSWORD=synthetic\n'
@@ -34,7 +31,7 @@ def operation(monkeypatch,tmp_path,request):
         'SENTINEL_LOCAL_PAPER_ACCOUNT_ID=PAfixture\nSENTINEL_LOCAL_PAPER_BACKUP_POLICY=REQUIRED_V1\n'
         'SENTINEL_PAPER_BUY_POLICY=PROTECTED_LIMIT_DAY_V1\nSENTINEL_PAPER_BUY_CAP_BPS=100\n'
         'ALPACA_BASE_URL=https://paper-api.alpaca.markets\n'
-        'SENTINEL_RUNTIME_IMAGE_REF='+IMAGE+'\n'
+        'SENTINEL_GITHUB_READ_TOKEN=fixture-read-only-token\nSENTINEL_RUNTIME_IMAGE_REF='+IMAGE+'\n'
         'SENTINEL_AUTHORITY_ARTIFACTS_DIR='+str(root/'authority')+'\n')
     receipt=root/'installation-receipt.json'
     value=dict(schema='sentinel.installation-receipt/1',installation_state='INSTALLED',
@@ -44,7 +41,7 @@ def operation(monkeypatch,tmp_path,request):
     witness=root/'witness.json';witness.write_text('{"witness":{"fixture":true},"hmac_sha256":"fixture"}')
     witness.chmod(0o600)
     sha=hashlib.sha256(witness.read_bytes()).hexdigest()
-    args=SimpleNamespace(installation_receipt=receipt,witness=witness,
+    args=SimpleNamespace(kind=kind,installation_receipt=receipt,witness=witness,
         confirm_witness_sha256=sha,backup='base-20261029T072734Z',output=root/'transfer.json')
     content_sha=hashlib.sha256(json.dumps(json.loads(witness.read_text()),sort_keys=True,
         separators=(',',':')).encode()).hexdigest()
@@ -61,6 +58,10 @@ def operation(monkeypatch,tmp_path,request):
     monkeypatch.setattr(owner.certification,'verify_current',lambda **kwargs:{'certified_image':state['proof_image']})
     if uses_signed_pointer:
         monkeypatch.setattr(owner, '_pointer_digest', lambda: IMAGE)
+        def read_client(*, token):
+            assert token == 'fixture-read-only-token'
+            return object()
+        monkeypatch.setattr(owner.certification, 'GitHubReadClient', read_client)
     runtime_target = ':/'+kind+'-ddl-witness.json:ro' if uses_signed_pointer else ':/progress-witness.json:ro'
     class Runner:
         def __init__(self,env,log):
@@ -73,6 +74,10 @@ def operation(monkeypatch,tmp_path,request):
             assert '--no-deps' in argv and '-B' in argv and '-m' in argv
             if kind == 'backup-compaction':
                 assert argv[argv.index('-m')+1] == 'sentinel.backup_compaction_coverage_recovery'
+            elif kind == 'acquisition-guard':
+                assert argv[argv.index('-m')+1] == 'sentinel.acquisition_coverage_recovery'
+                assert argv[argv.index('--expect-account')+1] == value['paper_account_id']
+                assert argv[argv.index('--deployment-id')+1] == value['deployment_id']
             mounted=Path(argv[argv.index('--volume')+1].removesuffix(runtime_target))
             assert mounted!=witness and mounted.read_bytes()==witness.read_bytes()
             assert mounted.stat().st_mode&0o777==0o444
@@ -139,3 +144,58 @@ def test_competing_host_lifecycle_owner_prevents_docker(operation,monkeypatch):
         monkeypatch.setattr(owner.fcntl, 'flock', busy)
     with pytest.raises(BlockingIOError):owner.execute(args)
     assert calls==[] and not args.output.with_suffix('.commands.log').exists()
+
+
+@pytest.mark.parametrize('flags,expected', [
+    ([], 'order-amount'),
+    (['--backup-compaction'], 'backup-compaction'),
+    (['--acquisition-guard'], 'acquisition-guard'),
+    (['--acquisition-guard', '--backup-compaction'], None),
+])
+def test_host_selects_only_one_reviewed_transition(monkeypatch, flags, expected):
+    selected = []
+    monkeypatch.setattr(order_amount_owner, 'execute', lambda args: selected.append(args.kind))
+    common = ['--installation-receipt', 'receipt', '--witness', 'witness',
+              '--confirm-witness-sha256', '0'*64, '--backup', 'base', '--output', 'out']
+    if expected is None:
+        with pytest.raises(SystemExit) as exc:
+            order_amount_owner.main(common + flags)
+        assert exc.value.code == 2 and not selected
+    else:
+        assert order_amount_owner.main(common + flags) == 0
+        assert selected == [expected]
+
+
+@pytest.mark.parametrize('fault', [None, 'dirty', 'different_pointer', 'different_publication', 'no_image'])
+def test_witness_runtime_requires_exact_checkout_pointer_and_ci_image(tmp_path, monkeypatch, fault):
+    owner = order_amount_owner
+    def git(argv, **_kwargs):
+        return ('untracked' if fault == 'dirty' else '') if 'status' in argv else SHA
+    monkeypatch.setattr(owner.subprocess, 'check_output', git)
+    monkeypatch.setattr(owner, '_pointer_digest', lambda: 'other' if fault == 'different_pointer' else IMAGE)
+    monkeypatch.setattr(owner.certification, 'verify_current', lambda **_kwargs: {
+        'certified_image': 'other' if fault == 'different_publication' else IMAGE})
+    env = {'SENTINEL_RUNTIME_IMAGE_REF': IMAGE} if fault != 'no_image' else {}
+    if fault:
+        with pytest.raises(owner.core.DeployRefused):
+            owner.verify_recovery_runtime(tmp_path, env, require_validated_pointer=True)
+    else:
+        assert owner.verify_recovery_runtime(tmp_path, env, require_validated_pointer=True) == SHA
+
+
+@pytest.mark.parametrize('operation', ['order-amount', 'backup-compaction'], indirect=True)
+def test_historical_apply_verifies_configured_release_then_rechecks_pointer_under_lock(operation, monkeypatch):
+    owner, args, _state, calls, _receipt, _runtime_target = operation
+    stages = []
+    def absent_pointer():
+        stages.append('pointer')
+        return None
+    def certification(**_kwargs):
+        stages.append('certification')
+        return {'certified_image': IMAGE}
+    monkeypatch.setattr(owner, '_pointer_digest', absent_pointer)
+    monkeypatch.setattr(owner.certification, 'verify_current', certification)
+    with pytest.raises(owner.core.DeployRefused, match='validated runtime changed before coverage recovery'):
+        owner.execute(args)
+    assert stages == ['pointer', 'certification', 'pointer']
+    assert not calls and not args.output.exists() and not args.output.with_suffix('.commands.log').exists()

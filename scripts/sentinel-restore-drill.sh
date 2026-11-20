@@ -40,13 +40,14 @@ while [ "$#" -gt 0 ]; do
       PHYSICAL_ONLY=1
       shift
       ;;
-    --chain-progress-witness|--order-amount-witness|--backup-compaction-witness)
+    --chain-progress-witness|--order-amount-witness|--backup-compaction-witness|--acquisition-guard-witness)
       [ "$#" -ge 2 ] && [ -z "$WITNESS_OUTPUT" ] || {
         echo 'REFUSED: witness requires one unique output path' >&2; exit 2; }
       case "$1" in
         --chain-progress-witness) WITNESS_MODULE=sentinel.chain_progress_recovery ;;
         --order-amount-witness) WITNESS_MODULE=sentinel.order_amount_coverage_recovery ;;
         --backup-compaction-witness) WITNESS_MODULE=sentinel.backup_compaction_coverage_recovery ;;
+        --acquisition-guard-witness) WITNESS_MODULE=sentinel.acquisition_coverage_recovery ;;
       esac
       WITNESS_OUTPUT="$2"
       shift 2
@@ -88,6 +89,19 @@ else
 fi
 [ -n "$NAME" ] || { echo "REFUSED: no complete base backup exists" >&2; exit 4; }
 LATEST="$BACKUP_ROOT/base/$NAME"
+if [ "$WITNESS_MODULE" = sentinel.acquisition_coverage_recovery ]; then
+  # This worker receives the HMAC key. Resolve the release before starting replay.
+  "$PYTHON" - <<'PY'
+import os, sys
+from pathlib import Path
+sys.path.insert(0, "scripts")
+from sentinel_order_amount_coverage_recovery import verify_recovery_runtime
+try:
+    verify_recovery_runtime(Path.cwd(), os.environ, require_validated_pointer=True)
+except (OSError, ValueError, RuntimeError) as exc:
+    raise SystemExit('REFUSED: witness runtime verification failed (' + type(exc).__name__ + ')')
+PY
+fi
 ${COMPOSE[@]} exec -T sentinel-postgres test -d "/sentinel-backup/base/$NAME" || {
   echo "REFUSED: requested base backup does not exist: $LATEST" >&2; exit 4; }
 ${COMPOSE[@]} exec -T sentinel-postgres test -f "/sentinel-backup/base/$NAME/backup_manifest" || {
@@ -314,6 +328,7 @@ publish_immutable(Path(sys.argv[1]),value)
       sentinel.chain_progress_recovery) echo "chain_progress_witness_ready:$WITNESS_OUTPUT" ;;
       sentinel.order_amount_coverage_recovery) echo "order_amount_witness_ready:$WITNESS_OUTPUT" ;;
       sentinel.backup_compaction_coverage_recovery) echo "backup_compaction_witness_ready:$WITNESS_OUTPUT" ;;
+      sentinel.acquisition_coverage_recovery) echo "acquisition_guard_witness_ready:$WITNESS_OUTPUT" ;;
     esac
   fi
   exit 0

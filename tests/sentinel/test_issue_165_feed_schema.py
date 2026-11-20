@@ -11,6 +11,7 @@ import re
 from types import SimpleNamespace
 
 import pytest
+import psycopg
 
 from sentinel import automation_runtime, schema as behavioral_schema
 from sentinel.cli import account as account_cli
@@ -19,6 +20,7 @@ from sentinel.cli import paper as paper_cli
 from sentinel.feed import runtime_schema
 from sentinel.feed import staging
 from sentinel.feed import store as feed_store
+from tests.sentinel.test_issue_165_feed_schema_postgres import pg
 
 
 DDL_WORD = re.compile(r"\b(CREATE|DROP|ALTER|TRUNCATE)\b", re.IGNORECASE)
@@ -233,14 +235,18 @@ def test_production_binding_uses_the_existing_controlled_schema_refusal():
     assert conn.commits == 0
 
 
-def test_explicit_migration_is_the_only_feed_path_that_executes_ddl(monkeypatch):
-    conn = RecordingConnection()
-    monkeypatch.setattr(runtime_schema, "_validate_catalog", lambda _catalog: None)
-    monkeypatch.setattr(runtime_schema, "_validate_views", lambda _cur: None)
+def test_explicit_migration_is_the_only_feed_path_that_executes_ddl(pg):
+    statements = []
 
-    feed_store.migrate_schema(conn)
+    class TracingCursor(psycopg.Cursor):
+        def execute(self, query, *args, **kwargs):
+            statements.append(str(query))
+            return super().execute(query, *args, **kwargs)
 
-    statements = _sql(conn)
+    with psycopg.connect(pg.sync_dsn, cursor_factory=TracingCursor) as conn:
+        behavioral_schema.ensure_schema(conn)
+        statements.clear()
+        feed_store.migrate_schema(conn)
     assert any(DDL_WORD.search(statement) for statement in statements)
     assert any("DROP INDEX IF EXISTS uq_sentinel_anomaly_split_event_run"
                in statement for statement in statements)
@@ -248,8 +254,12 @@ def test_explicit_migration_is_the_only_feed_path_that_executes_ddl(monkeypatch)
                in statement for statement in statements)
     assert any("DROP VIEW IF EXISTS sentinel_active_actions"
                in statement for statement in statements)
-    assert conn.commits == 1
-    assert conn.rollbacks == 0
+    statements.clear()
+    with psycopg.connect(pg.sync_dsn, cursor_factory=TracingCursor) as reopened:
+        feed_store.require_feed_schema(reopened)
+        feed_store.migrate_schema(reopened)
+    assert not any(re.match(r'\s*(CREATE|DROP|ALTER|TRUNCATE)\b', statement, re.I)
+                   for statement in statements)
 
 
 def test_destructive_migration_objects_are_semantically_catalog_validated():

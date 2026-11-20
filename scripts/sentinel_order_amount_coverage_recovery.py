@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply an exact order-amount or backup-compaction witness under the host lock."""
+"""Apply one reviewed coverage transition under the PAPER deployment locks."""
 import argparse
 import hashlib
 import json
@@ -17,10 +17,33 @@ from sentinel_phase_records import publish_immutable, read_document
 from sentinel_runtime_selection import _pointer_digest
 
 
-def execute(args, *, backup_compaction=False):
-    kind = 'backup-compaction' if backup_compaction else 'order-amount'
-    module = ('sentinel.backup_compaction_coverage_recovery' if backup_compaction
-              else 'sentinel.order_amount_coverage_recovery')
+MODULES = {
+    'order-amount': 'sentinel.order_amount_coverage_recovery',
+    'backup-compaction': 'sentinel.backup_compaction_coverage_recovery',
+    'acquisition-guard': 'sentinel.acquisition_coverage_recovery',
+}
+
+
+def verify_recovery_runtime(root, env, *, expected_commit=None, require_validated_pointer=False):
+    """Bind the worker receiving the witness key to the protected installation."""
+    head = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], env=env, text=True).strip()
+    dirty = subprocess.check_output(['git', '-C', str(root), 'status', '--porcelain'], env=env, text=True).strip()
+    if dirty or (expected_commit is not None and head != expected_commit):
+        raise core.DeployRefused('recovery checkout differs from installation')
+    image = env.get('SENTINEL_RUNTIME_IMAGE_REF')
+    if require_validated_pointer and (not image or image != _pointer_digest()):
+        raise core.DeployRefused('recovery image differs from the validated runtime pointer')
+    proof = certification.verify_current(root=root, commit=head, client=certification.GitHubReadClient(
+        token=env.get('SENTINEL_GITHUB_READ_TOKEN') or os.environ.get('SENTINEL_GITHUB_READ_TOKEN')
+        or os.environ.get('GH_TOKEN')))
+    if proof.get('certified_image') != image:
+        raise core.DeployRefused('recovery runtime differs from signed CI publication')
+    return head
+
+
+def execute(args):
+    kind = args.kind
+    module = MODULES[kind]
     witness_path = '/' + kind + '-ddl-witness.json'
     root=Path(__file__).resolve().parents[1]
     ambient={key:value for key,value in os.environ.items() if key in {
@@ -41,18 +64,13 @@ def execute(args, *, backup_compaction=False):
             or receipt.get('activation_state')!='FENCED'
             or receipt.get('automation_enabled') is not False
             or receipt.get('kill_switch_engaged') is not True
+            or not isinstance(receipt.get('git_commit'), str)
+            or not core._HEX40.fullmatch(receipt['git_commit'])
             or receipt.get('deployment_id')!=env.get('SENTINEL_DEPLOYMENT_ID')
             or receipt.get('paper_account_id')!=env.get('SENTINEL_PAPER_ACCOUNT_ID')
             or receipt.get('runtime_image')!=env.get('SENTINEL_RUNTIME_IMAGE_REF')):
         raise core.DeployRefused('recovery requires this exact installed/fenced release')
-    head=subprocess.check_output(['git','-C',str(root),'rev-parse','HEAD'],env=env,text=True).strip()
-    dirty=subprocess.check_output(['git','-C',str(root),'status','--porcelain'],env=env,text=True).strip()
-    if dirty or head!=receipt.get('git_commit'):
-        raise core.DeployRefused('recovery checkout differs from installation')
-    proof=certification.verify_current(root=root,commit=head,client=certification.GitHubReadClient(
-        token=os.environ.get('SENTINEL_GITHUB_READ_TOKEN') or os.environ.get('GH_TOKEN')))
-    if proof.get('certified_image')!=receipt['runtime_image']:
-        raise core.DeployRefused('recovery runtime differs from signed CI publication')
+    head = verify_recovery_runtime(root, env, expected_commit=receipt['git_commit'])
     if args.witness.is_symlink() or not args.witness.is_file():
         raise core.DeployRefused('immutable witness file is unavailable')
     raw_witness=args.witness.read_bytes()
@@ -121,10 +139,13 @@ def main(argv=None):
     parser.add_argument('--confirm-witness-sha256',required=True)
     parser.add_argument('--backup',required=True)
     parser.add_argument('--output',type=Path,required=True)
-    parser.add_argument('--backup-compaction', action='store_true')
+    transition = parser.add_mutually_exclusive_group()
+    for kind in ('backup-compaction', 'acquisition-guard'):
+        transition.add_argument('--' + kind, dest='kind', action='store_const', const=kind)
+    parser.set_defaults(kind='order-amount')
     args=parser.parse_args(argv)
     try:
-        execute(args, backup_compaction=args.backup_compaction);return 0
+        execute(args);return 0
     except (OSError,ValueError,core.DeployRefused,certification.CertificationVerificationRefused) as exc:
         print('REFUSED: '+str(exc),file=sys.stderr);return 2
 
