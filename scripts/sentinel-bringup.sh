@@ -37,4 +37,4 @@ phase "PAPER ACCOUNT - GET ONLY"
   --target DUAL_RUN_OBSERVATION
 
 phase "LOCAL DURABILITY + IMAGE"
-exec "$PYTHON" scripts/sentinel_bringup_install_anytime.py "$@"
+exec "$PYTHON" scripts/sentinel_bringup.py "$@"

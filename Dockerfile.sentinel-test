@@ -42,7 +42,7 @@ RUN python -c "from coverage.tracer import CTracer; print('native coverage trace
 WORKDIR /work
 COPY pytest.ini /work/pytest.ini
 COPY tests/ /work/tests/
-COPY data/sharadar/ /work/data/sharadar/
+COPY data/market-history/ /work/data/market-history/
 COPY tools/ /work/tools/
 COPY sentinel/requirements.lock /work/sentinel/requirements.lock
 # The host phase controller loads this stdlib-only companion by file path.
@@ -85,7 +85,7 @@ COPY docs/sentinel-reference-implementation/ /work/docs/sentinel-reference-imple
 # Runtime reconstruction reads COPY sources from the inspection-only repo root.
 COPY docs/sentinel-reference-implementation/ /work/repo/docs/sentinel-reference-implementation/
 COPY sentinel/ /work/repo/sentinel/
-COPY data/sharadar/ /work/repo/data/sharadar/
+COPY data/market-history/ /work/repo/data/market-history/
 COPY shared/ /work/repo/shared/
 COPY tests/requirements.lock /work/repo/tests/requirements.lock
 COPY Dockerfile.sentinel /work/repo/Dockerfile.sentinel

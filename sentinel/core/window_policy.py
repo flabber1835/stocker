@@ -1,6 +1,7 @@
 """Explicit selected production semantics, independent of broker state."""
+from sentinel import archive_identifiers
 POLICY = 'CURRENT_WINDOW_V1'
-NORMALIZATION = 'sentinel.sharadar-current-window/1'
+NORMALIZATION = archive_identifiers.NORMALIZATION
 FORMATION = 'CURRENT_WINDOW_FORMATION_V1'
 
 

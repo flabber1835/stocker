@@ -189,7 +189,7 @@ def test_one_timed_hint_does_not_hide_independent_work_or_bypass_backup(metadata
         raise backup_runtime_authority.BackupRuntimeUnavailable('no deletion without backup')
     monkeypatch.setattr(backup_runtime_authority,'require',refuse)
     assert retention.maintain(Timed())['status']=='RETRY'
-    assert calls==['plan/execution writer mutation']
+    assert calls==['private acquisition retirement']
     assert metadata.info.transaction_status.value==0
     assert metadata.execute('SELECT count(*) FROM sentinel_acquisition_parts').fetchone()[0]==1
 
@@ -199,6 +199,16 @@ def test_dropping_a_disposal_class_is_detected(metadata,monkeypatch):
     monkeypatch.setattr(retention,'_HINTS',tuple(hints))
     with pytest.raises(AssertionError,match='hidden from disposal admission'):
         test_each_disposal_class_remains_possible_work(metadata,'acquisition')
+
+
+def test_uncertain_acquisition_probe_still_admits_the_private_pass(metadata, monkeypatch):
+    metadata.execute("UPDATE sentinel_snapshot_maintenance SET diagnostic="
+                     """'{"progress":{"known_retirement_count":0,"next_class":5}}'""")
+    metadata.commit()
+    hints = list(retention._HINTS)
+    hints[5] = "1 / 0 > 0"
+    monkeypatch.setattr(retention, '_HINTS', tuple(hints))
+    assert retention._possible_work(metadata) is retention._PRIVATE_ACQUISITION
 
 
 def test_removing_the_empty_gate_is_detected(metadata,monkeypatch):

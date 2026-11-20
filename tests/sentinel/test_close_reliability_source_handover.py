@@ -51,7 +51,8 @@ def test_exact_close_successor_retains_every_historical_map():
         '5cf6e2e47cbee12020fc50665bff704010909a3601074a276af27748909186e5')
 
     actual = admission._source_files(basis.PROFILE.parent)
-    assert set(predecessor) <= set(actual)
+    removed = sorted(set(predecessor) - set(actual))
+    assert hashlib.sha256('\n'.join(removed).encode()).hexdigest() == basis.RETIRED_PATHS_SHA256
     assert basis.predecessor_view(actual, previous=predecessor) == predecessor
 
 

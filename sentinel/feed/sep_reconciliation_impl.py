@@ -7,11 +7,11 @@ stored values would permanently skip any historical correction that predates
 that guessed cursor.
 
 This module therefore proves TWO independent facts for each published calendar
-year partition against two stable current Sharadar traversals:
+year partition against two stable current Source traversals:
 
 * normalized row identity: ``(security_id, session, ticker)``;
 * the strategy-critical persisted SEP values: signal close, raw close, raw open,
-  and Sharadar-reported volume.
+  and source-reported volume.
 
 The source side is normalized through the same permanent-identity/raw-price path
 as ordinary ingest.  Numeric values are canonicalized through Decimal strings so
@@ -28,6 +28,7 @@ mismatch leaves the published corpus unchanged and keeps operation fenced until
 an explicit complete repair/new publication establishes authority.
 """
 from __future__ import annotations
+from sentinel import archive_identifiers
 
 import datetime as dt
 import hashlib
@@ -37,10 +38,10 @@ import uuid
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 
-from sentinel.feed import authority, domains, publication, sharadar, staging, store, universe
+from sentinel.feed import authority, domains, publication, archive_tables, staging, store, universe
 
-CURSOR_NAME = "sharadar-sep-keyset-reconcile:v1"
-YEARS_PER_RUN = int(os.getenv("SHARADAR_SEP_RECONCILE_YEARS_PER_RUN", "1"))
+CURSOR_NAME = archive_identifiers.FEED['KEYSET_RECONCILE']
+YEARS_PER_RUN = int(os.getenv("SENTINEL_SEP_RECONCILE_YEARS_PER_RUN", "1"))
 _MASK_256 = (1 << 256) - 1
 
 
@@ -166,7 +167,7 @@ def _load_state(conn):
     if not isinstance(state, dict) or set(state) != required:
         raise SepReconciliationStateInvalid(
             "SEP reconciliation cursor has an unknown durable shape")
-    if state.get("kind") != "sharadar-sep-keyset-reconcile/v1":
+    if state.get("kind") != archive_identifiers.FEED['KEYSET_RECONCILE_KIND']:
         raise SepReconciliationStateInvalid("SEP reconciliation cursor kind changed")
     try:
         year = int(state["last_completed_year"])
@@ -205,8 +206,8 @@ def _next_year(conn) -> tuple[int, dt.date, dt.date]:
 
 def _source_fingerprint(conn, *, fetch, start: str, end: str) -> _PartitionProof:
     """Stable vendor partition -> normalized key/value commitments + update clock."""
-    stable = authority.StableSharadarFetch(fetch, after_session=end)
-    rows = stable(sharadar.SEP, sharadar.date_params(start, end))
+    stable = authority.StableTableFetch(fetch, after_session=end)
+    rows = stable(archive_tables.SEP, archive_tables.date_params(start, end))
 
     max_updated: dt.date | None = None
 
@@ -277,7 +278,7 @@ def _local_fingerprint(conn, *, start: str, end: str) -> _PartitionProof:
 
 def _save_result(conn, result: ReconciliationResult, *, checked_on: dt.date) -> None:
     state = json.dumps({
-        "kind": "sharadar-sep-keyset-reconcile/v1",
+        "kind": archive_identifiers.FEED['KEYSET_RECONCILE_KIND'],
         "last_completed_year": result.year,
         "source_rows": result.rows,
         "source_digest": result.digest,

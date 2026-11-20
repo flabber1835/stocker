@@ -1,6 +1,8 @@
 """Cold-start material with no prior GO, checkpoint or legacy corpus."""
 from __future__ import annotations
 
+from sentinel import archive_identifiers as archive_ids
+
 import pytest
 
 from sentinel.core import rolling_inputs as inputs
@@ -19,7 +21,7 @@ def candidate(conn, *, actions=(), reference_change=None, proof_change=None, bar
                 "relatedtickers": None, "firstpricedate": str(window.start),
                 "lastpricedate": str(window.end), "isdelisted": "N"}
                for i in range(1, 26)]
-    reference = {"schema": "sentinel.rolling-sharadar-references/1",
+    reference = {"schema": archive_ids.REFERENCES_SCHEMA,
                  "tickers": tickers, "actions": list(actions)}
     if reference_change:
         reference_change(reference)

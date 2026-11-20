@@ -577,6 +577,11 @@ Require the exact 68-event transition, unchanged source, authority and prefix
 coordinates, and lock the witness and watched sources through the coverage commit.
 Transfer only the two derived signatures and inventories. An extra DDL event,
 changed command or source, stale witness, or missing pre-install proof refuses.
+The witness names the protected feed DDL that created its database. Recovery
+recognizes the two released v1 contract hashes and checks the corresponding
+catalog, views and complete function declarations directly in PostgreSQL. The signed contract
+must match on both sides of the three command ALTERs and 65 feed events.
+Historical qualification replays the released SQL on a private physical copy.
 Use the existing supervised activation after recovery. Preserve the exact signed
 PR #588 executable as an additional retained predecessor in the source profile.
 Seal the full repaired executable and keep all previous source maps and the

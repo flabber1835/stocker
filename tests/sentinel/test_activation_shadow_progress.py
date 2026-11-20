@@ -150,7 +150,7 @@ def configured_child(conn, monkeypatch, signed_owner):
     publish, _ = signed_owner
     config = SimpleNamespace(database_url=conn.info.dsn, observation_id=OBS, starting_cash=Decimal(100_000))
     monkeypatch.setattr(shadow_service.ShadowServiceConfig, 'from_env', staticmethod(lambda:config))
-    # Existing native rolling fixtures use the Sharadar historical provider; replace
+    # Existing native rolling fixtures use the archived table provider; replace
     # only this external Alpaca provider label check, retaining real input/authority proofs.
     monkeypatch.setattr(op, 'require_alpaca_openfigi', lambda *_:None)
     publish(conn.info.dsn)

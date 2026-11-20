@@ -19,7 +19,7 @@ import psycopg
 import pytest
 
 from sentinel import backed_paper_source as backed
-from sentinel import backup_runtime_authority, binding, identity, local_paper
+from sentinel import backup_runtime_authority, binding, economic_manifest, identity, local_paper
 from sentinel import rolling_checkpoint as origin, rolling_daily_checkpoint as daily
 from sentinel import rolling_runtime, runtime_admission as admission, schema, shadow_runtime
 from sentinel import structural_refactor_source_basis as structural
@@ -34,6 +34,9 @@ ORIGIN_SOURCE = 'c2950194bf6ea20bbac66d5bcf356c118e8518d4e9c9d3dda17b08ff1008000
 ORIGIN_MANIFEST_SHA = 'f8476bfe8eb8736c40604035522ada091800ad5415131137d6f38d4aafd76226'
 ACCOUNT = 'PABACKEDSOURCETEST'
 ORIGIN_WEALTH_SOURCE = '8395c6af9c82c0c54e339d199edc3becdb80b4179d639319ef0b1570a7753b71'
+RELEASE_612 = '5a5331d435705f23d2b6d6228a6ec8fda8c94979'
+RELEASE_612_SOURCE = '1d0a33e3a6b3d31b754f5f72a12657cca7f04a84ed1bad4131dda1326001fa06'
+INSTALLED_WEALTH_SOURCE = 'af64a148dec7adc1c17b779b5b80cca4f34e54271959cfd459fe7d5ac8e0daf8'
 PERFORMANCE_WEALTH_SOURCE = 'a744170c805095ab1f1f19a1b7fb89984edc33648f123cfa390d23f5163ea96a'
 
 
@@ -149,18 +152,18 @@ def performance_handover(handover, tmp_path, monkeypatch):
     profile = performance._profile()
     member = profile['modules']['stock_strategy_shared.wealth_core.feed']
     assert len(actual) == 28
-    assert actual['feed.py'] == member['after']
+    prior_feed = economic_manifest.previous_source('stock_strategy_shared.wealth_core.feed',
+                                                 (root / 'feed.py').read_bytes())
+    assert hashlib.sha256(prior_feed).hexdigest() == member['after']
     assert member['before'] == 'afa9324811921271a139500764aee19b85dec96f9a499d392c12f25f97e6ee32'
-    predecessor = {**actual, 'feed.py': member['before']}
-    # Both complete-package constants were independently exported from Git.
-    assert admission.source_closure(predecessor) == ORIGIN_WEALTH_SOURCE
-    assert admission.source_closure(actual) == PERFORMANCE_WEALTH_SOURCE
-    assert performance.wealth_core_source_hash(root)['hash'] == ORIGIN_WEALTH_SOURCE
+    # Raw installed tree and the independently exported October tree cover every member.
+    assert admission.source_closure(actual) == INSTALLED_WEALTH_SOURCE
+    assert economic_manifest.wealth_core_source_hash(root)['hash'] == ORIGIN_WEALTH_SOURCE
     monkeypatch.setattr(identity, '_imported_package_root', lambda name:
         root if name == 'stock_strategy_shared.wealth_core' else package_reader(name))
     case.wealth_root = root
     case.source['environment']['wealth_core_source'] = identity.source_hash(root)
-    case.context['runtime']['wealth_core_source_sha256'] = PERFORMANCE_WEALTH_SOURCE
+    case.context['runtime']['wealth_core_source_sha256'] = INSTALLED_WEALTH_SOURCE
     _rebind_current(case, case.root)
     _rebind_origin(case, wealth_core_hash=ORIGIN_WEALTH_SOURCE)
     return case
@@ -171,15 +174,77 @@ def _prove(case):
         case.context, source=case.source)
 
 
+@pytest.fixture
+def release_612_handover(performance_handover):
+    from sentinel.url_selected_source_basis import _profile
+    case = performance_handover
+    files = dict(_profile()['retained_predecessors'][RELEASE_612]['files'])
+    assert len(files) == 500 and admission.source_closure(files) == RELEASE_612_SOURCE
+    case.manifest = {'schema': 'sentinel.retained-source-manifest/1', 'revision': RELEASE_612,
+                     'files': files, 'seam_sources': {}}
+    _rebind_origin(case, wealth_core_hash=PERFORMANCE_WEALTH_SOURCE)
+    return case
+
+
+def test_actual_612_upgrade_matches_both_complete_packages_and_environment(release_612_handover):
+    case = release_612_handover
+    assert _prove(case) == digest(case.manifest)
+    assert case.source['environment']['wealth_core_source'] == identity.source_hash(case.wealth_root)
+    assert case.context['runtime']['wealth_core_source_sha256'] == INSTALLED_WEALTH_SOURCE
+    assert case.checkpoint.runtime_identity['wealth_core_source_sha256'] == PERFORMANCE_WEALTH_SOURCE
+
+
+def test_an_earlier_release_with_the_same_package_uses_its_own_sentinel_manifest(release_612_handover):
+    from sentinel.url_selected_source_basis import _profile
+    case = release_612_handover
+    revision = '0f26fdb21123ae8677b933bcbc71250715cfcff5'
+    files = _profile()['retained_predecessors'][revision]['files']
+    assert admission.source_closure(files) == '522fc3adfb1889179c7ffa6a0341a909ec3adb34a6d898a6264e743b797ce7a4'
+    case.manifest.update(revision=revision, files=files)
+    _rebind_origin(case, wealth_core_hash=PERFORMANCE_WEALTH_SOURCE)
+    assert _prove(case) == digest(case.manifest)
+
+
+@pytest.mark.parametrize('defect', ['neighbor', 'missing', 'extra', 'revision', 'sentinel_map',
+                                    'package_hash', 'environment', 'mode', 'unbacked', 'live',
+                                    'attestation', 'context'])
+def test_612_upgrade_refuses_unqualified_neighbors_and_sources(release_612_handover, monkeypatch, defect):
+    case = release_612_handover
+    if defect in {'neighbor', 'missing', 'extra'}:
+        return test_unknown_complete_wealth_package_refuses_even_with_actual_attestation(case, defect)
+    if defect == 'mode':
+        monkeypatch.delenv(local_paper.MODE_ENV)
+    elif defect == 'unbacked':
+        monkeypatch.delenv(local_paper.BACKUP_POLICY_ENV)
+    elif defect == 'live':
+        monkeypatch.setenv('ALPACA_BASE_URL', 'https://api.alpaca.markets')
+    elif defect == 'attestation':
+        case.source['environment']['wealth_core_source']['hash'] = PERFORMANCE_WEALTH_SOURCE
+    elif defect == 'context':
+        case.context['runtime']['wealth_core_source_sha256'] = PERFORMANCE_WEALTH_SOURCE
+    elif defect == 'environment':
+        case.source['environment']['dependencies'] = 'changed environment'
+        _rebind_current(case, case.root)
+    else:
+        if defect == 'revision':
+            case.manifest['revision'] = 'f' * 40
+        elif defect == 'sentinel_map':
+            case.manifest['files']['core/kernel.py'] = 'f' * 64
+        _rebind_origin(case, wealth_core_hash=(
+            ORIGIN_WEALTH_SOURCE if defect == 'package_hash' else PERFORMANCE_WEALTH_SOURCE))
+    with pytest.raises(admission.Refused):
+        _prove(case)
+
+
 def test_actual_unequal_wealth_package_composes_without_rewriting_attestations(performance_handover):
     case = performance_handover
     before = deepcopy((case.source, case.context, case.checkpoint.model_dump(by_alias=True)))
     assert _prove(case) == digest(admission.SourceManifest.model_validate(
         case.manifest).model_dump(by_alias=True))
     assert (case.source, case.context, case.checkpoint.model_dump(by_alias=True)) == before
-    assert identity.source_hash(case.wealth_root)['hash'] == PERFORMANCE_WEALTH_SOURCE
-    assert case.source['environment']['wealth_core_source']['hash'] == PERFORMANCE_WEALTH_SOURCE
-    assert case.context['runtime']['wealth_core_source_sha256'] == PERFORMANCE_WEALTH_SOURCE
+    assert identity.source_hash(case.wealth_root)['hash'] == INSTALLED_WEALTH_SOURCE
+    assert case.source['environment']['wealth_core_source']['hash'] == INSTALLED_WEALTH_SOURCE
+    assert case.context['runtime']['wealth_core_source_sha256'] == INSTALLED_WEALTH_SOURCE
     assert case.checkpoint.runtime_identity['wealth_core_source_sha256'] == ORIGIN_WEALTH_SOURCE
 
 
@@ -222,7 +287,7 @@ def test_wealth_attestation_cannot_substitute_the_historical_hash(performance_ha
     # The old literal must not skip the unequal-package proof while the actual
     # current process still declares the reviewed candidate's different hash.
     case.source['environment']['wealth_core_source']['hash'] = ORIGIN_WEALTH_SOURCE
-    assert case.context['runtime']['wealth_core_source_sha256'] == PERFORMANCE_WEALTH_SOURCE
+    assert case.context['runtime']['wealth_core_source_sha256'] == INSTALLED_WEALTH_SOURCE
     with pytest.raises(admission.Refused, match='^RETAINED_SOURCE_CLOSURE_CHANGED$'):
         _prove(case)
 
@@ -448,7 +513,7 @@ def test_mechanical_decision_edge_accepts_only_the_reviewed_complete_ast(handove
     old = handover.manifest['seam_sources']['core/decision.py'].encode()
     current = (handover.root / 'core/decision.py').read_bytes()
     from sentinel.fractional_execution_source_basis import decision_predecessor
-    current = decision_predecessor(current)
+    current = decision_predecessor(economic_manifest.previous_source('sentinel.core.decision', current))
     assert scope.decision_compatible(old, current)
     changes = [
         (b'if negative:', b'if False:'),
@@ -479,7 +544,7 @@ def test_isolated_mechanical_ast_reversal_keeps_every_other_statement(handover):
     old = handover.manifest['seam_sources']['core/decision.py'].encode()
     current = (handover.root / 'core/decision.py').read_bytes()
     from sentinel.fractional_execution_source_basis import decision_predecessor
-    current = decision_predecessor(current)
+    current = decision_predecessor(economic_manifest.previous_source('sentinel.core.decision', current))
     assert backed._reverse_decision(old, current)
     held_member = b'    "sentinel.execution.held_targets",\n'
     retained = b'        retained_targets: Mapping[str, Decimal] | None = None,\n'
@@ -603,6 +668,8 @@ def boundary(conn, handover, monkeypatch, request):
     selected = getattr(request, 'param', False)
     if selected == 'performance':
         handover = request.getfixturevalue('performance_handover')
+    elif selected == 'release612':
+        handover = request.getfixturevalue('release_612_handover')
     elif selected:
         _use_current_strategy_with_synthetic_prior_semantics(handover)
     monkeypatch.setenv('SENTINEL_PUBLICATION_RECEIPT_KEY', 'backed-source-boundary-test-key-' * 4)
@@ -668,10 +735,11 @@ def _book_tripwire(monkeypatch):
     monkeypatch.setattr(rolling_runtime, '_closure', reached)
 
 
-@pytest.mark.parametrize('boundary', ['performance'], indirect=True)
+@pytest.mark.parametrize('boundary', ['performance', 'release612'], indirect=True)
 def test_real_wealth_package_admission_commits_and_authenticates_without_rewriting_origin(
         boundary, monkeypatch):
     case = boundary
+    origin_wealth = PERFORMANCE_WEALTH_SOURCE if case.manifest['revision'] == RELEASE_612 else ORIGIN_WEALTH_SOURCE
     _bind(case)
     before_origin = origin.read(case.conn).model_dump(by_alias=True)
     before_context = deepcopy(case.context)
@@ -680,12 +748,12 @@ def test_real_wealth_package_admission_commits_and_authenticates_without_rewriti
         # Book formation and physical durability have their own qualifications.
         # Only those explicit fixture interfaces are synthetic; source proof,
         # disabled/killed control, account, writer, CAS, SQL and HMAC stay native.
-        assert context['runtime']['wealth_core_source_sha256'] == ORIGIN_WEALTH_SOURCE
+        assert context['runtime']['wealth_core_source_sha256'] == origin_wealth
         calls.append(context['runtime']['sentinel_source_sha256'])
     monkeypatch.setattr(rolling_runtime, '_closure', synthetic_book)
     monkeypatch.setattr(admission.publication, '_publication_recovery_target', lambda _: {})
     value = admission.admit(case.conn, context=case.context, manifest=case.manifest)
-    assert calls == [ORIGIN_SOURCE]
+    assert calls == [admission.source_closure(case.manifest['files'])]
     assert value.process_sha256 == digest(admission.process_binding(case.context['runtime']))
     checkpoint = origin.read(case.conn)
     assert checkpoint.model_dump(by_alias=True) == before_origin
@@ -695,13 +763,14 @@ def test_real_wealth_package_admission_commits_and_authenticates_without_rewriti
     assert stored['admission'] == value.model_dump(by_alias=True)
     assert stored['hmac_sha256'] == admission._signature(stored['admission'])
     assert case.context == before_context
-    assert case.context['runtime']['wealth_core_source_sha256'] == PERFORMANCE_WEALTH_SOURCE
-    assert checkpoint.runtime_identity['wealth_core_source_sha256'] == ORIGIN_WEALTH_SOURCE
+    assert case.context['runtime']['wealth_core_source_sha256'] == INSTALLED_WEALTH_SOURCE
+    assert checkpoint.runtime_identity['wealth_core_source_sha256'] == origin_wealth
 
 
-@pytest.mark.parametrize('boundary', ['performance'], indirect=True)
+@pytest.mark.parametrize('boundary', ['performance', 'release612'], indirect=True)
 def test_real_wealth_package_persisted_admission_rechecks_the_current_account(boundary, monkeypatch):
     case = boundary
+    origin_wealth = PERFORMANCE_WEALTH_SOURCE if case.manifest['revision'] == RELEASE_612 else ORIGIN_WEALTH_SOURCE
     _bind(case)
     # Explicit synthetic book/recovery interfaces match the existing boundary
     # tests; the unequal package proof and native durable admission remain real.
@@ -716,8 +785,8 @@ def test_real_wealth_package_persisted_admission_rechecks_the_current_account(bo
     assert case.conn.execute('SELECT count(*) FROM sentinel_processed_sessions '
         'WHERE cursor_name=%s', (admission._key(case.context),)).fetchone()[0] == 1
     assert binding.require(case.conn).broker_account_id == 'PAFOREIGN'
-    assert case.context['runtime']['wealth_core_source_sha256'] == PERFORMANCE_WEALTH_SOURCE
-    assert origin.read(case.conn).runtime_identity['wealth_core_source_sha256'] == ORIGIN_WEALTH_SOURCE
+    assert case.context['runtime']['wealth_core_source_sha256'] == INSTALLED_WEALTH_SOURCE
+    assert origin.read(case.conn).runtime_identity['wealth_core_source_sha256'] == origin_wealth
 
 
 @pytest.mark.parametrize('existing', [False, True], ids=['new', 'existing'])

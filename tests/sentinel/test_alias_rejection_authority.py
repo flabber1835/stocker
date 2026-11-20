@@ -11,7 +11,7 @@ from test_concurrent_source_symbols import DAY, source
 
 def projected(*, healed=False):
     data, fetch, _ = source()
-    guard = source_authority.StableSharadarFetch(fetch, seed_mode=True)
+    guard = source_authority.StableTableFetch(fetch, seed_mode=True)
     guard.preflight_seed_identity(tickers=data["tickers"], fetch=fetch, date_from=DAY, date_to=DAY)
     if healed:
         data, _, _ = source(healed=True)
@@ -104,7 +104,7 @@ def test_mutation_paths_share_the_same_explicit_exclusion_and_keep_unknowns_refu
     assert not source_aliases.excludes(identity.resolver(), "UNOBSERVED")
     with pytest.raises(identity_refresh.SepMutationIdentityRefused):
         cdc([dict(rows[0], ticker="UNOBSERVED")])
-    with pytest.raises(identity_refresh.maintenance_impl.SharadarMutationRefused, match="positive raw close"):
+    with pytest.raises(identity_refresh.maintenance_impl.SourceMutationRefused, match="positive raw close"):
         cdc([dict(next(r for r in rows if r["ticker"] == "OCLT"), closeunadj=0)])
     healed_data, _, _ = source(healed=True)
     healed = symbol_identity.SymbolProjection(healed_data["tickers"], healed_data["actions"], through=DAY)
@@ -123,7 +123,7 @@ def test_new_daily_contradiction_requires_retained_replay_before_publication():
     from sentinel.feed import coherence
     data, _, _ = source()
     identity = symbol_identity.SymbolProjection(data["tickers"], data["actions"], through=DAY)
-    guard = coherence.StableSharadarFetch(lambda *_a, **_k: (), after_session="2026-09-10")
+    guard = coherence.StableTableFetch(lambda *_a, **_k: (), after_session="2026-09-10")
     guard.identity_projection = identity
     guard._tickers_listings = tuple(universe.listings_from_rows((*identity.rows, *identity.alias_rows)))
     with pytest.raises(universe.HistoricalIdentityMutation, match="retained history replay"):
@@ -139,7 +139,7 @@ def test_daily_tolerance_cannot_replace_a_native_unit_with_its_unanchored_share(
     identity = symbol_identity.SymbolProjection(data["tickers"], data["actions"], through=DAY,
                                                 alias_rejections=payload)
     rows = [row for row in data["sep"] if not missing_native or row["ticker"] != "OCLTU"]
-    guard = coherence.StableSharadarFetch(lambda *_a, **_k: (), after_session="2026-09-10")
+    guard = coherence.StableTableFetch(lambda *_a, **_k: (), after_session="2026-09-10")
     guard.identity_projection = identity
     guard._tickers_listings = tuple(universe.listings_from_rows(identity.rows))
     # The generic population rule permits this one absent label. The identity

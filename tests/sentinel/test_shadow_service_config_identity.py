@@ -10,7 +10,7 @@ import pickle
 
 import pytest
 
-from sentinel import shadow_service_config as config
+from sentinel import archive_identifiers, shadow_service_config as config
 from sentinel import shadow_exit_codes as codes
 from sentinel.feed.observation_timing import POLICY
 
@@ -49,6 +49,12 @@ def _definitions(text):
 
 
 def _assert_original(text):
+    # Project only the two reviewed spellings in the historical comparison.
+    key = "archive_identifiers.RETIRED_CREDENTIAL"
+    reason = "Historical feed credentials are forbidden in operational shadow"
+    assert text.count(key) == text.count(reason) == 1, "canonical config/error/env validation changed"
+    text = text.replace(key, json.dumps(archive_identifiers.RETIRED_CREDENTIAL))
+    text = text.replace(reason, archive_identifiers.PROVIDER.title() + " credentials are forbidden in operational shadow")
     definitions=_definitions(text)
     actual={name:hashlib.sha256(json.dumps(_canonical(definitions[name]),
         sort_keys=True,separators=(',',':')).encode()).hexdigest() for name in ORIGINAL}
@@ -59,9 +65,14 @@ def test_config_errors_and_env_guards_are_exact_original_ast():
     _assert_original(Path(config.__file__).read_text())
 
 
-def test_removed_config_guard_is_detected():
+@pytest.mark.parametrize("original,changed", [
+    ("if leaked:", "if False:"),
+    ("archive_identifiers.RETIRED_CREDENTIAL", "'unrelated_key'"),
+    ("Historical feed credentials are forbidden", "Credentials are permitted"),
+])
+def test_removed_config_guard_is_detected(original, changed):
     source=Path(config.__file__).read_text()
-    broken=source.replace('if leaked:','if False:',1)
+    broken=source.replace(original, changed, 1)
     assert broken!=source
     with pytest.raises(AssertionError,match='validation changed'):_assert_original(broken)
 

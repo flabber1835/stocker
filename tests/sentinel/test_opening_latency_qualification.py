@@ -1,4 +1,6 @@
 """The profiler must refuse production access before verifier execution."""
+
+from sentinel import archive_identifiers as archive_ids
 from argparse import Namespace
 from contextlib import nullcontext
 import json
@@ -34,7 +36,7 @@ def test_target_requires_distinct_named_private_physical_cluster(change):
 
 
 @pytest.mark.parametrize("name", ["ALPACA_API_KEY", "ALPACA_SECRET_KEY", "OPENFIGI_API_KEY",
-                                    "SHARADAR_API_KEY", "NDL_API_KEY", "REHEARSAL_PRODUCTION_DATABASE_URL"])
+                                    archive_ids.RETIRED_CREDENTIAL, "NDL_API_KEY", "REHEARSAL_PRODUCTION_DATABASE_URL"])
 def test_credentials_or_production_connection_environment_refuses(name):
     with pytest.raises(tool.QualificationRefused, match="ENVIRONMENT_PRESENT"):
         tool.require_environment({name: "secret", "SENTINEL_IMAGE_SOURCE_REVISION": "a" * 40},
@@ -218,17 +220,17 @@ def test_defensive_asset_uses_explicit_provider_metadata_and_retained_price():
         fixture_assets(plan, {**proof, "marks": {}}, resolver, metadata)
 
 
-def test_sharadar_metadata_still_requires_canonical_symbol_resolution():
+def test_archived_metadata_still_requires_canonical_symbol_resolution():
     from decimal import Decimal
     from tools.opening_gateway_qualification import fixture_assets
     plan = SimpleNamespace(target_basket={"canonical": Decimal(2)},
                            target_exposure=Decimal(1), opening_intents=())
     proof = {"marks": {"canonical": "10"}, "tickers": {"canonical": "AAA"}}
     metadata = {"canonical": {"id": "fixture-broker-id", "symbol": "AAA"}}
-    resolver = fixture_resolver({"AAA": "canonical"}, {}, provider="SHARADAR")
+    resolver = fixture_resolver({"AAA": "canonical"}, {}, provider=archive_ids.PROVIDER)
     assert fixture_assets(plan, proof, resolver, metadata)["AAA"]["id"] == "fixture-broker-id"
     with pytest.raises(tool.QualificationRefused, match="SOURCE_IDENTITY_MISMATCH"):
-        fixture_assets(plan, proof, fixture_resolver({"AAA": "other"}, {}, provider="SHARADAR"), metadata)
+        fixture_assets(plan, proof, fixture_resolver({"AAA": "other"}, {}, provider=archive_ids.PROVIDER), metadata)
 
 
 def test_metadata_cannot_override_source_bound_stock_id():

@@ -149,7 +149,10 @@ def validate_restored_database(conn) -> dict:
         conn)
     account = binding.load(conn)
     control = automation_store.load_control(conn)
-    latest = journal.latest_plan(conn)
+    try:
+        latest = journal.latest_plan(conn)
+    except journal.PlanAuthorityMissing as exc:
+        raise RestoreValidationRefused(f"restored current plan is ambiguous or invalid: {exc}") from exc
     resumed = catchup.resume_state(conn)
     rolling = _rolling_closure(conn)
     verifications = trial.load_verifications(conn)
@@ -204,6 +207,24 @@ def validate_restored_database(conn) -> dict:
         baselines.append((name, plan_id))
     if not posting_plans <= {plan_id for _, plan_id in baselines}:
         raise RestoreValidationRefused("cash posting observation has no plan baseline")
+    prefixes = {}
+    if cash_activity is not None and cash_activity.membership_root is not None:
+        try:
+            prefixes = broker_cash.membership_prefixes(
+                conn, cash_activity.broker, cash_activity.account_id, cash_activity.membership_root)
+            ledger = dict(broker_cash.capture_activity_membership(conn, activity_state=cash_activity))
+        except broker_cash.BrokerCashAuthorityRefused as exc:
+            raise RestoreValidationRefused(f"restored cash membership is invalid: {exc}") from exc
+        if ledger != prefixes[cash_activity.membership_root]:
+            raise RestoreValidationRefused("restored cash ledger differs from its immutable membership")
+
+    def verified_members(broker, account_id, root):
+        if cash_activity is None or (broker, account_id) != (cash_activity.broker, cash_activity.account_id):
+            raise RestoreValidationRefused("restored membership has no matching account cash cursor")
+        if root not in prefixes:
+            raise RestoreValidationRefused("restored plan membership is outside the account cash chain")
+        return prefixes[root]
+
     for batch in batched(baselines, 32):
         with conn.cursor() as cur:
             cur.execute("SELECT cursor_name,session,state FROM sentinel_processed_sessions"
@@ -213,7 +234,7 @@ def validate_restored_database(conn) -> dict:
             if name not in rows:
                 raise RestoreValidationRefused(
                     f"cash baseline for plan {plan_id!r} vanished during validation")
-            baseline = broker_cash.decode_plan_baseline(plan_id, rows[name])
+            baseline = broker_cash.decode_plan_baseline(plan_id, rows[name], read_members=verified_members)
             if baseline.pending_postings or plan_id in posting_plans:
                 try:
                     cash_postings.verify_restored_postings(conn, baseline=baseline, activity=cash_activity,

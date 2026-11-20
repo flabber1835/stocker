@@ -330,8 +330,10 @@ def test_current_test_authority_keeps_same_workflow_dependency_binding():
     assert result["carrier_job"] == "certification-and-durability"
     assert result["temporal_binding"] == "all lanes bound to the same workflow run, attempt, source and images"
     assert len(result["parallel_certification"]["suite_lanes"]) == 23
-    assert not (ROOT / ".github/workflows/sharadar-daily-replay.yml").exists()
-    assert "sharadar.daily-replay" not in load_authority()["owners"]
+    registry = json.loads((ROOT / "scripts/go-archive-format-v1.json").read_bytes())
+    retired = registry["retired_api_key"].split("_", 1)[0].lower()
+    assert not (ROOT / ".github/workflows" / (retired + "-daily-replay.yml")).exists()
+    assert retired + ".daily-replay" not in load_authority()["owners"]
 
 
 def test_merge_authority_rejects_commented_disabled_and_masked_current_owner_evidence():

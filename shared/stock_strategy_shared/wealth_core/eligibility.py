@@ -58,9 +58,9 @@ def is_common_equity(category: str | None) -> bool:
         AND NOT contains "Warrant"
         AND NOT contains "Preferred"
 
-    Substring matching on the raw Sharadar category, deliberately — it admits
+    Substring matching on the raw listing category, deliberately — it admits
     both "Domestic Common Stock" and "ADR Common Stock" without this module
-    having to enumerate every category string Sharadar has ever emitted, and a
+    having to enumerate every historical category string, and a
     new one containing "Preferred" is excluded automatically rather than
     silently admitted as OTHER.
     """
@@ -113,7 +113,7 @@ class EligibilityInput:
     """
     security_id: str                    # permanent security identifier
     ticker: str
-    category: str | None                # RAW Sharadar TICKERS.category, retained
+    category: str | None                # raw TICKERS.category, retained
     issuer_group_key: str | None
     issuer_key_source: str | None       # RELATEDTICKERS | PERMATICKER
     listed_on_session: bool
@@ -128,7 +128,7 @@ class EligibilityInput:
     # have. None = the caller could not determine it, treated as a gap.
     history_contiguous: bool | None = None
     terminal_state: TerminalState = TerminalState.NORMAL
-    # OPTIONAL future metadata ONLY. Sharadar does not carry it and the certified
+    # OPTIONAL future metadata ONLY. The historical table omits it and the certified
     # prototype did not use it, so nothing in certified mode may read it — proven
     # by a test rather than promised in a comment.
     is_primary_listing: bool | None = None
@@ -229,7 +229,7 @@ def build_issuer_group_key(ticker: str, related_tickers: Sequence[str] | None,
         else:                 key = "P:" + permaticker
 
     Returns (issuer_group_key, issuer_key_source). Sorting is what makes the key
-    independent of the order Sharadar happened to list the related tickers in —
+    independent of the order the source listed the related tickers in —
     without it the same issuer would produce different keys on different rows and
     the conflict check would silently stop working.
 

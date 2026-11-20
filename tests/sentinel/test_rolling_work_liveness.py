@@ -50,7 +50,7 @@ def test_real_work_renews_only_live_owned_job(conn, issuer_source, monkeypatch, 
         finally:
             active[0] = None
 
-    seal, validate, corroborate = rolling_store.seal, op.validate, rolling_source.SharadarSource.corroborate
+    seal, validate, corroborate = rolling_store.seal, op.validate, rolling_source.ArchiveSource.corroborate
     def sealing(*a, **kw):
         with stage("seal"):
             return seal(*a, **kw)
@@ -66,7 +66,7 @@ def test_real_work_renews_only_live_owned_job(conn, issuer_source, monkeypatch, 
             return append(*a, **kw)
     monkeypatch.setattr(rolling_store, "seal", sealing)
     monkeypatch.setattr(op, "validate", validating)
-    monkeypatch.setattr(rolling_source.SharadarSource, "corroborate", corroborating)
+    monkeypatch.setattr(rolling_source.ArchiveSource, "corroborate", corroborating)
     monkeypatch.setattr(action_history, "append", publishing)
     fold = rolling_store._fold
     damaged = [False]

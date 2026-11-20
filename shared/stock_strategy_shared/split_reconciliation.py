@@ -1,6 +1,6 @@
 """Shared split semantics for production and canonical replay.
 
-Sharadar documents ``split`` as the stock-split new-float/old-float ratio and
+The table contract defines ``split`` as the stock-split new-float/old-float ratio and
 ``adrratiosplit`` as a separate ADR ratio-change action. Only the former is a
 listed-instrument share multiplier. SEP's split-adjusted and unadjusted close
 domains independently corroborate that multiplier.
@@ -18,7 +18,7 @@ from typing import Mapping
 
 
 SPLIT_AGREEMENT_TOLERANCE = 0.01
-# Sharadar SEP prices are delivered to a mill. Half a mill is therefore the
+# Archived SEP prices are delivered to a mill. Half a mill is therefore the
 # maximum rounding displacement of each observed endpoint.
 SPLIT_PRICE_QUANTUM = 0.001
 # Used only to decide whether price-only evidence constitutes a split event.

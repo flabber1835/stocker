@@ -45,16 +45,13 @@ if target in {
     print("fixture preflight: PASS")
     raise SystemExit(0)
 
-if target != "sentinel_bringup_install_anytime.py":
+if target != "sentinel_bringup.py":
     raise SystemExit("unexpected bring-up Python target: " + target)
 
 sys.path.insert(0, str(root / "scripts"))
-import sentinel_bringup_install_anytime as overlay
-
-base = overlay.base
+import sentinel_bringup as base
 fake_env = dict(os.environ)
 fake_env.update({
-    "SHARADAR_API_KEY": "fixture-sharadar",
     "SENTINEL_POSTGRES_PASSWORD": "fixture-postgres",
     "SENTINEL_BACKUP_DIR": "/tmp/sentinel-fixture-backup",
     "SENTINEL_GO_LOCK_HELD": "1",
@@ -71,35 +68,8 @@ base._backup_checkpoint = (
 base._runtime_for_commit = (
     lambda _runner, **_kwargs: "sha256:" + "1" * 64)
 
-if scenario == "source_refused":
-    report = {
-        "status": "REFUSED",
-        "reason_code": "SHARADAR_LIVENESS_UNAVAILABLE",
-        "detail": "fixture source refusal",
-    }
-elif scenario == "local_recovery":
-    report = {
-        "status": "RECOVERY_REQUIRED",
-        "reason_code": "LOCAL_DATA_PREPARATION_REQUIRED",
-        "local_followup": ["SEP_CURSOR_MISSING"],
-        "source_rows": 10,
-    }
-elif scenario == "source_final":
-    report = {
-        "status": "PASS",
-        "reason_code": "SHARADAR_LIVENESS_OK",
-        "source_rows": 10,
-    }
-else:
-    report = {
-        "status": "DEFERRED",
-        "reason_code": "SHARADAR_SOURCE_NOT_FINAL",
-        "source_rows": 10,
-    }
-base._source_liveness_report = lambda *_args, **_kwargs: dict(report)
-overlay.install()
 sys.argv = [str(root / "scripts" / target)] + sys.argv[2:]
-raise SystemExit(overlay.main())
+raise SystemExit(base.main())
 '''
 
 
@@ -111,7 +81,6 @@ def _run(tmp_path: Path, scenario: str, *args: str):
     env_file.write_text(
         "SENTINEL_POSTGRES_PASSWORD=fixture-postgres\n"
         "SENTINEL_BACKUP_DIR=/tmp/sentinel-fixture-backup\n"
-        "SHARADAR_API_KEY=fixture-sharadar\n"
         "ALPACA_API_KEY=fixture-alpaca\n"
         "ALPACA_SECRET_KEY=fixture-alpaca-secret\n"
         "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL=https://alerts.example.invalid/fixture\n",

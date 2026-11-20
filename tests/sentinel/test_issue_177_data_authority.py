@@ -5,7 +5,7 @@ import datetime as dt
 import pytest
 
 from sentinel.feed import authority as A
-from sentinel.feed import sharadar
+from sentinel.feed import archive_tables
 
 
 def _sep(day: str, n: int, *, missing: str | None = None):
@@ -72,7 +72,7 @@ def test_zero_volume_is_observed_data_not_a_missing_publication_domain():
     for row in rows:
         row["volume"] = 0
     # A zero-volume security can be ineligible later. The publication detector
-    # answers a different question: did Sharadar expose the strategy-critical
+    # answers a different question: did the source expose the strategy-critical
     # field? Conflating the two would make authority depend on portfolio rules.
     A.assert_frontier_domains(A.observe_sep(rows))
 
@@ -104,20 +104,20 @@ def test_moving_actions_are_refused_before_protected_sep_can_replay():
 
     def fetch(table, params=None, **kwargs):
         nonlocal action_calls
-        if table == sharadar.ACTIONS:
+        if table == archive_tables.ACTIONS:
             action_calls += 1
             return [] if action_calls == 1 else [prior]
-        assert table == sharadar.SEP
+        assert table == archive_tables.SEP
         return _sep("2026-08-18", 100)
 
-    guarded = A.StableSharadarFetch(fetch)
+    guarded = A.StableTableFetch(fetch)
     # The first response may populate a PENDING candidate. It is not authority:
     # the second observation is delayed across a full SEP traversal and must
     # agree before any protected SEP row can be handed to the ingest/publisher.
-    assert guarded(sharadar.ACTIONS, {"date.gte": "2026-08-01",
+    assert guarded(archive_tables.ACTIONS, {"date.gte": "2026-08-01",
                                       "date.lte": "2026-08-18"}) == []
     with pytest.raises(A.VendorPublicationUnstable):
-        guarded(sharadar.SEP, {"date.gte": "2026-08-01",
+        guarded(archive_tables.SEP, {"date.gte": "2026-08-01",
                                "date.lte": "2026-08-18"})
     assert action_calls == 2
 
@@ -127,12 +127,12 @@ def test_stable_fetch_refuses_moving_sep_before_replay():
 
     def fetch(table, params=None, **kwargs):
         nonlocal calls
-        assert table == sharadar.SEP
+        assert table == archive_tables.SEP
         calls += 1
         return _sep("2026-08-18", 85 if calls == 1 else 100)
 
-    guarded = A.StableSharadarFetch(fetch)
+    guarded = A.StableTableFetch(fetch)
     with pytest.raises(A.VendorPublicationUnstable):
-        guarded(sharadar.SEP, {"date.gte": "2026-08-01",
+        guarded(archive_tables.SEP, {"date.gte": "2026-08-01",
                                "date.lte": "2026-08-18"})
     assert calls == 2

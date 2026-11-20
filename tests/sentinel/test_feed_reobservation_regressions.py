@@ -107,7 +107,7 @@ def test_failed_sep_candidate_retries_on_vendor_clock_when_cursor_leads_market(
         ingest.identity_refresh, "PinnedInitialTickersFetch",
         lambda fetch, _rows: fetch)
     monkeypatch.setattr(
-        ingest.source_authority, "StableSharadarFetch",
+        ingest.source_authority, 'StableTableFetch',
         lambda fetch, **_kwargs: fetch)
     monkeypatch.setattr(
         ingest.recovery, "extended_overlap_days",
@@ -136,7 +136,7 @@ def test_failed_sep_candidate_retries_on_vendor_clock_when_cursor_leads_market(
     assert got is progress
     assert reconcile_calls == [(
         production_fetch, source_day.isoformat(), True)]
-    assert identity_reads == [(ingest.sharadar.ACTIONS, {
+    assert identity_reads == [(ingest.archive_tables.ACTIONS, {
         "action": "tickerchangeto,tickerchangefrom",
         "date.gte": "1900-01-01",
         "date.lte": market_day.isoformat(),

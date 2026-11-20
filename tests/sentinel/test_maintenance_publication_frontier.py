@@ -3,7 +3,7 @@ import datetime as dt
 
 import pytest
 
-from sentinel.feed import actions_reconcile_v7, calendar, maintenance, sharadar
+from sentinel.feed import actions_reconcile_v7, calendar, maintenance, archive_tables
 from sentinel.feed import publication as P
 from sentinel.feed import store as S
 import test_action_lifecycle as fixtures
@@ -25,7 +25,7 @@ def test_historical_repair_preserves_the_published_frontier(conn, repair):
                    action="split", value=2.0, contraticker=None)]
 
     def fetch(table, params=None):
-        assert table == sharadar.SEP
+        assert table == archive_tables.SEP
         params = params or {}
         return [dict(row) for row in prices
                 if all(params.get(field + ".gte", "0000-00-00") <= row[field]

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from sentinel import archive_identifiers as archive_ids
+
 import io
 import os
 from pathlib import Path
@@ -40,7 +42,7 @@ def test_run_guarded_redacts_actual_secrets_on_stdout_and_stderr(monkeypatch, ca
         guard.go,
         "merged_environment",
         lambda: {
-            "SHARADAR_API_KEY": secret,
+            archive_ids.RETIRED_CREDENTIAL: secret,
             "SENTINEL_POSTGRES_PASSWORD": "",
         },
     )

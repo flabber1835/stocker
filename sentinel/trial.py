@@ -11,6 +11,7 @@ normal startup either mutate or reject the catalog.  See the design contract in
 ``docs/sentinel-trial-verification.md``.
 """
 from __future__ import annotations
+from sentinel import archive_identifiers
 
 import hashlib
 import json
@@ -396,7 +397,7 @@ def _expected_effective_equity_dividends(
     from sentinel.core.decision import DEFENSIVE_SECURITY_ID
     from sentinel.core.terminal import DIVIDEND_ACTIONS
     from sentinel.feed import calendar, publication
-    from stock_strategy_shared.wealth_core.sharadar_domains import (
+    from stock_strategy_shared.wealth_core.price_domains import (
         raw_dividend_per_share)
 
     wanted = effective_session.isoformat()
@@ -522,7 +523,7 @@ def _expected_effective_equity_dividends(
             "amount": str(shares * per_share),
             "reported_per_share": str(reported_per_share),
             "source_row_ids": sorted(source_ids),
-            "source": "PUBLISHED_NORMALISED_BAR_AND_SHARADAR_ACTIONS",
+            "source": archive_identifiers.TRIAL_NORMALIZED_ACTIONS,
             **({"adjudications": [item.to_dict() for item in resolution.adjudications
                                   if item.ticker == ticker_key]}
                if any(item.ticker == ticker_key for item in resolution.adjudications) else {}),
@@ -538,7 +539,7 @@ def _expected_defensive_dividends(
     from sentinel.core.decision import DEFENSIVE_SECURITY_ID
     from sentinel.core.terminal import DIVIDEND_ACTIONS
     from sentinel.feed import calendar, publication
-    from stock_strategy_shared.wealth_core.sharadar_domains import (
+    from stock_strategy_shared.wealth_core.price_domains import (
         raw_dividend_per_share)
 
     wanted = effective_session.isoformat()
@@ -609,7 +610,7 @@ def _expected_defensive_dividends(
         "amount": str(shares * per_share),
         "reported_per_share": str(reported),
         "source_row_ids": sorted(source_rows),
-        "source": "SHARADAR_ACTIONS",
+        "source": archive_identifiers.TRIAL_ACTIONS,
         "settlement_lag_sessions": None,
     }]
 

@@ -1,10 +1,11 @@
 """Point-in-time exceptional cash-action adjudication.
 
-Sharadar remains the ordinary corporate-action source. This module handles only
+Source remains the ordinary corporate-action source. This module handles only
 explicitly flagged disputes where an independent final source has been reviewed
 and committed as immutable evidence.
 """
 from __future__ import annotations
+from sentinel import archive_identifiers
 
 import bisect
 import datetime as dt
@@ -16,7 +17,7 @@ from typing import Iterable, Mapping, Sequence
 
 from sentinel.core.terminal import DIVIDEND_ACTIONS
 from sentinel.feed import calendar
-from stock_strategy_shared.wealth_core.sharadar_domains import AdjudicatedCashDistribution
+from stock_strategy_shared.wealth_core.price_domains import AdjudicatedCashDistribution
 from sentinel.feed.source_authority.corporate_action_data import (
     CASH_ADJUDICATION_AUTHORITIES,
     DISPUTED_CASH_EVENTS,
@@ -182,7 +183,7 @@ def validate_authority(record: Mapping) -> Mapping:
         raise CorporateActionAuthorityRefused(
             f"corporate-action authority {record.get('authority_id')!r} has "
             f"unsupported currency {record.get('currency')!r}")
-    if record.get("security_mapping") != "sharadar-ticker-at-effective-session":
+    if record.get("security_mapping") != archive_identifiers.FEED['CORPORATE_ACTION_IDENTITY']:
         raise CorporateActionAuthorityRefused(
             f"corporate-action authority {record.get('authority_id')!r} has "
             "an unknown canonical security-mapping rule")
@@ -282,7 +283,7 @@ def resolve_dividends(
         disputed_events: Sequence[Mapping] | None = None,
         authorities: Sequence[Mapping] | None = None,
         ) -> CashResolution:
-    """Resolve ordinary Sharadar dividends plus reviewed exceptional overrides."""
+    """Resolve ordinary Source dividends plus reviewed exceptional overrides."""
     materialized = list(rows)
     sessions = {str(value) for value in sessions_sorted}
     out: dict[tuple[str, str], Decimal | AdjudicatedCashDistribution] = {}
@@ -321,11 +322,11 @@ def resolve_dividends(
         if len(matching) != 1:
             raise CorporateActionAuthorityRefused(
                 f"flagged cash event {event_id} requires exactly one matching "
-                f"Sharadar source row; found {len(matching)}")
+                f"source row; found {len(matching)}")
         source_amount = _positive_decimal(matching[0].get("value"))
         if source_amount is None:
             raise CorporateActionAuthorityRefused(
-                f"flagged cash event {event_id} has no usable Sharadar cash "
+                f"flagged cash event {event_id} has no usable source cash "
                 "amount")
         stale = Decimal(str(record["stale_source_amount"]))
         final = Decimal(str(record["final_cash_amount"]))

@@ -601,7 +601,7 @@ def install(*, go: Any, controller: Any) -> None:
     original_alpaca = go.probe_alpaca_account
     original_preparation = controller.entry.probe_prevalidation_preparation
     original_parity = go.probe_active_wealth_parity
-    original_readiness = go.probe_sharadar_readiness
+    original_readiness = go.probe_market_data_readiness
     original_db_health = go.probe_database_financial_health
 
     def probe_git(*args, **kwargs):
@@ -663,7 +663,7 @@ def install(*, go: Any, controller: Any) -> None:
     go.probe_alpaca_account = probe_alpaca
     controller.entry.probe_prevalidation_preparation = probe_preparation
     go.probe_active_wealth_parity = probe_parity
-    go.probe_sharadar_readiness = probe_readiness
+    go.probe_market_data_readiness = probe_readiness
     go.probe_database_financial_health = probe_db_health
 
     setattr(controller, _INSTALLED_MARKER, True)

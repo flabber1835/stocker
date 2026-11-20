@@ -112,7 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
     shadow_run.add_argument("--once", action="store_true")
     fs = sub.add_parser("feed-status", help="ingest progress, readable MID-RUN")
     fs.add_argument("--limit", type=int, default=5)
-    sd = sub.add_parser("feed-seed", help="load the full Sharadar history (hours)")
+    sd = sub.add_parser("feed-seed", help="prepare the initial rolling market snapshot")
     sd.add_argument("--from", dest="date_from", default=None)
     sd.add_argument("--to", dest="date_to", default=None)
     daily = sub.add_parser(

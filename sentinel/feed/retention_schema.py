@@ -1,8 +1,14 @@
 """Narrow retirement of bulk payloads; immutable identities remain intact."""
 
+ACQUISITION_PIN_TABLES = (
+    'sentinel_acquisition_bindings', 'sentinel_acquisition_price_links',
+    'sentinel_acquisition_successors', 'sentinel_snapshot_jobs',
+    'sentinel_operational_snapshots', 'sentinel_corpus_publications',
+)
+
 ACQUISITION_PRICE_DELETE_GUARD = """CREATE OR REPLACE FUNCTION sentinel_acquisition_price_delete_guard() RETURNS trigger LANGUAGE plpgsql AS $$
     BEGIN
-      PERFORM sentinel_retention_locks();
+      PERFORM sentinel_acquisition_retention_locks();
       IF EXISTS(
         WITH deleted_parts AS MATERIALIZED (SELECT DISTINCT part_id FROM retired_prices)
         SELECT 1 FROM deleted_parts WHERE sentinel_acquisition_part_pinned(part_id)
@@ -35,6 +41,16 @@ DDL = [
           AND ((classid::bigint << 32) | objid::bigint) IN (1579621904,1579663541)) <> 2 THEN
         RAISE EXCEPTION 'retirement requires behavioral and corpus writer locks';
       END IF;
+    END $$""",
+    f"""CREATE OR REPLACE FUNCTION sentinel_acquisition_retention_locks() RETURNS void LANGUAGE plpgsql AS $$
+    BEGIN
+      IF EXISTS(SELECT 1 FROM pg_locks WHERE pid=pg_backend_pid() AND granted AND locktype='relation'
+               AND relation='sentinel_acquisition_parts'::regclass AND mode='ShareRowExclusiveLock')
+         AND NOT EXISTS(SELECT 1 FROM unnest(ARRAY[{','.join(repr(name) for name in ACQUISITION_PIN_TABLES)}])
+               AS t(name) WHERE NOT EXISTS(SELECT 1 FROM pg_locks WHERE pid=pg_backend_pid() AND granted
+                 AND locktype='relation' AND relation=t.name::regclass AND mode='ShareLock')) THEN RETURN;
+      END IF;
+      PERFORM sentinel_retention_locks();
     END $$""",
     """CREATE OR REPLACE FUNCTION sentinel_snapshot_pins(target UUID) RETURNS TEXT[] LANGUAGE plpgsql AS $$
     DECLARE reasons TEXT[] := '{}'; checkpoint JSONB; current_version BIGINT;

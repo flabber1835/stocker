@@ -312,7 +312,7 @@ jobs:
           value = json.loads(Path(
               "artifacts/production-composition/production-go-e2e.json"
           ).read_text())
-          assert value["schema"] == "sentinel.production-go-e2e/1"
+          assert value["schema"] == "sentinel.production-go-e2e/2"
           assert value["canonical_entrypoint"] == ["bash", "scripts/sentinel-go-validate.sh"]
           assert value["all_pass"] is True
           assert value["git_commit"] == Path(
@@ -335,7 +335,8 @@ jobs:
           assert success["handoff"]["software_certification"] == "LOCAL_FULL_VERIFIED"
           advance = success["publication_advance"]
           assert advance["published"]["version"] > advance["seeded"]["version"]
-          assert advance["published"]["visible_frontier"] > advance["seeded"]["visible_frontier"]
+          assert advance["seeded"] == {"version": 0, "visible_frontier": None}
+          assert advance["published"]["visible_frontier"]
           names = {item["name"] for item in value["sensitivity"]}
           expected = {"positive": set(), "operator": {
               "environment-loading",
@@ -345,7 +346,6 @@ jobs:
               "host-identity-preflight",
               "runtime-selection-preflight",
               "paper-account-preflight",
-              "readonly-sharadar-preflight",
               "certification-financial-readiness",
               "runtime-promotion",
               "post-validation-handoff",
@@ -353,7 +353,7 @@ jobs:
               "schema-feed-permission", "schema-migration",
               "feed-catchup", "publication-check",
           }, "financial": {
-              "operational-parity", "sharadar-readiness", "database-health",
+              "operational-parity", "market-data-readiness", "database-health",
           }, "handoff": {
               "validation-evidence", "requested-target-proof",
               "panel-recreation", "handoff-write",

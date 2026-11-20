@@ -30,6 +30,7 @@ BASE_RE = re.compile(r"base-[0-9]{8}T[0-9]{6}Z\Z")
 RENEW_BYTES = 8 * 1024 * 1024 * 1024
 RENEW_SECONDS = 24 * 3600
 RUNTIME_CHAIN_BYTES = 16 * 1024 * 1024 * 1024
+RUNTIME_CHAIN_OBJECTS = 1024
 MAINTENANCE_INTERVAL_SECONDS = 300
 
 
@@ -96,6 +97,10 @@ def observe_primary(runner=run, *, with_byte_timing=False):
         'lsn',pg_current_wal_lsn()::text,
         'timeline',substring(pg_walfile_name(pg_current_wal_lsn()) from 1 for 8),
         'segment_size',pg_size_bytes(current_setting('wal_segment_size')),
+        'callback_tables',to_regclass('sentinel_automation_service_instances') IS NOT NULL
+            AND to_regclass('sentinel_automation_lease') IS NOT NULL,
+        'publication_tables',to_regclass('sentinel_operational_snapshot_jobs') IS NOT NULL
+            AND to_regclass('sentinel_snapshot_workers') IS NOT NULL,
         'publication_at',(SELECT observed_at FROM sentinel_backup_evidence
             WHERE kind='RUNTIME_CHAIN' AND evidence_sha256=encode(sha256(convert_to(proof::text,'UTF8')),'hex')
             ORDER BY observed_at DESC,seq DESC LIMIT 1)""" + byte_timing + ") FROM pg_control_system()", runner))
@@ -111,7 +116,7 @@ def observe_primary(runner=run, *, with_byte_timing=False):
     return value
 
 
-def renewal_due(selected, observation):
+def renewal_reason(selected, observation):
     age = observation["now"] - selected["timestamp"]
     if age < 0:
         raise Refused("backup is future-dated")
@@ -120,18 +125,29 @@ def renewal_due(selected, observation):
     if any(item["timeline"] > current_timeline for item in ranges):
         raise Refused("primary timeline regressed")
     if any(item["timeline"] < current_timeline for item in ranges):
-        return True
+        return 'timeline'
     high, low = observation["lsn"].split("/")
     current = int(high, 16) * 2**32 + int(low, 16)
     end = max(item["end"] for item in ranges)
     if current < end:
         raise Refused("primary WAL regressed")
     size = observation["segment_size"]
-    footprint = (current // size - (end - 1) // size + 1) * size
+    count = current // size - (end - 1) // size + 1
+    if count * size >= RENEW_BYTES or count + (current_timeline > 1) >= RUNTIME_CHAIN_OBJECTS // 2:
+        return 'wal'
+    max_hours = os.environ.get('SENTINEL_BACKUP_MAX_AGE_HOURS') or '30'
+    if not re.fullmatch(r'[0-9]{1,15}', max_hours):
+        raise Refused('invalid maximum backup age')
+    if age + BASE_COMMAND_SECONDS + MAINTENANCE_INTERVAL_SECONDS >= int(max_hours) * 3600:
+        return 'age_limit'
     now = datetime.fromtimestamp(observation['now'], timezone.utc)
     prior = datetime.fromtimestamp(selected['timestamp'], timezone.utc)
     daily = 9 <= now.hour < 12 and now.date() > prior.date() and age >= 12*3600
-    return daily or age >= RENEW_SECONDS or footprint >= RENEW_BYTES
+    return 'routine' if daily or age >= RENEW_SECONDS else None
+
+
+def renewal_due(selected, observation):
+    return renewal_reason(selected, observation) is not None
 
 
 def renew_base(root, image, runner=run, *, on_wait=None):
@@ -152,13 +168,35 @@ def renew_base(root, image, runner=run, *, on_wait=None):
     return selected, observation
 
 
-def heavy_work_allowed(observation):
-    now = datetime.fromtimestamp(observation['now'], timezone.utc)
-    minutes = now.hour*60 + now.minute
-    return not 12*60+30 <= minutes < 21*60
+def heavy_work_allowed(observation, market_reserved, runner):
+    if market_reserved is not False:
+        return False
+    checks = []
+    if observation['callback_tables']:
+        checks.append("""EXISTS (SELECT FROM sentinel_automation_lease l
+            JOIN sentinel_automation_service_instances s ON s.instance_id=l.holder_id
+            WHERE l.id=1 AND l.expires_at>statement_timestamp()
+              AND s.state IN ('PREFLIGHT_RECOVER_CALLBACK','REFRESH_CALLBACK','PREPARE_CALLBACK')
+              AND s.heartbeat_at BETWEEN statement_timestamp()-interval '30 seconds' AND statement_timestamp()
+              AND s.callback_started_at<=statement_timestamp() AND s.callback_deadline_at>statement_timestamp())""")
+    if observation['publication_tables']:
+        checks.append("""EXISTS (SELECT FROM sentinel_operational_snapshot_jobs o
+            JOIN sentinel_snapshot_jobs j USING(job_id)
+            JOIN sentinel_snapshot_workers w ON w.job_id=j.job_id AND w.owner=j.owner
+            WHERE j.fence>0 AND j.state IN ('ACQUIRING','STAGING','VALIDATING','READY')
+              AND j.publication_version IS NULL AND j.lease_until>statement_timestamp()
+              AND j.lease_until<=j.deadline)""")
+    # A bootstrap database can lack both kinds of native work. A failed
+    # advisory lookup on an installed system should still allow chain renewal.
+    if not checks:
+        return True
+    try:
+        return sql('SELECT ' + ' OR '.join(checks), runner) == 'f'
+    except Refused:
+        return False
 
 
-def worker(action, image, root, observation, runner=run, request=None, *, on_wait=None):
+def worker(action, image, root, observation, runner=run, request=None, *, on_wait=None, market=False):
     mount_mode = ':ro' if action == 'observe-current' else ''
     command = ["docker", "run", "--rm", "-i", "--network", "none", "--read-only",
                "--user", "0:0", "--cap-drop", "ALL", "--cap-add", "DAC_OVERRIDE",
@@ -167,6 +205,9 @@ def worker(action, image, root, observation, runner=run, request=None, *, on_wai
                "-v", root + "/base:/backup/base"+mount_mode, "-v", root + "/wal:/backup/wal"+mount_mode,
                "--entrypoint", "python", image, "-m", "sentinel.backup_retention", action,
                "--system-id", observation["system_id"]]
+    if market:
+        command[2:2] = ['--env', 'OPENBLAS_NUM_THREADS=1']
+        command.extend(['--market-at', str(observation['now'])])
     options = dict(timeout=600,stdin=json.dumps(request) if request is not None else None)
     if on_wait is not None: options['on_wait'] = on_wait
     if action != 'observe-current': return json.loads(runner(command,**options))
@@ -311,7 +352,7 @@ def runtime_chain_proof(output, selected, observation, root):
             or start != expected_start or segment >= per_log
             or marker_segment >= per_log or marker_timeline != timeline
             or marker_index != marker_lsn_index or not start <= marker_index <= last
-            or count != last-start+1 or not 1 <= count <= 1024
+            or count != last-start+1 or not 1 <= count <= RUNTIME_CHAIN_OBJECTS
             or count*size > RUNTIME_CHAIN_BYTES or history != expected_history):
         raise Refused("runtime chain interval contradicts selected metadata")
     first_log, first_segment = divmod(start, per_log)
@@ -552,13 +593,15 @@ def _tick(root, runner, progress, started,state):
     observation = observe_primary(runner, with_byte_timing=True) if shared_mode else observe_primary(runner)
     if observation.get('publication_at') is not None: state['schedule'].accept(observation['publication_at'])
     on_wait = FreshnessReader(state['schedule']) if shared_mode else None
-    deferred = not heavy_work_allowed(observation)
+    action = 'observe-current' if shared_mode else 'observe'
+    view = worker(action, image, root, observation, runner, market=True)
+    selected = view['selected']
+    deferred = not heavy_work_allowed(observation, view['market_reserved'], runner)
     if not deferred:
         reap_restore_resources(observation["now"], runner)
-    action = 'observe-current' if shared_mode and deferred else 'observe'
-    selected = worker(action, image, root, observation, runner)
-    renewed = renewal_due(selected, observation)
-    if renewed and not deferred:
+    reason = renewal_reason(selected, observation)
+    renewed = reason is not None
+    if renewed and (not deferred or reason != 'routine'):
         if shared_mode:
             _prime_bulk_byte_renewal(state['schedule'], observation, selected)
         state['phase'] = 'BASE_BACKUP'
@@ -575,8 +618,11 @@ def _tick(root, runner, progress, started,state):
     from sentinel_backup_capacity import checkpoint
     continuity_ready = checkpoint(chain, runner)
     if deferred:
-        result = {'maintenance_deferred': True, 'reason': 'market and daily preparation window',
+        result = {'maintenance_deferred': True, 'reason': 'exchange reservation or active close work',
                   'base': selected['name'], 'renewal_due': renewed, 'runtime_chain_current': True}
+        if renewed and reason != 'routine':
+            result['base_renewed_for'] = reason
+            _progress(progress, runner, phase='COMPLETE')
         if continuity_ready is not None:
             result['continuity_ready'] = continuity_ready
         print(json.dumps(result, sort_keys=True))

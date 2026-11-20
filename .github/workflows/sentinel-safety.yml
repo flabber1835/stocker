@@ -170,6 +170,25 @@ jobs:
           set -euo pipefail
           bash scripts/test-pr301-runtime-boundaries.sh sentinel:ci
 
+      - name: Replay contested idle renewals through the next XNYS open
+        if: ${{ needs.qualification-source.outputs.mode == 'full' }}
+        timeout-minutes: 6
+        run: |
+          mkdir -p artifacts/idle-open
+          docker run --rm --network none --cpus 1 --memory 1g \
+            --mount type=bind,source="$PWD/artifacts/idle-open",target=/evidence \
+            --entrypoint python sentinel-test:ci -m tools.idle_open_endurance \
+            --duration-seconds 90 --output /evidence/trace.jsonl
+
+      - name: Retain the complete idle and next-open trace
+        if: ${{ always() && needs.qualification-source.outputs.mode == 'full' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: idle-open-smoke
+          path: artifacts/idle-open/
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Falsify fenced receipt helper capabilities on an isolated bind mount
         if: ${{ needs.qualification-source.outputs.mode == 'full' }}
         shell: bash

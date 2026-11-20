@@ -86,8 +86,7 @@ if [ "$PRODUCTION_RUN" -eq 1 ]; then
 fi
 
 # Both normal and local-full GO use the same authoritative Alpaca preparation
-# and readiness checks through the selected runtime image. The historical
-# Sharadar-only local preflight is not an input to this deployment route.
+# and readiness checks through the selected runtime image.
 
 go_phase "CERTIFICATION + FINANCIAL READINESS"
 set +e

@@ -18,17 +18,21 @@ from sentinel.panel import review_schema
 from tests.sentinel.test_dashboard_ddl_coverage import BASE, MARKER, prefixes, unchanged_body, pg
 from tests.sentinel.test_fractional_order_amount import install_v2
 from tests.support.postgres import paused_physical_restore
+from tests.support import coverage_feed_ddl as archive
 
 
 @pytest.fixture
-def predecessor(pg, monkeypatch):
+def predecessor(pg, monkeypatch, request):
     monkeypatch.setenv('SENTINEL_PUBLICATION_RECEIPT_KEY', 'private-order-amount-migration-' * 4)
     name = "order_ddl_" + uuid.uuid4().hex
     with psycopg.connect(pg.sync_dsn, autocommit=True) as admin:
         admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
     with store.connect(pg.sync_dsn.rsplit("/", 1)[0] + "/" + name) as conn:
         install_v2(conn)
-        store.migrate_schema(conn)
+        if hasattr(request, 'param'):
+            archive.install(conn, request.param)
+        else:
+            store.migrate_schema(conn)
         binding.bind(conn, deployment_id='fixture-paper', broker='alpaca', broker_account_id='PA-fixture')
         broker = SimulatedBroker(account=BrokerAccountIdentity(broker='alpaca', account_id='PA-fixture'))
         journal.record_observation(conn, asyncio.run(broker.observe()))
@@ -100,15 +104,30 @@ def test_incompatible_feed_refuses_before_touching_an_evidenced_order_journal(pr
     assert prefixes(conn) == before
 
 
-@pytest.mark.parametrize('fault', [None, 'extra_ddl', 'changed_command', 'new_notional'])
-def test_paused_restore_recovers_original_installer_without_rewriting_history(predecessor, pg, monkeypatch, fault):
+@pytest.mark.parametrize('predecessor,fault', [
+    (archive.catalog.ORIGINAL, fault)
+    for fault in (None, 'extra_ddl', 'changed_command', 'new_notional', 'wrong_guard', 'guard_privileges')
+] + [(archive.catalog.POST_COMPACTION, None)], indirect=['predecessor'])
+def test_paused_restore_recovers_original_installer_without_rewriting_history(predecessor, pg, fault):
     conn = predecessor
     with paused_physical_restore(pg, conn.info.dbname) as restored:
         document = witness(restored)
     before = prefixes(conn)
-    monkeypatch.setattr(operational_ddl_handoff, 'transfer', lambda *args, **kwargs: nullcontext())
-    schema.ensure_schema(conn)
-    store.migrate_schema(conn)
+    contract = document['witness']['order_amount_contract_sha256']
+    # Reproduce the old installer, including its missing prefix handoff.
+    # The fixture authenticates all three command ALTERs and its complete feed DDL.
+    with conn.cursor() as cur:
+        schema._apply_order_amount(cur)
+    target = archive.catalog.POST_COMPACTION if fault == 'wrong_guard' else contract
+    if fault == 'guard_privileges':
+        guard = archive.price_delete_guard(target)
+        for statement in archive.statements(target):
+            if statement == guard:
+                statement = statement.replace('LANGUAGE plpgsql', 'LANGUAGE plpgsql SECURITY DEFINER')
+            conn.execute(statement)
+        conn.commit()
+    else:
+        archive.install(conn, target)
     with pytest.raises(coverage.EvidenceCoverageRefused, match='BINDING_CHANGED'):
         coverage.require_current(conn, 'OBSERVATION')
     conn.rollback()
@@ -122,7 +141,8 @@ def test_paused_restore_recovers_original_installer_without_rewriting_history(pr
     if fault:
         with pytest.raises(recovery.RecoveryRefused, match={
                 'extra_ddl': 'DDL advance', 'changed_command': 'historical command rows',
-                'new_notional': 'new notional command'}[fault]):
+                'new_notional': 'new notional command', 'wrong_guard': 'protection functions differ',
+                'guard_privileges': 'protection functions differ'}[fault]):
             apply(conn, document)
         assert prefixes(conn) == before
     else:

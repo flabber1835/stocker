@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from sentinel import archive_identifiers as archive_ids
+
 import datetime as dt
 
 from sentinel.feed import ingest_authority_impl as authority
@@ -10,7 +12,7 @@ from sentinel.feed import snapshot_source
 
 def test_frozen_daily_ceiling_accepts_already_stronger_sep_cursor(monkeypatch):
     cursor = maintenance.SourceCursor(
-        kind="sharadar-sep-lastupdated/v1",
+        kind=archive_ids.FEED['SEP_WATERMARK_KIND'],
         processed_through=dt.date(2026, 9, 7),
         publication_version=12)
     monkeypatch.setattr(
@@ -29,7 +31,7 @@ def test_frozen_daily_ceiling_accepts_already_stronger_sep_cursor(monkeypatch):
 
 def test_recent_frontier_reuses_established_sep_observation_ceiling(monkeypatch):
     cursor = maintenance.SourceCursor(
-        kind="sharadar-sep-lastupdated/v1",
+        kind=archive_ids.FEED['SEP_WATERMARK_KIND'],
         processed_through=dt.date(2026, 9, 7),
         publication_version=12)
     monkeypatch.setattr(

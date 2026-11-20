@@ -110,7 +110,7 @@ def test_cash_data_changes_input_evidence_without_changing_strategy_code_identit
     from sentinel.core.decision import runtime_strategy_identity
     from sentinel.feed.corporate_action_authority import authority_record_sha256
     from sentinel.feed.rolling_contract import PriceWindow
-    from sentinel.feed.rolling_source import SharadarSource
+    from sentinel.feed.rolling_source import ArchiveSource
 
     config = SimpleNamespace(strategy_id="sentinel-test", digest="controller-rule")
     code = runtime_strategy_identity(config)
@@ -121,8 +121,8 @@ def test_cash_data_changes_input_evidence_without_changing_strategy_code_identit
     record['record_sha256'] = authority_record_sha256(record)
     revised = validate(revised)
     window = PriceWindow.through('2026-09-14')
-    before = SharadarSource(window, corrections=original).source_payload()
-    after = SharadarSource(window, corrections=revised).source_payload()
+    before = ArchiveSource(window, corrections=original).source_payload()
+    after = ArchiveSource(window, corrections=revised).source_payload()
 
     assert digest(before) != digest(after)
     assert before['source_corrections'] == original

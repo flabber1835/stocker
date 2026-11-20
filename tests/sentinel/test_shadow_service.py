@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from sentinel import archive_identifiers as archive_ids
+
 import ast
 from decimal import Decimal
 from datetime import datetime, timezone
@@ -86,7 +88,7 @@ def test_credential_free_operational_preflight_still_rejects_authority(
     assert 'broker authority is forbidden' in capsys.readouterr().err
 
 
-def test_deployed_shadow_requires_alpaca_and_refuses_sharadar():
+def test_deployed_shadow_requires_alpaca_and_refuses_retired_credentials():
     env = _env(SENTINEL_FEED_SERVICE_MODE="SHADOW",
                ALPACA_API_KEY="data-key", ALPACA_SECRET_KEY="data-secret")
     config = shadow_service.ShadowServiceConfig.from_env(env)
@@ -94,7 +96,7 @@ def test_deployed_shadow_requires_alpaca_and_refuses_sharadar():
     for changed, message in (
             ({"ALPACA_API_KEY": ""}, "market-data credentials"),
             ({"ALPACA_SECRET_KEY": ""}, "market-data credentials"),
-            ({"SHARADAR_API_KEY": "retired"}, "Sharadar credentials"),
+            ({archive_ids.RETIRED_CREDENTIAL: "retired"}, "Historical feed credentials"),
             ({"SENTINEL_PAPER_ACCOUNT_ID": "paper"}, "broker authority")):
         with pytest.raises(shadow_service.ShadowServiceRefused, match=message):
             shadow_service.ShadowServiceConfig.from_env({**env, **changed})
@@ -117,12 +119,12 @@ def test_deployed_shadow_refuses_legacy_preflight_before_source_call(monkeypatch
         shadow_service.advance_once(config)
 
 
-def test_operational_source_gate_rejects_sharadar_rolling_candidate(monkeypatch):
+def test_operational_source_gate_rejects_historical_rolling_candidate(monkeypatch):
     from sentinel.feed import operational_snapshot, rolling_store
     monkeypatch.setattr(operational_snapshot, "_bound", lambda *_a: {
         "candidate_id": "candidate"})
     monkeypatch.setattr(rolling_store, "manifest", lambda *_a: SimpleNamespace(
-        provider="SHARADAR"))
+        provider=archive_ids.PROVIDER))
     with pytest.raises(operational_snapshot.OperationalSnapshotRefused,
                        match="ALPACA_OPENFIGI_SOURCE_REQUIRED"):
         operational_snapshot.require_alpaca_openfigi(object(), object())
@@ -191,7 +193,7 @@ def test_shadow_service_requires_reviewed_shadow_capable_mode(mode):
 @pytest.mark.parametrize("transient", [True, False, "deadline", "source_wait", "frontier_wait"])
 def test_rolling_service_preserves_availability_retry_and_integrity_refusal(monkeypatch, transient):
     from sentinel import rolling_runtime
-    from sentinel.feed import sharadar
+    from sentinel.feed import alpaca_transport, provider_budget
     cfg = shadow_service.ShadowServiceConfig.from_env(_env())
     monkeypatch.setattr(shadow_service, "preflight", lambda *_a, **_k: {
         "input_contract": rolling_runtime.SCHEMA, "status": "ATTESTED_STRUCTURAL"})
@@ -213,7 +215,8 @@ def test_rolling_service_preserves_availability_retry_and_integrity_refusal(monk
             from sentinel.feed.rolling_jobs import JobDeadlineExceeded
             raise JobDeadlineExceeded("elapsed")
         if transient:
-            raise sharadar.SharadarRetryDeferred(120, 429)
+            with provider_budget.budget(1):
+                alpaca_transport.provider_pause(120, lambda _: pytest.fail("slept past deadline"))
         raise rolling_runtime.Refused("CHECKPOINT_CHANGED")
     monkeypatch.setattr(rolling_runtime, "service_advance", unavailable)
     expected = shadow_service.ShadowServiceRetry if transient else shadow_service.ShadowServiceRefused
@@ -221,6 +224,9 @@ def test_rolling_service_preserves_availability_retry_and_integrity_refusal(monk
         expected = shadow_service.ShadowServiceWaiting
     with pytest.raises(expected) as caught:
         shadow_service.advance_once(cfg)
+    if transient is True:
+        assert isinstance(caught.value.__cause__, alpaca_transport.AlpacaTransportUnavailable)
+        assert caught.value.__cause__.delay == 120
     if transient == "deadline":
         from sentinel import shadow_worker
         assert "acquisition deadline exhausted" in str(caught.value)
@@ -671,7 +677,7 @@ def test_shadow_module_and_compose_service_have_no_broker_surface():
     assert "SENTINEL_FEED_SERVICE_MODE: SHADOW" in block
     assert "ALPACA_API_KEY" in block
     assert "ALPACA_SECRET_KEY" in block
-    assert "SHARADAR_API_KEY" not in block
+    assert archive_ids.RETIRED_CREDENTIAL not in block
     assert "SENTINEL_PAPER_ACCOUNT_ID" not in block
     assert "SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256" in block
     assert shadow_service.shadow_runtime.SHADOW_PUBLICATION_TIMING_POLICY in block

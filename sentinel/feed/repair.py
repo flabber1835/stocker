@@ -152,7 +152,7 @@ def _authoritative_splits(conn, start: str, end: str) -> dict:
 
 def audit(conn, *, start: str, end: str) -> AuditResult:
     """Which stored bars provably contradict ACTIONS over `[start, end]`?"""
-    from sentinel.feed.sharadar import validate_date_range
+    from sentinel.feed.archive_tables import validate_date_range
 
     start, end = validate_date_range(start, end)
     result = AuditResult(start=start, end=end)

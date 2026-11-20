@@ -76,7 +76,7 @@ class SepUpdateEnvelope:
             "reason": reason,
         }
         raise SepUpdateEnvelopeViolation(
-            "Sharadar SEP update envelope refused: "
+            "Source SEP update envelope refused: "
             + json.dumps(evidence, sort_keys=True, separators=(",", ":")))
 
 
@@ -121,12 +121,12 @@ def _canonical_key(table: str, row: Mapping) -> tuple[str, str]:
     ticker = str(row.get("ticker") or "").strip().upper()
     if not ticker:
         raise SourceAuthorityRefused(
-            f"Sharadar {table} source row has no non-empty ticker")
+            f"source {table} source row has no non-empty ticker")
     raw_session = row.get("date")
     try:
         session = _strict_date(raw_session, field=f"{table} date").isoformat()
     except (TypeError, ValueError) as exc:
         raise SourceAuthorityRefused(
-            f"Sharadar {table} source row {ticker!r} has invalid date "
+            f"source {table} source row {ticker!r} has invalid date "
             f"{raw_session!r}: {exc}") from exc
     return ticker, session

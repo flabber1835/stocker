@@ -40,7 +40,7 @@ def resumable_job(completed):
             or value.get("error_type") != "BackupHorizonExceeded"
             or value.get("reason_code") != "BACKUP_RUNTIME_HORIZON_EXCEEDED"
             or value.get("schema_migration_attempted") is not True
-            or value.get("bounded_sharadar_daily_attempted") is not True):
+            or value.get("bounded_market_data_daily_attempted") is not True):
         return None
     job = value.get("resume_job_id")
     try:
@@ -79,7 +79,7 @@ class RenewalRunner:
         self.refuse(reason)
         value = dict(phase="BACKUP_RENEWAL", error_type="BackupRefreshRefused",
                      reason_code=reason, schema_migration_attempted=self.attempts[0],
-                     bounded_sharadar_daily_attempted=self.attempts[1])
+                     bounded_market_data_daily_attempted=self.attempts[1])
         return self._finish(subprocess.CompletedProcess(command, 1, "",
             FAILURE + json.dumps(value, sort_keys=True)), prior)
 
@@ -106,7 +106,7 @@ class RenewalRunner:
                 invocation[index:index] = ["--env", RESUME_ENV]
             completed = self.runner.run(invocation, env=run_env, cwd=cwd)
             payload = failure_payload(completed) or {}
-            for i, key in enumerate(("schema_migration_attempted", "bounded_sharadar_daily_attempted")):
+            for i, key in enumerate(("schema_migration_attempted", "bounded_market_data_daily_attempted")):
                 self.attempts[i] |= payload.get(key) is True
             job = resumable_job(completed)
             if job is None:

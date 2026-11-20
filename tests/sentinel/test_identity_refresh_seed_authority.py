@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from sentinel.feed import ingest, sharadar, snapshot_source, tickers_authority
+from sentinel.feed import ingest, archive_tables, snapshot_source, tickers_authority
 
 
 def test_production_seed_rejects_overlapping_ticker_reuse(monkeypatch):
@@ -23,7 +23,7 @@ def test_production_seed_rejects_overlapping_ticker_reuse(monkeypatch):
     ]
 
     def source(table, params=None, **kwargs):
-        if table == sharadar.TICKERS:
+        if table == archive_tables.TICKERS:
             return [dict(row) for row in rows]
         return []
 
@@ -33,4 +33,4 @@ def test_production_seed_rejects_overlapping_ticker_reuse(monkeypatch):
     with pytest.raises(
             tickers_authority.TickersStructureInvalid,
             match="nonoverlapping_ticker_reuse_intervals"):
-        list(guarded(sharadar.TICKERS))
+        list(guarded(archive_tables.TICKERS))

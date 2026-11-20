@@ -17,7 +17,7 @@ STAGES = (
     ("feed-catchup", PREPARATION_PHASE),
     ("publication-check", PREPARATION_PHASE),
     ("operational-parity", "PHASE D1 - WEALTH CORE PARITY"),
-    ("sharadar-readiness", "PHASE D2 - MARKET DATA READINESS"),
+    ("market-data-readiness", "PHASE D2 - MARKET DATA READINESS"),
     ("database-health", "PHASE D3 - DATABASE FINANCIAL HEALTH"),
     ("validation-evidence", FINANCIAL_PHASE),
     ("requested-target-proof", FINANCIAL_PHASE),
@@ -89,9 +89,9 @@ def docker_arguments(argv: list[str], fault: str) -> list[str]:
                 raise RuntimeError("production publication-check boundary changed")
             result[index] = _failure_code(fault) + code.replace(
                 boundary, boundary + "    __e2e_fail()\n", 1)
-    elif fault == "sharadar-readiness" and "SENTINEL_GO_READINESS=" in code:
+    elif fault == "market-data-readiness" and "SENTINEL_GO_READINESS=" in code:
         result[index] = _failure_code(
-            fault, "sentinel.feed.rolling_go_inputs", "readiness") + code
+            fault, "sentinel.feed.rolling_go_inputs", "assessment") + code
     elif fault == "database-health" and "SENTINEL_GO_DATABASE_HEALTH=" in code:
         result[index] = _failure_code(
             fault, "sentinel.schema", "require_runtime_schema") + code

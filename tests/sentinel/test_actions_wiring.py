@@ -39,7 +39,7 @@ sys.path.insert(0, str(ROOT / "shared"))
 from tests.support.postgres import _EphemeralPostgres  # noqa: E402
 
 from sentinel.feed import actions_map as A  # noqa: E402
-from sentinel.feed import ingest, sharadar  # noqa: E402
+from sentinel.feed import ingest, archive_tables  # noqa: E402
 from sentinel.feed import store as S  # noqa: E402
 
 TODAY = "2024-12-31"
@@ -89,7 +89,7 @@ def vendor(*, actions=(), split_at=None, ratio=1.0):
     rebased from that session on, exactly as SEP presents a split — so the
     derived inference has something real to work from.
 
-    The fake transport honors the same inclusive date filter as Sharadar. A
+    The fake transport honors the same inclusive date filter as the captured source. A
     bounded reconciliation request must never receive the fixture's entire
     retained history, because that would model precisely the off-envelope source
     defect the production membrane now refuses.
@@ -100,7 +100,7 @@ def vendor(*, actions=(), split_at=None, ratio=1.0):
         params = dict(params or {})
         lo = params.get("date.gte", "0000-00-00")
         hi = params.get("date.lte", "9999-99-99")
-        if table == sharadar.SEP:
+        if table == archive_tables.SEP:
             out = []
             for d in days:
                 if not lo <= d <= hi:
@@ -112,16 +112,16 @@ def vendor(*, actions=(), split_at=None, ratio=1.0):
                             "closeunadj": raw, "open": raw * 0.99,
                             "volume": 1e6, "lastupdated": d})
             return out
-        if table == sharadar.ACTIONS:
+        if table == archive_tables.ACTIONS:
             rows = list(actions)
             if not rows and params.get("date.gte") == "1900-01-01":
                 return [{"ticker": "__SOURCE_HEALTH__", "date": "1900-01-02",
                          "action": "listed", "value": None,
                          "contraticker": None}]
             return [row for row in rows if lo <= str(row.get("date") or "") <= hi]
-        if table == sharadar.SFP:
+        if table == archive_tables.SFP:
             return []
-        if table == sharadar.TICKERS:
+        if table == archive_tables.TICKERS:
             return [{"permaticker": "P:AAA", "ticker": "AAA",
                      "firstpricedate": "2000-01-03", "lastpricedate": None,
                      "relatedtickers": "", "category": "Domestic Common Stock"}]
@@ -375,7 +375,7 @@ class TestTheInputOrderIsENFORCED:
     invents or misses a split — a wrong share count with no symptom.
 
     That correctness rested on an undocumented property of someone else's HTTP
-    service: `sharadar.fetch_table` cursor-pages the API, requests no sort, and
+    service: `archive_tables.fetch_table` cursor-pages the API, requests no sort, and
     does not sort what comes back.
     """
 
@@ -414,7 +414,7 @@ class TestTheInputOrderIsENFORCED:
 
         def reversed_fetch(table, params=None, **kw):
             out = f(table, params, **kw)
-            return list(reversed(out)) if table == sharadar.SEP else out
+            return list(reversed(out)) if table == archive_tables.SEP else out
 
         ingest.seed(conn, date_from="2024-11-01", date_to=TODAY,
                     fetch=reversed_fetch)

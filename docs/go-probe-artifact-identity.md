@@ -44,39 +44,21 @@ new release fenced, then queue one request from its new immutable receipt. Reuse
 the verified base/WAL through the supported coordinator; do not manually repeat
 backups, manufacture recovery proof or replay either refused activation request.
 
-## Explicitly authorized local host patch
+## Historical local host patch
 
-The owner subsequently authorized a local patched version while the PR runs.
-This patch changes host orchestration only. Keep the installed signed runtime,
-its clean runtime checkout, private environment and completed installation
-receipt unchanged. Do not use the historical application-only installer, whose
-archive-off requirements do not fit this backed installation.
+The one-time GO interpreter overlay applied only to the signed
+`dda0195c` installation. Current releases carry the artifact handoff in the
+installer and exercise every current GO child directly. Retirement of its feed
+probe also retires the overlay entry point. The archived Git sources and
+original byte witnesses identify that installation. The separate activation
+loader still verifies its receipt and its shared helpers at their recorded paths.
 
-For this one local operation, retain a separate immutable host-patch manifest:
-the installed receipt/image/commit, qualified feature commit and source hashes,
-qualification evidence, exact four forwarding changes and the patch loader's
-hash. Identify it as locally qualified host code, not CI-certified host code.
-The runtime still truthfully identifies its original signed release.
-
-The local loader may install only the three qualified probe function definitions
-and the preparation forwarding tuple. Mechanically compare each whole function
-with its installed counterpart after removing the single new test-digest
-argument; compare the tuples likewise. No other executable difference is allowed.
-Apply these definitions only inside the original verified GO entry, through an
-operation-scoped interpreter launcher. All other Python calls delegate to the
-original interpreter. The canonical shell, real kernel lifecycle lock, current
-CI verification of the unchanged runtime, feed gate, output guard, financial
-checks, promotion and post-validation remain intact. Never replace a validator,
-rewrite evidence or treat a failed operation as a pass.
-
-Qualify the loader against the unchanged installed command generators and real
-child artifact validators, including neighboring-code and missing/mismatched
-identity refusals. Retain input hashes and the actual producer result. Only a
-fresh completed canonical GO may be supplied through the coordinator's existing
-operator-reviewed bundle/digest interface. Queue a new request; never replay a
-refused one. Full semantic/physical recovery, reconciliation and maintenance
-handoff remain prerequisites to kill release. The local operation is PAPER-only,
-requires REQUIRED_V1 backups and preserves the backtest and canonical book.
+For that release, a separate manifest bound the installed receipt, image and
+commit to the host patch, its qualification evidence and the four environment
+forwarding changes. Whole-module comparison limited the change to three GO
+probes and the preparation environment tuple. The real installer now covers
+preparation, parity, data readiness, database health and activation. Each
+child verifies its artifact identity and refuses a missing or foreign digest.
 
 ## Activation review handoff
 

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
+import os
+import shutil
 import signal
 
 import pytest
@@ -11,6 +13,42 @@ from lab import Archive, CONTENT, MARKER
 
 def _assert_wal_bytes_only(lab):
     assert lab.target.read_bytes() == lab.source.read_bytes()
+
+
+def test_full_segment_payload_read_budget_for_publication_and_retry(tmp_path):
+    lab = Archive(tmp_path)
+    size = 16 * 1024**2
+    with lab.source.open('ab') as source:
+        source.truncate(size)
+    counts = tmp_path / 'payload-passes'
+    for name, passes in [('cp', 1), ('sha256sum', 1), ('cmp', 2)]:
+        wrapper = lab.bin / name
+        wrapper.write_text(f'#!/bin/sh\necho {passes} >> "$PAYLOAD_PASSES"\n'
+                           f'exec "{shutil.which(name)}" "$@"\n')
+        wrapper.chmod(0o755)
+    env = dict(lab.env, PATH=str(lab.bin)+os.pathsep+lab.env['PATH'], PAYLOAD_PASSES=str(counts))
+    for max_reads in (7, 4):
+        counts.write_text('')
+        result = lab.run(env=env)
+        assert result.returncode == 0, result.stderr
+        actual_bytes = sum(map(int, counts.read_text().splitlines())) * size
+        assert 0 < actual_bytes <= max_reads * size
+        lab.assert_exact()
+
+
+@pytest.mark.parametrize('phase,damage', [
+    ('temporary', 'mutate-source'), ('final', 'mutate-source'), ('directory', 'mutate-source'),
+    ('directory', 'damage-final'), ('directory', 'damage-sidecar'),
+])
+def test_changed_source_payload_or_sidecar_cannot_gain_archive_success(tmp_path, phase, damage):
+    lab = Archive(tmp_path)
+    lab.fault('sync', phase, damage)
+    assert lab.run().returncode != 0
+    if phase == 'temporary':
+        assert not lab.target.exists() and not lab.checksum.exists()
+    if damage.startswith('damage-'):
+        lab.clear()
+        assert lab.run().returncode != 0
 
 
 @pytest.mark.parametrize("command,phase,mode", [
@@ -120,6 +158,7 @@ def test_conflicting_existing_archive_is_preserved(tmp_path, damage):
 
 def test_simultaneous_identical_writers_converge(tmp_path):
     lab = Archive(tmp_path)
+    lab.namespace.rmdir()  # Exercise first-writer namespace creation as well as publication.
     with ThreadPoolExecutor(max_workers=8) as pool:
         results = list(pool.map(lambda _: lab.run(), range(16)))
     assert all(r.returncode == 0 for r in results), [r.stderr for r in results]

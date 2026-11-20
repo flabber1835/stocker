@@ -56,7 +56,7 @@ update the docs or the code — not just a comment.
 ## Most Important Architecture Rule
 
 ```text
-Sharadar        versioned, atomically published input history
+Market data     versioned, atomically published input history
 Wealth Core     WHAT to hold. Immutable shadow. Never reads broker state
 Sentinel        HOW MUCH of it to hold. Never reads realized exposure
 Execution       the only layer that touches a broker
@@ -168,7 +168,7 @@ python -c "import ast,pathlib;from collections import deque; ..."   # see the
 anything with it.
 
 1. **NO-GO stands.** The remaining certification steps need the NAS and the
-   authoritative Sharadar corpus.
+   authenticated historical corpus.
 2. **Never edit a scoring formula in place.** Both volatility profiles exist as
    NAMED profiles and `volatility_profile` is in the config hash.
    `log_returns_certified_v1` is the only basis for a certified artefact.
@@ -189,13 +189,14 @@ anything with it.
 
 ---
 
-# Data: Sharadar only
+# Market data
 
-Alpha Vantage is retired with the rest of Stocker. Sentinel reads Sharadar
-(Nasdaq Data Link) — SEP, ACTIONS, TICKERS. SF1 is deliberately not fetched:
-Wealth Core consumes no fundamentals.
+GO and daily publication use Alpaca SIP bars and corporate actions with
+OpenFIGI classifications. Historical replay consumes verified local captures.
+Wealth Core consumes the same normalized price domains from either input.
+See [the operating contract](docs/sentinel-deployment.md#market-inputs-and-daily-plan).
 
-The four price domains, and getting them wrong is silent:
+The historical equity columns map to these domains.
 
 ```text
 SEP.close        SPLIT-adjusted, DIVIDEND-unadjusted   -> the SIGNAL domain

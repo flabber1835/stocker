@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from sentinel.feed import authority, ingest, publication, sharadar
+from sentinel.feed import authority, ingest, publication, archive_tables
 from tests.sentinel.test_actions_wiring import (  # noqa: F401
     TODAY,
     conn,
@@ -49,7 +49,7 @@ def test_partial_actions_fetch_cannot_remove_prior_or_publish_candidate(conn):
 
     def moving_actions(table, params=None, **kwargs):
         nonlocal calls
-        if table == sharadar.ACTIONS:
+        if table == archive_tables.ACTIONS:
             calls += 1
             # The first complete traversal catches the vendor mid-publication;
             # the second sees the previously known action again.
@@ -87,7 +87,7 @@ def test_terminal_seen_only_after_partial_observation_needs_stable_snapshot(conn
 
     def publication_moves(table, params=None, **kwargs):
         nonlocal calls
-        if table == sharadar.ACTIONS:
+        if table == archive_tables.ACTIONS:
             calls += 1
             return [prior] if calls == 1 else [prior, terminal]
         return stable_prices(table, params, **kwargs)

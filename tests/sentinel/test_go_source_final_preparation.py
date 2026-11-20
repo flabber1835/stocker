@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from sentinel import archive_identifiers as archive_ids
+
 import json
 import os
 from pathlib import Path
@@ -45,7 +47,7 @@ def test_source_final_preparation_does_not_require_following_open_future(monkeyp
         "schema_migrated": True,
         "source_not_before_satisfied": True,
         "following_open_future": False,
-        "bounded_sharadar_daily": True,
+        "bounded_market_data_daily": True,
         "publication_current": True,
     })
     ticks = iter((10.0, 10.25))
@@ -64,20 +66,18 @@ def test_source_final_preparation_does_not_require_following_open_future(monkeyp
 
     assert summary.status == go.PASS
     assert summary.complete is True
-    assert summary.bounded_sharadar_daily_attempted is True
+    assert summary.bounded_market_data_daily_attempted is True
     assert summary.elapsed_milliseconds == 250
     prepared_env = runner.calls[-1][1]
     assert prepared_env["ALPACA_API_KEY"] == "market-data-key"
     assert prepared_env["ALPACA_SECRET_KEY"] == "market-data-secret"
     assert "SENTINEL_PAPER_ACCOUNT_ID" not in prepared_env
-    assert "SHARADAR_API_KEY" not in prepared_env
+    assert archive_ids.RETIRED_CREDENTIAL not in prepared_env
 
 
 def test_preparation_selects_newest_causally_final_frontier():
     code = source_final._PREPARATION_CODE
-    assert "def latest_source_final(now)" in code
-    assert "while now < publication_not_before(target)" in code
-    assert "calendar.previous_sessions(target, 2)" in code
+    assert "target = operational_snapshot.source_final_session(now)" in code
     assert code.count("retained_go.prepare(c, target_session=target,") == 1
     assert "outage_recovery" not in code
     assert "eligible = source_final and prospective" not in code
@@ -91,7 +91,7 @@ def test_nonfinal_selected_target_can_never_pass(monkeypatch):
         "schema_migrated": True,
         "source_not_before_satisfied": False,
         "following_open_future": True,
-        "bounded_sharadar_daily": True,
+        "bounded_market_data_daily": True,
         "publication_current": True,
     })
 

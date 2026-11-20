@@ -6,7 +6,7 @@ import pickle
 import tempfile
 from typing import Mapping, Optional
 
-from sentinel.feed import coherence, sharadar, snapshot_source
+from sentinel.feed import coherence, archive_tables, snapshot_source
 from .dates import SeedIdentityCollision, SepUpdateEnvelope, SourceAuthorityRefused, _strict_date
 from .duplicates import CanonicalSourceFetch, _is_matching_update_request
 from .coverage import SeedCoverageAccumulator
@@ -76,7 +76,7 @@ def _require_complete_recovery_reference_tail(rows, params, required_keys):
     return rows
 
 
-class StableSharadarFetch(coherence.StableSharadarFetch):
+class StableTableFetch(coherence.StableTableFetch):
     """Coherence guard with canonical-key and exact seed-membership authority."""
 
     def __init__(self, fetch, *, protect_sep=None,
@@ -106,7 +106,7 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
 
     def __call__(self, table, params=None, **kwargs):
         rows = super().__call__(table, params, **kwargs)
-        if table == sharadar.TICKERS and self._seed_mode:
+        if table == archive_tables.TICKERS and self._seed_mode:
             material = list(rows)
             if self._tickers_first is None:
                 raise SourceAuthorityRefused(
@@ -115,11 +115,11 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
                 material, source_digest=self._tickers_first.digest)
             self._seed_native_digest = self._tickers_first.digest
             return material
-        if table == sharadar.SFP and self._reference_recovery:
+        if table == archive_tables.SFP and self._reference_recovery:
             material = list(rows)
             return _require_complete_recovery_reference_tail(
                 material, params, self._reference_recovery)
-        if (table == sharadar.ACTIONS and self._seed_mode
+        if (table == archive_tables.ACTIONS and self._seed_mode
                 and self.identity_projection is not None and self._seed_projection is not None):
             self._freeze_identity()
         return rows
@@ -153,9 +153,9 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
         self._freeze_identity()
         self._discovering_seed = False
         self.seed_coverage_evidence = None
-        for lo, hi in sharadar.year_chunks(date_from, date_to):
-            params = sharadar.date_params(lo, hi)
-            for _ in self._validated_seed_replay(captured(sharadar.SEP, params), params):
+        for lo, hi in archive_tables.year_chunks(date_from, date_to):
+            params = archive_tables.date_params(lo, hi)
+            for _ in self._validated_seed_replay(captured(archive_tables.SEP, params), params):
                 pass
 
     def preflight_seed_identity(self, *, tickers, fetch, date_from, date_to):
@@ -203,9 +203,9 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
             for session in sampled:
                 # Both traversals use the canonical source, including duplicate
                 # and price/date guards. Full capture still brackets all inputs.
-                sample = authority.StableSharadarFetch(self._canonical_fetch)
+                sample = authority.StableTableFetch(self._canonical_fetch)
                 with progress.phase("seed_membership_preflight") as count:
-                    for row in sample(sharadar.SEP, sharadar.date_params(session, session)):
+                    for row in sample(archive_tables.SEP, archive_tables.date_params(session, session)):
                         coverage.add(row)
                         material.append(row)
                         count[0] += 1
@@ -318,7 +318,7 @@ class _CdcThenReplayFetch:
         )
 
     def __call__(self, table, params=None, **kwargs):
-        if table != sharadar.SEP:
+        if table != archive_tables.SEP:
             return self._replay(table, params, **kwargs)
         request = params or {}
         if _is_matching_update_request(request, self._envelope):
@@ -330,7 +330,7 @@ class _CdcThenReplayFetch:
         return self._cdc(table, params, **kwargs)
 
 
-def reconcile_sep_mutations(conn, *, fetch=sharadar.fetch_table,
+def reconcile_sep_mutations(conn, *, fetch=archive_tables.fetch_table,
                             through: str, reobserve_equal: bool = False):
     """Run SEP CDC behind the exact frozen through-date boundary.
 
@@ -351,7 +351,7 @@ def reconcile_sep_mutations(conn, *, fetch=sharadar.fetch_table,
     maintenance._require_cursor_scope(cursor)
     hi = _strict_date(through, field="SEP reconciliation through")
     if cursor.processed_through > hi:
-        raise maintenance.SharadarMutationRefused(
+        raise maintenance.SourceMutationRefused(
             f"SEP mutation cursor {cursor.processed_through} is ahead of "
             f"requested reconciliation through {hi}; refusing to treat future "
             "durable authority as already current")
@@ -367,4 +367,4 @@ def reconcile_sep_mutations(conn, *, fetch=sharadar.fetch_table,
         conn, fetch=guarded, through=through)
 
 
-__all__ = ["StableSharadarFetch", "reconcile_sep_mutations"]
+__all__ = ["StableTableFetch", "reconcile_sep_mutations"]

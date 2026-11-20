@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
@@ -102,7 +102,7 @@ def test_ingest_daily_passes_explicit_session_verbatim(monkeypatch):
         return fetch
 
     monkeypatch.setattr(
-        ingest.source_authority, "StableSharadarFetch",
+        ingest.source_authority, 'StableTableFetch',
         stable_fetch)
 
     def daily_locked(conn, **kwargs):
@@ -142,12 +142,11 @@ def test_cli_missing_boundary_refuses_before_configuration(monkeypatch, capsys):
 
 
 def test_cli_prints_and_passes_resolved_session(monkeypatch, capsys):
-    observed = {}
-    boundary = manual_daily.ManualDailyBoundary(
-        through="2026-08-24", latest_closed="2026-08-24",
-        calendar_version="XNYS/test")
+    from sentinel import rolling_checkpoint, rolling_runtime
+    validate = manual_daily.validate_through
+    now = dt.datetime(2026, 8, 24, 16, 30, tzinfo=ET)
     monkeypatch.setattr(
-        manual_daily, "validate_through", lambda _value: boundary)
+        manual_daily, "validate_through", lambda value: validate(value, now_et=now))
     monkeypatch.setattr(
         feed_cli.SentinelConfig,
         "from_env",
@@ -162,21 +161,19 @@ def test_cli_prints_and_passes_resolved_session(monkeypatch, capsys):
         },
     )
 
-    class Connection:
-        def close(self):
-            pass
-
-    monkeypatch.setattr(feed_store, "connect", lambda _url: Connection())
-    monkeypatch.setattr(feed_store, "require_feed_schema", lambda _conn: None)
-    monkeypatch.setattr(feed_store, "reclaim_orphans", lambda _conn: 0)
-
-    def original_daily(_conn, **kwargs):
-        observed.update(kwargs)
-        return SimpleNamespace(
-            kind="daily", chunks_done=1, rows_written=1, rows_dropped=0)
-
-    monkeypatch.setattr(ingest, "daily", original_daily)
+    conn = object()
+    monkeypatch.setattr(feed_store, "connect", lambda _url: nullcontext(conn))
+    monkeypatch.setattr(rolling_checkpoint, "read", lambda _conn: SimpleNamespace(
+        observation_id="test-shadow", starting_cash="50000"))
+    def classify(_conn, **kwargs):
+        assert kwargs["unchanged_through"] == "2026-08-24"
+        return {"status": "ATTESTED_STRUCTURAL", "latest_session": "2026-08-21"}
+    monkeypatch.setattr(rolling_runtime, "classify", classify)
+    calls = []
+    monkeypatch.setattr(rolling_runtime, "prepare_adjacent",
+                        lambda c, *, previous, through, acquisition_deadline:
+                        calls.append((c, previous, through)))
 
     assert cli.main(["feed-daily", "--through", "2026-08-24"]) == 0
-    assert observed["today"] == "2026-08-24"
+    assert calls == [(conn, "2026-08-21", "2026-08-24")]
     assert "through-session 2026-08-24" in capsys.readouterr().out

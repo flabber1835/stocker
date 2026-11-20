@@ -12,7 +12,7 @@ from pathlib import Path
 from sentinel.feed.correction_model import CorrectionRefused, MAX_BYTES, validate
 from sentinel.feed.rolling_contract import digest
 
-BOOTSTRAP = Path(__file__).resolve().parents[2] / 'data/sharadar/source-corrections-v1.json'
+BOOTSTRAP = Path(__file__).resolve().parents[2] / 'data/market-history/source-corrections-v1.json'
 _PIN = ContextVar('source_correction_dataset', default=None)
 
 

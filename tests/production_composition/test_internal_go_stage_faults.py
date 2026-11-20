@@ -55,7 +55,7 @@ events.append('after schema')
 
 
 @pytest.mark.parametrize("fault,attribute", [
-    ("feed-catchup", "prepare"), ("sharadar-readiness", "readiness")])
+    ("feed-catchup", "prepare"), ("market-data-readiness", "assessment")])
 def test_rolling_fault_reaches_the_production_call_site(monkeypatch, capsys, fault, attribute):
     monkeypatch.syspath_prepend(str(Path(faults.__file__).parents[1] / "scripts"))
     from sentinel import retained_go
@@ -80,7 +80,7 @@ def test_rolling_fault_reaches_the_production_call_site(monkeypatch, capsys, fau
     monkeypatch.setenv("SENTINEL_GO_PREPARATION_DEADLINE", deadline)
     monkeypatch.setattr(module, attribute, lambda *_a, **kw: reached.append(kw))
     namespace = dict(rolling_go_inputs=rolling_go_inputs, retained_go=retained_go,
-                     c=None, target="2026-09-22", os=os)
+                     c=None, held=object(), target="2026-09-22", os=os)
     exec(witness, namespace)
     expected = [{"target_session": "2026-09-22", "resume_job_id": resume_job,
                  "absolute_deadline": rolling_go_inputs.deadline_from_host(deadline)}] if attribute == "prepare" else [{}]

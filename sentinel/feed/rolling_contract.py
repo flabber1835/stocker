@@ -4,6 +4,7 @@ These values describe evidence. They confer no source, checkpoint or trading
 authority. See docs/rolling-snapshot-storage.md.
 """
 from __future__ import annotations
+from sentinel import archive_identifiers
 
 import hashlib
 import json
@@ -131,7 +132,7 @@ class SnapshotManifest(Contract):
     schema_version: Literal["sentinel.rolling-price-snapshot/1"] = (
         "sentinel.rolling-price-snapshot/1")
     # Legacy manifests remain inspectable; deployed admission requires OpenFIGI.
-    provider: Literal["SHARADAR", "ALPACA_NASDAQ", "ALPACA_OPENFIGI"] = "SHARADAR"
+    provider: Literal[archive_identifiers.PROVIDER, "ALPACA_NASDAQ", "ALPACA_OPENFIGI"] = archive_identifiers.PROVIDER
     normalization_version: Label
     calendar_version: Label
     window: CurrentFormationWindow | FormationWindow | PriceWindow

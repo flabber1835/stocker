@@ -21,10 +21,14 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from contextvars import ContextVar
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from functools import wraps
+from itertools import batched
 from fractions import Fraction
+from collections.abc import Collection, Mapping as MappingView
 from typing import Mapping, Optional
 
 from sentinel.execution.contract import Completeness
@@ -118,6 +122,7 @@ class CashActivityState:
     last_event_id: Optional[str] = None
     activity_identity_scheme: Optional[str] = None
     posting_kinds: tuple[tuple[str, str], ...] | None = None
+    membership_root: str | None = None
 
 
 @dataclass(frozen=True)
@@ -139,7 +144,7 @@ class PlanCashBaseline:
     # v4 is captured once with the plan, never reconstructed for a legacy row.
     # Native reference IDs have no sortable append order; exact membership is
     # needed to distinguish a fee-only suffix from offsetting or revised cash.
-    activity_membership: Optional[tuple[tuple[str, str], ...]] = None
+    activity_membership: Optional[Collection[tuple[str, str]]] = None
 
     pending_postings: tuple[str, ...] = ()
     posting_source: tuple[str, str] | None = None
@@ -204,6 +209,168 @@ def _detail(activity: BrokerCashActivity) -> str:
         f"type={activity.activity_type};id={activity.activity_id}")
 
 
+MEMBERSHIP_PREFIX = ACTIVITY_CURSOR_PREFIX + "membership:v1:"
+
+
+def _digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"),
+                                     ensure_ascii=True).encode("ascii")).hexdigest()
+
+
+def _valid_digest(value):
+    return isinstance(value, str) and len(value) == 64 and all(c in "0123456789abcdef" for c in value)
+
+
+def _member_commitment(flow_id, session, amount, detail):
+    exact = Fraction(amount)
+    return _digest([flow_id, str(session), exact.numerator, exact.denominator, detail])
+
+
+def _append_members(conn, state, parent, members):
+    if parent is not None and not members:
+        return parent
+    # Keep the head bounded even on the first lifetime backfill. The cursor witness
+    # is in the head so a new plan without carry can stamp it in constant work.
+    members = dict(members)
+    if state.last_activity_id is not None:
+        last = broker_flow_id(broker=state.broker, account_id=state.account_id, activity_id=state.last_activity_id)
+        if last not in members:
+            raise BrokerCashAuthorityRefused("native membership extension omitted its last activity")
+        members[last] = members.pop(last)
+    for chunk in batched(members.items(), 128):
+        parent = _write_membership_node(conn, state, parent, dict(chunk))
+    return parent if parent is not None else _write_membership_node(conn, state, None, {})
+
+
+def _write_membership_node(conn, state, parent, members):
+    node = {"kind": "cash-membership/v1", "broker": state.broker, "account": state.account_id,
+            "parent": parent, "members": members}
+    root = _digest(node)
+    name = MEMBERSHIP_PREFIX + root
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO sentinel_processed_sessions (cursor_name,session,state)"
+                    " VALUES (%s,%s,%s::jsonb) ON CONFLICT (cursor_name) DO NOTHING RETURNING 1",
+                    (name, state.processed_through.date(), json.dumps(node)))
+        if cur.fetchone() is None:
+            cur.execute("SELECT state FROM sentinel_processed_sessions WHERE cursor_name=%s", (name,))
+            row = cur.fetchone()
+            if row is None or _read_json_state(row[0], where=name) != node:
+                raise BrokerCashAuthorityRefused("immutable native membership node changed")
+    return root
+
+
+def _membership_tip(conn, state):
+    name = MEMBERSHIP_PREFIX + state.membership_root
+    with conn.cursor() as cur:
+        cur.execute("SELECT state FROM sentinel_processed_sessions WHERE cursor_name=%s", (name,))
+        row = cur.fetchone()
+    node = _read_json_state(row[0], where=name) if row else None
+    if (not isinstance(node, dict) or _digest(node) != state.membership_root or
+            node.get("kind") != "cash-membership/v1" or
+            (node.get("broker"), node.get("account")) != (state.broker, state.account_id) or
+            not isinstance(node.get("members"), dict)):
+        raise BrokerCashAuthorityRefused("missing or altered immutable native membership head")
+    tip = node["members"]
+    last = state.last_activity_id
+    if bool(tip) != bool(last) or last and broker_flow_id(
+            broker=state.broker, account_id=state.account_id, activity_id=last) not in tip:
+        raise BrokerCashAuthorityRefused("current cash cursor disagrees with its immutable membership head")
+    return tip
+
+
+class _MembershipPrefix(MappingView):
+    """A read-only prefix of one authenticated chain, shared across restored plans."""
+
+    def __init__(self, rows, start):
+        self.rows = rows
+        self.start = start
+
+    def __len__(self):
+        return len(self.rows) - self.start
+
+    def __iter__(self):
+        return (key for key, (index, _) in self.rows.items() if index >= self.start)
+
+    def __getitem__(self, key):
+        index, value = self.rows[key]
+        if index < self.start:
+            raise KeyError(key)
+        return value
+
+
+def membership_prefixes(conn, broker, account_id, root):
+    if not _valid_digest(root):
+        raise BrokerCashAuthorityRefused("invalid native membership root")
+    with conn.cursor() as cur:
+        # UNION (distinct) also bounds a corrupt cycle before digest verification.
+        cur.execute("WITH RECURSIVE nodes(name,body) AS ("
+                    " SELECT cursor_name,state FROM sentinel_processed_sessions WHERE cursor_name=%s"
+                    " UNION SELECT s.cursor_name,s.state FROM sentinel_processed_sessions s"
+                    " JOIN nodes n ON s.cursor_name=%s || (n.body->>'parent'))"
+                    " SELECT name,body FROM nodes", (MEMBERSHIP_PREFIX + root, MEMBERSHIP_PREFIX))
+        nodes = dict(cur.fetchall())
+    members = {}
+    prefixes = {}
+    while root is not None:
+        prefixes[root] = _MembershipPrefix(members, len(members))
+        node = nodes.pop(MEMBERSHIP_PREFIX + root, None)
+        if (not isinstance(node, dict) or _digest(node) != root or
+                set(node) != {"kind", "broker", "account", "parent", "members"} or
+                node["kind"] != "cash-membership/v1" or
+                (node["broker"], node["account"]) != (broker, account_id) or
+                not isinstance(node["members"], dict)):
+            raise BrokerCashAuthorityRefused("missing or altered immutable native membership node")
+        prefix = f"{FLOW_PREFIX}{broker}:{account_id}:"
+        for key, value in node["members"].items():
+            if (not key.startswith(prefix) or not key[len(prefix):].strip() or
+                    not _valid_digest(value) or key in members):
+                raise BrokerCashAuthorityRefused("invalid or repeated native membership commitment")
+            members[key] = (len(members), value)
+        root = node["parent"]
+        if root is not None and not _valid_digest(root):
+            raise BrokerCashAuthorityRefused("invalid native membership parent")
+    return prefixes
+
+
+_membership_observation = ContextVar("native_cash_membership_observation", default=None)
+
+
+def share_membership_observation(function):
+    """Reuse only actual durable cursors inside one synchronous cash decision."""
+    @wraps(function)
+    def observed(conn, *args, **kwargs):
+        token = _membership_observation.set((conn, {}))
+        try:
+            return function(conn, *args, **kwargs)
+        finally:
+            _membership_observation.reset(token)
+    return observed
+
+
+def _membership_state(conn, broker, account_id):
+    observation = _membership_observation.get()
+    if observation is None or observation[0] is not conn:
+        return load_activity_state(conn, broker=broker, account_id=account_id)
+    states = observation[1]
+    key = (broker, account_id)
+    if key not in states:
+        states[key] = load_activity_state(conn, broker=broker, account_id=account_id)
+    return states[key]
+
+
+def _read_members(conn, broker, account_id, root):
+    return _members_at_root(conn, _membership_state(conn, broker, account_id), root)
+
+
+def _members_at_root(conn, state, root):
+    if state is None or state.membership_root is None:
+        raise BrokerCashAuthorityRefused("plan membership has no anchored account cash cursor")
+    prefixes = membership_prefixes(conn, state.broker, state.account_id, state.membership_root)
+    if root not in prefixes:
+        raise BrokerCashAuthorityRefused("plan membership is outside the account cash chain")
+    return prefixes[root]
+
+
 def _native_cash_ledger(conn, *, broker: str, account_id: str):
     """Return exact account-native rows; dates and insert clocks are not order."""
     prefix = f"{FLOW_PREFIX}{broker}:{account_id}:"
@@ -227,18 +394,15 @@ def _native_cash_ledger(conn, *, broker: str, account_id: str):
         if str(detail) != _detail(activity):
             raise BrokerCashAuthorityRefused("native cash ledger classification changed")
         exact = Fraction(value)
-        encoded = json.dumps(
-            [str(flow_id), str(session), exact.numerator, exact.denominator, str(detail)],
-            separators=(",", ":"), ensure_ascii=True).encode("ascii")
-        result[str(flow_id)] = (hashlib.sha256(encoded).hexdigest(), exact, str(detail))
+        commitment = _member_commitment(str(flow_id), session, exact, str(detail))
+        result[str(flow_id)] = (commitment, exact, str(detail))
     return result
 
 
 def _current_cash_ledger(conn, *, activity_state: CashActivityState):
     if (activity_state.broker != "alpaca"
             or activity_state.activity_identity_scheme != ACTIVITY_IDENTITY_SCHEME
-            or load_activity_state(conn, broker=activity_state.broker,
-                                   account_id=activity_state.account_id) != activity_state):
+            or _membership_state(conn, activity_state.broker, activity_state.account_id) != activity_state):
         raise BrokerCashAuthorityRefused(
             "native cash membership requires the actual current Activity-SSE cursor")
     rows = _native_cash_ledger(conn, broker=activity_state.broker,
@@ -366,6 +530,13 @@ def load_activity_state(conn, *, broker: str,
     v2 = v1 | {"last_event_id"}
     v3 = v2 | {"activity_identity_scheme"}
     v4 = v3 | {'posting_kinds'}
+    root = state.get('membership_root')
+    if state.get('kind') == 'broker-cash-activity/v5':
+        if not _valid_digest(root):
+            raise BrokerCashAuthorityRefused('invalid native cash cursor membership root')
+        state = dict(state)
+        del state['membership_root']
+        state['kind'] = 'broker-cash-activity/v4' if 'posting_kinds' in state else 'broker-cash-activity/v3'
     state_keys = frozenset(state)
     if (state_keys not in {frozenset(v1), frozenset(v2), frozenset(v3), frozenset(v4)}
             or state.get("kind") not in {
@@ -417,7 +588,7 @@ def load_activity_state(conn, *, broker: str,
             state["balance_total"], where=f"cash activity cursor {name} total"),
         last_event_id=last_event_id,
         activity_identity_scheme=identity_scheme,
-        posting_kinds=None if kinds is None else tuple(sorted(kinds.items())))
+        posting_kinds=None if kinds is None else tuple(sorted(kinds.items())), membership_root=root)
 
 
 def _binding_established_at(conn, *, broker: str, account_id: str) -> datetime:
@@ -534,6 +705,8 @@ async def ingest_account_cash(
     replay_kinds = track_postings and prior is not None and prior.posting_kinds is None
     missing_last_flow = False
     if prior is not None:
+        if prior.membership_root is not None:
+            _membership_tip(conn, prior)
         # A cursor survives a table-selective restore independently of its
         # ledger. Reusing it would either forget prior cash or count replayed
         # activities twice. The total is immediate authority. A missing legacy
@@ -630,6 +803,7 @@ async def ingest_account_cash(
     # materialized nonzero cash row, keeping the restore invariant truthful.
     last_id = (None if missing_last_flow else
                (prior.last_activity_id if prior else None))
+    additions = {}
     for activity in batch.activities:
         if activity.activity_id in seen:
             raise BrokerCashAuthorityRefused(
@@ -653,6 +827,9 @@ async def ingest_account_cash(
             if kind is not None:
                 posting_kinds[activity.activity_id] = kind
         if inserted:
+            if financial_sse:
+                key = broker_flow_id(broker=broker, account_id=account_id, activity_id=activity.activity_id)
+                additions[key] = _member_commitment(key, activity.activity_date, activity.net_amount, _detail(activity))
             running_total += Fraction(activity.net_amount)
             last_id = activity.activity_id
     if batch.last_activity_id is not None:
@@ -692,7 +869,18 @@ async def ingest_account_cash(
     if track_postings:
         payload.update(kind="broker-cash-activity/v4", posting_kinds=posting_kinds)
     if financial_sse:
-        payload["activity_identity_scheme"] = ACTIVITY_IDENTITY_SCHEME
+        parent = prior.membership_root if prior else None
+        if prior is not None and parent is None:
+            # First new-scheme ingestion on a legacy account commits its verified ledger once.
+            ledger = _native_cash_ledger(conn, broker=broker, account_id=account_id)
+            last = broker_flow_id(broker=broker, account_id=account_id, activity_id=last_id) if last_id else None
+            if (sum((row[1] for row in ledger.values()), Fraction(0)) != running_total
+                    or bool(ledger) != bool(last) or last and last not in ledger):
+                raise BrokerCashAuthorityRefused("legacy native membership disagrees with durable cursor")
+            additions = {key: row[0] for key, row in ledger.items()}
+        state = replace(state, membership_root=_append_members(conn, state, parent, additions))
+        payload.update(kind="broker-cash-activity/v5", membership_root=state.membership_root,
+                       activity_identity_scheme=ACTIVITY_IDENTITY_SCHEME)
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO sentinel_processed_sessions"
@@ -704,19 +892,21 @@ async def ingest_account_cash(
     return state
 
 
-def load_plan_baseline(conn, *, plan_id: str) -> Optional[PlanCashBaseline]:
-    name = _plan_cursor_name(plan_id)
+def _plan_baseline_row(conn, plan_id):
     with conn.cursor() as cur:
-        cur.execute(
-            "SELECT session,state FROM sentinel_processed_sessions"
-            " WHERE cursor_name=%s", (name,))
-        row = cur.fetchone()
+        cur.execute("SELECT session,state FROM sentinel_processed_sessions WHERE cursor_name=%s",
+                    (_plan_cursor_name(plan_id),))
+        return cur.fetchone()
+
+
+def load_plan_baseline(conn, *, plan_id: str) -> Optional[PlanCashBaseline]:
+    row = _plan_baseline_row(conn, plan_id)
     if row is None:
         return None
-    return decode_plan_baseline(plan_id, row)
+    return decode_plan_baseline(plan_id, row, conn=conn)
 
 
-def decode_plan_baseline(plan_id: str, row) -> PlanCashBaseline:
+def decode_plan_baseline(plan_id: str, row, *, conn=None, read_members=None) -> PlanCashBaseline:
     """Validate the stored (session, state) row against its exact plan key."""
     session = row[0] if isinstance(row[0], date) else date.fromisoformat(str(row[0]))
     state = _read_json_state(row[1], where=f"plan cash baseline {plan_id}")
@@ -725,20 +915,13 @@ def decode_plan_baseline(plan_id: str, row) -> PlanCashBaseline:
     v2 = v1 | {"last_activity_id"}
     v3 = v2 | {"activity_identity_scheme"}
     v4 = v3 | {"activity_membership"}
-    v5 = v4 | {"pending_postings", "posting_source"}
-    if ((state.get("kind") == "broker-cash-plan/v1" and set(state) != v1)
-            or (state.get("kind") == "broker-cash-plan/v2"
-                and set(state) != v2)
-            or (state.get("kind") == "broker-cash-plan/v3"
-                and set(state) != v3)
-            or (state.get("kind") == "broker-cash-plan/v4"
-                 and set(state) != v4)
-            or (state.get("kind") == "broker-cash-plan/v5" and set(state) != v5)
-            or state.get("kind") not in {
-                "broker-cash-plan/v1", "broker-cash-plan/v2",
-                "broker-cash-plan/v3", "broker-cash-plan/v4", "broker-cash-plan/v5"}):
-        raise BrokerCashAuthorityRefused(
-            f"plan cash baseline {plan_id} has an unknown state shape")
+    carry = {"pending_postings", "posting_source"}
+    v6 = v3 | {"membership_root"}
+    shapes = {"broker-cash-plan/v1": (v1,), "broker-cash-plan/v2": (v2,),
+              "broker-cash-plan/v3": (v3,), "broker-cash-plan/v4": (v4,),
+              "broker-cash-plan/v5": (v4 | carry,), "broker-cash-plan/v6": (v6, v6 | carry)}
+    if set(state) not in shapes.get(state.get("kind"), ()):
+        raise BrokerCashAuthorityRefused(f"plan cash baseline {plan_id} has an unknown state shape")
     if state["plan_id"] != plan_id:
         raise BrokerCashAuthorityRefused(
             f"plan cash baseline {plan_id} names another plan")
@@ -758,9 +941,10 @@ def decode_plan_baseline(plan_id: str, row) -> PlanCashBaseline:
             f"plan cash baseline {plan_id} applies the Alpaca Activity-SSE "
             "identity scheme to another broker")
     membership = None
+    raw_membership = {}
+    prefix = f"{FLOW_PREFIX}{state['broker']}:{state['account_id']}:"
     if state["kind"] in {"broker-cash-plan/v4", "broker-cash-plan/v5"}:
         raw_membership = state["activity_membership"]
-        prefix = f"{FLOW_PREFIX}{state['broker']}:{state['account_id']}:"
         if (identity_scheme != ACTIVITY_IDENTITY_SCHEME
                 or not isinstance(raw_membership, dict)
                 or any(not isinstance(key, str) or not key.startswith(prefix)
@@ -769,15 +953,21 @@ def decode_plan_baseline(plan_id: str, row) -> PlanCashBaseline:
                        or any(char not in "0123456789abcdef" for char in value)
                        for key, value in raw_membership.items())):
             raise BrokerCashAuthorityRefused("plan cash membership has an invalid shape")
+    elif state["kind"] == "broker-cash-plan/v6":
+        if identity_scheme != ACTIVITY_IDENTITY_SCHEME or not _valid_digest(state["membership_root"]):
+            raise BrokerCashAuthorityRefused("invalid immutable cash membership authority")
+        resolver = read_members or (lambda b, a, r: _read_members(conn, b, a, r))
+        raw_membership = resolver(state["broker"], state["account_id"], state["membership_root"])
+    if state["kind"] in {"broker-cash-plan/v4", "broker-cash-plan/v5", "broker-cash-plan/v6"}:
         last_flow = (None if last_activity_id is None else prefix + last_activity_id)
         if (bool(raw_membership) != (last_flow is not None)
                 or (last_flow is not None and last_flow not in raw_membership)):
             raise BrokerCashAuthorityRefused("plan cash membership has no original last identity")
-        membership = tuple(sorted(raw_membership.items()))
+        membership = (raw_membership.items() if read_members else tuple(sorted(raw_membership.items())))
     pending = state.get("pending_postings", [])
     if (not isinstance(pending, list) or any(type(k) is not str for k in pending)
-            or pending != sorted(set(pending)) or not set(pending) <= dict(membership or ()).keys()
-            or (state["kind"] == "broker-cash-plan/v5" and not pending)):
+            or pending != sorted(set(pending)) or any(k not in raw_membership for k in pending)
+            or ("pending_postings" in state and not pending)):
         raise BrokerCashAuthorityRefused("invalid immutable pending posting membership")
     source = state.get("posting_source")
     if pending and (not isinstance(source, list) or len(source) != 2
@@ -801,7 +991,8 @@ def decode_plan_baseline(plan_id: str, row) -> PlanCashBaseline:
 def record_plan_baseline(conn, *, plan_id: str, decision_session: date,
                          activity_state: CashActivityState,
                          pending_postings: tuple[str, ...] = (),
-                         posting_source: tuple[str, str] | None = None) -> PlanCashBaseline:
+                         posting_source: tuple[str, str] | None = None,
+                         return_baseline: bool = True) -> PlanCashBaseline | None:
     """Stamp the cash-activity total under which an immutable plan was sized."""
     if (activity_state.broker != "alpaca"
             or activity_state.activity_identity_scheme
@@ -810,7 +1001,33 @@ def record_plan_baseline(conn, *, plan_id: str, decision_session: date,
             "plan cash baseline requires the certified append-only Activity "
             "SSE cash identity scheme; timestamp-paged activity state cannot "
             "prove an unchanged event set")
-    existing = load_plan_baseline(conn, plan_id=plan_id)
+    stored = _plan_baseline_row(conn, plan_id)
+    existing = None
+    root = activity_state.membership_root
+    if stored is not None:
+        previous = _read_json_state(stored[1], where=f"plan cash baseline {plan_id}")
+        bounded_members = None
+        if previous.get("kind") == "broker-cash-plan/v6":
+            if root is None or root != previous.get("membership_root"):
+                raise BrokerCashAuthorityRefused(f"plan {plan_id} cash baseline is immutable")
+            if not return_baseline and not pending_postings:
+                current = load_activity_state(conn, broker=activity_state.broker, account_id=activity_state.account_id)
+                if current != activity_state:
+                    raise BrokerCashAuthorityRefused("native membership requires the actual current Activity-SSE cursor")
+                tip = _membership_tip(conn, current)
+                bounded_members = lambda *_: tip
+        existing = decode_plan_baseline(plan_id, stored, conn=conn, read_members=bounded_members)
+    if existing is not None:
+        members = existing.activity_membership
+    elif root is not None:
+        if load_activity_state(conn, broker=activity_state.broker, account_id=activity_state.account_id) != activity_state:
+            raise BrokerCashAuthorityRefused("native membership requires the actual current Activity-SSE cursor")
+        if return_baseline or pending_postings:
+            members = tuple(sorted(_members_at_root(conn, activity_state, root).items()))
+        else:
+            members = tuple(_membership_tip(conn, activity_state).items())
+    else:
+        members = capture_activity_membership(conn, activity_state=activity_state)
     candidate = PlanCashBaseline(
         plan_id=plan_id, broker=activity_state.broker,
         account_id=activity_state.account_id,
@@ -820,16 +1037,15 @@ def record_plan_baseline(conn, *, plan_id: str, decision_session: date,
         last_activity_id=activity_state.last_activity_id,
         activity_identity_scheme=activity_state.activity_identity_scheme,
         pending_postings=pending_postings, posting_source=posting_source,
-        activity_membership=(existing.activity_membership if existing is not None else
-            capture_activity_membership(conn, activity_state=activity_state)))
+        activity_membership=members)
     if existing is not None:
         if existing != candidate:
             raise BrokerCashAuthorityRefused(
                 f"plan {plan_id} cash baseline is immutable: "
                 f"stored={existing}, attempted={candidate}")
-        return existing
+        return existing if return_baseline else None
     payload = {
-        "kind": "broker-cash-plan/v4",
+        "kind": "broker-cash-plan/v6",
         "plan_id": plan_id,
         "broker": activity_state.broker,
         "account_id": activity_state.account_id,
@@ -837,24 +1053,28 @@ def record_plan_baseline(conn, *, plan_id: str, decision_session: date,
         "balance_total": str(activity_state.balance_total),
         "last_activity_id": activity_state.last_activity_id,
         "activity_identity_scheme": activity_state.activity_identity_scheme,
-        "activity_membership": dict(candidate.activity_membership),
+        "membership_root": root,
     }
+    if root is None:
+        del payload["membership_root"]
+        payload.update(kind="broker-cash-plan/v5" if pending_postings else "broker-cash-plan/v4",
+                       activity_membership=dict(members))
     if bool(pending_postings) != bool(posting_source):
         raise BrokerCashAuthorityRefused("pending posts must carry their predecessor observation")
     if pending_postings:
         if (pending_postings != tuple(sorted(set(pending_postings)))
                 or not set(pending_postings) <= dict(candidate.activity_membership).keys()):
             raise BrokerCashAuthorityRefused("pending cash postings lack original native membership")
-        payload.update(kind="broker-cash-plan/v5", pending_postings=list(pending_postings),
+        payload.update(pending_postings=list(pending_postings),
                        posting_source=list(posting_source))
-        decode_plan_baseline(plan_id, (decision_session, payload))
+    decode_plan_baseline(plan_id, (decision_session, payload), read_members=lambda *_: dict(members))
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO sentinel_processed_sessions"
             " (cursor_name,session,state) VALUES (%s,%s,%s::jsonb)",
             (_plan_cursor_name(plan_id), decision_session.isoformat(),
              json.dumps(payload, sort_keys=True)))
-    return candidate
+    return candidate if return_baseline else None
 
 
 def activity_delta_for_plan(

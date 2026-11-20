@@ -482,7 +482,7 @@ class TestTheImageCarriesItsRUNTIME_DEPENDENCIES:
         ever reveal them. Only walking the graph does.
 
         httpx is the case that shows why this matters beyond tonight: it is
-        reachable from `feed/sharadar.py` AND from `broker/base.py`, so the
+        reachable from `feed/provider_http.py` AND from `broker/base.py`, so the
         missing dependency would have surfaced first as a failed corpus fetch
         and second as a failed `establish-ownership` — during a liquidation.
         """

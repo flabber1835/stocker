@@ -17,6 +17,7 @@ BATCH_ROWS = rolling_store.BATCH_SIZE
 ACQUISITION_BATCH_ROWS = 128
 ACQUISITION_PAGE = 8
 ACQUISITION_BURST = 32
+_PRIVATE_ACQUISITION = object()
 PROBE_SECONDS = 1.0
 PASS_SECONDS = 5.0
 HINT_SECONDS = .1
@@ -562,9 +563,9 @@ def _possible_work(conn):
         progress = _read_progress(_Budget(conn,deadline,ceiling_ms=100))
         start = progress.next_class if progress else 0
         for offset in range(7):
-            if time.monotonic() >= deadline:
-                return True
             class_id = (start+offset)%7
+            if time.monotonic() >= deadline:
+                return uncertain or (_PRIVATE_ACQUISITION if class_id == 5 else True)
             conn.execute('SAVEPOINT retention_hint')
             try:
                 port = _Budget(conn,min(deadline,time.monotonic()+HINT_SECONDS),ceiling_ms=100)
@@ -584,10 +585,13 @@ def _possible_work(conn):
                 port.check()
             except Exception:
                 conn.execute('ROLLBACK TO SAVEPOINT retention_hint')
-                uncertain = True
+                if class_id == 5 and start == 5:
+                    return _PRIVATE_ACQUISITION
+                if not uncertain:
+                    uncertain = _PRIVATE_ACQUISITION if class_id == 5 else True
             else:
                 if possible:
-                    return True
+                    return _PRIVATE_ACQUISITION if class_id == 5 else True
             finally:
                 conn.execute('RELEASE SAVEPOINT retention_hint')
         return uncertain
@@ -799,8 +803,8 @@ def _smaller_payload(progress):
     return progress
 
 
-def _pass(conn, *, batch_rows, deadline=None):
-    """Caller holds both writer locks; all mutation/progress commits stay outside."""
+def _pass(conn, *, batch_rows, deadline=None, private=None):
+    """Caller owns the applicable locks until disposal and progress commit."""
     deadline = deadline if deadline is not None else time.monotonic()+PASS_SECONDS
     admission_end = deadline-CHECKPOINT_RESERVE
     port = _Budget(conn,admission_end)
@@ -819,11 +823,13 @@ def _pass(conn, *, batch_rows, deadline=None):
         progress = progress.model_copy(update={'known_retirement_count':count,
             'active':None,'legacy':_physical_cursor(port,'BARS')})
         total['progress_made'] = True
-    start, errors = progress.next_class, {}
-    for offset in range(7):
+    classes = [(progress.next_class + offset) % 7 for offset in range(7)]
+    if private is not None:
+        classes = [class_id for class_id in classes if (class_id == 5) == private]
+    errors = {}
+    for class_id in classes:
         if time.monotonic() >= admission_end:
             break
-        class_id = (start+offset)%7
         before = progress
         conn.execute('SAVEPOINT retention_class')
         work = _Budget(conn,min(admission_end,time.monotonic()+CLASS_SECONDS),
@@ -854,6 +860,9 @@ def _pass(conn, *, batch_rows, deadline=None):
         finally:
             conn.execute('RELEASE SAVEPOINT retention_class')
         progress = progress.model_copy(update={'next_class':(class_id+1)%7})
+    else:
+        if private is False:
+            progress = progress.model_copy(update={'next_class':5})
     result = dict(total,status='RETRY' if errors else 'COMPLETE',class_errors=errors,
                   more_work=bool(progress.legacy or progress.active or total['progress_made']
                                  or total['metadata_more']))
@@ -886,13 +895,27 @@ def maintain(conn, *, batch_rows=BATCH_ROWS):
         return dict(status='DEFERRED',reason='OPENING_EXECUTION_WINDOW',more_work=True)
     deadline = time.monotonic()+PASS_SECONDS
     try:
-        if not _possible_work(conn):
+        scope = _possible_work(conn)
+        if not scope:
             return dict(status='COMPLETE',reason='NO_WORK',deleted_rows=0,more_work=False)
         if time.monotonic() >= deadline-CHECKPOINT_RESERVE:
             raise RetentionBudgetExpired('retention admission quantum exhausted')
+        if scope is _PRIVATE_ACQUISITION:
+            from sentinel import backup_runtime_authority
+            from sentinel.feed.retention_schema import ACQUISITION_PIN_TABLES
+            conn.execute('SET TRANSACTION ISOLATION LEVEL READ COMMITTED')
+            backup_runtime_authority.require(conn, operation='private acquisition retirement', allow_continuity=True)
+            conn.execute("SET LOCAL lock_timeout='250ms'")
+            conn.execute('LOCK TABLE sentinel_snapshot_maintenance, sentinel_acquisition_parts '
+                         'IN SHARE ROW EXCLUSIVE MODE NOWAIT')
+            conn.execute('LOCK TABLE ' + ', '.join(ACQUISITION_PIN_TABLES) + ' IN SHARE MODE NOWAIT')
+            result = _pass(conn,batch_rows=batch_rows,deadline=deadline,private=True)
+            conn.commit()
+            return result
         with writer_lock(conn),store.corpus_write_lock(conn):
             conn.execute("SET LOCAL lock_timeout='250ms'")
-            result = _pass(conn,batch_rows=batch_rows,deadline=deadline)
+            conn.execute('LOCK TABLE sentinel_snapshot_maintenance IN SHARE ROW EXCLUSIVE MODE NOWAIT')
+            result = _pass(conn,batch_rows=batch_rows,deadline=deadline,private=False)
             conn.commit()
         return result
     except Exception as exc:

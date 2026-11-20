@@ -518,12 +518,14 @@ def test_economic_bundle_names_transitive_book_dependencies_and_runtime_owns_exe
         "sentinel.regime.spy",
         "stock_strategy_shared.split_reconciliation",
         "stock_strategy_shared.terminal_coalescing",
-        "stock_strategy_shared.wealth_core.sharadar_domains",
+        "stock_strategy_shared.wealth_core.price_domains",
     }
 
     from sentinel import economic_manifest
     profile = economic_manifest.manifest()
-    closure = set(profile['pure_contracts']) | set(profile['input_compilers'])
+    historical = set(profile['pure_contracts']) | set(profile['input_compilers'])
+    transitions = economic_manifest._retired_source_profile()['modules']
+    closure = {transitions.get(name, {}).get('module', name) for name in historical}
     assert required <= closure
     runtime_only = {'sentinel.execution.target_reprojection', 'sentinel.feed.operational_coherence',
                     'sentinel.paper', 'sentinel.feed.retention', 'sentinel.shadow_runtime'}

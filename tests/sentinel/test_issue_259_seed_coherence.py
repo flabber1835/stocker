@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from sentinel.feed import ingest, publication, seed_coherence, sharadar, source_authority
+from sentinel.feed import ingest, publication, seed_coherence, archive_tables, source_authority
 
 
 class _Cursor:
@@ -159,13 +159,13 @@ def test_post_seed_proof_routes_cdc_and_date_windows_through_distinct_authority(
     }
     date_window = {"date.gte": "2026-08-01", "date.lte": "2026-08-31"}
 
-    assert len(list(fetch(sharadar.SEP, cdc))) == 1
-    assert len(list(fetch(sharadar.SEP, date_window))) == 1
+    assert len(list(fetch(archive_tables.SEP, cdc))) == 1
+    assert len(list(fetch(archive_tables.SEP, date_window))) == 1
     assert calls == [cdc, date_window]
 
     with pytest.raises(source_authority.SourceAuthorityRefused,
                        match="request envelope"):
-        list(fetch(sharadar.SEP, {"lastupdated.gte": "2026-09-05"}))
+        list(fetch(archive_tables.SEP, {"lastupdated.gte": "2026-09-05"}))
 
 
 def test_post_seed_date_window_keeps_the_frozen_update_ceiling():
@@ -176,7 +176,7 @@ def test_post_seed_date_window_keeps_the_frozen_update_ceiling():
         future_source, boundary="2026-09-05", ceiling="2026-09-05")
     with pytest.raises(source_authority.SepUpdateEnvelopeViolation,
                        match="causal ceiling"):
-        list(fetch(sharadar.SEP, {
+        list(fetch(archive_tables.SEP, {
             "date.gte": "2026-08-01", "date.lte": "2026-08-31"}))
 
 
@@ -197,11 +197,11 @@ def test_seed_finalization_exercises_cdc_then_date_window_on_one_proof(monkeypat
 
     def prove(_conn, **kwargs):
         proof_fetch = kwargs["fetch"]
-        list(proof_fetch(sharadar.SEP, {
+        list(proof_fetch(archive_tables.SEP, {
             "lastupdated.gte": "2026-09-05",
             "lastupdated.lte": "2026-09-05",
         }))
-        list(proof_fetch(sharadar.SEP, {
+        list(proof_fetch(archive_tables.SEP, {
             "date.gte": "2026-08-01", "date.lte": "2026-08-31",
         }))
         return "proof-complete"

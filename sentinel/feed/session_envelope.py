@@ -63,7 +63,7 @@ class SourceSessionEnvelopeViolation(RuntimeError):
         self.evidence = evidence
         encoded = json.dumps(
             evidence.to_dict(), sort_keys=True, separators=(",", ":"))
-        super().__init__(f"Sharadar source session envelope refused: {encoded}")
+        super().__init__(f"source session envelope refused: {encoded}")
 
 
 def _bounded_text(value) -> str | None:
@@ -91,7 +91,7 @@ def _bound(value, *, name: str) -> dt.date:
 
 def validate_rows(
         rows: Iterable[Mapping], *, source: str, date_from, date_to,
-        operation: str = "stable_sharadar_fetch"):
+        operation: str = "stable_table_fetch"):
     """Yield rows only after validating their own session against ``[lo, hi]``.
 
     Validation occurs immediately before each yield.  A consumer therefore
@@ -145,7 +145,7 @@ def validate_rows(
 
 def validate_requested_rows(
         rows: Iterable[Mapping], *, source: str, params: Mapping | None,
-        operation: str = "stable_sharadar_fetch", require_bounds: bool = False):
+        operation: str = "stable_table_fetch", require_bounds: bool = False):
     """Apply the contract when a request declares a closed date interval.
 
     CDC-style source reads may intentionally use a different axis and therefore
@@ -178,7 +178,7 @@ class SessionEnvelopeFetch:
 
     def __init__(self, fetch: Callable, *, operation: str):
         self._fetch = fetch
-        self._operation = _bounded_text(operation) or "stable_sharadar_fetch"
+        self._operation = _bounded_text(operation) or "stable_table_fetch"
 
     def __call__(self, table, params=None, **kwargs):
         rows = self._fetch(table, params, **kwargs)

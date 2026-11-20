@@ -10,7 +10,8 @@ import time
 import httpx
 
 from sentinel import backup_runtime_authority
-from sentinel.feed import acquisition_work, rolling_source, runtime_schema, staging, store
+from sentinel.feed import acquisition_parts, acquisition_work, rolling_jobs as jobs, runtime_schema, store
+from tools.acquisition_resources.fixture_transport import market_source
 from tools.acquisition_resources.fixtures import PROFILES
 from tools.acquisition_resources.measurement import Measurement, disk
 
@@ -29,14 +30,14 @@ def database_sizes(conn):
     conn.commit()
     conn.execute("SELECT pg_stat_clear_snapshot()")
     row = conn.execute("SELECT pg_database_size(current_database()), "
-        "pg_total_relation_size('sentinel_sep_staging'), "
+        "pg_total_relation_size('sentinel_acquisition_prices'), "
         "(SELECT coalesce(sum(size),0) FROM pg_ls_waldir()), "
         "temp_bytes,temp_files FROM pg_stat_database WHERE datname=current_database()").fetchone()
     conn.rollback()
     return dict(zip(("database_bytes", "staging_bytes", "wal_bytes", "temp_bytes", "temp_files"), map(int, row)))
 
 
-def run(profile, cycles):
+def run(profile, cycles, *, address="http://provider:8080"):
     cache = acquisition_work.cache_root()
     # A disposable measurement database has no production backup media. Source
     # data, session, decimal, generation and metadata checks are unmodified.
@@ -46,25 +47,30 @@ def run(profile, cycles):
     with Measurement(cache) as measure, store.connect(os.environ["RESOURCE_DSN"]) as conn:
         with measure.phase("schema"):
             runtime_schema.migrate_feed_schema(conn)
+        window = profile.window()
+        request = jobs.PreparationRequest(window=window, strategy_sha256='f'*64, dependencies_sha256='a'*64)
+        job_id = jobs.enqueue(conn, request, budget_seconds=3600)
+        lease = jobs.claim(conn, job_id, lease_seconds=600)
+        conn.commit()
         for cycle in range(cycles):
             name = "cold" if cycle == 0 else "cached"
-            source = rolling_source.SharadarSource(profile.window())
+            source = market_source(address, window, conn, lease)
             checkpoints = []
             def checkpoint(*args):
                 checkpoints.append(args[0])
-            run_id = "00000000-0000-4000-8000-000000000001"
             acquisition_started = time.monotonic()
             with acquisition_work.budget(seconds=500):
                 with measure.phase(name + ":preflight"):
                     source.preflight()
                 with measure.phase(name + ":references"):
                     source.references(checkpoint)
-                    assert len(source.actions) == profile.actions
-                    assert len(source.tickers) == profile.tickers
+                    assert source.action_evidence["actions"] == profile.actions
+                    assert len(source.assets) == profile.tickers + 2
+                    assert len(source.selected) == profile.securities
                     assert len(source.sfp) == 2 * len(profile.window().sessions)
                 with measure.phase(name + ":download_parse_stage"):
-                    count = staging.stage(conn, source.prices(checkpoint, lambda: None),
-                                          run_id=run_id, chunk="prices")
+                    source.acquire_prices(checkpoint, lambda: jobs.heartbeat(conn, lease, lease_seconds=600))
+                    count = sum(item["rows"] for item in source.evidence if item["component"].startswith("SEP."))
                     assert count == profile.securities * len(profile.window().sessions)
             acquisition_seconds = time.monotonic() - acquisition_started
             assert acquisition_seconds <= 500, "acquisition exceeds the production callback budget"
@@ -72,7 +78,7 @@ def run(profile, cycles):
                 seen = 0
                 previous = None
                 digest = hashlib.sha256()
-                for row in staging.staged(conn, run_id=run_id, chunk="prices"):
+                for row in acquisition_parts.price_rows(conn, job_id):
                     key = (row["date"], row["ticker"])
                     assert previous is None or previous < key
                     previous = key
@@ -88,11 +94,11 @@ def run(profile, cycles):
             result = dict(cycle=name, rows=count, staged_sha256=digest.hexdigest(),
                           acquisition_seconds=acquisition_seconds,
                           checkpoints=len(checkpoints), disk=disk(cache), database=database_sizes(conn),
-                          provider=httpx.get("http://provider:8080/metrics", timeout=15).json())
-            assert result["checkpoints"] == len(source.snapshots) + 1
+                          provider=httpx.get(address + "/metrics", timeout=15, trust_env=False).json())
+            assert result["checkpoints"] == len(source.evidence)
             if results:
                 assert result["staged_sha256"] == results[0]["staged_sha256"]
-                assert result["provider"]["downloads"] == results[0]["provider"]["downloads"]
+                assert result["provider"]["/v2/stocks/bars"] == results[0]["provider"]["/v2/stocks/bars"]
                 assert result["disk"] == results[0]["disk"]
             results.append(result)
             del source

@@ -54,7 +54,7 @@ def test_partial_preparation_attempts_survive_failure(monkeypatch, code, failure
     with redirect_stdout(output), pytest.raises(RuntimeError, match="controlled"):
         exec(code, {})
     payload = json.loads(output.getvalue().split("SENTINEL_GO_PREPARATION_FAILURE=", 1)[1])
-    assert (payload["schema_migration_attempted"], payload["bounded_sharadar_daily_attempted"]) == expected
+    assert (payload["schema_migration_attempted"], payload["bounded_market_data_daily_attempted"]) == expected
 
     class Runner:
         def run(self, argv, **kwargs):
@@ -70,18 +70,18 @@ def test_partial_preparation_attempts_survive_failure(monkeypatch, code, failure
         runtime_ref="sha256:" + "a" * 64, commit="b" * 40)
     assert summary.status == source_final.go.FAIL
     assert not summary.complete
-    assert (summary.schema_migration_attempted, summary.bounded_sharadar_daily_attempted) == expected
+    assert (summary.schema_migration_attempted, summary.bounded_market_data_daily_attempted) == expected
 
 
 @pytest.mark.parametrize("text", ["not-json", "[]", '{}',
-    '{"schema_migration_attempted":"true","bounded_sharadar_daily_attempted":true}'])
+    '{"schema_migration_attempted":"true","bounded_market_data_daily_attempted":true}'])
 def test_malformed_attempt_evidence_does_not_invent_attempts(text):
     result = subprocess.CompletedProcess([], 1, "SENTINEL_GO_PREPARATION_FAILURE=" + text, "")
     assert source_final.go.preparation_attempts(result, schema_migrated=False, daily_completed=False) == (False, False)
 
 
 def test_ambiguous_attempt_markers_are_not_evidence():
-    marker = 'SENTINEL_GO_PREPARATION_FAILURE={"schema_migration_attempted":true,"bounded_sharadar_daily_attempted":true}\n'
+    marker = 'SENTINEL_GO_PREPARATION_FAILURE={"schema_migration_attempted":true,"bounded_market_data_daily_attempted":true}\n'
     result = subprocess.CompletedProcess([], 1, marker + marker, "")
     assert source_final.go.preparation_attempts(result, schema_migrated=False, daily_completed=False) == (False, False)
 
@@ -104,7 +104,7 @@ def _probe(monkeypatch, completed):
                                   'missing', 'extra', 'string', 'integer', 'nonfinite'])
 def test_ambiguous_success_json_never_completes_preparation(monkeypatch, change):
     value = dict(schema_migrated=True, source_not_before_satisfied=True,
-                 following_open_future=False, bounded_sharadar_daily=True,
+                 following_open_future=False, bounded_market_data_daily=True,
                  publication_current=True)
     if change == 'missing':
         del value['following_open_future']
@@ -130,7 +130,7 @@ def test_duplicate_failure_keys_never_invent_attempts_or_renewal():
     payload = ('{"phase":"DAILY_CATCHUP","error_type":"BackupHorizonExceeded",'
         '"reason_code":"BACKUP_RUNTIME_HORIZON_EXCEEDED",'
         '"schema_migration_attempted":false,"schema_migration_attempted":true,'
-        '"bounded_sharadar_daily_attempted":true,'
+        '"bounded_market_data_daily_attempted":true,'
         '"resume_job_id":"00000000-0000-0000-0000-000000000001"}')
     completed = subprocess.CompletedProcess([], 1, retry.FAILURE+payload, '')
     assert source_final.go.preparation_attempts(completed,
@@ -157,7 +157,7 @@ def test_broken_success_marker_uniqueness_is_detected(monkeypatch):
 ])
 def test_broken_failure_duplicate_key_guards_are_detected(monkeypatch, module_name, function, hook):
     import importlib, inspect, textwrap
-    module = importlib.import_module(module_name)
+    module = (source_final.go if function == "preparation_attempts" else importlib.import_module(module_name))
     source = textwrap.dedent(inspect.getsource(getattr(module, function)))
     old = ', object_pairs_hook='+hook
     assert old in source

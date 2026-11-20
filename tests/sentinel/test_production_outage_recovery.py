@@ -14,7 +14,7 @@ from sentinel import (
     shadow_segments,
     shadow_worker,
 )
-from sentinel.feed import outage_recovery, sharadar, store as feed_store
+from sentinel.feed import outage_recovery, archive_tables, store as feed_store
 from sentinel.panel import app as panel_app, model as panel_model
 
 
@@ -216,7 +216,7 @@ def test_feed_outage_recovery_never_relabels_vendor_failure_local(monkeypatch):
     monkeypatch.setattr(
         outage_recovery.backup_guard, "require_writes_permitted",
         lambda *_args, **_kwargs: None)
-    vendor = sharadar.SharadarRequestError("provider unavailable")
+    vendor = archive_tables.RequestError("provider unavailable")
     monkeypatch.setattr(
         outage_recovery.ingest, "daily",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(vendor))
@@ -224,7 +224,7 @@ def test_feed_outage_recovery_never_relabels_vendor_failure_local(monkeypatch):
         outage_recovery.ingest, "seed",
         lambda *_args, **_kwargs: pytest.fail("vendor failure must not full-reseed"))
 
-    with pytest.raises(sharadar.SharadarRequestError):
+    with pytest.raises(archive_tables.RequestError):
         outage_recovery.catch_up(SimpleNamespace(), target_session="2026-08-25")
 
 
@@ -353,21 +353,22 @@ def test_shadow_financial_health_is_red_after_partial_cutoff(monkeypatch):
 
 
 def test_shadow_worker_only_classifies_true_provider_availability():
-    transport = sharadar.SharadarRequestError(
-        "Sharadar request failed after 6 attempt(s) (TransportError) for SEP")
+    from sentinel.feed.alpaca_transport import AlpacaTransportRefused, AlpacaTransportUnavailable
+    transport = AlpacaTransportUnavailable("provider request exhausted its retry budget")
     retry = shadow_recovery.ShadowServiceRetry("not ready")
     retry.__cause__ = transport
     assert shadow_worker._availability_failure(retry) is True
     assert shadow_worker._availability_failure(
-        sharadar.SharadarRetryDeferred(3600, 429)) is True
+        AlpacaTransportUnavailable("provider rate limit is still active", delay=3600)) is True
     assert shadow_worker._availability_failure(
         backup_guard.BackupWriteFenced("backup offline")) is True
 
     assert shadow_worker._availability_failure(
-        sharadar.SharadarProtocolError("SEP: schema changed")) is False
+        archive_tables.CaptureRequired("verified historical export unavailable")) is False
     assert shadow_worker._availability_failure(
-        sharadar.SharadarRequestError(
-            "Sharadar request failed (HTTP 401) for SEP")) is False
+        AlpacaTransportRefused("provider refused request with HTTP 401")) is False
+    assert shadow_worker._availability_failure(
+        AlpacaTransportRefused("provider response is not valid UTF-8/JSON")) is False
     assert shadow_worker._availability_failure(RuntimeError("logic bug")) is False
 
 

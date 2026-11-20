@@ -1,38 +1,29 @@
-"""Static helper support for canonical Sharadar ingest authority.
-
-Production seed/daily orchestration is owned exclusively by
-:mod:`sentinel.feed.ingest`.  This module contains only narrow helper functions
-used by that canonical owner; it exposes no seed/daily production entrypoint.
-"""
+"""Validate the source and recovery prerequisites for historical table ingestion."""
 from __future__ import annotations
 
 from sentinel import backup_runtime_authority
 from sentinel.feed import (
     coherence, identity_rebuild, identity_refresh, ingest_impl as _impl,
     maintenance, recent_reconciliation, recovery, reseed, sep_reconciliation,
-    sharadar, snapshot_source, source_authority, universe)
+    archive_tables, snapshot_source, source_authority, universe)
 
 
 def _authoritative_source(fetch):
-    return snapshot_source.fetch_table if fetch is sharadar.fetch_table else fetch
+    return snapshot_source.fetch_table if fetch is archive_tables.fetch_table else fetch
 
 
 def _actions_reconciliation_source(fetch):
-    return sharadar.fetch_table if fetch is snapshot_source.fetch_table else fetch
+    return archive_tables.fetch_table if fetch is snapshot_source.fetch_table else fetch
 
 
 def _recent_reconciliation_source(fetch):
-    """Production uses Exporter authority; injected sources remain injected."""
+    """Use the captured export when reconciling a historical snapshot."""
     return None if fetch is snapshot_source.fetch_table else fetch
 
 
 def _validate_source_before_run(fetch) -> None:
-    sharadar.validate_config()
-    if fetch is snapshot_source.fetch_table:
-        snapshot_source.validate_config()
-        sharadar._api_key()
-    elif fetch is sharadar.fetch_table:
-        sharadar._api_key()
+    if fetch in (snapshot_source.fetch_table, archive_tables.fetch_table):
+        archive_tables.require_capture()
 
 
 def _require_restore_horizon(conn, *, operation: str) -> None:

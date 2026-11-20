@@ -64,8 +64,8 @@ def run(args):
         ready(provider,['python','-c',"import urllib.request; urllib.request.urlopen('http://localhost:8080/metrics',timeout=5).read()"],deadline)
         environment = [
             '-e','SENTINEL_STATE_DIR=/var/lib/sentinel',
-            '-e','NDL_BASE_URL=http://provider:8080/api/v3/datatables/SHARADAR',
-            '-e','SHARADAR_ALLOW_INSECURE_BASE_URL=1','-e','SHARADAR_API_KEY=offline-fixture',
+            '-e', 'ALPACA_API_KEY=fixture-data-id', '-e', 'ALPACA_SECRET_KEY=fixture-data-secret',
+            '-e', 'OPENFIGI_API_KEY=fixture-mapping',
             '-e','RESOURCE_DSN=postgresql://postgres:offline-fixture@database/postgres',
             '-e',f'SENTINEL_IMAGE_SOURCE_REVISION={args.commit}']
         command('docker','run','-d','--name',automation,'--network-alias','automation',*common,

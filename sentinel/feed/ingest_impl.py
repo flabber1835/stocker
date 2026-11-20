@@ -1,7 +1,7 @@
-"""Seed and daily ingest — fetch, normalise, write, publish progress.
+"""Read, normalize and publish batches from historical captures.
 
 ```text
-SHARADAR  ->  domains.normalise_sep_rows  ->  store.write_bars
+capture ->  domains.normalise_sep_rows  ->  store.write_bars
                         |                            |
                         +--------- IngestRun.chunk ---+
                                      publishes committed progress per year
@@ -16,7 +16,7 @@ daily   everything since the newest session already stored, plus a small
 ```
 
 **The daily fetch deliberately overlaps.** Resuming strictly after the last
-stored session would never revisit a bar, and Sharadar restates: a split or a
+stored session would never revisit a bar, and later captures can revise it. A split or a
 correction lands on rows already written. The upserts are idempotent, so
 re-fetching a short tail costs one small request and repairs silently. Resuming
 without overlap would leave a stale bar in place forever, and the trailing stop
@@ -28,7 +28,7 @@ import datetime as _dt
 import logging
 from typing import Callable, Iterable, Optional
 
-from sentinel.feed import domains, sharadar, universe
+from sentinel.feed import domains, archive_tables, universe
 from sentinel.feed import store as feed_store
 
 log = logging.getLogger(__name__)
@@ -439,7 +439,7 @@ def _persist_chunk_evidence(conn, run, chunk: str, lo: str, hi: str,
 
 
 def seed(conn, *, date_from: str = DEFAULT_SEED_START, date_to: Optional[str] = None,
-         fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
+         fetch: Callable[..., Iterable[dict]] = archive_tables.fetch_table,
          resolve_identity=None) -> feed_store.IngestProgress:
     """Load the full history, one calendar year per chunk.
 
@@ -467,7 +467,7 @@ def _seed_locked(conn, *, date_from: str, date_to: Optional[str],
                  fetch: Callable[..., Iterable[dict]],
                  resolve_identity) -> feed_store.IngestProgress:
     date_to = date_to or _today()
-    chunks = sharadar.year_chunks(date_from, date_to)
+    chunks = archive_tables.year_chunks(date_from, date_to)
     run = feed_store.IngestRun(conn, "seed", date_from=date_from,
                                date_to=date_to, chunks_total=len(chunks) + 3)
 
@@ -476,7 +476,7 @@ def _seed_locked(conn, *, date_from: str, date_to: Optional[str],
     # momentum computed across that seam is wrong for as long as the corpus
     # lives. Loading prices before identity would mean re-loading them after.
     with run.chunk("tickers"):
-        rows = list(fetch(sharadar.TICKERS))
+        rows = list(fetch(archive_tables.TICKERS))
         run.progress.rows_written += universe.write_universe(
             conn, rows, date_to, run_id=run.progress.run_id)
 
@@ -488,18 +488,18 @@ def _seed_locked(conn, *, date_from: str, date_to: Optional[str],
         from sentinel.feed import calendar
         action_start, _ = calendar.action_date_window(date_from, date_to)
         action_source_rows = list(fetch(
-            sharadar.ACTIONS, sharadar.date_params(action_start, date_to)))
+            archive_tables.ACTIONS, archive_tables.date_params(action_start, date_to)))
         run.progress.rows_written += feed_store.write_actions(
             conn, action_source_rows, run_id=run.progress.run_id,
             window_start=action_start, window_end=date_to)
 
     # SPY and BIL are funds, not SEP equities. One combined request preserves
-    # StableSharadarFetch's single SFP generation witness; the writer then
+    # StableTableFetch's single SFP generation witness; the writer then
     # isolates SPY's regime value from BIL's fixed-identity execution mark.
     with run.chunk("spy"):
         params = {"ticker": SFP_REFERENCE_TICKERS,
-                  **sharadar.date_params(date_from, date_to)}
-        rows = fetch(sharadar.SFP, params)
+                  **archive_tables.date_params(date_from, date_to)}
+        rows = fetch(archive_tables.SFP, params)
         run.progress.rows_written += _write_sfp_reference_rows(
             conn, rows, run_id=run.progress.run_id)
 
@@ -525,7 +525,7 @@ def _seed_locked(conn, *, date_from: str, date_to: Optional[str],
             # every year derived "no split" — see store.previous_observations.
             bars = domains.normalise_sep_rows(
                 _ordered_sep(conn,
-                             fetch(sharadar.SEP, sharadar.date_params(lo, hi)),
+                             fetch(archive_tables.SEP, archive_tables.date_params(lo, hi)),
                              run_id=run.progress.run_id, chunk=lo[:4]),
                 resolve_identity=resolver,
                 authoritative_splits=splits, dividends=divs,
@@ -586,7 +586,7 @@ def _publish_version(conn, run, window_start: str, window_end: str):
     return None
 
 
-def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
+def daily(conn, *, fetch: Callable[..., Iterable[dict]] = archive_tables.fetch_table,
           resolve_identity=None, overlap_days: int = DAILY_OVERLAP_DAYS,
           today: Optional[str] = None) -> feed_store.IngestProgress:
     """Fetch from `overlap_days` behind the stored frontier through today.
@@ -633,7 +633,7 @@ def _daily_locked(conn, *, fetch: Callable[..., Iterable[dict]],
         start = max(start, capture.start)
     # Refuse before opening the durable run row.  A future/corrupt frontier must
     # not become a successful empty ingest whose publication advances anyway.
-    sharadar.validate_date_range(start, to)
+    archive_tables.validate_date_range(start, to)
 
     run = feed_store.IngestRun(conn, "daily", date_from=start, date_to=to,
                                chunks_total=4)
@@ -642,7 +642,7 @@ def _daily_locked(conn, *, fetch: Callable[..., Iterable[dict]],
     # as unresolvable — silently, since dropping is the correct response to an
     # unknown security and looks identical to one.
     with run.chunk("tickers"):
-        rows = list(fetch(sharadar.TICKERS))
+        rows = list(fetch(archive_tables.TICKERS))
         run.progress.rows_written += universe.write_universe(
             conn, rows, to, run_id=run.progress.run_id)
 
@@ -650,7 +650,7 @@ def _daily_locked(conn, *, fetch: Callable[..., Iterable[dict]],
         from sentinel.feed import calendar
         action_start, _ = calendar.action_date_window(start, to)
         action_source_rows = list(
-            fetch(sharadar.ACTIONS, sharadar.date_params(action_start, to)))
+            fetch(archive_tables.ACTIONS, archive_tables.date_params(action_start, to)))
         run.progress.rows_written += feed_store.write_actions(
             conn, action_source_rows, run_id=run.progress.run_id,
             window_start=action_start, window_end=to)
@@ -669,8 +669,8 @@ def _daily_locked(conn, *, fetch: Callable[..., Iterable[dict]],
         if capture is not None:
             capture.require_window(spy_start, to)
         params = {"ticker": SFP_REFERENCE_TICKERS,
-                  **sharadar.date_params(spy_start, to)}
-        rows = fetch(sharadar.SFP, params)
+                  **archive_tables.date_params(spy_start, to)}
+        rows = fetch(archive_tables.SFP, params)
         run.progress.rows_written += _write_sfp_reference_rows(
             conn, rows, run_id=run.progress.run_id)
 
@@ -680,7 +680,7 @@ def _daily_locked(conn, *, fetch: Callable[..., Iterable[dict]],
             conn, start, to, include_run_id=run.progress.run_id)
         bars = domains.normalise_sep_rows(
             _ordered_sep(conn,
-                         fetch(sharadar.SEP, sharadar.date_params(start, to)),
+                         fetch(archive_tables.SEP, archive_tables.date_params(start, to)),
                          run_id=run.progress.run_id, chunk="prices"),
             resolve_identity=resolve_identity or universe.load_resolver(
                 conn, include_run_id=run.progress.run_id).resolve,

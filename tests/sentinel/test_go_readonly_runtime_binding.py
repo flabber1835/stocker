@@ -53,7 +53,7 @@ def test_production_readers_receive_selected_certified_identity(monkeypatch, pha
         import sentinel_go_probe_contract as contract
         # Track every install mutation so the real wrappers cannot leak into
         # later tests. Keep the production reader implementations underneath.
-        for name in ('probe_sharadar_readiness', 'probe_database_financial_health'):
+        for name in ('probe_market_data_readiness', 'probe_database_financial_health'):
             monkeypatch.setattr(go, name, getattr(go, name))
         monkeypatch.setattr(controller, '_classify_preparation_failure',
                             controller._classify_preparation_failure)
@@ -104,7 +104,7 @@ def test_production_readers_receive_selected_certified_identity(monkeypatch, pha
                    SENTINEL_SHADOW_STARTING_CASH='123456.78')
     run = controller.run_phased_probes if phased else go.run_production_probes
     result = run(runner=Runner(), env=env, now=NOW)
-    assert result.gates['sharadar_readiness'].status == go.PASS
+    assert result.gates['market_data_readiness'].status == go.PASS
     assert result.gates['database_financial_health'].status == go.PASS
     assert children == [go._READINESS_CODE, go._DATABASE_HEALTH_CODE]
     assert result.production_db_writes == result.broker_mutation_attempts == 0
@@ -141,6 +141,16 @@ def test_installer_readiness_binds_selected_runtime_and_book(monkeypatch, capsys
         assert os.environ['SENTINEL_SHADOW_OBSERVATION_ID'] == 'configured-book'
         assert os.environ['SENTINEL_SHADOW_STARTING_CASH'] == '123456.78'
         return SimpleNamespace(ready=True, checks=[], failures=[])
+    from contextlib import nullcontext
+    from sentinel.feed import rolling_go_inputs, operational_snapshot
+    snapshot = SimpleNamespace(evidence={'rolling_snapshot': True})
+    monkeypatch.setattr(rolling_go_inputs, 'require_schemas', lambda c: None)
+    monkeypatch.setattr(rolling_go_inputs, 'pinned', lambda c: nullcontext(snapshot))
+    def verify_provider(c, pub):
+        assert c is conn and pub is snapshot
+        events.append('provider')
+    monkeypatch.setattr(operational_snapshot, 'require_alpaca_openfigi', verify_provider)
+    monkeypatch.setattr(rolling_go_inputs, 'assessment', report)
     monkeypatch.setattr(readers, 'readiness', report)
     monkeypatch.setattr(readiness, 'save_snapshot', lambda *_a: events.append('snapshot'))
     calls = []
@@ -162,6 +172,7 @@ def test_installer_readiness_binds_selected_runtime_and_book(monkeypatch, capsys
     obj.runner = SimpleNamespace(run=run)
     if route == 'structured':
         assert obj._readiness_verdict()['ready'] is True
+        assert events.count('provider') == 1
     else:
         assert obj._base_cli(['check-data'], capture=True).returncode == 0
     assert len(calls) == 1 and events.count('snapshot') == 1

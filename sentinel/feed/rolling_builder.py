@@ -1,5 +1,6 @@
 """Canonical normalization into immutable private candidates. No provider I/O."""
 from __future__ import annotations
+from sentinel import archive_identifiers
 
 import hashlib
 from contextlib import closing
@@ -11,9 +12,9 @@ from sentinel.feed import (
 )
 from sentinel.feed.rolling_contract import CanonicalBar, CanonicalBenchmark, RestartRequirement, digest
 from sentinel.feed.source_authority import SeedCoverageAccumulator, SeedListingProjection
-from sentinel.feed.canonical_transforms import benchmarks, alpaca_bar, sharadar_bar
+from sentinel.feed.canonical_transforms import benchmarks, alpaca_bar, source_bar
 
-NORMALIZATION_VERSION = "sentinel.sharadar-rolling-comparison/1"
+NORMALIZATION_VERSION = archive_identifiers.FEED['ROLLING_COMPARISON']
 CHUNK = "rolling-window"
 # SFP transports this vendor field; it remains forbidden for SEP equity signals.
 # Reuse the feed's column spelling without depending on the controller's sensor.
@@ -117,7 +118,7 @@ def _build(conn, lease, request, source):
                 rows, resolve_identity=identity.resolver().resolve, dividends=dividends,
                 authoritative_splits=splits, report=report)
             while batch := list(islice(normalized, rolling_store.BATCH_SIZE)):
-                bars = [sharadar_bar(item) for item in batch]
+                bars = [source_bar(item) for item in batch]
                 rolling_store.write_bars(conn, candidate, bars)
                 for key in sorted(report.split_no_event_evidence):
                     rolling_store._fold(no_event_hash, key)
@@ -216,7 +217,7 @@ def _alpaca_rows(conn, lease, *, verifier=None):
 
 
 def build_alpaca(conn, lease, request, source):
-    """Seal current-information prices without Sharadar semantics."""
+    """Seal current-information prices without Source semantics."""
     from sentinel.feed.acquisition_parts import PricePartVerifier
     from sentinel.feed.openfigi import reference_row
     from sentinel.feed.alpaca_observation import admissible_history

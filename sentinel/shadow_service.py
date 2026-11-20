@@ -3,7 +3,7 @@
 This module deliberately imports neither ProductionAutomation nor any Sentinel
 execution/broker adapter. Deployed shadow mode uses Alpaca credentials only
 through the GET-only market-data client, requires an Alpaca/OpenFIGI rolling
-publication, and rejects account identity and Sharadar credentials. The legacy
+publication, and rejects account identity and historical feed credentials. The legacy
 path remains for offline historical fixtures and cannot be entered by the
 deployed shadow service.
 """

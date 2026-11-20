@@ -1,59 +1,25 @@
-"""Vendor-backed complete-table snapshots for negative-space authority.
-
-Nasdaq Data Link's ordinary Tables API is cursor-paginated and exposes no
-immutable generation token for a traversal. Repeating a traversal proves that
-the observed content stopped changing; it cannot prove a stable partial result
-contains every row.
-
-The official Tables *Exporter* has a stronger contract for the narrow cases
-where absence/removal is itself economic authority: ``qopts.export=true``
-generates the entire requested table as one zipped CSV and reports both
-``file.data_snapshot_time`` and ``datatable.last_refreshed_time`` once the file
-is fresh. Sentinel accepts only a ``fresh`` file whose snapshot creation began at
-or after the vendor's latest table refresh.
-
-ACTIONS consumes that complete file directly. TICKERS uses it only as an
-identity-key witness so paginated JSON preserves NULL-vs-empty metadata semantics.
-SEP uses bounded exports for the current decision-history reconciliation; those
-rows are normalized through the same production membrane before comparison.
-"""
+"""Verified local export evidence for historical replay."""
 from __future__ import annotations
 
 import csv
-import io
-import math
-import os
-import time
-import zipfile
-import hashlib
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Callable, Iterable, Mapping
-from urllib.parse import urlparse
+from datetime import datetime
+import hashlib
+import io
+from typing import Iterable, Mapping
+import zipfile
 
-from sentinel.feed import sharadar, acquisition_limits as limits
-
-EXPORT_MAX_POLLS = int(os.getenv("SHARADAR_EXPORT_MAX_POLLS", "20"))
-EXPORT_POLL_SECONDS = float(os.getenv("SHARADAR_EXPORT_POLL_SECONDS", "30"))
-
-
-class SharadarSnapshotExportError(sharadar.SharadarRequestError):
-    """The provider could not prove a complete, current export snapshot."""
+from sentinel.feed import acquisition_limits as limits, archive_tables
 
 
-class ExportPending(sharadar.SharadarRetryDeferred):
-    """A valid exporter job has not completed; not a source integrity failure."""
-
-    def __init__(self, table, status, params):
-        super().__init__(max(1, EXPORT_POLL_SECONDS))
-        self.table, self.export_status, self.params = table, status, dict(params or {})
-        self.args = (f"Sharadar {table} export status={status}; "
-                     f"window={self.params.get('date.gte', 'all')}.."
-                     f"{self.params.get('date.lte', 'all')}; waiting for export generation",)
-
-
-class ExportLinkExpired(SharadarSnapshotExportError):
+class SnapshotExportError(archive_tables.RequestError):
     pass
+
+
+class ExportPending(archive_tables.RetryDeferred):
+    def __init__(self, table, status, params):
+        super().__init__(30)
+        self.table, self.export_status, self.params = table, status, dict(params or {})
 
 
 @dataclass(frozen=True)
@@ -65,81 +31,16 @@ class ExportSnapshot:
     refreshed: datetime
 
 
-def probe_snapshot(table, *, params=None, http=None, sleep=time.sleep, now=None):
-    """Check availability once, without waiting for or downloading a file."""
-    from sentinel.feed import acquisition_work
-    with acquisition_work.budget(seconds=60):
-        return _probe_snapshot(table, params=params, http=http, sleep=sleep, now=now)
+def probe_snapshot(table, *, params=None):
+    raise archive_tables.CaptureRequired("A new remote export cannot be used as a historical snapshot")
 
 
-def _probe_snapshot(table, *, params, http, sleep, now):
-    validate_config()
-    if http is None:
-        import httpx
-        http = httpx
-    query = {"api_key": sharadar._api_key(),
-             **sharadar._validated_params(params), "qopts.export": "true"}
-    from sentinel.feed import progress
-    progress.emit("export_preflight", "started", table=table,
-                  date_from=str((params or {}).get("date.gte", "")),
-                  date_to=str((params or {}).get("date.lte", "")))
-    with http.Client(timeout=sharadar.FETCH_TIMEOUT_SECS) as client:
-        response = sharadar._get_with_retry(
-            client, f"{sharadar.NDL_BASE}/{table}.json", query,
-            http=http, sleep=sleep, now=now)
-        try:
-            payload = response.json()
-        except Exception:
-            raise SharadarSnapshotExportError(
-                f"Sharadar {table} export status is not valid JSON") from None
-    status, link, snapshot, refreshed = _decode_export_status(payload)
-    progress.emit("export_preflight", status, table=table,
-                  date_from=str((params or {}).get("date.gte", "")),
-                  date_to=str((params or {}).get("date.lte", "")))
-    if status != "fresh":
-        raise ExportPending(table, status, params)
-    if link is None or snapshot is None or refreshed is None or snapshot < refreshed:
-        raise SharadarSnapshotExportError(
-            f"Sharadar {table} fresh export lacks current snapshot authority")
-    return ExportSnapshot(table, dict(params or {}), link, snapshot, refreshed)
-
-
-def download_snapshot(snapshot, *, required, http=None, sleep=time.sleep, now=None):
-    from sentinel.feed import acquisition_work as work, progress
-    if http is None:
-        import httpx
-        http = httpx
-    with work.cached_file(snapshot) as path:
-        blob = work.read_cached(path)
-        if blob is None:
-            # Links have a shorter lifetime than an acquisition. Renew metadata,
-            # never silently upgrade an already selected table generation.
-            for attempt in range(2):
-                renewed = probe_snapshot(snapshot.table, params=snapshot.params,
-                                         http=http, sleep=sleep, now=now)
-                if renewed.refreshed != snapshot.refreshed:
-                    from sentinel.feed.authority import VendorPublicationUnstable
-                    raise VendorPublicationUnstable(
-                        f"Sharadar {snapshot.table} refresh changed before download")
-                try:
-                    with http.Client(timeout=sharadar.FETCH_TIMEOUT_SECS) as client:
-                        blob = _safe_download(client, renewed.link, http=http, sleep=sleep, now=now,
-                                              details={"table": snapshot.table,
-                                                       "date_from": snapshot.params.get("date.gte", ""),
-                                                       "date_to": snapshot.params.get("date.lte", "")})
-                    break
-                except ExportLinkExpired:
-                    if attempt:
-                        raise
-            rows = _csv_rows(blob, required=required)
-            # Key by the actual file's snapshot, not the earlier preflight time.
-            snapshot = renewed
-            destination = path.parent / (work.file_key(snapshot) + ".zip")
-            work.save_cached(destination, blob)
-        else:
-            rows = _csv_rows(blob, required=required)
-            progress.emit("source_download", "observed", table=snapshot.table,
-                          reason="VERIFIED_CACHE_REUSED", rows=len(rows))
+def download_snapshot(snapshot, *, required):
+    from sentinel.feed import acquisition_work as work
+    blob = work.read_cached(snapshot)
+    if blob is None:
+        raise archive_tables.CaptureRequired("Verified historical export bytes are unavailable")
+    rows = _csv_rows(blob, required=required)
     return rows, {
         "authority": "nasdaq-data-link-table-export/v1", "table": snapshot.table,
         "file_status": "fresh", "data_snapshot_time": snapshot.snapshot.isoformat(),
@@ -149,135 +50,16 @@ def download_snapshot(snapshot, *, required, http=None, sleep=time.sleep, now=No
     }
 
 
-def validate_config() -> None:
-    sharadar.validate_config()
-    if isinstance(EXPORT_MAX_POLLS, bool) or not isinstance(EXPORT_MAX_POLLS, int) \
-            or EXPORT_MAX_POLLS < 1:
-        raise ValueError("SHARADAR_EXPORT_MAX_POLLS must be an integer >= 1")
-    if not math.isfinite(EXPORT_POLL_SECONDS) or EXPORT_POLL_SECONDS < 0:
-        raise ValueError("SHARADAR_EXPORT_POLL_SECONDS must be finite and >= 0")
+def _fetch_complete(table, *, params, required):
+    from sentinel.feed import operational_source
+    capture = operational_source.current()
+    if capture is None:
+        raise archive_tables.CaptureRequired("Verified historical export rows are unavailable")
+    return capture.export_rows(table, params, required=required)
 
 
-def _aware_iso(value, *, field: str) -> datetime:
-    text = str(value or "").strip()
-    if not text:
-        raise SharadarSnapshotExportError(
-            f"Sharadar export omitted required {field}")
-    if text.endswith(" UTC"):
-        text = text[:-4] + "+00:00"
-    elif text.endswith("Z"):
-        text = text[:-1] + "+00:00"
-    try:
-        parsed = datetime.fromisoformat(text)
-    except ValueError as exc:
-        raise SharadarSnapshotExportError(
-            f"Sharadar export returned invalid {field}") from exc
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
-
-
-def _decode_export_status(
-        payload) -> tuple[str, str | None, datetime | None, datetime | None]:
-    if not isinstance(payload, dict):
-        raise SharadarSnapshotExportError(
-            "Sharadar export status root is not an object")
-    root = payload.get("datatable_bulk_download")
-    if not isinstance(root, dict):
-        raise SharadarSnapshotExportError(
-            "Sharadar export status lacks datatable_bulk_download")
-    file_info = root.get("file")
-    if not isinstance(file_info, dict):
-        raise SharadarSnapshotExportError(
-            "Sharadar export status lacks file evidence")
-    status = str(file_info.get("status") or "").strip().lower()
-    if status not in {"fresh", "creating", "regenerating"}:
-        raise SharadarSnapshotExportError(
-            f"Sharadar export returned unknown file status {status!r}")
-    link = file_info.get("link")
-    if link is not None:
-        link = str(link).strip() or None
-    if status != "fresh":
-        return status, link, None, None
-    table_info = root.get("datatable")
-    if not isinstance(table_info, dict):
-        raise SharadarSnapshotExportError(
-            "Sharadar fresh export status lacks datatable evidence")
-    snapshot = _aware_iso(
-        file_info.get("data_snapshot_time"), field="data_snapshot_time")
-    refreshed = _aware_iso(
-        table_info.get("last_refreshed_time"), field="last_refreshed_time")
-    return status, link, snapshot, refreshed
-
-
-def _safe_download(client, link: str, *, http, sleep, now, details=None) -> bytes:
-    from sentinel.feed import acquisition_work as work
-    parsed = urlparse(str(link))
-    base = urlparse(str(sharadar.NDL_BASE))
-    development_origin = (
-        sharadar.ALLOW_INSECURE_BASE_URL
-        and parsed.scheme == base.scheme == "http"
-        and parsed.netloc == base.netloc
-    )
-    if not parsed.netloc or (parsed.scheme.lower() != "https" and not development_origin):
-        raise SharadarSnapshotExportError(
-            "Sharadar export supplied a non-HTTPS download link")
-    last_kind = "transport failure"
-    for attempt in range(sharadar.FETCH_MAX_RETRIES):
-        status = None
-        retry_after = None
-        try:
-            with sharadar._quiet_http_client_diagnostics():
-                options = work.request_options()
-                response_context = client.stream(
-                    "GET", link, headers={"Accept-Encoding": "identity"}, **options)
-                with response_context as response:
-                    status = int(response.status_code)
-                    if status in sharadar.RETRYABLE_STATUS:
-                        retry_after = response.headers.get("Retry-After")
-                        raise RuntimeError("retryable download status")
-                    response.raise_for_status()
-                    if response.headers.get("Content-Encoding", "identity").lower() != "identity":
-                        raise SharadarSnapshotExportError("Sharadar export requires identity Content-Encoding")
-                    length = response.headers.get("Content-Length")
-                    if length is not None:
-                        limits.check("ZIP_BYTES", int(length), limits.ZIP_BYTES)
-                    buffer = io.BytesIO()
-                    last_report = time.monotonic()
-                    for chunk in response.iter_bytes(chunk_size=limits.CHUNK_BYTES):
-                        work.request_options()
-                        limits.check("ZIP_BYTES", buffer.tell() + len(chunk), limits.ZIP_BYTES)
-                        buffer.write(chunk)
-                        if time.monotonic() - last_report >= 5:
-                            from sentinel.feed import progress
-                            progress.emit("source_download", "working", bytes=buffer.tell(),
-                                          **(details or {}))
-                            last_report = time.monotonic()
-                    return buffer.getvalue()
-        except (sharadar.SharadarRetryDeferred, limits.AcquisitionResourceExceeded,
-                SharadarSnapshotExportError):
-            raise
-        except Exception as exc:  # noqa: BLE001
-            if sharadar._is_transport_error(exc, http):
-                status = None
-            if status is not None and status not in sharadar.RETRYABLE_STATUS:
-                if status in {403, 404}:
-                    raise ExportLinkExpired(
-                        f"Sharadar snapshot download failed with HTTP {status}") from None
-                raise SharadarSnapshotExportError(
-                    f"Sharadar snapshot download failed with HTTP {status}") from None
-            if not sharadar._is_transport_error(exc, http) and status is None:
-                raise SharadarSnapshotExportError(
-                    f"Sharadar snapshot download failed ({type(exc).__name__})") from None
-            last_kind = f"HTTP {status}" if status is not None else type(exc).__name__
-        delay = sharadar.retry_delay(
-            attempt, status, retry_after,
-            now=now or (lambda: datetime.now(timezone.utc)))
-        if attempt < sharadar.FETCH_MAX_RETRIES - 1:
-            work.pause(delay, sleep=sleep)
-    raise sharadar.SharadarUnavailable(
-        f"Sharadar snapshot download failed after "
-        f"{sharadar.FETCH_MAX_RETRIES} attempt(s) ({last_kind})", delay, status)
+def require_actions_refresh(*, through, evidence):
+    raise archive_tables.CaptureRequired("A historical file cannot corroborate a new source observation")
 
 
 def _csv_rows(blob: bytes, *, required: set[str]) -> list[dict]:
@@ -285,18 +67,18 @@ def _csv_rows(blob: bytes, *, required: set[str]) -> list[dict]:
         limits.check_zip_directory(blob)
         archive = zipfile.ZipFile(io.BytesIO(blob))
     except (zipfile.BadZipFile, ValueError) as exc:
-        raise SharadarSnapshotExportError(
-            "Sharadar export body is not a valid ZIP archive") from exc
+        raise SnapshotExportError(
+            "Archived export body is not a valid ZIP archive") from exc
     with archive:
         limits.check("ZIP_ENTRIES", len(archive.infolist()), limits.ZIP_ENTRIES)
         files = [name for name in archive.namelist()
                  if not name.endswith("/") and name.lower().endswith(".csv")]
         if len(files) != 1:
-            raise SharadarSnapshotExportError(
-                f"Sharadar export must contain exactly one CSV, found {len(files)}")
+            raise SnapshotExportError(
+                f"Archived export must contain exactly one CSV, found {len(files)}")
         info = archive.getinfo(files[0])
         if info.compress_type not in {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED} or info.flag_bits & 1:
-            raise SharadarSnapshotExportError("Sharadar export CSV uses unsupported compression or encryption")
+            raise SnapshotExportError("Archived export CSV uses unsupported compression or encryption")
         limits.check("CSV_BYTES", info.file_size, limits.CSV_BYTES)
         with archive.open(files[0]) as raw, io.TextIOWrapper(
                 io.BufferedReader(limits.ExpandedReader(raw)), encoding="utf-8-sig", newline="") as text:
@@ -305,12 +87,12 @@ def _csv_rows(blob: bytes, *, required: set[str]) -> list[dict]:
             fields = next(reader, [])
             limits.check("COLUMNS", len(fields), limits.COLUMNS)
             if len(fields) != len(set(fields)) or any(not str(x).strip() for x in fields):
-                raise SharadarSnapshotExportError(
-                    "Sharadar export CSV has invalid/duplicate column names")
+                raise SnapshotExportError(
+                    "Archived export CSV has invalid/duplicate column names")
             missing = required.difference(fields)
             if missing:
-                raise SharadarSnapshotExportError(
-                    "Sharadar export CSV lacks required column(s): "
+                raise SnapshotExportError(
+                    "Archived export CSV lacks required column(s): "
                     + ", ".join(sorted(missing)))
             rows: list[dict] = []
             while True:
@@ -323,133 +105,25 @@ def _csv_rows(blob: bytes, *, required: set[str]) -> list[dict]:
                 limits.check("ROWS", len(rows) + 1, limits.ROWS)
                 limits.check("CELLS", (len(rows) + 1) * len(fields), limits.CELLS)
                 if len(row) > len(fields):
-                    raise SharadarSnapshotExportError(
-                        "Sharadar export CSV contains a row wider than its header")
+                    raise SnapshotExportError(
+                        "Archived export CSV contains a row wider than its header")
                 rows.append({key: (None if value == "" else value)
                              for key, value in zip(fields, row + [None] * (len(fields) - len(row)))})
             return rows
 
 
-def _fetch_complete(
-        table: str, *, params: Mapping[str, str] | None, required: set[str],
-        http=None, sleep: Callable[[float], None] = time.sleep,
-        now: Callable[[], datetime] | None = None,
-        poll_seconds: float | None = None,
-        max_polls: int | None = None) -> tuple[list[dict], dict]:
-    from sentinel.feed import operational_source
-    capture = operational_source.current()
-    if capture is not None:
-        return capture.export_rows(table, params, required=required)
-    validate_config()
-    polls = EXPORT_MAX_POLLS if max_polls is None else int(max_polls)
-    delay = EXPORT_POLL_SECONDS if poll_seconds is None else float(poll_seconds)
-    if polls < 1 or not math.isfinite(delay) or delay < 0:
-        raise ValueError("invalid Sharadar export polling configuration")
-    if table not in {sharadar.ACTIONS, sharadar.TICKERS, sharadar.SEP}:
-        raise ValueError("complete export authority is defined only for ACTIONS/TICKERS/SEP")
-    if http is None:
-        import httpx  # noqa: PLC0415
-        http = httpx
-    key = sharadar._api_key()
-    url = f"{sharadar.NDL_BASE}/{table}.json"
-    query: dict[str, object] = {
-        "api_key": key,
-        **sharadar._validated_params(params),
-        "qopts.export": "true",
-    }
-    with http.Client(timeout=sharadar.FETCH_TIMEOUT_SECS) as client:
-        for poll in range(1, polls + 1):
-            response = sharadar._get_with_retry(
-                client, url, query, http=http, sleep=sleep, now=now)
-            try:
-                payload = response.json()
-            except Exception as exc:
-                raise SharadarSnapshotExportError(
-                    f"Sharadar {table} export status HTTP 200 body is not valid JSON"
-                ) from exc
-            status, link, snapshot, refreshed = _decode_export_status(payload)
-            if status == "fresh":
-                if link is None:
-                    raise SharadarSnapshotExportError(
-                        f"Sharadar fresh {table} export supplied no download link")
-                assert snapshot is not None and refreshed is not None
-                if snapshot < refreshed:
-                    raise SharadarSnapshotExportError(
-                        f"Sharadar {table} export claims fresh but its data snapshot "
-                        "began before the table's last refresh")
-                blob = _safe_download(
-                    client, link, http=http, sleep=sleep, now=now)
-                rows = _csv_rows(blob, required=required)
-                return rows, {
-                    "authority": "nasdaq-data-link-table-export/v1",
-                    "table": table,
-                    "file_status": status,
-                    "data_snapshot_time": snapshot.isoformat(),
-                    "last_refreshed_time": refreshed.isoformat(),
-                    "source_rows": len(rows),
-                }
-            if poll < polls:
-                sleep(delay)
-    raise SharadarSnapshotExportError(
-        f"Sharadar {table} export did not become fresh after {polls} poll(s)")
-
-
 def fetch_complete_actions(*, through: str, **kwargs) -> tuple[list[dict], dict]:
     return _fetch_complete(
-        sharadar.ACTIONS,
+        archive_tables.ACTIONS,
         params={"date.gte": "1900-01-01", "date.lte": str(through)},
         required={"date", "action", "ticker", "name", "value",
                   "contraticker", "contraname"}, **kwargs)
 
 
-def require_actions_refresh(*, through: str, evidence: Mapping,
-                            http=None, sleep=time.sleep, now=None) -> dict:
-    """Re-observe export status to corroborate one captured ACTIONS file."""
-    from sentinel.feed import acquisition_work
-    with acquisition_work.budget(seconds=60):
-        return _require_actions_refresh(through=through, evidence=evidence,
-                                        http=http, sleep=sleep, now=now)
-
-
-def _require_actions_refresh(*, through, evidence, http, sleep, now):
-    validate_config()
-    if http is None:
-        import httpx
-        http = httpx
-    query = {"api_key": sharadar._api_key(), "qopts.export": "true",
-             "date.gte": "1900-01-01", "date.lte": str(through)}
-    with http.Client(timeout=sharadar.FETCH_TIMEOUT_SECS) as client:
-        response = sharadar._get_with_retry(
-            client, f"{sharadar.NDL_BASE}/{sharadar.ACTIONS}.json", query,
-            http=http, sleep=sleep, now=now)
-        try:
-            payload = response.json()
-        except Exception:
-            raise SharadarSnapshotExportError(
-                "Sharadar ACTIONS refresh status is not valid JSON") from None
-    status, link, snapshot, refreshed = _decode_export_status(payload)
-    if status != "fresh":
-        raise ExportPending(sharadar.ACTIONS, status,
-                            {"date.gte": "1900-01-01", "date.lte": str(through)})
-    if (status != "fresh" or link is None or snapshot is None
-            or refreshed is None or snapshot < refreshed
-            or evidence.get("authority") != "nasdaq-data-link-table-export/v1"
-            or evidence.get("table") != sharadar.ACTIONS
-            or evidence.get("file_status") != "fresh"
-            or refreshed != _aware_iso(evidence.get("last_refreshed_time"),
-                                       field="captured last_refreshed_time")):
-        from sentinel.feed.authority import VendorPublicationUnstable
-        raise VendorPublicationUnstable(
-            "Sharadar ACTIONS export refresh changed during seed acquisition; "
-            "captured source requires a new acquisition")
-    return {"last_refreshed_time": refreshed.isoformat(),
-            "data_snapshot_time": snapshot.isoformat()}
-
-
 def fetch_complete_sep(*, start: str, end: str, **kwargs) -> tuple[list[dict], dict]:
     """Complete bounded SEP file used for current decision-history proof."""
     return _fetch_complete(
-        sharadar.SEP,
+        archive_tables.SEP,
         params={"date.gte": str(start), "date.lte": str(end)},
         required={"ticker", "date", "open", "close", "closeunadj", "volume",
                   "lastupdated"}, **kwargs)
@@ -457,7 +131,7 @@ def fetch_complete_sep(*, start: str, end: str, **kwargs) -> tuple[list[dict], d
 
 def fetch_complete_ticker_keys(**kwargs) -> tuple[set[tuple[str, str]], dict]:
     rows, evidence = _fetch_complete(
-        sharadar.TICKERS, params=None,
+        archive_tables.TICKERS, params=None,
         required={"table", "permaticker", "ticker"}, **kwargs)
     keys: set[tuple[str, str]] = set()
     for row in rows:
@@ -468,8 +142,8 @@ def fetch_complete_ticker_keys(**kwargs) -> tuple[set[tuple[str, str]], dict]:
         if permaticker and ticker:
             keys.add((permaticker, ticker))
     if not keys:
-        raise SharadarSnapshotExportError(
-            "Sharadar TICKERS export contains no usable table=SEP identity keys")
+        raise SnapshotExportError(
+            "Archived TICKERS export contains no usable table=SEP identity keys")
     evidence = dict(evidence)
     evidence["sep_identity_keys"] = len(keys)
     return keys, evidence
@@ -489,15 +163,8 @@ def assert_complete_ticker_keys(paged_rows: Iterable[Mapping], export_keys) -> N
         return
     missing = sorted(exported - paged)
     extra = sorted(paged - exported)
-    raise SharadarSnapshotExportError(
-        "Sharadar paginated TICKERS key set disagrees with the vendor fresh "
+    raise SnapshotExportError(
+        "Source paginated TICKERS key set disagrees with the vendor fresh "
         f"whole-table export: paged={len(paged):,}, export={len(exported):,}, "
         f"missing_from_pages={missing[:8]}, extra_in_pages={extra[:8]}. "
         "Refusing common-mode partial TICKERS/SEP authority.")
-
-
-__all__ = [
-    "EXPORT_MAX_POLLS", "EXPORT_POLL_SECONDS", "SharadarSnapshotExportError",
-    "assert_complete_ticker_keys", "fetch_complete_actions",
-    "fetch_complete_sep", "fetch_complete_ticker_keys", "validate_config",
-]

@@ -29,7 +29,7 @@ from typing import Callable, Iterable
 
 from sentinel.feed import (
     action_source, domains, identity_rebuild, identity_rebuild_writer,
-    maintenance, recovery, sharadar, universe)
+    maintenance, recovery, archive_tables, universe)
 from sentinel.feed import store as feed_store
 
 
@@ -77,7 +77,7 @@ def full_reseed_locked(
     from sentinel.feed import ingest_impl
 
     feed_store._assert_corpus_locked(conn)
-    chunks = sharadar.year_chunks(date_from, date_to)
+    chunks = archive_tables.year_chunks(date_from, date_to)
     run = feed_store.IngestRun(
         conn, "seed", date_from=date_from, date_to=date_to,
         chunks_total=len(chunks) + 3)
@@ -90,7 +90,7 @@ def full_reseed_locked(
     candidate_tickers = None
     claim_security_ids = None
     with run.chunk("tickers"):
-        rows = list(fetch(sharadar.TICKERS))
+        rows = list(fetch(archive_tables.TICKERS))
         if identity_rebuild_plan is None:
             run.progress.rows_written += universe.write_universe(
                 conn, rows, date_to, run_id=run.progress.run_id)
@@ -104,16 +104,16 @@ def full_reseed_locked(
     action_start = maintenance.ACTIONS_FULL_WINDOW_START
     with run.chunk("actions"):
         action_source_rows = list(fetch(
-            sharadar.ACTIONS, sharadar.date_params(action_start, date_to)))
+            archive_tables.ACTIONS, archive_tables.date_params(action_start, date_to)))
         if not action_source_rows:
-            raise maintenance.SharadarMutationRefused(
-                "complete Sharadar ACTIONS full-reseed returned zero rows; "
+            raise maintenance.SourceMutationRefused(
+                "complete Source ACTIONS full-reseed returned zero rows; "
                 "refusing to turn a suspicious empty source into mass removals")
         prior_active = maintenance._active_action_rows(conn)
         distinct_actions = action_source.distinct_rows(action_source_rows)
         if (prior_active
                 and len(distinct_actions) < int(len(prior_active) * 0.90)):
-            raise maintenance.SharadarMutationRefused(
+            raise maintenance.SourceMutationRefused(
                 f"complete ACTIONS full-reseed shrank from "
                 f"{len(prior_active):,} active rows to "
                 f"{len(distinct_actions):,}; refusing mass-removal authority "
@@ -124,8 +124,8 @@ def full_reseed_locked(
 
     with run.chunk("spy"):
         params = {"ticker": ingest_impl.SFP_REFERENCE_TICKERS,
-                  **sharadar.date_params(date_from, date_to)}
-        rows = fetch(sharadar.SFP, params)
+                  **archive_tables.date_params(date_from, date_to)}
+        rows = fetch(archive_tables.SFP, params)
         run.progress.rows_written += ingest_impl._write_sfp_reference_rows(
             conn, rows, run_id=run.progress.run_id)
 
@@ -152,7 +152,7 @@ def full_reseed_locked(
                 conn, lo, hi, include_run_id=run.progress.run_id)
             bars = domains.normalise_sep_rows(
                 ingest_impl._ordered_sep(
-                    conn, fetch(sharadar.SEP, sharadar.date_params(lo, hi)),
+                    conn, fetch(archive_tables.SEP, archive_tables.date_params(lo, hi)),
                     run_id=run.progress.run_id, chunk=lo[:4]),
                 resolve_identity=resolver,
                 authoritative_splits=splits,

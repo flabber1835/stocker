@@ -17,9 +17,8 @@ from sentinel.feed import operational_snapshot, publication, rolling_go_inputs, 
 
 ROOT = Path(os.environ.get('SENTINEL_REPO_ROOT') or Path(__file__).resolve().parents[2])
 OWNERS = {
-    'source_final': ('sentinel_go_24x7_entry.py', '_PREPARATION_CODE'),
+    'source_final': ('sentinel_go_preparation_runtime.py', 'CODE'),
     'install_refresh': ('sentinel_install_source_refresh.py', 'CODE'),
-    'direct_go': ('sentinel_go_validate.py', '_PREPARATION_CODE'),
 }
 NOW = datetime(2026, 10, 6, 4, 1, tzinfo=timezone.utc)
 TARGET = '2026-10-05'
@@ -196,3 +195,12 @@ def test_healthy_install_refresh_keeps_typed_outcomes(monkeypatch, kind, status)
 @pytest.mark.parametrize('owner', OWNERS)
 def test_changed_host_and_embedded_child_keep_python38_syntax(owner):
     ast.parse(child(owner), feature_version=(3, 8))
+
+
+def test_go_entry_points_use_the_same_qualified_child():
+    import sys
+    from unittest.mock import patch
+    with patch.object(sys, 'path', [str(ROOT / 'scripts'), *sys.path]):
+        import sentinel_go_validate, sentinel_go_validate_entry
+    assert sentinel_go_validate._PREPARATION_CODE == child('source_final')
+    assert sentinel_go_validate_entry._RECOVERY_PREPARATION_CODE == child('source_final')

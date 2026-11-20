@@ -1,0 +1,50 @@
+name: Idle to open endurance
+
+on:
+  schedule:
+    - cron: '23 3 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: idle-open-endurance
+  cancel-in-progress: false
+
+jobs:
+  endurance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        timeout-minutes: 20
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/sec-filings/
+          sparse-checkout-cone-mode: false
+      - name: Build the tested release and its PostgreSQL test image
+        timeout-minutes: 25
+        run: |
+          docker build --build-arg SOURCE_GIT_SHA="$GITHUB_SHA" -f Dockerfile.sentinel -t sentinel:ci .
+          docker build --build-arg SENTINEL_IMAGE=sentinel:ci --build-arg SOURCE_GIT_SHA="$GITHUB_SHA" \
+            -f Dockerfile.sentinel-test -t sentinel-test:ci .
+      - name: Run four continuous hours across the replayed session boundary
+        timeout-minutes: 250
+        run: |
+          mkdir -p evidence
+          docker run --rm --network none --cpus 1 --memory 1g \
+            --mount type=bind,source="$PWD/evidence",target=/evidence \
+            --entrypoint python sentinel-test:ci -m tools.idle_open_endurance \
+            --duration-seconds 14400 --output /evidence/trace.jsonl
+      - name: Preserve all transitions including failures
+        if: always()
+        timeout-minutes: 5
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: idle-open-endurance
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 14

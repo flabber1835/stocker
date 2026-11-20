@@ -23,12 +23,12 @@ def run(database_url: str, mebibytes: int) -> dict:
             conn.execute(statement)
         conn.commit()
         backend = conn.execute('SELECT pg_backend_pid()').fetchone()[0]
-        action = dict(ticker='EXAMPLE', date='2026-09-30', action='dividend',
-            name='Synthetic reference record', value='0.25', contraticker=None, contraname=None)
+        action = dict(ticker='EXAMPLE', date='2026-09-30', id='fixture-dividend',
+            process_date='2026-09-30', rate='0.25', terms_sha256='a'*64)
         # Many object nodes exercise server-side expansion; one large string does not.
         rows = (mebibytes * 1024 * 1024) // (len(canonical_json(action)) + 1)
         def payload():
-            return {'schema': 'sentinel.rolling-sharadar-references/1',
+            return {'schema': 'sentinel.fixture-reference-bytes/1',
                     'actions': [action]*rows, 'tickers': []}
         start = time.monotonic()
         identity = rolling_store.put_evidence(conn, payload())

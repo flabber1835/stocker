@@ -1,0 +1,1197 @@
+{
+  "baseline": "5a5331d435705f23d2b6d6228a6ec8fda8c94979",
+  "modules": {
+    "sentinel.breadth.classifier": {
+      "after": "b61dbbb9d1d6286d6cf275f679b040329bd447731a2ebbee1bdf18fd0ff8337f",
+      "before": "15fc1e7b26c70ef2fcd2e535b1b913ff2e6a5a3fd5b59970537509e66ca2d5c4",
+      "contribution": "15fc1e7b26c70ef2fcd2e535b1b913ff2e6a5a3fd5b59970537509e66ca2d5c4",
+      "dependencies": [
+        "sentinel",
+        "sentinel.breadth",
+        "sentinel.breadth.returns"
+      ],
+      "module": "sentinel.breadth.classifier",
+      "ports": []
+    },
+    "sentinel.controller.champion_config": {
+      "after": "31e8ac05c3b90fa57e72838ed289c3dda086af3d63ad9a27139e53914d3451b3",
+      "before": "80d290297466c881885e453a28f1f20d3d6aa5e35cc0a4a88e0d9ded7d1f16ed",
+      "contribution": "80d290297466c881885e453a28f1f20d3d6aa5e35cc0a4a88e0d9ded7d1f16ed",
+      "dependencies": [
+        "sentinel",
+        "sentinel.archive_identifiers",
+        "sentinel.controller",
+        "sentinel.controller.champion",
+        "sentinel.controller.median5",
+        "sentinel.controller.owned_impairment",
+        "stock_strategy_shared",
+        "stock_strategy_shared.wealth_core",
+        "stock_strategy_shared.wealth_core.v5"
+      ],
+      "module": "sentinel.controller.champion_config",
+      "ports": [
+        "sentinel.archive_identifiers"
+      ]
+    },
+    "sentinel.controller.ex3_v6": {
+      "after": "f4b2d1223a71735f0d1cff8742e03c6024f0576e72903c253834f5d5b675c0ab",
+      "before": "6735cb78bdf3be44e24fbe7b77f1b9ce4584dc50223e5880c5b859e6b9db6120",
+      "contribution": "6735cb78bdf3be44e24fbe7b77f1b9ce4584dc50223e5880c5b859e6b9db6120",
+      "dependencies": [
+        "sentinel",
+        "sentinel.archive_identifiers",
+        "sentinel.controller",
+        "sentinel.controller.champion_config",
+        "sentinel.controller.median5",
+        "sentinel.controller.owned_impairment",
+        "stock_strategy_shared",
+        "stock_strategy_shared.wealth_core",
+        "stock_strategy_shared.wealth_core.v5"
+      ],
+      "module": "sentinel.controller.ex3_v6",
+      "ports": [
+        "sentinel.archive_identifiers"
+      ]
+    },
+    "sentinel.core.rolling_inputs": {
+      "after": "542594a96d1b8e1b441069ee53484b89db24ae3ea261fb90e293f453505d6f72",
+      "before": "f4092a97e583fcdb6350d6fe68d99f822cda92cd5e32c77aa308a066761a41c5",
+      "contribution": "f4092a97e583fcdb6350d6fe68d99f822cda92cd5e32c77aa308a066761a41c5",
+      "dependencies": [
+        "sentinel",
+        "sentinel.archive_identifiers",
+        "sentinel.core",
+        "sentinel.core.loader",
+        "sentinel.core.session",
+        "sentinel.core.spinoffs",
+        "sentinel.core.terminal",
+        "sentinel.core.window_policy",
+        "sentinel.feed",
+        "sentinel.feed.action_source",
+        "sentinel.feed.alpaca_identity",
+        "sentinel.feed.calendar",
+        "sentinel.feed.requirements",
+        "sentinel.feed.rolling_builder",
+        "sentinel.feed.rolling_contract",
+        "sentinel.feed.rolling_store",
+        "sentinel.feed.source_aliases",
+        "sentinel.feed.symbol_identity",
+        "sentinel.feed.tickers_authority",
+        "sentinel.feed.universe",
+        "stock_strategy_shared",
+        "stock_strategy_shared.wealth_core",
+        "stock_strategy_shared.wealth_core.feed"
+      ],
+      "module": "sentinel.core.rolling_inputs",
+      "ports": [
+        "sentinel.archive_identifiers"
+      ]
+    },
+    "sentinel.core.session": {
+      "after": "c853d831f23ea87deb2aaebd8b504a1b02ab5aba81d3f8d512bd0a392e8665ee",
+      "before": "7bffe82ed6370873e112ffeb97c5525d5067503863b6db3e06c7147c9542201b",
+      "contribution": "221a20b69eb3ad0dc877bec7789de608fe85dc6397891b8c9060bbd1f66717e8",
+      "dependencies": [
+        "sentinel",
+        "sentinel.breadth",
+        "sentinel.breadth.classifier",
+        "sentinel.breadth.returns",
+        "sentinel.controller",
+        "sentinel.controller.champion",
+        "sentinel.controller.champion_config",
+        "sentinel.controller.concordance",
+        "sentinel.controller.ex3_v6",
+        "sentinel.controller.ldrc",
+        "sentinel.controller.machine",
+        "sentinel.controller.median5",
+        "sentinel.controller.owned_impairment",
+        "sentinel.core",
+        "stock_strategy_shared",
+        "stock_strategy_shared.wealth_core",
+        "stock_strategy_shared.wealth_core.adapter",
+        "stock_strategy_shared.wealth_core.feed",
+        "stock_strategy_shared.wealth_core.ledger",
+        "stock_strategy_shared.wealth_core.median5",
+        "stock_strategy_shared.wealth_core.signals",
+        "stock_strategy_shared.wealth_core.state",
+        "stock_strategy_shared.wealth_core.terminal",
+        "stock_strategy_shared.wealth_core.v5"
+      ],
+      "module": "sentinel.core.session",
+      "ports": []
+    },
+    "sentinel.core.terminal": {
+      "after": "006c9717239026264589dc2956e631a213db6af99b989b3a1d4160bebbf916de",
+      "before": "551a34f0ae3e6c2a0336055122f07fe5c48cbffdfdf42cba4a7a9427e3d140d7",
+      "contribution": "551a34f0ae3e6c2a0336055122f07fe5c48cbffdfdf42cba4a7a9427e3d140d7",
+      "dependencies": [
+        "sentinel",
+        "sentinel.core",
+        "sentinel.feed",
+        "sentinel.feed.calendar",
+        "sentinel.feed.publication",
+        "sentinel.feed.store",
+        "stock_strategy_shared",
+        "stock_strategy_shared.terminal_coalescing",
+        "stock_strategy_shared.wealth_core",
+        "stock_strategy_shared.wealth_core.terminal"
+      ],
+      "module": "sentinel.core.terminal",
+      "ports": []
+    },
+    "sentinel.core.window_policy": {
+      "after": "1a20f7a5d0f1bee7c54a1b8940ebf32308ed2c422db5858cdb4386fef67892f6",
+      "before": "407710aa1e2a6da40b64aac2411a7a319bbda4de43bdef52cc05fcf170718dc7",
+      "contribution": "407710aa1e2a6da40b64aac2411a7a319bbda4de43bdef52cc05fcf170718dc7",
+      "dependencies": [
+        "sentinel",
+        "sentinel.archive_identifiers",
+        "sentinel.core"
+      ],
+      "module": "sentinel.core.window_policy",
+      "ports": [
+        "sentinel.archive_identifiers"
+      ]
+    },
+    "sentinel.execution.reconcile": {
+      "after": "a8dbb42e34b00bbbdfb409b40a928df496807eaeaf95e6252ca6c9d9928ea364",
+      "before": "8c09a031e89f7d96cd610d2d365fdf76f82584ec9bc9661f939c2957f4c2738d",
+      "contribution": "0061e79de130e6c29f78b552a23322d77a7c9a9ce2ada56fa56dc12953cb07e2",
+      "dependencies": [
+        "sentinel",
+        "sentinel.binding",
+        "sentinel.execution",
+        "sentinel.execution.alpaca",
+        "sentinel.execution.commands",
+        "sentinel.execution.contract",
+        "sentinel.execution.feed_inputs",
+        "sentinel.execution.fill_integrity",
+        "sentinel.execution.guarded",
+        "sentinel.execution.identity",
+        "sentinel.execution.journal",
+        "sentinel.execution.recovery",
+        "sentinel.execution.share_units",
+        "sentinel.execution.states",
+        "sentinel.feed",
+        "sentinel.feed.anomalies",
+        "sentinel.feed.calendar",
+        "sentinel.feed.domains",
+        "sentinel.feed.publication",
+        "stock_strategy_shared",
+        "stock_strategy_shared.split_reconciliation"
+      ],
+      "module": "sentinel.execution.reconcile",
+      "ports": []
+    },
+    "sentinel.feed": {
+      "after": "20b16d0cc989030dc6b8979dd459a27ab7767917ea4106ab27039afef677a9a9",
+      "before": "08e0e56d2e02e867218bf8ce3983856ad64c42c208415e87a98fe2d91cf43ea9",
+      "contribution": "08e0e56d2e02e867218bf8ce3983856ad64c42c208415e87a98fe2d91cf43ea9",
+      "dependencies": [
+        "sentinel",
+        "sentinel.feed.publication_visibility"
+      ],
+      "module": "sentinel.feed",
+      "ports": []
+    },
+    "sentinel.feed._publication_impl": {
+      "after": "b91ead653d0f67e7cb49f784e6489cca897cac880fe8b5499ebb682f8a36a8b8",
+      "before": "0f694992fe10e8f20dcb986e9a20492e0e5b6777f5e8b1f92ab2754cea4b4772",
+      "contribution": "0f694992fe10e8f20dcb986e9a20492e0e5b6777f5e8b1f92ab2754cea4b4772",
+      "dependencies": [
+        "sentinel",
+        "sentinel.feed",
+        "sentinel.feed.operational_coherence",
+        "sentinel.feed.operational_source",
+        "sentinel.identity"
+      ],
+      "module": "sentinel.feed._publication_impl",
+      "ports": []
+    },
+    "sentinel.feed.action_source": {
+      "after": "b968b8f8eb67b55001d0b7fba5e494feebc5f608b22dc5409afc889293afefe2",
+      "before": "91dd230d66a00e2fc1048d33a03a0ba3534278e6a67ad3755c4e9c1d72703a79",
+      "contribution": "91dd230d66a00e2fc1048d33a03a0ba3534278e6a67ad3755c4e9c1d72703a79",
+      "dependencies": [
+        "sentinel",
+        "sentinel.feed"
+      ],
+      "module": "sentinel.feed.action_source",
+      "ports": []
+    },
+    "sentinel.feed.actions": {
+      "after": "86c85ea177c53dad49351c1bed800f3d8f327af2dc511ec6bcb52811e2cc2662",
+      "before": "78daaee4e14fd62fbd23cf4354a832c34c73071fc39ace6ad63fb7df3e6ee003",
+      "contribution": "78daaee4e14fd62fbd23cf4354a832c34c73071fc39ace6ad63fb7df3e6ee003",
+      "dependencies": [
+        "sentinel",
+        "sentinel.feed"
+      ],
+      "module": "sentinel.feed.actions",
+      "ports": []
+    },
+    "sentinel.feed.actions_map": {
+      "after": "0137b681e1347b820edf3d638f1fbf5dba0beced43a5a66a4ba1a82020f3048c",
+      "before": "38749a81cbb24e234173272d10ba3b25b120695ee4bc5bd1e461c5097bea60be",
+      "contribution": "38749a81cbb24e234173272d10ba3b25b120695ee4bc5bd1e461c5097bea60be",
+      "dependencies": [
+        "sentinel",
+        "sentinel.core",
+        "sentinel.core.terminal",
+        "sentinel.feed",
+        "sentinel.feed.action_source",
+        "sentinel.feed.corporate_action_authority",
+        "stock_strategy_shared",
+        "stock_strategy_shared.split_reconciliation",
+        "stock_strategy_shared.wealth_core",
+        "stock_strategy_shared.wealth_core.price_domains"
+      ],
+      "module": "sentinel.feed.actions_map",
+      "ports": []
+    },
+    "sentinel.feed.actions_reconcile_v7": {
+      "after": "7da81a641452e89e14c60eeb8ab9e58cda4986671eed16e9306b6c39491fe323",
+      "before": "e86c1157537df7c0b93c2b813e3c6ba81393d36471e5149b9791b8f45ff103f3",
+      "contribution": "e86c1157537df7c0b93c2b813e3c6ba81393d36471e5149b9791b8f45ff103f3",
+      "dependencies": [
+        "sentinel",
+        "sentinel.archive_identifiers",
+        "sentinel.core",
+        "sentinel.core.terminal",
+        "sentinel.feed",
+        "sentinel.feed.actions",
+        "sentinel.feed.calendar",
+        "sentinel.feed.corporate_action_authority",
+        "sentinel.feed.maintenance_impl",
+        "sentinel.feed.publication"
+      ],
+      "module": "sentinel.feed.actions_reconcile_v7",
+      "ports": [
+        "sentinel.archive_identifiers"
+      ]
+    },
+    "sentinel.feed.canonical_transforms": {
+      "after": "0b71146b923ba181987477bddf4a596a70fd916b24fcc8083eb174464c9b4537",
+      "before": "d3bb29ed2bfef9c9297421d3cb5b8f962a4bdb1d3fe8d37b6392f3067a909a2f",
+      "contribution": "d3bb29ed2bfef9c9297421d3cb5b8f962a4bdb1d3fe8d37b6392f3067a909a2f",
+      "dependencies": [
+        "sentinel",
+        "sentinel.feed",
+        "sentinel.feed.domains",
+        "sentinel.feed.rolling_contract"
+      ],
+      "module": "sentinel.feed.canonical_transforms",
+      "ports": []
+    },
+    "sentinel.feed.corporate_action_authority": {
+      "after": "c64238dcafe2891afdf3d0f069848e5a3bb5fc04c7eac08a3b9f60412f85f1ee",
+      "before": "a7eb56263ad8d5dfb69cb75eb2b7581ea911c3cb88fcf94f59177b1805cb79f4",
+      "contribution": "a7eb56263ad8d5dfb69cb75eb2b7581ea911c3cb88fcf94f59177b1805cb79f4",
+      "dependencies": [
+        "sentinel",
+        "sentinel.archive_identifiers",
+        "sentinel.core",
+        "sentinel.core.terminal",
+        "sentinel.feed",
+        "sentinel.feed.calendar",
+        "sentinel.feed.source_authority",
+        "sentinel.feed.source_authority.corporate_action_data",
+        "sentinel.feed.source_corrections",
+        "stock_strategy_shared",
+        "stock_strategy_shared.wealth_core",
+        "stock_strategy_shared.wealth_core.price_domains"
+      ],
+      "module": "sentinel.feed.corporate_action_authority",
+      "ports": [
+        "sentinel.archive_identifiers"
+      ]
+    },
+    "sentinel.feed.correction_model": {
+      "after": "f65ebebff6e3ddf566eb2d3bf881da3a350c5bac69135efce55dd24d4d799a1f",
+      "before": "88236ad55b065bbaf3dc292844c653792cfe48f7dca2057afe412505b7413166",
+      "contribution": "88236ad55b065bbaf3dc292844c653792cfe48f7dca2057afe412505b7413166",
+      "dependencies": [
+        "sentinel",
+        "sentinel.archive_identifiers",
+        "sentinel.feed",
+        "sentinel.feed.corporate_action_authority",
+        "sentinel.feed.rolling_contract"
+      ],
+      "module": "sentinel.feed.correction_model",
+      "ports": [
+        "sentinel.archive_identifiers"
+      ]
+    },
+    "sentinel.feed.domains": {
+      "after": "7e254a89f04373ddc8ed253fe8e46331c82f8cf5cd5ba3290a34fe4a23d0ab03",
+      "before": "5656fdfe1077411154db917da1d2ef0973a1c2330d374f121eab5f016345cf38",
+      "contribution": "5656fdfe1077411154db917da1d2ef0973a1c2330d374f121eab5f016345cf38",
+      "dependencies": [
+        "sentinel",
+        "sentinel.feed",
+        "stock_strategy_shared",
+        "stock_strategy_shared.split_reconciliation",
+        "stock_strategy_shared.wealth_core",
+        "stock_strategy_shared.wealth_core.feed",
+        "stock_strategy_shared.wealth_core.price_domains"
+      ],
+      "module": "sentinel.feed.domains",
+      "ports": []
+    },
+    "sentinel.feed.identity_rebuild": {
+      "after": "51c8a5cee525fcec002d7d2cb2f251eae0489dd0e695b9f4b1ca68a2f184fe07",
+      "before": "f7bf2a25eeea33c1bad81ab32c47aa0e32df57b7cfe42e4882927a0870d54851",
+      "contribution": "f7bf2a25eeea33c1bad81ab32c47aa0e32df57b7cfe42e4882927a0870d54851",
+      "dependencies": [
+        "sentinel",
+        "sentinel.feed",
+        "sentinel.feed.actions",
+        "sentinel.feed.coherence",
+        "sentinel.feed.identity_rebuild_writer",
+        "sentinel.feed.operational_source",
+        "sentinel.feed.publication",
+        "sentinel.feed.recovery",
+        "sentinel.feed.source_aliases",
+        "sentinel.feed.store",
+        "sentinel.feed.symbol_identity",
+        "sentinel.feed.universe",
+        "sentinel.feed.universe_projection"
+      ],
+      "module": "sentinel.feed.identity_rebuild",
+      "ports": []
+    },
+    "sentinel.feed.ingest": {
+      "after": "0d26e19340fb90d17ea223f20f5ee98427edd8b62f71a2818bbd19a363da32a2",
+      "before": "7eab8277c312d86bd24b8e3685076fee1085567947c9cfb29c5b1a7fedf1966c",
+      "contribution": "7eab8277c312d86bd24b8e3685076fee1085567947c9cfb29c5b1a7fedf1966c",
+      "dependencies": [
+        "sentinel",
+        "sentinel.feed",
+        "sentinel.feed.calendar",
+        "sentinel.feed.ingest_authority_impl",
+        "sentinel.feed.ingest_impl",
+        "sentinel.feed.operational_source",
+        "sentinel.feed.progress",
+        "sentinel.feed.publication",
+        "sentinel.feed.seed_capture",
+        "sentinel.feed.seed_coherence",
+        "sentinel.feed.source_aliases",
+        "sentinel.feed.source_authority",
+        "sentinel.feed.store",
+        "sentinel.feed.symbol_identity"
+      ],
+      "module": "sentinel.feed.ingest",
+      "ports": []
+    },
+    "sentinel.feed.ingest_impl": {
+      "after": "e112232c8009386ded68af486bb61232510a5696a82fdedb2da33a23f6d8af05",
+      "before": "91b2f9248037a6d16c0be4224aae29544441805d6d8880384b80e2b92c09fd3f",
+      "contribution": "91b2f9248037a6d16c0be4224aae29544441805d6d8880384b80e2b92c09fd3f",
+      "dependencies": [
+        "sentinel",
+        "sentinel.core",
+        "sentinel.core.terminal",
+        "sentinel.feed",
+        "sentinel.feed.actions",
+        "sentinel.feed.actions_map",
+        "sentinel.feed.anomalies",
+        "sentinel.feed.archive_tables",
+        "sentinel.feed.calendar",
+        "sentinel.feed.domains",
+        "sentinel.feed.operational_source",
+        "sentinel.feed.publication",
+        "sentinel.feed.readiness",
+        "sentinel.feed.recovery",
+        "sentinel.feed.staging",
+        "sentinel.feed.store",
+        "sentinel.feed.universe"
+      ],
+      "module": "sentinel.feed.ingest_impl",
+      "ports": []
+    },
+    "sentinel.feed.maintenance_impl": {
+      "after": "2c7fe5ba6ecebc5af1acc49b43bb0fc77288b533dc75590b0b64daa895e61957",
+      "before": "2a37b14eaafa41172c423576c52cd02c77f55d92765d87d601191ec7c7000736",
+      "contribution": "2a37b14eaafa41172c423576c52cd02c77f55d92765d87d601191ec7c7000736",
+      "dependencies": [
+        "sentinel",
+        "sentinel.archive_identifiers",
+        "sentinel.core",
+        "sentinel.core.terminal",
+        "sentinel.feed",
+        "sentinel.feed.action_source",
+        "sentinel.feed.anomalies",
+        "sentinel.feed.archive_tables",
+        "sentinel.feed.authority",
+        "sentinel.feed.calendar",
+        "sentinel.feed.operational_source",
+        "sentinel.feed.publication",
+        "sentinel.feed.recovery",
+        "sentinel.feed.renormalize",
+        "sentinel.feed.snapshot_export",
+        "sentinel.feed.store",
+        "sentinel.feed.universe"
+      ],
+      "module": "sentinel.feed.maintenance_impl",
+      "ports": [
+        "sentinel.archive_identifiers"
+      ]
+    },
+    "sentinel.feed.openfigi": {
+      "after": "dae05c51a10e996850fc724ec44d4d53b5f38b280adf2661910a9bde1014c125",
+      "before": "1cb1f7a0413e4c3a0a051e335178f626867a796d397b1951c99b6711971cc3f5",
+      "contribution": "1cb1f7a0413e4c3a0a051e335178f626867a796d397b1951c99b6711971cc3f5",
+      "dependencies": [
+        "sentinel",
+        "sentinel.feed",
+        "sentinel.feed.alpaca_transport",
+        "sentinel.feed.rolling_contract",
+        "sentinel.feed.rolling_work"
+      ],
+      "module": "sentinel.feed.openfigi",
+      "ports": []
+    },
+    "sentinel.feed.renormalize": {
+      "after": "929bd4718b4eb9b0308bce358988036b165c1f9570580ef06ef19847e09150cc",
+      "before": "59ff0354d6aae9c24ed8115bf7d88ecfa16ed3fbb02eac900e3869baf123852c",
+      "contribution": "59ff0354d6aae9c24ed8115bf7d88ecfa16ed3fbb02eac900e3869baf123852c",
+      "dependencies": [
+        "sentinel",
+        "sentinel.feed",
+        "sentinel.feed.archive_tables",
+        "sentinel.feed.authority",
+        "sentinel.feed.calendar",
+        "sentinel.feed.domains",
+        "sentinel.feed.ingest_impl",
+        "sentinel.feed.store",
+        "sentinel.feed.universe"
+      ],
+      "module": "sentinel.feed.renormalize",
+      "ports": []
+    },
+    "sentinel.feed.repair": {
+      "after": "8e5f823da21aacfbf67cadcbdc3d6ac0c25f65211d4d1f6348938549feb05863",
+      "before": "9ff7a5b83a679ed698775c5e0641c25be44463f5816da12676378600cd015c7e",
+      "contribution": "9ff7a5b83a679ed698775c5e0641c25be44463f5816da12676378600cd015c7e",
+      "dependencies": [
+        "sentinel",
+        "sentinel.feed",
+        "sentinel.feed.actions_map",
+        "sentinel.feed.anomalies",
+        "sentinel.feed.archive_tables",
+        "sentinel.feed.calendar",
+        "sentinel.feed.domains",
+        "sentinel.feed.publication",
+        "sentinel.feed.store",
+        "stock_strategy_shared",
+        "stock_strategy_shared.split_reconciliation"
+      ],
+      "module": "sentinel.feed.repair",
+      "ports": []
+    },
+    "sentinel.feed.reseed": {
+      "after": "e8517b123bd8aa1136ff75f463014b86b06a8716d7424730a37b982dda0e7cd1",
+      "before": "3cf0a56b7273d87fbde24b4ba0ce0c43b0c03b9c9a3ab21fc6c644acb40df87b",
+      "contribution": "3cf0a56b7273d87fbde24b4ba0ce0c43b0c03b9c9a3ab21fc6c644acb40df87b",
+      "dependencies": [
+        "sentinel",
+        "sentinel.feed",
+        "sentinel.feed.action_source",
+        "sentinel.feed.actions",
+        "sentinel.feed.archive_tables",
+        "sentinel.feed.domains",
+        "sentinel.feed.identity_rebuild",
+        "sentinel.feed.identity_rebuild_writer",
+        "sentinel.feed.ingest_impl",
+        "sentinel.feed.maintenance",
+        "sentinel.feed.recovery",
+        "sentinel.feed.source_aliases",
+        "sentinel.feed.store",
+        "sentinel.feed.symbol_identity",
+        "sentinel.feed.universe"
+      ],
+      "module": "sentinel.feed.reseed",
+      "ports": []
+    },
+    "sentinel.feed.rolling_builder": {
+      "after": "66f0892fb95f134f7f9453680a0052a3b1f299d2c65533dfacc9df89df30d58c",
+      "before": "90a61153491c1a68db42baef8e773ef55f5a713869c2242352469bb932ba7d45",
+      "contribution": "eeb8096ce599124edd1b82bf07e43abba66a75ee1ab917db12740b6509ea4434",
+      "dependencies": [
+        "sentinel",
+        "sentinel.archive_identifiers",
+        "sentinel.core",
+        "sentinel.core.window_policy",
+        "sentinel.feed",
+        "sentinel.feed.acquisition_parts",
+        "sentinel.feed.action_quarantine",
+        "sentinel.feed.actions_map",
+        "sentinel.feed.alpaca_identity",
+        "sentinel.feed.alpaca_observation",
+        "sentinel.feed.calendar",
+        "sentinel.feed.canonical_transforms",
+        "sentinel.feed.coherence",
+        "sentinel.feed.domains",
+        "sentinel.feed.normalized_layout",
+        "sentinel.feed.openfigi",
+        "sentinel.feed.progress",
+        "sentinel.feed.rolling_contract",
+        "sentinel.feed.rolling_jobs",
+        "sentinel.feed.rolling_store",
+        "sentinel.feed.source_aliases",
+        "sentinel.feed.source_authority",
+        "sentinel.feed.source_corrections",
+        "sentinel.feed.store",
+        "sentinel.feed.symbol_identity",
+        "sentinel.strategy"
+      ],
+      "module": "sentinel.feed.rolling_builder",
+      "ports": [
+        "sentinel.archive_identifiers"
+      ]
+    },
+    "sentinel.feed.rolling_contract": {
+      "after": "afd3e3ead4b35d4d5ccb21857bb2e02cbec235a081978c0e627b6c9a398293a8",
+      "before": "2e6c5a7d58e81e2ab47f6678c8e378066c40460e188e93674bf5b8c90429220d",
+      "contribution": "2e6c5a7d58e81e2ab47f6678c8e378066c40460e188e93674bf5b8c90429220d",
+      "dependencies": [
+        "sentinel",
+        "sentinel.archive_identifiers",
+        "sentinel.feed",
+        "sentinel.feed.calendar"
+      ],
+      "module": "sentinel.feed.rolling_contract",
+      "ports": [
+        "sentinel.archive_identifiers"
+      ]
+    },
+    "sentinel.feed.rolling_source": {
+      "after": "d9823e14ccae69df9c479128cc8d334e155ac5f3db69c56c44a4d67c65baab9b",
+      "before": "36a5ad78cb698887ebefbc054e8794f995db1bd335d3d11c3889a271048591b5",
+      "contribution": "36a5ad78cb698887ebefbc054e8794f995db1bd335d3d11c3889a271048591b5",
+      "dependencies": [
+        "sentinel",
+        "sentinel.archive_identifiers",
+        "sentinel.feed",
+        "sentinel.feed.acquisition_parts",
+        "sentinel.feed.action_source",
+        "sentinel.feed.archive_tables",
+        "sentinel.feed.authority",
+        "sentinel.feed.calendar",
+        "sentinel.feed.coherence",
+        "sentinel.feed.export_readiness",
+        "sentinel.feed.operational_source",
+        "sentinel.feed.rolling_contract",
+        "sentinel.feed.rolling_work",
+        "sentinel.feed.session_envelope",
+        "sentinel.feed.snapshot_export",
+        "sentinel.feed.source_authority",
+        "sentinel.feed.source_authority.dates",
+        "sentinel.feed.source_corrections",
+        "sentinel.feed.tickers_authority"
+      ],
+      "module": "sentinel.feed.rolling_source",
+      "ports": [
+        "sentinel.archive_identifiers"
+      ]
+    },
+    "sentinel.feed.rolling_store": {
+      "after": "068299577befcc49ed3ce8a8a203b46c8c26ec76bb9657779f2e25dd17324fc6",
+      "before": "45397dee3dbc941b2fd29512197456d32c867deb226a697e9a687b185fa528ea",
+      "contribution": "a88e70b2e84cd763813114a7f25d35d966ac0d1a3c1c3c27f3afc5d46a81104a",
+      "dependencies": [
+        "sentinel",
+        "sentinel.archive_identifiers",
+        "sentinel.feed",
+        "sentinel.feed.acquisition_limits",
+        "sentinel.feed.calendar",
+        "sentinel.feed.normalized_layout",
+        "sentinel.feed.publication",
+        "sentinel.feed.readiness_scope",
+        "sentinel.feed.rolling_contract",
+        "sentinel.feed.rolling_work"
+      ],
+      "module": "sentinel.feed.rolling_store",
+      "ports": [
+        "sentinel.archive_identifiers"
+      ]
+    },
+    "sentinel.feed.sep_negative_space": {
+      "after": "0d7f34a7f17b86dfb62f9044db817b43cba0a25771bf54ea045c54cccfdb9103",
+      "before": "68c27c6bc77afdbdf6f2ea0178aa43d553862926e11446c381c3357d3c8f20ba",
+      "contribution": "68c27c6bc77afdbdf6f2ea0178aa43d553862926e11446c381c3357d3c8f20ba",
+      "dependencies": [
+        "sentinel",
+        "sentinel.feed",
+        "sentinel.feed.archive_tables",
+        "sentinel.feed.authority",
+        "sentinel.feed.domains",
+        "sentinel.feed.publication",
+        "sentinel.feed.sep_negative_space_guarded",
+        "sentinel.feed.sep_reconciliation_impl",
+        "sentinel.feed.source_authority",
+        "sentinel.feed.staging",
+        "sentinel.feed.store",
+        "sentinel.feed.universe"
+      ],
+      "module": "sentinel.feed.sep_negative_space",
+      "ports": []
+    },
+    "sentinel.feed.sep_reconciliation": {
+      "after": "1f4c45d701672e85c5bc54f8c7d93736d3a7b50f498f46b5bf3a48a1ad4c9778",
+      "before": "c72bdf0fd8a3491e455d93c0fb643baec0669015a78c9ac8f1b4554086112c49",
+      "contribution": "c72bdf0fd8a3491e455d93c0fb643baec0669015a78c9ac8f1b4554086112c49",
+      "dependencies": [
+        "sentinel",
+        "sentinel.feed",
+        "sentinel.feed.action_source",
+        "sentinel.feed.archive_tables",
+        "sentinel.feed.maintenance",
+        "sentinel.feed.seed_coherence",
+        "sentinel.feed.sep_negative_space_guarded",
+        "sentinel.feed.sep_reconciliation_impl",
+        "sentinel.feed.snapshot_export",
+        "sentinel.feed.snapshot_source",
+        "sentinel.feed.source_authority"
+      ],
+      "module": "sentinel.feed.sep_reconciliation",
+      "ports": []
+    },
+    "sentinel.feed.sharadar": {
+      "after": "45d51cef6d788e6f9a38b1683cfef6411c3bc3f3e3f47306432cef8bd5eec59b",
+      "before": "fcb113af79ece43219cc5211f55679e307a7a12e89aafa40d81f7161aed2b28b",
+      "contribution": "fcb113af79ece43219cc5211f55679e307a7a12e89aafa40d81f7161aed2b28b",
+      "dependencies": [
+        "sentinel",
+        "sentinel.feed",
+        "sentinel.feed.operational_source"
+      ],
+      "module": "sentinel.feed.archive_tables",
+      "ports": []
+    },
+    "sentinel.feed.snapshot_export": {
+      "after": "e9b8aac483a990e973fc9654b3dbf67a38f6c101789659cb06965540bcd7919e",
+      "before": "ede7a540635ca8e7ce18ae29d4c0ae670501cf691f4663cff0f89e443da8a18f",
+      "contribution": "ede7a540635ca8e7ce18ae29d4c0ae670501cf691f4663cff0f89e443da8a18f",
+      "dependencies": [
+        "sentinel",
+        "sentinel.feed",
+        "sentinel.feed.acquisition_limits",
+        "sentinel.feed.acquisition_work",
+        "sentinel.feed.archive_tables",
+        "sentinel.feed.operational_source"
+      ],
+      "module": "sentinel.feed.snapshot_export",
+      "ports": []
+    },
+    "sentinel.feed.snapshot_source": {
+      "after": "ea8cac5947f50091b57b84307619ddfe9d6094fe97ed2b479226991fc094423c",
+      "before": "3583b404a80d3db7b19803f7b51e6c37d298d3a5ece7f4cbd8c6edc1182db8bf",
+      "contribution": "3583b404a80d3db7b19803f7b51e6c37d298d3a5ece7f4cbd8c6edc1182db8bf",
+      "dependencies": [
+        "sentinel",
+        "sentinel.feed",
+        "sentinel.feed.archive_tables",
+        "sentinel.feed.snapshot_export"
+      ],
+      "module": "sentinel.feed.snapshot_source",
+      "ports": []
+    },
+    "sentinel.feed.source_authority": {
+      "after": "a5c640ebc5cb8d2eb9285107b7567b8a590b43e69ba6f5d158539094bf898ab3",
+      "before": "d80f5133742e352ec5c6c3f51abe19a046eb60016886a553072723d7bd3a1973",
+      "contribution": "d80f5133742e352ec5c6c3f51abe19a046eb60016886a553072723d7bd3a1973",
+      "dependencies": [
+        "sentinel",
+        "sentinel.feed",
+        "sentinel.feed.source_authority.coverage",
+        "sentinel.feed.source_authority.dates",
+        "sentinel.feed.source_authority.duplicates",
+        "sentinel.feed.source_authority.fetch",
+        "sentinel.feed.source_authority.seed_model",
+        "sentinel.feed.source_authority.tracker"
+      ],
+      "module": "sentinel.feed.source_authority",
+      "ports": []
+    },
+    "sentinel.feed.source_authority.coverage": {
+      "after": "d9325aa79b8f0b50a48d50313fbb5f38698ccf38194f6c8addef7afa5313830b",
+      "before": "b2904a47641511a37705609356b1e3a6cb59070243dfb3af01ea045c3f7c7d11",
+      "contribution": "b2904a47641511a37705609356b1e3a6cb59070243dfb3af01ea045c3f7c7d11",
+      "dependencies": [
+        "sentinel",
+        "sentinel.archive_identifiers",
+        "sentinel.feed",
+        "sentinel.feed.archive_tables",
+        "sentinel.feed.calendar",
+        "sentinel.feed.source_aliases",
+        "sentinel.feed.source_authority",
+        "sentinel.feed.source_authority.collisions",
+        "sentinel.feed.source_authority.dates",
+        "sentinel.feed.source_authority.seed_model",
+        "sentinel.feed.source_corrections",
+        "sentinel.feed.source_wait"
+      ],
+      "module": "sentinel.feed.source_authority.coverage",
+      "ports": [
+        "sentinel.archive_identifiers"
+      ]
+    },
+    "sentinel.feed.source_authority.dates": {
+      "after": "4fe3336fa09f019f915910ba63f3a2f0fa503de41996e495e07a57f5b46d00fa",
+      "before": "53954cdfc3da04e7714da93a00a1a6e15bd558dda2f9769cfb5182568d8f9cf8",
+      "contribution": "53954cdfc3da04e7714da93a00a1a6e15bd558dda2f9769cfb5182568d8f9cf8",
+      "dependencies": [
+        "sentinel",
+        "sentinel.feed",
+        "sentinel.feed.source_authority"
+      ],
+      "module": "sentinel.feed.source_authority.dates",
+      "ports": []
+    },
+    "sentinel.feed.source_authority.duplicates": {
+      "after": "ed87fb781fb1be0bbb63adabfccd9fe891b7dc8538ce590f6b41187c91a8644b",
+      "before": "43ff813d22c5bfcae9a9074508e9bd5bd269505cdd4395f5918130cf336eda0d",
+      "contribution": "43ff813d22c5bfcae9a9074508e9bd5bd269505cdd4395f5918130cf336eda0d",
+      "dependencies": [
+        "sentinel",
+        "sentinel.archive_identifiers",
+        "sentinel.feed",
+        "sentinel.feed.archive_tables",
+        "sentinel.feed.source_authority",
+        "sentinel.feed.source_authority.dates",
+        "sentinel.feed.tickers_authority"
+      ],
+      "module": "sentinel.feed.source_authority.duplicates",
+      "ports": [
+        "sentinel.archive_identifiers"
+      ]
+    },
+    "sentinel.feed.source_authority.fetch": {
+      "after": "72460cc4b6ffd21ceb7e990ee9019716217f3c9aeab880219613c7bb120ce9e9",
+      "before": "5d77a07924d101ae67412000048801819641221ea7505ddc511fd4f02caba179",
+      "contribution": "5d77a07924d101ae67412000048801819641221ea7505ddc511fd4f02caba179",
+      "dependencies": [
+        "sentinel",
+        "sentinel.feed",
+        "sentinel.feed.archive_tables",
+        "sentinel.feed.authority",
+        "sentinel.feed.calendar",
+        "sentinel.feed.coherence",
+        "sentinel.feed.maintenance",
+        "sentinel.feed.progress",
+        "sentinel.feed.snapshot_source",
+        "sentinel.feed.source_aliases",
+        "sentinel.feed.source_authority",
+        "sentinel.feed.source_authority.coverage",
+        "sentinel.feed.source_authority.dates",
+        "sentinel.feed.source_authority.duplicates",
+        "sentinel.feed.source_authority.seed_model",
+        "sentinel.feed.symbol_identity"
+      ],
+      "module": "sentinel.feed.source_authority.fetch",
+      "ports": []
+    },
+    "sentinel.feed.source_authority.seed_model": {
+      "after": "2fc34e57c7c30fa1b3a7f533cd2cd1ae58a87ba3de98962482e249b1a34b7dd8",
+      "before": "7ed090d02739cecb0e0d22c7d6d0086868c8506f01b4fb434fa439cfd0a362a6",
+      "contribution": "7ed090d02739cecb0e0d22c7d6d0086868c8506f01b4fb434fa439cfd0a362a6",
+      "dependencies": [
+        "sentinel",
+        "sentinel.feed",
+        "sentinel.feed.source_authority",
+        "sentinel.feed.source_authority.dates",
+        "sentinel.feed.source_corrections",
+        "stock_strategy_shared",
+        "stock_strategy_shared.wealth_core",
+        "stock_strategy_shared.wealth_core.eligibility"
+      ],
+      "module": "sentinel.feed.source_authority.seed_model",
+      "ports": []
+    },
+    "sentinel.feed.source_authority.tracker": {
+      "after": "4a366ea4de528543d3eb108d8ebbd95d282ccdd0abdeed858207a59a11408fee",
+      "before": "583b25e2a2c2d20c764b9b79e38f3fe7f590d9ca08c324e0966b60c4ce8747f9",
+      "contribution": "583b25e2a2c2d20c764b9b79e38f3fe7f590d9ca08c324e0966b60c4ce8747f9",
+      "dependencies": [
+        "sentinel",
+        "sentinel.feed",
+        "sentinel.feed.archive_tables",
+        "sentinel.feed.source_authority",
+        "sentinel.feed.source_authority.dates"
+      ],
+      "module": "sentinel.feed.source_authority.tracker",
+      "ports": []
+    },
+    "sentinel.feed.source_corrections": {
+      "after": "9f2410f1acb7e43f6de209644cd68b05963f0162f73da935eadb3a323ab023ae",
+      "before": "081d619803e2a32d4ce9b7a711c60639004d058abae2af21dcd4602977c3fcde",
+      "contribution": "081d619803e2a32d4ce9b7a711c60639004d058abae2af21dcd4602977c3fcde",
+      "dependencies": [
+        "sentinel",
+        "sentinel.feed",
+        "sentinel.feed.correction_model",
+        "sentinel.feed.publication",
+        "sentinel.feed.rolling_contract",
+        "sentinel.feed.source_authority",
+        "sentinel.feed.source_authority.seed_model"
+      ],
+      "module": "sentinel.feed.source_corrections",
+      "ports": []
+    },
+    "sentinel.feed.staging_impl": {
+      "after": "8adb55673d14495afa17aefb29359c80ecc67845445122ce3655a0485ed1a74d",
+      "before": "635c00998dd1a871170329d43dbcdffbddef17f7723233a7792feab779b24f31",
+      "contribution": "635c00998dd1a871170329d43dbcdffbddef17f7723233a7792feab779b24f31",
+      "dependencies": [
+        "sentinel",
+        "sentinel.feed",
+        "sentinel.feed.store"
+      ],
+      "module": "sentinel.feed.staging_impl",
+      "ports": []
+    },
+    "sentinel.feed.symbol_identity": {
+      "after": "3f5d97d24fe568a5f0ed4d36c287cbe7dc8e7205dc7cfb58c20ffdb0ac256b0e",
+      "before": "b3115258495a98f3eae80c188a09b152f3199fd58e7a24235f8264dccb33a0c3",
+      "contribution": "b3115258495a98f3eae80c188a09b152f3199fd58e7a24235f8264dccb33a0c3",
+      "dependencies": [
+        "sentinel",
+        "sentinel.feed",
+        "sentinel.feed.action_source",
+        "sentinel.feed.actions",
+        "sentinel.feed.archive_tables",
+        "sentinel.feed.authority",
+        "sentinel.feed.calendar",
+        "sentinel.feed.source_aliases",
+        "sentinel.feed.symbol_lineage",
+        "sentinel.feed.universe"
+      ],
+      "module": "sentinel.feed.symbol_identity",
+      "ports": []
+    },
+    "sentinel.feed.tickers_authority": {
+      "after": "a28aa756af9e9a52c224e77b6d624631dbe602ffd1420995f37855c919e61d00",
+      "before": "e01febd6ee1299ba7b2f7356973d61bfe7de6156aeb3ccc40c444b8983ac99fa",
+      "contribution": "e01febd6ee1299ba7b2f7356973d61bfe7de6156aeb3ccc40c444b8983ac99fa",
+      "dependencies": [
+        "sentinel",
+        "sentinel.feed",
+        "sentinel.feed.universe"
+      ],
+      "module": "sentinel.feed.tickers_authority",
+      "ports": []
+    },
+    "sentinel.feed.universe": {
+      "after": "ece248ca60b453fb39176ed789acbe857c6a4cdec9a1df64859358cc3eae20dc",
+      "before": "3b847d92c9169b3b1c9c32cb8bbfd50384288e404fbbbec21949697d89ec21e9",
+      "contribution": "48fd9b18b13433c51c0e9e7d9e981e42620e2792ef6b3bcbc3dd233261c1080c",
+      "dependencies": [
+        "sentinel",
+        "sentinel.feed",
+        "sentinel.feed.actions",
+        "sentinel.feed.calendar",
+        "sentinel.feed.publication",
+        "sentinel.feed.source_aliases",
+        "sentinel.feed.symbol_identity",
+        "sentinel.feed.universe_projection",
+        "stock_strategy_shared",
+        "stock_strategy_shared.wealth_core",
+        "stock_strategy_shared.wealth_core.eligibility"
+      ],
+      "module": "sentinel.feed.universe",
+      "ports": []
+    },
+    "sentinel.feed.universe_projection": {
+      "after": "879b3c73e851a482fb8c09ceed0044bb0e430f0d00d659c357b7d005ec22b589",
+      "before": "07a2924290101ba8d2401b2db2d2bc246f0bd72269f5b91c24b50dd775dcd7c9",
+      "contribution": "07a2924290101ba8d2401b2db2d2bc246f0bd72269f5b91c24b50dd775dcd7c9",
+      "dependencies": [
+        "sentinel",
+        "sentinel.feed"
+      ],
+      "module": "sentinel.feed.universe_projection",
+      "ports": []
+    },
+    "stock_strategy_shared.split_reconciliation": {
+      "after": "e3036e6d1da110ec5360600bc6c7a5bdf18d42a5a3e607cafff2bd94871724b1",
+      "before": "63929c0cd9964174020b211048ddbda779dfaa5b29abd9364ae1c93f9d74d3ed",
+      "contribution": "63929c0cd9964174020b211048ddbda779dfaa5b29abd9364ae1c93f9d74d3ed",
+      "dependencies": [
+        "stock_strategy_shared"
+      ],
+      "module": "stock_strategy_shared.split_reconciliation",
+      "ports": []
+    },
+    "stock_strategy_shared.terminal_coalescing": {
+      "after": "0bbf19575c67cf9beb5f3539447ded7c1429d4be503633d731a473bf5e8649c9",
+      "before": "2a01f833b8f94c9bf26814decd6fc7f9272e03b44bcaffaeb7d254a3988d5dab",
+      "contribution": "2a01f833b8f94c9bf26814decd6fc7f9272e03b44bcaffaeb7d254a3988d5dab",
+      "dependencies": [
+        "stock_strategy_shared",
+        "stock_strategy_shared.wealth_core",
+        "stock_strategy_shared.wealth_core.terminal"
+      ],
+      "module": "stock_strategy_shared.terminal_coalescing",
+      "ports": []
+    },
+    "stock_strategy_shared.wealth_core": {
+      "after": "631d009fe32a828aa77e9517ac1a9c5f4b32064ecc67cdd7cf0e70ffaf59f409",
+      "before": "fd8bed82bbb9d18481f7422216933a6b5a85066688c770ebad7dbfe1a6abe2fa",
+      "contribution": "fd8bed82bbb9d18481f7422216933a6b5a85066688c770ebad7dbfe1a6abe2fa",
+      "dependencies": [
+        "stock_strategy_shared",
+        "stock_strategy_shared.wealth_core.signals"
+      ],
+      "module": "stock_strategy_shared.wealth_core",
+      "ports": []
+    },
+    "stock_strategy_shared.wealth_core.sharadar_domains": {
+      "after": "21ed3ef4c0fff4c83bf83413ca5d8dbaf976786977b803b45891d9c67545bcab",
+      "before": "4bebd224c7597913280dc731fcd04db10102f6b85250e8d74003754b53b550ba",
+      "contribution": "4bebd224c7597913280dc731fcd04db10102f6b85250e8d74003754b53b550ba",
+      "dependencies": [
+        "stock_strategy_shared",
+        "stock_strategy_shared.wealth_core"
+      ],
+      "module": "stock_strategy_shared.wealth_core.price_domains",
+      "ports": []
+    }
+  },
+  "page_reads": {
+    "feed/acquisition_part_schema.py": {
+      "after": "851d4366705bc3d814012b6e21cc62225536dbeb85da3d0775dedd5ddcf1b4de",
+      "before": "c150bbd24dace1daee466aa9438f4b05fcb5b6f1b46a136d3edbb5497f31fd8f"
+    },
+    "feed/acquisition_parts.py": {
+      "after": "77cfd5200689d7e554b4c4fc14fda37a8a9a9236fa7692d0c5d014f78e006862",
+      "before": "7395d75d09b50c4c93ffdd89d592cab703eb3ad091eb2c6b7beae61915b830fa"
+    },
+    "feed/store.py": {
+      "after": "a9e400c4ab304a8a2597c547e34b7b9e88e5862588fd7eeabe4d387e60523980",
+      "before": "a9e400c4ab304a8a2597c547e34b7b9e88e5862588fd7eeabe4d387e60523980"
+    }
+  },
+  "ports": {
+    "sentinel.archive_identifiers": "4cce61ceaa5dd5124408277939c50b66895d263afd473c6ec831ba0d9c6d5d6e"
+  },
+  "reverse": {
+    "sentinel.core.decision": {
+      "after": "820f651ee1856d20c5236445123d2f3d333da76e63b0b38bb8ccda878fef9a6f",
+      "before": "f5e017a05c2765a6932002b645e3e55a3995d96961d94d27e7b6163ceabb95ec",
+      "edits": [
+        [
+          33,
+          34,
+          ""
+        ],
+        [
+          38,
+          39,
+          "DATA_SEMANTICS_IDENTITY_SCHEMA = \"sentinel-sharadar-book-semantics/v1\"\n_DATA_SEMANTICS_MODULES = (\n    \"sentinel.breadth.classifier\",\n    \"sentinel.controller.median5_breadth\",\n    \"sentinel.breadth.returns\",\n    \"sentinel.controller.concordance\",\n    \"sentinel.controller.concordance_parent\",\n    \"sentinel.controller.frozen_rule\",\n    \"sentinel.controller.ldrc\",\n    \"sentinel.controller.median5\",\n    \"sentinel.controller.ex3_v6\",\n    \"sentinel.controller.champion\",\n    \"sentinel.controller.champion_config\",\n    \"sentinel.controller.champion_frozen\",\n    \"sentinel.controller.owned_impairment\",\n    \"sentinel.controller.machine\",\n    \"sentinel.controller.recent_leadership\",\n    \"sentinel.core.bootstrap\",\n    \"sentinel.core.formation\",\n    \"sentinel.core.formation_inputs\",\n    \"sentinel.formation_bootstrap\",\n    \"sentinel.formed_origin\",\n    \"sentinel.formed_economics\",\n    \"sentinel.core.catchup\",\n    \"sentinel.core.decision\",\n    \"sentinel.core.loader\",\n    \"sentinel.core.kernel\",\n    \"sentinel.core.cash_distributions\",\n    \"sentinel.economic_migration\",\n    \"sentinel.core.history\",\n    \"sentinel.core.spinoffs\",\n    \"sentinel.core.production\",\n    \"sentinel.core.rolling_inputs\",\n    \"sentinel.core.rolling_continuity\",\n    \"sentinel.core.window_policy\",\n    \"sentinel.core.window_features\",\n    \"sentinel.core.window_continuity\",\n    \"sentinel.core.rolling_reader\",\n    \"sentinel.core.session\",\n    \"sentinel.core.terminal\",\n    \"sentinel.execution.plan\",\n    \"sentinel.execution.projection\",\n    \"sentinel.execution.reconcile\",\n    \"sentinel.execution.share_units\",\n    \"sentinel.execution.feed_actions\",\n    \"sentinel.execution.feed_cash\",\n    \"sentinel.execution.target_reprojection\",\n    \"sentinel.execution.opening_prices\",\n    \"sentinel.execution.opening_sizing\",\n    \"sentinel.execution.held_targets\",\n    \"sentinel.execution.numeric\",\n    \"sentinel.feed.action_source\",\n    \"sentinel.feed.actions\",\n    \"sentinel.feed.actions_map\",\n    \"sentinel.feed.symbol_identity\",\n    \"sentinel.feed.source_aliases\",\n    \"sentinel.feed.actions_reconcile_v7\",\n    \"sentinel.feed.anomalies\",\n    \"sentinel.feed.calendar\",\n    \"sentinel.feed.corporate_action_authority\",\n    \"sentinel.feed.correction_model\",\n    \"sentinel.feed.source_corrections\",\n    \"sentinel.feed.domains\",\n    \"sentinel.feed.ingest\",\n    \"sentinel.feed.ingest_impl\",\n    \"sentinel.feed.maintenance\",\n    \"sentinel.feed.operational_coherence\",\n    \"sentinel.feed.publication\",\n    \"sentinel.feed.readers\",\n    \"sentinel.feed.readiness_scope\",\n    \"sentinel.structural_verification\",\n    \"sentinel.feed.operational_snapshot\",\n    \"sentinel.feed.rolling_builder\",\n    \"sentinel.feed.rolling_contract\",\n    \"sentinel.feed.rolling_jobs\",\n    \"sentinel.feed.rolling_go_inputs\",\n    \"sentinel.feed.rolling_go_health\",\n    \"sentinel.rolling_authority\",\n    \"sentinel.rolling_recovery\",\n    \"sentinel.rolling_reconstruction_evidence\",\n    \"sentinel.rolling_runtime\",\n    \"sentinel.feed.rolling_publisher\",\n    \"sentinel.feed.rolling_source\",\n    \"sentinel.feed.action_history\",\n    \"sentinel.feed.action_history_schema\",\n    \"sentinel.feed.retention\",\n    \"sentinel.feed.retention_schema\",\n    \"sentinel.feed.rolling_store\",\n    \"sentinel.feed.history_mutations\",\n    \"sentinel.feed.history_mutation_schema\",\n    \"sentinel.feed.requirements\",\n    \"sentinel.feed.repair\",\n    \"sentinel.feed.recovery\",\n    \"sentinel.feed.renormalize\",\n    \"sentinel.feed.reseed\",\n    \"sentinel.feed.sep_reconciliation\",\n    \"sentinel.feed.sharadar\",\n    \"sentinel.feed.snapshot_export\",\n    \"sentinel.feed.snapshot_source\",\n    \"sentinel.feed.source_authority.corporate_action_data\",\n    \"sentinel.feed.staging\",\n    \"sentinel.feed.store\",\n    \"sentinel.feed.universe\",\n    \"sentinel.feed.universe_projection\",\n    \"sentinel.paper\",\n    \"sentinel.paper_performance\",\n    \"sentinel.regime.spy\",\n    \"sentinel.shadow_observation\",\n    \"sentinel.observation_storage\",\n    \"sentinel.shadow_runtime\",\n    \"sentinel.rolling_checkpoint\",\n    \"sentinel.rolling_initialization\",\n    \"sentinel.rolling_daily\",\n    \"sentinel.rolling_daily_checkpoint\",\n    \"sentinel.strategy\",\n    \"stock_strategy_shared.split_reconciliation\",\n    \"stock_strategy_shared.terminal_coalescing\",\n    \"stock_strategy_shared.wealth_core.sharadar_domains\",\n)\n"
+        ],
+        [
+          83,
+          84,
+          "    \"\"\"Hash every reviewed source boundary that turns Sharadar into a book.\n"
+        ],
+        [
+          132,
+          133,
+          "    from sentinel.performance_source_basis import wealth_core_source_hash\n"
+        ],
+        [
+          165,
+          166,
+          "            result[\"universe\"] = \"BROAD_SHARADAR_COMMON_EQUITY\"\n"
+        ]
+      ]
+    },
+    "sentinel.core.session": {
+      "after": "c853d831f23ea87deb2aaebd8b504a1b02ab5aba81d3f8d512bd0a392e8665ee",
+      "before": "7bffe82ed6370873e112ffeb97c5525d5067503863b6db3e06c7147c9542201b",
+      "edits": [
+        [
+          592,
+          593,
+          "    \"\"\"Exact published Sharadar SFP fields consumed by Core/BIL accounting.\"\"\"\n"
+        ]
+      ]
+    },
+    "sentinel.execution.reconcile": {
+      "after": "a8dbb42e34b00bbbdfb409b40a928df496807eaeaf95e6252ca6c9d9928ea364",
+      "before": "8c09a031e89f7d96cd610d2d365fdf76f82584ec9bc9661f939c2957f4c2738d",
+      "edits": [
+        [
+          47,
+          48,
+          ""
+        ],
+        [
+          351,
+          351,
+          "\n\ndef _order_observation_fingerprint(order) -> tuple:\n    return (\n        order.broker_order_id, order.client_key,\n        order.instrument.security_id, order.instrument.broker_id,\n        order.side, order.quantity, order.order_terms,\n        order.notional,\n        order.state, order.filled_quantity, order.filled_average_price,\n        order.submitted_at, bool(order.external_replacement),\n        order.replaced_by, order.replaces)\n"
+        ]
+      ]
+    },
+    "sentinel.feed": {
+      "after": "20b16d0cc989030dc6b8979dd459a27ab7767917ea4106ab27039afef677a9a9",
+      "before": "08e0e56d2e02e867218bf8ce3983856ad64c42c208415e87a98fe2d91cf43ea9",
+      "edits": [
+        [
+          2,
+          3,
+          "Production uses Alpaca/OpenFIGI rolling snapshots. Historical Sharadar readers\n"
+        ]
+      ]
+    },
+    "sentinel.feed.publisher_pipeline": {
+      "after": "fcc0d2ab706b9008736b4a61aaa8b1e7fffd125a666fd3aaf78f9682eaf7f5e1",
+      "before": "f938c0d376bba3fa40bd67f81ea3bb1e3d5abd031e6dc8a7e07d256dc507058a",
+      "edits": [
+        [
+          13,
+          14,
+          "    acquisition_work, progress, rolling_builder, rolling_jobs as jobs,\n"
+        ],
+        [
+          232,
+          233,
+          "        with acquisition_work.budget(seconds=min(500, jobs.status(conn, job_id)[\"remaining_seconds\"])):\n"
+        ]
+      ]
+    },
+    "sentinel.feed.rolling_builder": {
+      "after": "66f0892fb95f134f7f9453680a0052a3b1f299d2c65533dfacc9df89df30d58c",
+      "before": "90a61153491c1a68db42baef8e773ef55f5a713869c2242352469bb932ba7d45",
+      "edits": [
+        [
+          2,
+          3,
+          ""
+        ],
+        [
+          14,
+          15,
+          "from sentinel.feed.canonical_transforms import benchmarks, alpaca_bar, sharadar_bar\n"
+        ],
+        [
+          16,
+          17,
+          "NORMALIZATION_VERSION = \"sentinel.sharadar-rolling-comparison/1\"\n"
+        ],
+        [
+          120,
+          121,
+          "                bars = [sharadar_bar(item) for item in batch]\n"
+        ],
+        [
+          219,
+          220,
+          "    \"\"\"Seal current-information prices without Sharadar semantics.\"\"\"\n"
+        ]
+      ]
+    },
+    "sentinel.feed.rolling_publisher": {
+      "after": "ab417744487deaf0e5f993ce7d9bd4516bec9a74861ea4e479bda327cead456a",
+      "before": "92ca3c8ef8ea89e712377962f3f2f97d583d39809783d2c7bfc8f0ac25568055",
+      "edits": [
+        [
+          12,
+          13,
+          "    sharadar, snapshot_export, staging, store, writer_schedule,\n"
+        ],
+        [
+          102,
+          104,
+          "        delay = max(1, math.ceil(exc.delay)) if isinstance(exc, sharadar.SharadarRetryDeferred) else 10\n"
+        ],
+        [
+          116,
+          117,
+          "        elif (isinstance(exc, (sharadar.SharadarRetryDeferred,\n"
+        ]
+      ]
+    },
+    "sentinel.feed.rolling_store": {
+      "after": "068299577befcc49ed3ce8a8a203b46c8c26ec76bb9657779f2e25dd17324fc6",
+      "before": "45397dee3dbc941b2fd29512197456d32c867deb226a697e9a687b185fa528ea",
+      "edits": [
+        [
+          6,
+          7,
+          ""
+        ],
+        [
+          308,
+          309,
+          "         requirements: RestartRequirement, provider: str = \"SHARADAR\") -> SnapshotManifest:\n"
+        ]
+      ]
+    },
+    "sentinel.feed.source_authority": {
+      "after": "a5c640ebc5cb8d2eb9285107b7567b8a590b43e69ba6f5d158539094bf898ab3",
+      "before": "d80f5133742e352ec5c6c3f51abe19a046eb60016886a553072723d7bd3a1973",
+      "edits": [
+        [
+          0,
+          2,
+          "\"\"\"Causal and cardinality authority for Sharadar SEP/SFP observations.\"\"\"\nfrom .fetch import StableSharadarFetch, reconcile_sep_mutations\n"
+        ],
+        [
+          19,
+          20,
+          "    \"StableSharadarFetch\", \"reconcile_sep_mutations\",\n"
+        ]
+      ]
+    },
+    "sentinel.feed.universe": {
+      "after": "ece248ca60b453fb39176ed789acbe857c6a4cdec9a1df64859358cc3eae20dc",
+      "before": "3b847d92c9169b3b1c9c32cb8bbfd50384288e404fbbbec21949697d89ec21e9",
+      "edits": [
+        [
+          0,
+          1,
+          "\"\"\"SHARADAR/TICKERS -> permanent identity and issuer groups.\n"
+        ],
+        [
+          16,
+          17,
+          "Sharadar serves `relatedtickers` primarily **whitespace-separated**. The Sentinel\n"
+        ],
+        [
+          177,
+          178,
+          "    \"\"\"SHARADAR/TICKERS rows -> listings. Rows without a permaticker are DROPPED:\n"
+        ]
+      ]
+    },
+    "stock_strategy_shared.wealth_core": {
+      "after": "631d009fe32a828aa77e9517ac1a9c5f4b32064ecc67cdd7cf0e70ffaf59f409",
+      "before": "fd8bed82bbb9d18481f7422216933a6b5a85066688c770ebad7dbfe1a6abe2fa",
+      "edits": [
+        [
+          10,
+          11,
+          "(CERTIFIED_SHARADAR_WEALTH_REPORT.md, STOCKER_WEALTH_CORE_V1.yaml,\nCERTIFIED_SHARADAR_SYMBOLIC_REPORT.md, WEALTH_ACCUMULATION_STRATEGY.yaml,\nREPRODUCIBILITY_MANIFEST.json) did NOT reach this repository and are not the\n"
+        ]
+      ]
+    },
+    "stock_strategy_shared.wealth_core.feed": {
+      "after": "69def0888043b2e70dc90a427be3fa7e1fe759bbf9f6afd98ea01883159f3997",
+      "before": "0192202798dda5a9216f403451125cc1bd0d64f816950abe8416bbca3ccb72ac",
+      "edits": [
+        [
+          111,
+          112,
+          "    UNINTERPRETED from Sharadar TICKERS \u2014 the certified predicates read the raw\n"
+        ],
+        [
+          420,
+          421,
+          "    Note what is NOT passed: the vendor's own adjusted close. Sharadar's\n"
+        ]
+      ]
+    }
+  }
+}

@@ -143,7 +143,7 @@ def test_repair_refuses_value_drift_even_when_source_keys_exist(monkeypatch):
 
 
 def test_bridge_split_ratio_detects_deleted_intermediate_split_bar():
-    # A -> B -> C stores the split on B.  If Sharadar retracts B, A -> C needs
+    # A -> B -> C stores the split on B.  If the source retracts B, A -> C needs
     # that same 2:1 edge moved onto C; retaining C's old 1.0 would corrupt the
     # engine's reconstructed signal history.
     prev = (10.0, 20.0)

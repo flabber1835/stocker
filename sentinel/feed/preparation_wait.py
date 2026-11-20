@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import time
 
-from sentinel.feed import progress, rolling_jobs as jobs, sharadar, writer_schedule
+from sentinel.feed import progress, rolling_jobs as jobs, archive_tables, writer_schedule
 from sentinel.feed.publication import CorpusBusy
 from sentinel.feed.alpaca_transport import AlpacaTransportUnavailable
 
@@ -23,7 +23,7 @@ def run(conn, job_id, *, prepare, check_target, sleep=None):
             check_target()
             job_id = successor(conn, job_id, exc.component)
             continue
-        except (sharadar.SharadarRetryDeferred, ConnectionError, CorpusBusy,
+        except (archive_tables.RetryDeferred, ConnectionError, CorpusBusy,
                 jobs.JobWaiting, SourceCoveragePending, AlpacaTransportUnavailable) as exc:
             if writer_schedule.connection_discarded(exc):
                 raise

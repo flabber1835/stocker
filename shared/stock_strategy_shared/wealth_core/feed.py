@@ -109,7 +109,7 @@ class SecurityMeta:
     """One observed, session-effective security metadata row.
 
     `category`, `permaticker` and `related_tickers` are carried through
-    UNINTERPRETED from Sharadar TICKERS — the certified predicates read the raw
+    UNINTERPRETED from the TICKERS table — the certified predicates read the raw
     strings, and re-encoding them into a local enum here is exactly the
     divergence the 2026-08-03 amendment removed.
     """
@@ -418,7 +418,7 @@ def build_signal_series(bars: Sequence[VendorBar], *,
 def to_daily_bar(bar: VendorBar, series: SecuritySeries) -> DailyBar:
     """The domain split, at the one boundary that enforces it.
 
-    Note what is NOT passed: the vendor's own adjusted close. Sharadar's
+    Note what is NOT passed: the vendor's own adjusted close. the source's
     `closeadj` is a TOTAL-RETURN series (dividends reinvested), which is neither
     of the two adjusted domains this strategy uses, and handing it to either one
     changes momentum on every dividend payer without raising.

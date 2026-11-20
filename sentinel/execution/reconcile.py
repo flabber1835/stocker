@@ -45,6 +45,7 @@ from decimal import Decimal, InvalidOperation
 from fractions import Fraction
 from typing import Callable, Mapping, Optional
 
+from sentinel.execution.contract import order_observation_fingerprint as _order_observation_fingerprint
 from sentinel.execution.contract import (
     BrokerExactOrderEvidence, BrokerExactOrderLookup, BrokerObservation,
     Completeness, ExecutionBroker)
@@ -348,17 +349,6 @@ def _order_command_conflict(order, command) -> Optional[str]:
         return (f"{prefix} regressed/incompatibly changed lifecycle "
                 f"{command.state.value} to {order.state.value}")
     return None
-
-
-def _order_observation_fingerprint(order) -> tuple:
-    return (
-        order.broker_order_id, order.client_key,
-        order.instrument.security_id, order.instrument.broker_id,
-        order.side, order.quantity, order.order_terms,
-        order.notional,
-        order.state, order.filled_quantity, order.filled_average_price,
-        order.submitted_at, bool(order.external_replacement),
-        order.replaced_by, order.replaces)
 
 
 def _receipt_fill_episode(conn, *, command, order, actions, observed_at):

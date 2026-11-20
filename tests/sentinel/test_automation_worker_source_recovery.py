@@ -19,7 +19,8 @@ from pathlib import Path
 import threading
 import time
 from types import SimpleNamespace
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit
+from urllib.request import urlopen
 
 import pytest
 
@@ -31,7 +32,7 @@ from sentinel.execution import certification, journal, preopen_authority
 from sentinel.execution.contract import ExecutionBroker
 from sentinel.execution.simulator import SimulatedBroker, FaultKind
 from sentinel.feed import (calendar, domains, publication, seed_capture,
-                           sharadar, source_authority, store as feed_store, universe)
+                           archive_tables, source_authority, store as feed_store, universe)
 from test_automation_composition import assembly, pg, fixture  # shared explicit inputs
 
 from tests.sentinel.test_automation_service import frozen_clock_sample
@@ -151,25 +152,23 @@ def test_worker_wait_restart_source_healing_and_transport(
 
         def do_GET(self):
             url = urlsplit(self.path)
-            table = url.path.rsplit("/", 1)[-1].split(".")[0]
+            table = url.path.rsplit("/", 1)[-1]
             params = {key: value[0] for key, value in parse_qs(url.query).items()}
-            calls.append((table, {k: v for k, v in params.items() if k != "api_key"}))
-            rows = {sharadar.TICKERS: listings + [reused], sharadar.ACTIONS: rename if healed.is_set() else [],
-                    sharadar.SFP: [dict(ticker=t, date=day, open=100, close=100,
+            calls.append((table, params))
+            rows = {archive_tables.TICKERS: listings + [reused], archive_tables.ACTIONS: rename if healed.is_set() else [],
+                    archive_tables.SFP: [dict(ticker=t, date=day, open=100, close=100,
                                        closeadj=100, closeunadj=100)
                                    for day in days for t in ("SPY", "BIL")],
-                    sharadar.SEP: bars + [dict(bars[0], ticker="NEW", date=day) for day in days]
+                    archive_tables.SEP: bars + [dict(bars[0], ticker="NEW", date=day) for day in days]
                                   + [dict(bars[0], ticker="EARLIER", date=days[-1])]}[table]
             for key in ("ticker", "contraticker", "permaticker", "action"):
                 if key in params:
                     rows = [r for r in rows if str(r.get(key)) in params[key].split(",")]
             rows = [r for r in rows if "date" not in r or
                     params.get("date.gte", "1900-01-01") <= r["date"] <= params.get("date.lte", "9999-01-01")]
-            columns = sorted(sharadar._REQUIRED_COLUMNS[table])
-            data = json.dumps({"datatable": {"columns": [{"name": key} for key in columns],
-                                            "data": [[r.get(key) for key in columns] for r in rows]},
-                               "meta": {"next_cursor_id": None}}).encode()
+            data = json.dumps(rows).encode()
             self.send_response(200)
+            self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
@@ -182,9 +181,12 @@ def test_worker_wait_restart_source_healing_and_transport(
     remote = manager.BrokerHost()
     workers = []
     try:
-        monkeypatch.setattr(sharadar, "NDL_BASE", f"http://127.0.0.1:{server.server_port}")
-        monkeypatch.setattr(sharadar, "ALLOW_INSECURE_BASE_URL", True)
-        monkeypatch.setenv("SHARADAR_API_KEY", "synthetic-worker-test-key")
+        def read_capture(table, params=None):
+            query = urlencode(params or {})
+            with urlopen(f"http://127.0.0.1:{server.server_port}/captures/{table}?{query}",
+                         timeout=10) as response:
+                return json.load(response)
+        monkeypatch.setattr(archive_tables, "fetch_table", read_capture)
         monkeypatch.setenv("SENTINEL_AUTOMATION_HOLDER_ID", "actual-worker-entrypoint")
         monkeypatch.setattr(feed_store, "latest_visible_session", REAL_LATEST)
         monkeypatch.setattr(calendar, "sessions_in_range", REAL_SESSIONS)
@@ -265,15 +267,15 @@ def test_worker_wait_restart_source_healing_and_transport(
             # The full source membrane and SQL publication run in the callback
             # child. Historical strategy/readiness and exporter proofs remain
             # explicit external fixtures, as in the existing paper assembly.
-            guarded = source_authority.StableSharadarFetch(sharadar.fetch_table, seed_mode=True)
-            params = sharadar.date_params(days[0], target_session)
+            guarded = source_authority.StableTableFetch(archive_tables.fetch_table, seed_mode=True)
+            params = archive_tables.date_params(days[0], target_session)
             from sentinel.feed import ingest
             with seed_capture.CapturedRows() as captured:
-                captured.capture(guarded, sharadar.TICKERS)
+                captured.capture(guarded, archive_tables.TICKERS)
                 action_start, _ = calendar.action_date_window(days[0], target_session)
-                captured.capture(guarded, sharadar.ACTIONS, sharadar.date_params(action_start, target_session))
-                captured.capture(guarded, sharadar.SFP, {"ticker": ingest.SFP_REFERENCE_TICKERS, **params})
-                captured.capture(guarded, sharadar.SEP, params)
+                captured.capture(guarded, archive_tables.ACTIONS, archive_tables.date_params(action_start, target_session))
+                captured.capture(guarded, archive_tables.SFP, {"ticker": ingest.SFP_REFERENCE_TICKERS, **params})
+                captured.capture(guarded, archive_tables.SEP, params)
                 with feed_store.corpus_write_lock(conn):
                     return ingest._ordinary_seed_generation(
                         conn, date_from=days[0], date_to=target_session,

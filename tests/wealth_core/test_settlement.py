@@ -1,6 +1,6 @@
 """The terminal-settlement waterfall.
 
-WHAT THESE ARE ABOUT. The corpus cannot settle anything: Sharadar ACTIONS states
+WHAT THESE ARE ABOUT. The corpus cannot settle anything: archived ACTIONS states
 a deal SIZE and a counterparty, never a per-share consideration, so
 `completeness()` refuses all 19,216 delisted securities. The waterfall is the
 only route by which a delisted holding leaves the book, which makes every branch

@@ -34,7 +34,9 @@ class Http:
     def __init__(self,sse_status):
         self.paths=[]
         outer=self
-        class Client:
+        from tests.sentinel.activity_stream_fixture import ActivityStreamClient
+
+        class Client(ActivityStreamClient):
             def __init__(self,**kwargs): pass
             async def __aenter__(self): return self
             async def __aexit__(self,*args): return False

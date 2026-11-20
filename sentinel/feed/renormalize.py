@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
-from sentinel.feed import authority, calendar, domains, sharadar, store, universe
+from sentinel.feed import authority, calendar, domains, archive_tables, store, universe
 
 
 class HistoricalRenormalizationRefused(RuntimeError):
@@ -103,8 +103,8 @@ def _stable_sep(fetch, start: str, end: str):
     # validates critical price domains, then replays only after the two source
     # fingerprints agree. ``after_session=end`` means this historical replay has
     # no *new-frontier* session to validate; stability itself remains mandatory.
-    guarded = authority.StableSharadarFetch(fetch, after_session=end)
-    return guarded(sharadar.SEP, sharadar.date_params(start, end))
+    guarded = authority.StableTableFetch(fetch, after_session=end)
+    return guarded(archive_tables.SEP, archive_tables.date_params(start, end))
 
 
 def renormalize(

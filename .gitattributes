@@ -3,6 +3,10 @@ docs/sentinel-handoff/00_README/FROZEN_SENTINEL_1P1_RULE.json text eol=lf
 # Windows checkout must not turn their LF terminator into CRLF before Docker
 # copies them into the runtime image.
 sentinel/trust_roots.json text eol=lf
+sentinel/archive-identifiers-v1.json text eol=lf
+sentinel/provider-retirement-economics.json text eol=lf
+sentinel/economic-implementation-v2.json text eol=lf
+tests/support/simplification_baseline/feed_rolling_publisher.py.txt text eol=lf
 sentinel/url-selected-trading-transition.json text eol=lf
 deploy/sentinel-authorized-runtime-v1 text eol=lf
 deploy/sentinel-backup-policy-v1 text eol=lf
@@ -12,3 +16,4 @@ scripts/windows/*.ps1 text eol=lf
 # core.autocrlf change its SHA-256 in a Windows checkout before the runner can
 # verify it against the bundle's SHA256SUMS.txt.
 docs/sentinel-reference-implementation/sentinel_1p1_daily.csv -text
+scripts/go-archive-format-v1.json text eol=lf

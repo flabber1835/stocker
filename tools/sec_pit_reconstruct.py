@@ -7,7 +7,7 @@ symbol and accession number for each as-filed Form 3/4/5 submission.
 
 This tool deliberately produces *evidence*, not guessed historical relationships:
 - an issuer/ticker observation becomes usable no earlier than its SEC filing date;
-- current Sharadar relatedtickers is never consulted here;
+- current relatedtickers is never consulted here;
 - every row retains archive + row provenance;
 - coverage gaps or malformed archives refuse completion.
 

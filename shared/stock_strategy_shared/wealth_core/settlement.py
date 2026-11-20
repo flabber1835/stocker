@@ -2,7 +2,7 @@
 
 WHY THIS EXISTS, and it is a fact about the DATA rather than a preference:
 
-    Sharadar ACTIONS gives event IDENTITY and AGGREGATE TRANSACTION VALUE. It
+    ACTIONS gives event IDENTITY and AGGREGATE TRANSACTION VALUE. It
     gives no holder-level settlement terms — no cash per share, no exchange
     ratio, at any action type.
 

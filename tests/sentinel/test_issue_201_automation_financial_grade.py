@@ -30,7 +30,7 @@ from tests.support.postgres import _EphemeralPostgres
 
 UTC = timezone.utc
 # First instant used by the lifecycle tests is after the reviewed fixed 23:45
-# America/New_York Sharadar publication boundary and before Thursday's open.
+# America/New_York historical publication boundary and before Thursday's open.
 AFTER_WEDNESDAY_CLOSE = datetime(2026, 8, 13, 3, 46, tzinfo=UTC)
 THURSDAY_BEFORE_EXECUTE = datetime(2026, 8, 13, 13, 30, 30, tzinfo=UTC)
 THURSDAY_EXECUTE = datetime(2026, 8, 13, 13, 31, tzinfo=UTC)

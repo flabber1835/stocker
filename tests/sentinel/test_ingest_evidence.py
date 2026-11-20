@@ -26,7 +26,7 @@ asserts on what survives.
 
 THE INVARIANT:
 
-    if Sharadar SEP presented a priced ticker in the operational window and
+    if archived SEP presented a priced ticker in the operational window and
     identity resolution failed, that fact SURVIVES ingestion, and readiness
     cannot classify its terminal action as SECURITY_ABSENT_FROM_CORPUS
 """
@@ -44,7 +44,7 @@ sys.path.insert(0, str(ROOT / "shared"))
 from tests.support.postgres import _EphemeralPostgres  # noqa: E402
 
 from sentinel.core import terminal as T  # noqa: E402
-from sentinel.feed import ingest, sharadar  # noqa: E402
+from sentinel.feed import ingest, archive_tables  # noqa: E402
 from sentinel.feed import readiness as R  # noqa: E402
 from sentinel.feed import store as S  # noqa: E402
 
@@ -89,7 +89,7 @@ def sess(n, end=TODAY):
 
 
 def fake_vendor(*, sep_tickers, actions=(), tickers=()):
-    """A stand-in for SHARADAR. `sep_tickers` prices every named symbol on every
+    """A captured table fixture. `sep_tickers` prices every named symbol on every
     session in the retained fixture; `tickers` is the identity table, so a symbol
     priced and NOT listed is exactly the unnameable case.
 
@@ -103,19 +103,19 @@ def fake_vendor(*, sep_tickers, actions=(), tickers=()):
         params = dict(params or {})
         lo = params.get("date.gte", "0000-00-00")
         hi = params.get("date.lte", "9999-99-99")
-        if table == sharadar.SEP:
+        if table == archive_tables.SEP:
             return [{"date": d, "ticker": t, "close": 100.0,
                      "closeunadj": 100.0, "open": 99.0, "volume": 1e6,
                      "lastupdated": d}
                     for d in days if lo <= d <= hi for t in sep_tickers]
-        if table == sharadar.ACTIONS:
+        if table == archive_tables.ACTIONS:
             rows = list(actions)
             if not rows and params.get("date.gte") == "1900-01-01":
                 return [{"ticker": "__SOURCE_HEALTH__", "date": "1900-01-02",
                          "action": "listed", "value": None,
                          "contraticker": None}]
             return [row for row in rows if lo <= str(row.get("date") or "") <= hi]
-        if table == sharadar.TICKERS:
+        if table == archive_tables.TICKERS:
             return list(tickers)
         return []
     return fetch

@@ -107,7 +107,7 @@ def seeded_market(seed_backup_policy, warmup_diagnostics):
                        close=100. + index * .05, closeadj=100. + index * .05,
                        closeunadj=100. + index * .05)
                   for index, day in enumerate(sessions) for ticker in ("SPY", "BIL")]
-    # SFP and nullable TICKERS metadata still use real paginated transport;
+    # SFP and nullable TICKERS metadata retain independent captured pages;
     # operational SEP uses the production bounded snapshot acquisition.
     provider = Provider(page_size=200000, variation_seed=19)
     provider.advance(Step(name="full_initial_seed", at=dt.datetime(2026, 9, 14, 6, tzinfo=dt.timezone.utc),
@@ -148,10 +148,10 @@ def seeded_market(seed_backup_policy, warmup_diagnostics):
 
 def assert_single_sep_acquisition(provider, *, start, end, since=0):
     downloads = [row for row in provider.transcript[since:]
-                 if row["channel"] == "download" and row["download_table"] == "SEP"]
-    expected = [{"date.gte": lo, "date.lte": hi, "qopts.export": "true"}
+                 if row["channel"] == "download" and row["table"] == "SEP"]
+    expected = [{"date.gte": lo, "date.lte": hi}
                 for lo, hi in operational_source._months(start, end)]
-    assert [row["download_query"] for row in downloads] == expected
+    assert [row["query"] for row in downloads] == expected
     assert not any(row.get("table") == "SEP" and row["channel"] == "pages"
                    for row in provider.transcript[since:])
 
@@ -181,19 +181,19 @@ def test_source_seed_progress_counts_acquired_sep_receipts(fault):
 
 @pytest.mark.parametrize("fault", [None, "duplicate", "missing", "unbounded", "pages", "wrong_export"])
 def test_single_sep_acquisition_contract(fault):
-    downloads = [{"channel": "download", "download_table": "SEP", "download_query": query}
-                 for query in ({"date.gte": "2026-08-01", "date.lte": "2026-08-31", "qopts.export": "true"},
-                               {"date.gte": "2026-09-01", "date.lte": DAY, "qopts.export": "true"})]
+    downloads = [{"channel": "download", "table": "SEP", "query": query}
+                 for query in ({"date.gte": "2026-08-01", "date.lte": "2026-08-31"},
+                               {"date.gte": "2026-09-01", "date.lte": DAY})]
     if fault == "duplicate":
         downloads.append(downloads[-1])
     elif fault == "missing":
         downloads.pop()
     elif fault == "unbounded":
-        downloads[0]["download_query"]["date.gte"] = "2000-01-01"
+        downloads[0]["query"]["date.gte"] = "2000-01-01"
     elif fault == "pages":
         downloads.append({"channel": "pages", "table": "SEP"})
     elif fault == "wrong_export":
-        downloads[0]["download_query"].pop("qopts.export")
+        downloads[0]["table"] = "TICKERS"
     provider = SimpleNamespace(transcript=downloads)
     if fault is None:
         assert_single_sep_acquisition(provider, start="2026-08-01", end=DAY)

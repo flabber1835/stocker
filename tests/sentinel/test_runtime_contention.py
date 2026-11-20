@@ -112,15 +112,15 @@ def test_missing_writer_ownership_is_not_transient(conn):
 def test_real_database_timeout_resumes_same_acquisition_job(conn, operational_source, monkeypatch):
     import psycopg
     from sentinel.feed import operational_snapshot as op, rolling_jobs as jobs
-    from sentinel.feed.rolling_source import SharadarSource
+    from sentinel.feed.rolling_source import ArchiveSource
     from tests.sentinel.test_operational_snapshot import enqueue
     job = enqueue(conn)
     deadline = jobs.status(conn, job)['deadline']
-    original = SharadarSource.preflight
+    original = ArchiveSource.preflight
     def timed_out(self):
         conn.execute("SET LOCAL statement_timeout='20ms'")
         conn.execute('SELECT pg_sleep(1)')
-    monkeypatch.setattr(SharadarSource, 'preflight', timed_out)
+    monkeypatch.setattr(ArchiveSource, 'preflight', timed_out)
     with pytest.raises(psycopg.errors.QueryCanceled):
         op.prepare(conn, job)
     state = jobs.status(conn, job)
@@ -130,7 +130,7 @@ def test_real_database_timeout_resumes_same_acquisition_job(conn, operational_so
     assert conn.execute('SELECT count(*) FROM sentinel_corpus_publications').fetchone()[0] == 0
     conn.execute('UPDATE sentinel_snapshot_jobs SET next_retry=clock_timestamp() WHERE job_id=%s', (job,))
     conn.commit()
-    monkeypatch.setattr(SharadarSource, 'preflight', original)
+    monkeypatch.setattr(ArchiveSource, 'preflight', original)
     result = op.prepare(conn, job)
     assert result['job_id'] == job
     assert jobs.status(conn, job)['deadline'] == deadline
@@ -140,9 +140,9 @@ def test_real_database_timeout_resumes_same_acquisition_job(conn, operational_so
 
 def test_missing_lock_during_acquisition_is_terminal(conn, operational_source, monkeypatch):
     from sentinel.feed import operational_snapshot as op, rolling_jobs as jobs
-    from sentinel.feed.rolling_source import SharadarSource
+    from sentinel.feed.rolling_source import ArchiveSource
     from tests.sentinel.test_operational_snapshot import enqueue
-    monkeypatch.setattr(SharadarSource, 'preflight', lambda _: store._assert_corpus_locked(conn))
+    monkeypatch.setattr(ArchiveSource, 'preflight', lambda _: store._assert_corpus_locked(conn))
     job = enqueue(conn)
     with pytest.raises(publication.CorpusBusy):
         op.prepare(conn, job)
@@ -216,11 +216,12 @@ async def test_real_corpus_contention_preserves_idle_control_and_waiting_cycle(
     import threading
     from sentinel import authority, schema
     from sentinel.automation import store as automation_store
+    from sentinel.panel import model as panel_model
     from tests.sentinel.test_automation_service import config, enable, service_for
     from tests.sentinel.test_automation_runtime import production
     # The test advances its observation clock across a retry without running
     # the service heartbeat; keep the real lease alive during that jump.
-    cfg = config().model_copy(update={'lease_seconds': 120})
+    cfg = config().model_copy(update={'lease_seconds': 600, 'control_poll_seconds': 3})
     schema.ensure_schema(conn)
     enable(conn, cfg)
     now = datetime(2026, 8, 13, 13, 29, tzinfo=timezone.utc)
@@ -248,11 +249,6 @@ async def test_real_corpus_contention_preserves_idle_control_and_waiting_cycle(
     monkeypatch.setattr(runtime, '_idle_publication_head',
                         lambda _connection: publication_head)
     def identity_fixture(connection, *, expected_sha256):
-        # The parent case exercises its actual temporary-dependency adapter.
-        # The child case proves the same real advisory lock is a typed
-        # TRANSIENT flight result, never a negative authority verdict.
-        if parent_lock:
-            current(connection)
         return SimpleNamespace(certificate_sha256=expected_sha256)
     monkeypatch.setattr(runtime, '_idle_certificate_identity', identity_fixture)
     gates = []
@@ -262,7 +258,7 @@ async def test_real_corpus_contention_preserves_idle_control_and_waiting_cycle(
     clock = [datetime.now(timezone.utc)]
     monkeypatch.setattr(automation_runtime, '_now_utc', lambda: clock[0])
 
-    def synthetic_observer(control, permit, observed_at):
+    def probe_authority(control):
         # The child has an external signed-authority seam, but still probes
         # the actual corpus advisory lock on a separate PostgreSQL session.
         with store.connect(conn.info.dsn) as probe:
@@ -282,11 +278,17 @@ async def test_real_corpus_contention_preserves_idle_control_and_waiting_cycle(
                     'certificate_sha256':certificate.certificate_sha256}
             finally:
                 probe.rollback()
-        finished = threading.Event(); finished.set()
-        flight = SimpleNamespace(finished=finished, cancelled=threading.Event(),
-            error=None, value=result, elapsed_seconds=0.0,
+        return result
+
+    defer_probe = False
+    def synthetic_observer(control, permit, observed_at):
+        flight = SimpleNamespace(finished=threading.Event(), cancelled=threading.Event(),
+            error=None, value=None, elapsed_seconds=0.0,
             timeout_seconds=25, stage='COMPLETE', backend_pid=None,
             stop=lambda: True)
+        if not defer_probe:
+            flight.value = probe_authority(control)
+            flight.finished.set()
         runtime._idle_authority_flight = (
             flight, runtime._idle_attestation_key(control, permit), observed_at)
         return flight
@@ -294,21 +296,52 @@ async def test_real_corpus_contention_preserves_idle_control_and_waiting_cycle(
     monkeypatch.setattr(runtime, '_start_idle_authority_observer', synthetic_observer)
     monkeypatch.setattr(runtime, '_broker', lambda *a: pytest.fail('idle broker reached'))
     monkeypatch.setattr(runtime, 'notify', lambda *a: pytest.fail('lock contention latched an incident'))
+    # Persist the initial verdict. Leave a real writer in the way for
+    # longer than the display proof lifetime, then give it a release window.
+    assert await runtime.control_wake(conn) is None
+    checked = automation_store.load_control(conn)
+    assert checked.authority_verdict == 'PASS' and len(gates) == 1
+    conn.rollback()
+    began = clock[0]
+    clock[0] = began + timedelta(seconds=30)
+    if parent_lock:
+        with _contended(conn, 'snapshot_reader'):
+            due = await runtime.control_wake(conn)
+    else:
+        # Acquire the writer after the parent dispatches and releases its
+        # transaction. The observer uses a different database session.
+        defer_probe = True
+        await runtime.control_wake(conn)
+        flight, _, _ = runtime._idle_authority_flight
+        with _contended(conn, 'snapshot_reader'):
+            flight.value = probe_authority(checked)
+            assert flight.value == {'status': 'TRANSIENT'}
+            flight.finished.set()
+        defer_probe = False
+        due = await runtime.control_wake(conn)
+    assert due > clock[0]
+    clock[0] += timedelta(seconds=3)
+    assert await runtime.control_wake(conn) == due
     with _contended(conn, 'snapshot_reader'):
-        for _ in range(3):
+        for seconds in (39, 303):
+            clock[0] = began + timedelta(seconds=seconds)
             wake = await runtime.control_wake(conn)
-            assert wake is not None
-            assert automation_store.load_control(conn) == before_control
+            assert wake > clock[0]
+            assert automation_store.load_control(conn) == checked
             assert automation_store.oldest_nonterminal_cycle(conn) == before_cycle
             assert conn.execute('SELECT COUNT(*) FROM sentinel_commands').fetchone()[0] == 0
             conn.rollback()
-            assert not gates
-    assert runtime._idle_authority_retry_at > clock[0]
-    clock[0] = runtime._idle_authority_retry_at + timedelta(milliseconds=1)
+            assert len(gates) == 1
+    row = panel_model.execution_authority_row(installed=True, runtime_verdict=checked.authority_verdict,
+        checked_at=checked.authority_checked_at, certificate_sha256=checked.certificate_sha256,
+        lifecycle_status='ACTIVE', lifecycle_current=True, verdict_binding_matches=True)
+    assert row.effective_status(clock[0]) == panel_model.FAIL
+    clock[0] += timedelta(seconds=3)
     assert await runtime.control_wake(conn) is None
     after = automation_store.load_control(conn)
     assert not after.kill_switch_engaged and after.generation == before_control.generation
-    assert after.authority_verdict == 'PASS' and gates
+    assert after.authority_verdict == 'PASS' and len(gates) == 2
+    assert after.authority_checked_at > checked.authority_checked_at
     assert automation_store.oldest_nonterminal_cycle(conn) == before_cycle
     assert conn.execute('SELECT COUNT(*) FROM sentinel_commands').fetchone()[0] == 0
 
@@ -393,6 +426,29 @@ def test_authority_adapter_classifies_only_explicit_temporary_dependencies(kind)
                 else ValueError if kind == 'unknown' else NonRetryableCallbackRefused)
     with pytest.raises(expected):
         production(config())._raise_authority_refusal(errors[kind])
+
+
+@pytest.mark.parametrize('seconds,expected', [(299, True), (300, True), (301, False)])
+def test_endurance_trace_observes_original_expiry_even_after_a_fresh_commit(seconds, expected):
+    from datetime import datetime, timedelta, timezone
+    from io import StringIO
+    from tools.idle_open_endurance import Trace
+    from sentinel.panel import model
+    start = datetime.now(timezone.utc)
+    trace = Trace(StringIO())
+    def row(instant):
+        return model.execution_authority_row(installed=True, runtime_verdict='PASS',
+            checked_at=instant, certificate_sha256='a'*64, lifecycle_status='ACTIVE',
+            lifecycle_current=True, verdict_binding_matches=True)
+    trace.observe(row(start), start, 1, start)
+    later = start + timedelta(seconds=seconds)
+    if expected:
+        trace.observe(row(later), later, 1, later)
+    else:
+        assert row(later).effective_status(later) == model.OK
+        with pytest.raises(AssertionError, match='previous root expired'):
+            trace.observe(row(later), later, 1, later)
+    assert trace.max_age == seconds
 
 
 @pytest.mark.asyncio

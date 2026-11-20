@@ -193,7 +193,7 @@ def test_operational_shadow_worker_publishes_next_day_recovers_and_never_replays
     actual_advance = shadow_recovery.advance_once
     monkeypatch.setattr(shadow_worker, "advance_once",
                         lambda value: actual_advance(value, now=init._now(conn)))
-    monkeypatch.setattr(ingest, "daily", lambda *_a, **_k: pytest.fail("legacy Sharadar daily reached"))
+    monkeypatch.setattr(ingest, "daily", lambda *_a, **_k: pytest.fail("historical daily reached"))
     assert shadow_worker.main() == 0
     first = rolling_runtime.status(conn, observation_id=OBS, starting_cash=50000)
     assert first.shadow_verdict == "SHADOW_GO" and first.verification == "VERIFIED"

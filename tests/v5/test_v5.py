@@ -1,3 +1,5 @@
+
+from sentinel import archive_identifiers as archive_ids
 from copy import deepcopy
 import ast
 from dataclasses import dataclass, field
@@ -165,7 +167,7 @@ def test_selected_default_profile_and_identity():
     cfg, identity = production_strategy()
     from sentinel.controller.owned_impairment import STRATEGY_ID
     assert cfg.strategy_id == STRATEGY_ID
-    assert identity["universe"] == "BROAD_SHARADAR_COMMON_EQUITY"
+    assert identity["universe"] == archive_ids.UNIVERSE
     assert controller_for_identity(identity) == cfg
     env = SessionState.fresh(starting_cash=100000., controller=Controller(cfg), strategy_identity=identity)
     assert len(env.wealth_core["slots"]) == 20

@@ -348,10 +348,36 @@ def _backed_owner_scope(runtime, context, *, actual=None, verified_base=None):
     return scope
 
 
+_ORIGIN_WEALTH = '8395c6af9c82c0c54e339d199edc3becdb80b4179d639319ef0b1570a7753b71'
+_PERFORMANCE_WEALTH = 'a744170c805095ab1f1f19a1b7fb89984edc33648f123cfa390d23f5163ea96a'
+_RENAMED_WEALTH = 'af64a148dec7adc1c17b779b5b80cca4f34e54271959cfd459fe7d5ac8e0daf8'
+
+
+def _reviewed_wealth_rename(runtime, context):
+    if (runtime.get('wealth_core_source_sha256') != _PERFORMANCE_WEALTH
+            or context['runtime'].get('wealth_core_source_sha256') != _RENAMED_WEALTH):
+        return False
+    from sentinel.url_selected_source_basis import RETAINED_PREDECESSORS
+    retained = RETAINED_PREDECESSORS.get(runtime.get('git_commit'))
+    return retained is not None and retained[1] == runtime.get('sentinel_source_sha256')
+
+
+def _require_wealth_rename_mode():
+    from sentinel import local_paper
+    try:
+        if not local_paper.enabled() or local_paper.backup_policy() != local_paper.BACKUP_POLICY:
+            raise ValueError('backed owner PAPER mode is required')
+    except (RuntimeError, ValueError) as exc:
+        raise Refused('OWNER_PAPER_SOURCE_MODE_REQUIRED') from exc
+
+
 def _require_backed_owner_scope(conn, runtime, context):
     """Fresh deployment/account facts; never strategy or controller inputs."""
     scope = _backed_owner_scope(runtime, context)
-    if scope is not None:
+    renamed = _reviewed_wealth_rename(runtime, context)
+    if renamed:
+        _require_wealth_rename_mode()
+    if scope is not None or renamed:
         from sentinel import local_paper
         try:
             bound = local_paper.bound_account(conn)
@@ -382,18 +408,24 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
     comparison = transition_registry.compare_sources(manifest.files, actual)
     backed = None
     if env['wealth_core_source']['hash'] != old['wealth_core_source_sha256']:
-        # Attestations remain actual. Only this closed historical comparison
-        # may restore the reviewed allocation refactor's prior package hash.
+        # Keep actual package attestations; restore one private comparison hash.
         backed = _backed_owner_scope(old, context, actual=actual, verified_base=comparison.backed_base)
-        if backed is None or not backed.matches_manifest(manifest.revision, manifest.files):
+        renamed = _reviewed_wealth_rename(old, context)
+        if renamed and comparison.exact_predecessor:
+            _require_wealth_rename_mode()
+        elif backed is None or not backed.matches_manifest(manifest.revision, manifest.files):
             raise Refused('RETAINED_SOURCE_CLOSURE_CHANGED')
-        from sentinel import performance_source_basis
+        from sentinel import economic_manifest
         try:
             wealth_root = identity._imported_package_root('stock_strategy_shared.wealth_core')
             actual_wealth = identity.source_hash(wealth_root)
-            historical_wealth = performance_source_basis.wealth_core_source_hash(wealth_root)
+            historical_wealth = economic_manifest.wealth_core_source_hash(wealth_root)
         except (OSError, ValueError, TypeError) as exc:
             raise Refused('RETAINED_SOURCE_CLOSURE_CHANGED') from exc
+        if renamed:
+            if actual_wealth['hash'] != _RENAMED_WEALTH or historical_wealth['hash'] != _ORIGIN_WEALTH:
+                raise Refused('RETAINED_SOURCE_CLOSURE_CHANGED')
+            historical_wealth = {**historical_wealth, 'hash': _PERFORMANCE_WEALTH}
         if (not actual_wealth['hash'] or actual_wealth['files'] <= 0
                 or actual_wealth['files'] != env['wealth_core_source'].get('files')
                 or actual_wealth['files'] != historical_wealth['files']
@@ -424,8 +456,7 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
         prior_bytes = manifest.seam_sources.get(name, '').encode()
         current_bytes = (current/name).read_bytes()
         if name == 'core/decision.py' and backed is not None:
-            from sentinel.fractional_execution_source_basis import decision_comparison_scope
-            comparison_scope, comparison_bytes = decision_comparison_scope(backed, current_bytes)
+            comparison_scope, comparison_bytes = _decision_comparison_scope(backed, current_bytes)
             if comparison_scope.decision_compatible(prior_bytes, comparison_bytes):
                 continue
         contribution = basis.canonical_contribution(module, current_bytes)
@@ -438,6 +469,20 @@ def prove_compatibility(manifest, checkpoint, context, *, source=None):
     if restored != old['environment_identity_sha256']:
         raise Refused('RETAINED_COMPUTATIONAL_ENVIRONMENT_CHANGED')
     return digest(manifest.model_dump(by_alias=True))
+
+
+def _decision_comparison_scope(scope, raw):
+    """Compose reviewed changes only after authenticating the observed candidate."""
+    from sentinel.economic_manifest import previous_source
+    from sentinel.fractional_execution_source_basis import decision_comparison_scope
+    name = 'core/decision.py'
+    if hashlib.sha256(raw).hexdigest() != scope.current_files.get(name):
+        return scope, raw
+    predecessor = previous_source('sentinel.core.decision', raw)
+    if predecessor != raw:
+        scope = replace(scope, current_files=MappingProxyType({
+            **scope.current_files, name: hashlib.sha256(predecessor).hexdigest()}))
+    return decision_comparison_scope(scope, predecessor)
 
 
 def _fence(conn):

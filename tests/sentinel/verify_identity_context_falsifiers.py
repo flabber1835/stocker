@@ -46,11 +46,11 @@ exec(source.replace(line, 'if False:'), publication.__dict__)
     ("daily_native_presence_guard_disabled", """
 import inspect, textwrap
 from sentinel.feed import coherence
-source = textwrap.dedent(inspect.getsource(coherence.StableSharadarFetch._validated_daily_listing_replay))
+source = textwrap.dedent(inspect.getsource(coherence.StableTableFetch._validated_daily_listing_replay))
 line = 'or item.permaticker in native_required'
 assert source.count(line) == 1
 exec(source.replace(line, ''), coherence.__dict__)
-coherence.StableSharadarFetch._validated_daily_listing_replay = coherence._validated_daily_listing_replay
+coherence.StableTableFetch._validated_daily_listing_replay = coherence._validated_daily_listing_replay
 """, "test_alias_rejection_authority.py::test_daily_tolerance_cannot_replace_a_native_unit_with_its_unanchored_share[True]"),
     ("warmup_invents_cash", """
 from sentinel.core import production
@@ -81,8 +81,8 @@ from sentinel.feed import source_aliases
 source_aliases._valid_prices = lambda bars: True
 """, "test_alias_rejection_authority.py::test_native_economics_cannot_hide_behind_population_tolerance[None-closeunadj]"),
     ("final_capture_validation_disabled", """
-from sentinel.feed.source_authority import StableSharadarFetch
-StableSharadarFetch.finalize_seed_capture = lambda *a, **k: None
+from sentinel.feed.source_authority import StableTableFetch
+StableTableFetch.finalize_seed_capture = lambda *a, **k: None
 """, "test_alias_capture_warmup.py::test_middle_collision_freezes_and_revalidates_every_capture_chunk[True]"),
     ("changed_source_rebuild_disabled", """
 from sentinel.feed import source_aliases
@@ -112,8 +112,8 @@ from sentinel.feed.source_authority import coverage
 coverage.require_no_collisions = lambda *a, **k: None
 """, "test_concurrent_source_symbols.py::test_all_observed_collisions_and_prices_survive_go_and_are_order_independent"),
     ("early_identity_check_disabled", """
-from sentinel.feed.source_authority import StableSharadarFetch
-StableSharadarFetch.preflight_seed_identity = lambda *a, **k: None
+from sentinel.feed.source_authority import StableTableFetch
+StableTableFetch.preflight_seed_identity = lambda *a, **k: None
 """, "test_concurrent_source_symbols.py::test_early_discovery_preserves_native_authority_without_publication_permission"),
     ("collision_probe_drops_symbols", """
 import inspect
@@ -170,7 +170,7 @@ exec(source[:start] + source[end:], source_probe.__dict__)
 """, "test_exported_symbol_identity.py::test_cheap_retry_cannot_hide_conflicting_context_from_full_projection"),
     ("preflight_disabled", """
 from sentinel.feed import source_authority
-source_authority.StableSharadarFetch.preflight_seed_membership = lambda *a, **k: None
+source_authority.StableTableFetch.preflight_seed_membership = lambda *a, **k: None
 """, "test_exported_symbol_identity.py::test_production_capture_rebuild_and_publication_with_complete_history[missing-last-price]"),
     ("diagnostic_dropped", """
 from sentinel import source_diagnostic
@@ -179,11 +179,11 @@ source_diagnostic.coverage_diagnostic = lambda raw: None
     ("context_exception_sampled", """
 import inspect, textwrap
 from sentinel.feed.source_authority import fetch
-source = textwrap.dedent(inspect.getsource(fetch.StableSharadarFetch.preflight_seed_membership))
+source = textwrap.dedent(inspect.getsource(fetch.StableTableFetch.preflight_seed_membership))
 line = 'sessions = [session for session in sessions if session not in contextual]'
 assert source.count(line) == 1
 exec(source.replace(line, 'pass'), fetch.__dict__)
-fetch.StableSharadarFetch.preflight_seed_membership = fetch.preflight_seed_membership
+fetch.StableTableFetch.preflight_seed_membership = fetch.preflight_seed_membership
 """, "test_seed_membership_sample.py::test_context_dependent_onset_exception_stays_with_full_capture"),
 ]
 selected = [case for case in cases if not sys.argv[1:] or case[0] in sys.argv[1:]]

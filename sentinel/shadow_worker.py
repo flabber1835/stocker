@@ -5,7 +5,7 @@ import json
 import sys
 
 from sentinel import backup_guard, shadow_runtime
-from sentinel.feed import sharadar
+from sentinel.feed.authority import VendorPublicationUnstable
 from sentinel.feed.alpaca_transport import AlpacaTransportUnavailable
 from sentinel.dependency_availability import database_unavailable, local_contention
 from sentinel.shadow_recovery import (
@@ -20,30 +20,6 @@ from sentinel.shadow_exit_codes import (
     EXIT_REFUSED, EXIT_WAITING, EXIT_RETRY, EXIT_AVAILABILITY,
     EXIT_DEPENDENCY_UNAVAILABLE, EXIT_BACKUP_PROOF_BUSY,
 )
-
-
-def _sharadar_availability(exc: BaseException) -> bool:
-    """Return true only for provider states that may heal without code/config.
-
-    ``SharadarRequestError`` is intentionally broad at the provider boundary:
-    it also represents HTTP auth/configuration failures, while
-    ``SharadarProtocolError`` represents malformed successful responses. Those
-    must not be treated as an indefinitely harmless outage. The two genuinely
-    availability-shaped cases are an explicit Retry-After deferral or exhausted
-    retries after transport/retryable-HTTP failures; the latter has the stable
-    provider-boundary rendering ``failed after N attempt(s)``.
-    """
-    if isinstance(exc, sharadar.SharadarProtocolError):
-        return False
-    if isinstance(exc, sharadar.SharadarRetryDeferred):
-        return True
-    from sentinel.feed.authority import VendorPublicationUnstable
-    if isinstance(exc, VendorPublicationUnstable):
-        return True
-    if type(exc) is sharadar.SharadarRequestError:
-        return any(label in str(exc) for label in (
-            "Sharadar request failed after ", "Sharadar snapshot download failed after "))
-    return False
 
 
 def _backup_availability(exc: BaseException) -> bool:
@@ -73,7 +49,7 @@ def _availability_failure(exc: BaseException) -> bool:
             return True
         if _backup_availability(current):
             return True
-        if isinstance(current, AlpacaTransportUnavailable) or _sharadar_availability(current):
+        if isinstance(current, (AlpacaTransportUnavailable, VendorPublicationUnstable)):
             return True
         current = _availability_cause(current)
     return False

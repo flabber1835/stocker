@@ -113,27 +113,11 @@ class DiagnosticRunner(go.CommandRunner):
 
 
 def _install_single_preparation_contract() -> None:
-    """Verify source-owned terminal current/bounded recovery preparation."""
+    """Select the one reviewed host-owned preparation program."""
+    from sentinel_go_preparation_runtime import CODE
     entry.install()
-    code = go._PREPARATION_CODE
-    if "retained_go.prepare" in code:
-        if (code.count("retained_go.prepare(c, target_session=target,") != 1
-                or "rolling_go_inputs.prepare" in code
-                or "outage_recovery" in code or "ingest.daily" in code):
-            raise PhaseRefused("GO retained preparation has more than one data path")
-        return
-    if "rolling_go_inputs.prepare" in code:
-        if (code.count("rolling_go_inputs.prepare(c, target_session=target,") != 1
-                or "outage_recovery" in code or "ingest.daily" in code):
-            raise PhaseRefused("GO rolling preparation has more than one data path")
-        return
-    try:
-        start = code.index("if recovered.mode == 'ALREADY_CURRENT':")
-        end = code.index("elif recovered.mode in {'BOUNDED_RESEED', 'BOUNDED_INITIAL_SEED'}:", start)
-    except ValueError as exc:
-        raise PhaseRefused("GO preparation implementation no longer matches the reviewed single-preparation contract") from exc
-    if "ingest.daily" in code[start:end] or "pass" not in code[start:end]:
-        raise PhaseRefused("GO preparation implementation no longer matches the reviewed single-preparation contract")
+    if go._PREPARATION_CODE != CODE:
+        raise PhaseRefused("GO preparation differs from the reviewed program")
 
 
 @dataclass(frozen=True)
@@ -198,7 +182,7 @@ def _classify_preparation_failure(text: str) -> tuple[Optional[str], Optional[st
     lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
     detail = None
     for line in reversed(lines):
-        marker = "SharadarMutationRefused:"
+        marker = "SourceAuthorityRefused:"
         if marker in line:
             detail = line.split(marker, 1)[1].strip()
             break
@@ -436,7 +420,7 @@ def run_phased_probes(*, runner=None, env=None, now=None, urlopen=None,
         source_identity_sha256=tests.source_identity_sha256,
         now_text=now_text, subject_values=subjects,
         timing_values=timing_values)
-    readiness = go.probe_sharadar_readiness(
+    readiness = go.probe_market_data_readiness(
         runner, env=resolved_env, runtime_ref=tests.runtime_image_digest, commit=git.commit,
         now_text=now_text)
     database_base, database_gate = go.probe_database_financial_health(
@@ -464,7 +448,7 @@ def run_phased_probes(*, runner=None, env=None, now=None, urlopen=None,
         "certified_suite_no_skips": suite_gate,
         "database_financial_health": database_gate,
         "wealth_core_nas_parity": parity,
-        "sharadar_readiness": readiness,
+        "market_data_readiness": readiness,
         "alpaca_paper_account": alpaca,
         **go._unproven_paper_gates(now_text),
     }

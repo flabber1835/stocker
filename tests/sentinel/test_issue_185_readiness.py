@@ -1,6 +1,8 @@
 """#185: a current market frontier is not sufficient source authority."""
 from __future__ import annotations
 
+from sentinel import archive_identifiers as archive_ids
+
 import datetime as dt
 from types import SimpleNamespace
 from unittest import mock
@@ -39,7 +41,7 @@ def test_source_maintenance_checks_pass_when_frontier_is_covered():
     recent_cursor, current = _recent_patches("2026-08-18")
     with (mock.patch.object(
             readiness._maintenance, "load_sep_cursor",
-            return_value=_cursor("sharadar-sep-lastupdated/v1", "2026-08-18")),
+            return_value=_cursor(archive_ids.FEED['SEP_WATERMARK_KIND'], "2026-08-18")),
           mock.patch.object(
             readiness._maintenance, "load_actions_cursor",
             return_value=_cursor(maintenance.ACTIONS_CURSOR_KIND, "2026-08-18")),
@@ -61,7 +63,7 @@ def test_next_open_does_not_require_that_days_post_close_maintenance():
     recent_cursor, current = _recent_patches("2026-08-14")
     with (mock.patch.object(
             readiness._maintenance, "load_sep_cursor",
-            return_value=_cursor("sharadar-sep-lastupdated/v1", "2026-08-14")),
+            return_value=_cursor(archive_ids.FEED['SEP_WATERMARK_KIND'], "2026-08-14")),
           mock.patch.object(
             readiness._maintenance, "load_actions_cursor",
             return_value=_cursor(maintenance.ACTIONS_CURSOR_KIND, "2026-08-14")),
@@ -82,7 +84,7 @@ def test_newer_weekend_maintenance_also_covers_older_decision_frontier():
     recent_cursor, current = _recent_patches("2026-08-14")
     with (mock.patch.object(
             readiness._maintenance, "load_sep_cursor",
-            return_value=_cursor("sharadar-sep-lastupdated/v1", "2026-08-16")),
+            return_value=_cursor(archive_ids.FEED['SEP_WATERMARK_KIND'], "2026-08-16")),
           mock.patch.object(
             readiness._maintenance, "load_actions_cursor",
             return_value=_cursor(maintenance.ACTIONS_CURSOR_KIND, "2026-08-16")),
@@ -99,7 +101,7 @@ def test_post_publication_sep_failure_cannot_leave_readiness_green():
     recent_cursor, current = _recent_patches("2026-08-14")
     with (mock.patch.object(
             readiness._maintenance, "load_sep_cursor",
-            return_value=_cursor("sharadar-sep-lastupdated/v1", "2026-08-14")),
+            return_value=_cursor(archive_ids.FEED['SEP_WATERMARK_KIND'], "2026-08-14")),
           mock.patch.object(
             readiness._maintenance, "load_actions_cursor",
             return_value=_cursor(maintenance.ACTIONS_CURSOR_KIND, "2026-08-17")),
@@ -124,7 +126,7 @@ def test_actions_cursor_becomes_blocking_when_due_at_decision_frontier():
     recent_cursor, current = _recent_patches(frontier.isoformat())
     with (mock.patch.object(
             readiness._maintenance, "load_sep_cursor",
-            return_value=_cursor("sharadar-sep-lastupdated/v1", "2026-08-18")),
+            return_value=_cursor(archive_ids.FEED['SEP_WATERMARK_KIND'], "2026-08-18")),
           mock.patch.object(
             readiness._maintenance, "load_actions_cursor",
             return_value=_cursor(maintenance.ACTIONS_CURSOR_KIND, due)),
@@ -147,7 +149,7 @@ def test_actions_authority_does_not_expire_between_decision_and_next_open():
     recent_cursor, current = _recent_patches("2026-08-14")
     with (mock.patch.object(
             readiness._maintenance, "load_sep_cursor",
-            return_value=_cursor("sharadar-sep-lastupdated/v1", "2026-08-14")),
+            return_value=_cursor(archive_ids.FEED['SEP_WATERMARK_KIND'], "2026-08-14")),
           mock.patch.object(
             readiness._maintenance, "load_actions_cursor",
             return_value=_cursor(maintenance.ACTIONS_CURSOR_KIND, "2026-08-14")),
@@ -175,13 +177,13 @@ def test_missing_or_corrupt_maintenance_authority_fails_closed():
     corrupt = readiness._impl.Readiness()
     with (mock.patch.object(
             readiness._maintenance, "load_sep_cursor",
-            side_effect=maintenance.SharadarMutationRefused("bad SEP cursor")),
+            side_effect=maintenance.SourceMutationRefused("bad SEP cursor")),
           mock.patch.object(
             readiness._maintenance, "load_actions_cursor",
-            side_effect=maintenance.SharadarMutationRefused("bad ACTIONS cursor")),
+            side_effect=maintenance.SourceMutationRefused("bad ACTIONS cursor")),
           mock.patch.object(
             readiness._recent, "load_cursor",
-            side_effect=maintenance.SharadarMutationRefused("bad recent cursor")),
+            side_effect=maintenance.SourceMutationRefused("bad recent cursor")),
           mock.patch.object(
             readiness._publication, "require_current",
             return_value=SimpleNamespace(version=7))):
@@ -197,7 +199,7 @@ def test_future_source_cursors_are_not_normalized_into_pass():
     recent_cursor, current = _recent_patches("2026-08-18")
     with (mock.patch.object(
             readiness._maintenance, "load_sep_cursor",
-            return_value=_cursor("sharadar-sep-lastupdated/v1", "2026-08-19")),
+            return_value=_cursor(archive_ids.FEED['SEP_WATERMARK_KIND'], "2026-08-19")),
           mock.patch.object(
             readiness._maintenance, "load_actions_cursor",
             return_value=_cursor(maintenance.ACTIONS_CURSOR_KIND, "2026-08-19")),

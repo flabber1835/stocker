@@ -80,7 +80,7 @@ from sentinel.execution import target_reprojection
 from sentinel.execution.states import CommandState, RuntimeState
 from sentinel.feed import authority as feed_authority
 from sentinel.feed import (
-    calendar, coherence, identity_refresh, ingest, publication, readiness, sharadar)
+    calendar, coherence, identity_refresh, ingest, publication, readiness, archive_tables)
 from sentinel.feed import store as feed_store
 from sentinel.feed.source_authority import SeedIdentityCollision
 from sentinel.feed.source_wait import SourceCoveragePending
@@ -334,28 +334,16 @@ def classify_dependency_failure(
         return BackupTransientFailure(f"backup temporarily unavailable: {exc}")
     if isinstance(exc, REFRESH_TRANSIENT_FAILURES):
         return transient_refresh_failure(exc)
-    if isinstance(exc, sharadar.MissingApiKey):
+    if isinstance(exc, archive_tables.CaptureRequired):
         return PermanentOperationalRefusal(
-            f"Sharadar configuration refused: {exc}")
-    if isinstance(exc, (sharadar.SharadarProtocolError,
-                        sharadar.PaginationError)):
+            f"Archive input configuration refused: {exc}")
+    if isinstance(exc, archive_tables.ProtocolError):
         return DataIntegrityFailure(
-            f"Sharadar data integrity failure: {type(exc).__name__}: {exc}")
-    if isinstance(exc, sharadar.SharadarRetryDeferred):
+            f"Archive input integrity failure: {type(exc).__name__}: {exc}")
+    if isinstance(exc, archive_tables.RetryDeferred):
         return TransientInfrastructureFailure(str(exc), retry_after_seconds=exc.delay)
-    if isinstance(exc, sharadar.SharadarRequestError):
-        detail = str(exc)
-        lowered = detail.lower()
-        if "http 401" in lowered or "http 403" in lowered:
-            return PermanentOperationalRefusal(detail)
-        if ("http 429" in lowered
-                or any(f"http {status}" in lowered
-                       for status in range(500, 600))
-                or "after" in lowered and "attempt" in lowered
-                or "timeout" in lowered
-                or "connection" in lowered):
-            return TransientInfrastructureFailure(detail)
-        return PermanentOperationalRefusal(detail)
+    if isinstance(exc, archive_tables.RequestError):
+        return PermanentOperationalRefusal(str(exc))
 
     sqlstate = str(getattr(exc, "sqlstate", "") or "")
     name = type(exc).__name__
@@ -779,7 +767,7 @@ class ProductionAutomation:
         self._dual_run_enabled = reviewed_mode == "dual" and not self._live_run_enabled
         # The deployed Compose service fixes this mode. Historical fixtures may
         # still exercise legacy readers, but a production worker cannot fall
-        # back to Sharadar when a rolling publication is missing.
+        # back to another provider when a rolling publication is missing.
         self._operational_source_only = (
             os.environ.get("SENTINEL_FEED_SERVICE_MODE") == "AUTOMATION")
         # Fenced installs may advance only the canonical corpus path. The timer
@@ -1011,14 +999,17 @@ class ProductionAutomation:
             permit.holder_id, permit.fence_token, permit.control_generation,
             permit.acquired_at)
 
-    def _idle_attestation_current(self, conn, control, permit, now):
-        if getattr(self, "_live_run_enabled", False):
-            # LIVE always re-earns its independent signed runtime authority.
-            return False
+    def _observe_idle_clock(self, now):
         last_observed = getattr(self, "_idle_attestation_observed_at", None)
         self._idle_attestation_observed_at = now
         if last_observed is not None and now < last_observed:
             self._idle_attestation = None
+            self._idle_authority_retry_at = None
+
+    def _idle_attestation_current(self, conn, control, permit, now):
+        self._observe_idle_clock(now)
+        if getattr(self, "_live_run_enabled", False):
+            # LIVE always re-earns its independent signed runtime authority.
             return False
         previous = self._idle_attestation
         key = self._idle_attestation_key(control, permit)
@@ -1357,17 +1348,27 @@ class ProductionAutomation:
             active[0].cancelled.set()
         self._idle_attestation = None
 
+    def _idle_authority_retry_wake(self, now):
+        retry_at = getattr(self, "_idle_authority_retry_at", None)
+        if retry_at is not None and retry_at > now:
+            return retry_at
+        return now + timedelta(seconds=self.automation_config.control_poll_seconds)
+
     def _idle_authority_retry(self, now, *, flight=None, outcome="TRANSIENT"):
+        self._observe_idle_clock(now)
         self._idle_attestation = None
-        self._idle_authority_failures = min(
-            getattr(self, "_idle_authority_failures", 0) + 1, 4)
-        delay = min(_IDLE_AUTHORITY_RETRY_MAX_SECONDS,
-                    max(self.automation_config.control_poll_seconds, 5)
-                    * 2 ** (self._idle_authority_failures - 1))
-        self._idle_authority_retry_at = now + timedelta(seconds=delay)
+        # One backoff per attempt. A busy foreground poll may observe the
+        # same obstacle many times, including after the retry becomes due.
+        if getattr(self, "_idle_authority_retry_at", None) is None:
+            self._idle_authority_failures = min(
+                getattr(self, "_idle_authority_failures", 0) + 1, 4)
+            delay = min(_IDLE_AUTHORITY_RETRY_MAX_SECONDS,
+                        max(self.automation_config.control_poll_seconds, 5)
+                        * 2 ** (self._idle_authority_failures - 1))
+            self._idle_authority_retry_at = now + timedelta(seconds=delay)
         if flight is not None:
             self._idle_authority_diagnostic(flight, outcome)
-        return self._idle_authority_retry_at
+        return self._idle_authority_retry_wake(now)
 
     def _start_idle_authority_observer(self, control, permit, observed_at):
         args = (self.sentinel_config, self.automation_config,
@@ -1623,7 +1624,7 @@ class ProductionAutomation:
                     diagnostic={"frontier": visible})
             if self._dual_run_enabled or getattr(self, "_live_run_enabled", False):
                 # The dedicated broker-free shadow service is the sole
-                # Sharadar publisher in dual mode. Two writers that both saw a
+                # market-data publisher in dual mode. Two writers that both saw a
                 # stale frontier can serialize yet still publish the same
                 # session twice, invalidating the shadow record's exact
                 # publication version before PAPER sizing. Wait for that one
@@ -2667,9 +2668,7 @@ class ProductionAutomation:
                         self._idle_authority_diagnostic(flight, "DISCARDED")
                         self._idle_authority_flight = None
                     conn.rollback()
-                    return (getattr(self, "_idle_authority_retry_at", None)
-                            or observed_at + timedelta(
-                                seconds=self.automation_config.control_poll_seconds))
+                    return self._idle_authority_retry_wake(observed_at)
                 if not flight.finished.is_set():
                     conn.rollback()
                     return min(
@@ -2777,6 +2776,7 @@ class ProductionAutomation:
                 if retry_at is not None and observed_at < retry_at:
                     conn.rollback()
                     return retry_at
+                self._idle_authority_retry_at = None
                 flight = self._start_idle_authority_observer(
                     control, permit, observed_at)
                 if flight.finished.is_set():

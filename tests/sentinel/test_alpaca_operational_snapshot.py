@@ -154,11 +154,11 @@ def alpaca_path(monkeypatch):
     return fake
 
 
-def test_alpaca_snapshot_publishes_and_reads_without_sharadar(conn, alpaca_path, monkeypatch):
+def test_alpaca_snapshot_publishes_and_reads_only_native_endpoints(conn, alpaca_path, monkeypatch):
     from sentinel.core.rolling_inputs import readiness_inputs
-    from sentinel.feed import progress, sharadar, snapshot_export
-    monkeypatch.setattr(sharadar, "fetch_table", lambda *a, **k: pytest.fail("Sharadar GET"))
-    monkeypatch.setattr(snapshot_export, "probe_snapshot", lambda *a, **k: pytest.fail("Sharadar export"))
+    from sentinel.feed import progress, archive_tables, snapshot_export
+    monkeypatch.setattr(archive_tables, "fetch_table", lambda *a, **k: pytest.fail("Historical table read"))
+    monkeypatch.setattr(snapshot_export, "probe_snapshot", lambda *a, **k: pytest.fail("Historical export read"))
     job = op.enqueue(conn, strategy_sha256=digest("test-strategy"),
                      dependencies_sha256=digest("test-deps"), budget_seconds=240)
     conn.commit()
@@ -192,8 +192,7 @@ def test_alpaca_snapshot_publishes_and_reads_without_sharadar(conn, alpaca_path,
     assert current_metadata_snapshot_identity(conn) == {
         "snapshot_date": "2026-09-15", "row_count": 2,
         "sha256": digest(sorted(refs.tickers, key=canonical_json))}
-    assert all(call[0] not in ("https://data.nasdaq.com/api/v3/datatables/SHARADAR/SEP",)
-               for call in alpaca_path.calls)
+    assert {call[0] for call in alpaca_path.calls} == {ASSETS, ACTION_URL, BAR_URL}
 
 
 def test_published_alpaca_metadata_supports_signed_daily_authority(conn, alpaca_path):

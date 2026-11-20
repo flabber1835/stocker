@@ -215,12 +215,29 @@ def _repository_checkout_jobs():
     ]
 
 
+def _assert_overnight_budget(workflow):
+    job = workflow['jobs']['endurance']
+    checkout, build, observation, evidence = job['steps']
+    assert checkout['uses'].startswith('actions/checkout@') and 'docker build' in build['run']
+    assert '--duration-seconds 14400 ' in observation['run']
+    assert evidence['uses'].startswith('actions/upload-artifact@') and evidence['if'] == 'always()'
+    step_limits = [step['timeout-minutes'] for step in job['steps']]
+    # Keep checkout, image building and failure artifacts outside the continuous
+    # four-hour campaign, with ten minutes for initializing/stopping its workers.
+    assert step_limits == [20, 25, 250, 5]
+    assert job['timeout-minutes'] == sum(step_limits) == 300
+    assert workflow['concurrency'] == {'group': 'idle-open-endurance', 'cancel-in-progress': False}
+
+
 @pytest.mark.parametrize('workflow_name,job_name', _repository_checkout_jobs())
 def test_checkout_jobs_reserve_setup_time_and_retain_bounded_deadlines(workflow_name, job_name):
     path = Path(__file__).resolve().parents[2] / '.github/workflows' / workflow_name
-    job = yaml.safe_load(path.read_text(encoding='utf-8'))['jobs'][job_name]
+    workflow = yaml.safe_load(path.read_text(encoding='utf-8'))
+    job = workflow['jobs'][job_name]
     budget = job.get('timeout-minutes')
-    if type(budget) is int:
+    if (workflow_name, job_name) == ('idle-open-endurance.yml', 'endurance'):
+        _assert_overnight_budget(workflow)
+    elif type(budget) is int:
         # Checkout exhausted both ten- and fifteen-minute CI jobs before tests.
         # Short jobs reserve setup time; existing long campaigns stay bounded.
         assert 30 <= budget <= 60, (workflow_name, job_name, budget)
@@ -232,6 +249,26 @@ def test_checkout_jobs_reserve_setup_time_and_retain_bounded_deadlines(workflow_
             "startsWith(matrix.lane, 'sentinel-current-')) && 60 || 45 }}",
             "${{ github.event_name == 'workflow_dispatch' && 360 || 180 }}",
         }, (workflow_name, job_name, budget)
+
+
+@pytest.mark.parametrize('fault', ['shorter-observation', 'checkout-starved', 'unbounded',
+                                   'evidence-starved', 'interrupted'])
+def test_overnight_budget_rejects_shortened_or_unbounded_campaign(fault):
+    path = Path(__file__).resolve().parents[2] / '.github/workflows/idle-open-endurance.yml'
+    workflow = yaml.safe_load(path.read_text(encoding='utf-8'))
+    job = workflow['jobs']['endurance']
+    if fault == 'shorter-observation':
+        job['steps'][2]['run'] = job['steps'][2]['run'].replace('14400', '3600')
+    elif fault == 'checkout-starved':
+        job['steps'][0]['timeout-minutes'] = 5
+    elif fault == 'unbounded':
+        job['timeout-minutes'] = 360
+    elif fault == 'evidence-starved':
+        job['timeout-minutes'] = 295
+    else:
+        workflow['concurrency']['cancel-in-progress'] = True
+    with pytest.raises(AssertionError):
+        _assert_overnight_budget(workflow)
 
 
 def test_large_lanes_have_bounded_setup_margin_and_stream_all_test_evidence():

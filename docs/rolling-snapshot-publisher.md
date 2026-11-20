@@ -1,7 +1,9 @@
-# Direct Sharadar comparison publisher
+# Historical comparison publisher
 
-This additive stage of #384 connects preparation jobs to the real Sharadar
-transport and canonical normalization. It publishes **comparison snapshots**,
+This design records the comparison stage of #384. Its online transport was
+retired. Historical replay requires captured input, while operational GO uses
+the [rolling Alpaca/OpenFIGI publication](sentinel-deployment.md#market-inputs-and-daily-plan).
+The original stage published **comparison snapshots**,
 not the active corpus. Legacy readers still read mutable corpus tables; putting
 a generation version into their publication ledger would misidentify those
 rows. Therefore a separate, immutable comparison catalog is the only new
@@ -25,8 +27,8 @@ reconstruction. The canonical disk-backed membership validator remains in use;
 its scratch identity keys are not another price capture or book.
 
 Completed component checkpoints bind request/refresh identity and exact content.
-Cache artifacts are reverified on reuse. Missing cache data may be reacquired,
-but changed content or refresh refuses the attempt. Scratch is never a durable
+Replay re-verifies captured bytes on reuse. A missing or corrupt capture
+refuses replay. Original content and refresh commitments remain binding. Scratch is never a durable
 checkpoint. Each worker uses a distinct scratch scope, so a reclaimed worker
 cannot clear its replacement's rows. A restart rebuilds scratch from verified
 components under the original absolute deadline, not a fresh budget.

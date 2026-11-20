@@ -1,4 +1,6 @@
 """Source precision cannot authorize a different contractual consolidation."""
+
+from sentinel import archive_identifiers as archive_ids
 from fractions import Fraction
 import json
 
@@ -59,7 +61,7 @@ def test_normalizer_to_canonical_split_preserves_issuer_neutral_nav_and_restart(
 
 def test_v9_split_history_is_replayed_before_v10_authority_and_survives_restart(conn, pg, monkeypatch):
     from datetime import date
-    from sentinel.feed import ingest, maintenance, publication, sharadar, store
+    from sentinel.feed import ingest, maintenance, publication, archive_tables, store
     from sentinel.core.history import HistoryReconstructionRequired, require_history_compatible
     from stock_strategy_shared import split_reconciliation as splits
     ratio = 1 / 10.89958
@@ -68,14 +70,14 @@ def test_v9_split_history_is_replayed_before_v10_authority_and_survives_restart(
     def fetch(table, params=None, **kwargs):
         params = params or {}
         low, high = str(params.get('date.gte', '0000')), str(params.get('date.lte', '9999'))
-        if table == sharadar.SEP:
+        if table == archive_tables.SEP:
             return [dict(ticker='SMX', date=day, close=10., open=10.,
                          closeunadj=1. if day < days[1] else 10.89958,
                          volume=1e6, lastupdated=day) for day in days if low <= day <= high]
-        if table == sharadar.ACTIONS:
+        if table == archive_tables.ACTIONS:
             return [dict(ticker='SMX', date=days[1], action='split', value=str(ratio))] \
                 if low <= days[1] <= high else []
-        if table == sharadar.TICKERS:
+        if table == archive_tables.TICKERS:
             return [dict(permaticker='P:SMX', ticker='SMX', firstpricedate='2020-01-01',
                          category='Domestic Common Stock')]
         return []
@@ -92,8 +94,8 @@ def test_v9_split_history_is_replayed_before_v10_authority_and_survives_restart(
     prior = publication.require_current(conn)
     assert applied(conn) == 1 / 11
     with store.corpus_write_lock(conn):
-        maintenance._core._write_cursor(conn, name='sharadar-actions-export-reconcile:v9',
-            kind='sharadar-actions-export-reconcile/v9', through=date.fromisoformat(days[-1]),
+        maintenance._core._write_cursor(conn, name=archive_ids.FEED['ACTIONS_RECONCILE_V10'].removesuffix('v10') + 'v9',
+            kind=archive_ids.FEED['ACTIONS_RECONCILE_KIND_V10'].removesuffix('v10') + 'v9', through=date.fromisoformat(days[-1]),
             publication_version=prior.version)
         assert maintenance.load_actions_cursor(conn) is None
         maintenance.reconcile_actions_if_due(conn, fetch=fetch, through=days[-1])

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Split a bulk SHARADAR_SEP.zip into durable per-year replay files.
+"""Split a bulk SEP archive into durable per-year replay files.
 
 Every year is generated and fsynced in staging first. Promotion is protected by
 an fsynced marker and backups, so a killed promotion is deterministically
@@ -21,6 +21,11 @@ import shutil
 import sys
 import zipfile
 from pathlib import Path
+
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from sentinel.archive_identifiers import PROVIDER as ARCHIVE_PROVIDER
 
 FIRST_YEAR = 1998
 DEFAULT_LAST_YEAR = 2026
@@ -237,7 +242,7 @@ def _load_marker(path: Path, *, out: Path,
         else:
             if (final.parent != out
                     or not re.fullmatch(
-                        r"SHARADAR_SEP_[0-9]{4}\.csv\.gz", final.name)):
+                        re.escape(ARCHIVE_PROVIDER) + r"_SEP_[0-9]{4}\.csv\.gz", final.name)):
                 raise SystemExit(
                     f"REFUSED: SEP promotion final escaped output {path}")
             expected_staged = staging / final.name
@@ -356,7 +361,7 @@ def _promote_generation(*, out: Path, staging: Path, fingerprint_staged: Path,
     entries: list[dict] = []
 
     for year in years:
-        name = f"SHARADAR_SEP_{year}.csv.gz"
+        name = f"{ARCHIVE_PROVIDER}_SEP_{year}.csv.gz"
         final = out / name
         staged = staging / name
         entries.append({
@@ -427,7 +432,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--zip", dest="zip_path", type=Path, required=True)
     ap.add_argument("--out", type=Path, required=True,
-                    help="directory to write SHARADAR_SEP_{YYYY}.csv.gz into")
+                    help=f"directory to write {ARCHIVE_PROVIDER}_SEP_{{YYYY}}.csv.gz into")
     ap.add_argument("--fingerprint", type=Path, default=Path("sep-fingerprint.json"))
     ap.add_argument("--last-year", type=int, default=DEFAULT_LAST_YEAR)
     ap.add_argument("--force", action="store_true",
@@ -440,11 +445,11 @@ def main() -> int:
     _recover_promotion(out, fingerprint_final=args.fingerprint)
 
     years = list(range(FIRST_YEAR, args.last_year + 1))
-    existing = [y for y in years if (out / f"SHARADAR_SEP_{y}.csv.gz").exists()]
+    existing = [y for y in years if (out / f"{ARCHIVE_PROVIDER}_SEP_{y}.csv.gz").exists()]
     if existing and not args.force:
         raise SystemExit(
             f"{len(existing)} per-year files already exist in {out} "
-            f"(first: SHARADAR_SEP_{existing[0]}.csv.gz). Pass --force to "
+            f"(first: {ARCHIVE_PROVIDER}_SEP_{existing[0]}.csv.gz). Pass --force to "
             "replace the generation after complete staging and validation.")
 
     token = secrets.token_hex(12)
@@ -475,7 +480,7 @@ def main() -> int:
                     raise SystemExit(f"no date/ticker column in header: {cols}")
 
                 writers = {
-                    y: YearWriter(staging / f"SHARADAR_SEP_{y}.csv.gz", header)
+                    y: YearWriter(staging / f"{ARCHIVE_PROVIDER}_SEP_{y}.csv.gz", header)
                     for y in years
                 }
                 skipped_years = {}
@@ -520,7 +525,7 @@ def main() -> int:
         }
         for year in years:
             report["years"][str(year)] = writers[year].close()
-            staged = staging / f"SHARADAR_SEP_{year}.csv.gz"
+            staged = staging / f"{ARCHIVE_PROVIDER}_SEP_{year}.csv.gz"
             _validate_year(
                 staged, expected_name=staged.name,
                 expected_sha256=report["years"][str(year)]["sha256_of_gzip"])

@@ -9,7 +9,7 @@ import pytest
 
 from sentinel.feed import (
     coherence, identity_refresh, ingest, maintenance, recovery,
-    sep_reconciliation, sharadar, snapshot_source, source_aliases, source_authority,
+    sep_reconciliation, archive_tables, snapshot_source, source_aliases, source_authority,
     symbol_identity, universe)
 
 
@@ -22,9 +22,9 @@ def test_pinned_initial_tickers_fetch_serves_proven_candidate_once():
         return [{"table": "SEP", "ticker": "YHNAU", "permaticker": 642732}]
 
     fetch = identity_refresh.PinnedInitialTickersFetch(live, candidate)
-    assert list(fetch(sharadar.TICKERS)) == candidate
+    assert list(fetch(archive_tables.TICKERS)) == candidate
     assert live_calls == []
-    assert list(fetch(sharadar.TICKERS)) == candidate
+    assert list(fetch(archive_tables.TICKERS)) == candidate
     assert len(live_calls) == 1
 
 
@@ -78,7 +78,7 @@ def test_prevalidation_refuses_source_row_outside_exact_lastupdated_envelope(
         lambda conn: ("2026-08-01", "2026-08-21"))
 
     def malformed_source(table, params=None, **kwargs):
-        assert table == sharadar.SEP
+        assert table == archive_tables.SEP
         return [{
             "ticker": "YHNAU", "date": "2026-08-21",
             "closeunadj": 11.04, "lastupdated": "2026-08-25",
@@ -136,7 +136,7 @@ def test_production_daily_prevalidates_exact_candidate_before_publication(
         identity_refresh, "prevalidate_pending_sep_mutations",
         lambda conn, **kwargs: events.append("cdc-prevalidated") or [])
     monkeypatch.setattr(
-        source_authority, "StableSharadarFetch",
+        source_authority, 'StableTableFetch',
         lambda fetch, after_session=None, sep_update_envelope=None,
         reference_recovery=False, identity_actions=(), identity_through=None,
         identity_fetch=None, alias_rejections=None: fetch)
@@ -145,10 +145,10 @@ def test_production_daily_prevalidates_exact_candidate_before_publication(
         events.append("daily-open")
         # The first TICKERS observation must be the pre-proven candidate and must
         # not hit the live source. The second call delegates live authority.
-        got = list(kwargs["fetch"](sharadar.TICKERS))
+        got = list(kwargs["fetch"](archive_tables.TICKERS))
         assert got == candidate
         events.append("daily-first-tickers")
-        list(kwargs["fetch"](sharadar.TICKERS))
+        list(kwargs["fetch"](archive_tables.TICKERS))
         return SimpleNamespace(run_id="daily-candidate")
 
     monkeypatch.setattr(ingest._impl, "_daily_locked", daily_locked)

@@ -1,7 +1,7 @@
 """Full-history recovery for historical TICKERS identity corrections.
 
 Ordinary seed and daily ingestion must never reinterpret already-published bars
-merely because Sharadar's current TICKERS snapshot changed a listing interval.
+merely because the source's current TICKERS snapshot changed a listing interval.
 The guard in :mod:`sentinel.feed.universe` is therefore intentionally retained.
 This module is the only stronger recovery boundary: an explicitly requested,
 complete source-stable seed replays the retained SEP history against the
@@ -433,7 +433,7 @@ def _validate_bar_replacement(
             f"range {plan.market_start}..{plan.market_end}")
 
     # Full session/population/domain coverage is proven upstream by the seed-mode
-    # StableSharadarFetch for every year. Ownership here is intentionally sparse:
+    # StableTableFetch for every year. Ownership here is intentionally sparse:
     # only changed values and affected permanent IDs transfer to this run.
     affected = _affected_security_ids(changes)
     if not affected:

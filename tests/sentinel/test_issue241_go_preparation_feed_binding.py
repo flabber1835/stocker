@@ -1,6 +1,8 @@
 """Regression for GO preparation crossing every certified mutation boundary."""
 from __future__ import annotations
 
+from sentinel import archive_identifiers as archive_ids
+
 import importlib.util
 import json
 import os
@@ -50,7 +52,7 @@ class Runner:
                 "schema_migrated": True,
                 "source_not_before_satisfied": True,
                 "following_open_future": True,
-                "bounded_sharadar_daily": True,
+                "bounded_market_data_daily": True,
                 "publication_current": True,
             }
             return subprocess.CompletedProcess(
@@ -89,7 +91,7 @@ def test_go_preparation_without_verified_orchestration_is_non_mutating(monkeypat
 
     assert summary.status == entry.go.NOT_PROVEN
     assert summary.schema_migration_attempted is False
-    assert summary.bounded_sharadar_daily_attempted is False
+    assert summary.bounded_market_data_daily_attempted is False
     assert summary.complete is False
     assert runner.calls == []
 
@@ -150,7 +152,7 @@ def test_go_preparation_reuses_host_feed_gate_and_forwards_exact_binding(
     assert compose_env["ALPACA_API_KEY"] == "market-data-key"
     assert compose_env["ALPACA_SECRET_KEY"] == "market-data-secret"
     assert "SENTINEL_PAPER_ACCOUNT_ID" not in compose_env
-    assert "SHARADAR_API_KEY" not in compose_env
+    assert archive_ids.RETIRED_CREDENTIAL not in compose_env
     assert not entry.go._BROKER_AUTH_ENV.intersection(bind_env)
 
 
@@ -172,7 +174,9 @@ def test_source_final_and_feed_binding_chain_authenticates_get_only_client(
             pass
 
         def read(self, limit):
-            return b"[]"
+            body = getattr(self, "body", b"[]")
+            self.body = body[limit:]
+            return body[:limit]
 
     class Opener:
         def open(self, request, *, timeout):

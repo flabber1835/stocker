@@ -1,4 +1,4 @@
-"""Restated historical ACTIONS through real HTTP adapters and seed capture."""
+"""Restated historical ACTIONS through verified archive reads and seed capture."""
 from __future__ import annotations
 
 import datetime as dt
@@ -9,7 +9,7 @@ import pytest
 from tests.support.market_replay.model import Corpus, Step
 from tests.support.market_replay.provider import Provider
 from tests.support.market_replay.runtime import simulated_runtime
-from sentinel.feed import (coherence, ingest, seed_capture, sharadar, snapshot_source,
+from sentinel.feed import (coherence, ingest, seed_capture, archive_tables, snapshot_source,
                            source_authority, source_probe)
 from test_historical_symbol_identity import HISTORICAL_RENAMES, THROUGH
 from test_seed_symbol_transition import OLD_LISTINGS
@@ -57,28 +57,28 @@ def nas_provider(*, days=(HISTORICAL_DAY,), fault=None):
 @pytest.mark.parametrize("fault", [None, "missing-price", "missing-older-pair", "duplicate-alias"])
 def test_exported_full_history_covers_the_exact_nas_failed_session(fault):
     provider = nas_provider(fault=fault)
-    params = sharadar.date_params(HISTORICAL_DAY, HISTORICAL_DAY)
-    actions_params = sharadar.date_params("1900-01-01", THROUGH)
+    params = archive_tables.date_params(HISTORICAL_DAY, HISTORICAL_DAY)
+    actions_params = archive_tables.date_params("1900-01-01", THROUGH)
     with simulated_runtime(provider, commit="a" * 40):
         source = seed_capture.ActionsSnapshotSource(snapshot_source.fetch_table)
         tracked, guarded = ingest._seed_source(
             snapshot_source.fetch_table, final_hi=HISTORICAL_DAY,
             update_ceiling="2026-09-14", acquisition_fetch=source)
         with seed_capture.CapturedRows() as captured:
-            captured.capture(guarded, sharadar.TICKERS)
-            captured.capture(guarded, sharadar.ACTIONS, actions_params)
-            exported = list(captured(sharadar.ACTIONS, actions_params))
+            captured.capture(guarded, archive_tables.TICKERS)
+            captured.capture(guarded, archive_tables.ACTIONS, actions_params)
+            exported = list(captured(archive_tables.ACTIONS, actions_params))
             assert len(exported) == (13 if fault == "missing-older-pair" else 14)
             assert any(row["date"] == "2019-10-29" and row["ticker"] == "HLSQ"
                        and row["contraticker"] == "PHGE" for row in exported)
             assert all(row["value"] is None for row in exported)  # Real CSV decoding.
-            captured.capture(guarded, sharadar.SFP, params)
+            captured.capture(guarded, archive_tables.SFP, params)
             if fault:
                 error = (source_authority.SourceAuthorityRefused if fault == "duplicate-alias"
                          else coherence.SeedHistoryIncomplete)
                 with pytest.raises(error) as caught:
-                    captured.capture(guarded, sharadar.SEP, params)
-                assert all(key[0] != sharadar.SEP for key in captured.files)
+                    captured.capture(guarded, archive_tables.SEP, params)
+                assert all(key[0] != archive_tables.SEP for key in captured.files)
                 assert tracked.seed_coverage_evidence is None
                 if fault != "duplicate-alias":
                     detail = json.loads(str(caught.value).split(": ", 1)[1])
@@ -87,32 +87,38 @@ def test_exported_full_history_covers_the_exact_nas_failed_session(fault):
                     assert detail["received_eligible"] == 5605
                     assert detail["missing_eligible"] == [{"permaticker": "111101", "ticker": "CYCN"}]
             else:
-                captured.capture(guarded, sharadar.SEP, params)
-                rows = list(captured(sharadar.SEP, params))
+                captured.capture(guarded, archive_tables.SEP, params)
+                rows = list(captured(archive_tables.SEP, params))
                 assert len(rows) == 5606
                 assert {r["ticker"] for r in rows if r["ticker"] in {"KRSA", "HLSQ"}} == {"KRSA", "HLSQ"}
                 assert all(r["closeunadj"] == 10 for r in rows)
                 assert tracked.seed_coverage_evidence["received_eligible_total"] == 5606
                 assert tracked.seed_coverage_evidence["missing_eligible_total"] == 0
         assert source.evidence["source_rows"] == len(exported)
-    actions_requests = [r for r in provider.transcript if r.get("table") == sharadar.ACTIONS]
-    assert len(actions_requests) == 2  # Initial whole export and independent refresh.
-    assert all(r["channel"] == "export" for r in actions_requests)
-    assert len([r for r in provider.transcript if r["channel"] == "download"]) == 3
+    actions = [r for r in provider.transcript if r["table"] == archive_tables.ACTIONS]
+    assert [r["channel"] for r in actions] == ["export", "download", "export"]
+    initial, file, corroborated = actions
+    assert initial["observation"] == 1 and corroborated["observation"] == 2
+    assert initial["query"] == file["query"] == corroborated["query"] == actions_params
+    assert initial["digest"] == corroborated["digest"]
+    assert file["sha256"] == source.evidence["file_sha256"]
+    assert [r["table"] for r in provider.transcript if r["channel"] == "download"] == [
+        archive_tables.TICKERS, archive_tables.ACTIONS]
 
 
-def test_cheap_retry_probe_follows_all_historical_labels_over_filtered_http():
+def test_cheap_retry_probe_follows_all_historical_labels_in_filtered_observations():
     provider = nas_provider()
     with simulated_runtime(provider, commit="a" * 40):
         source_probe.require_recovery_probe(
-            {"session": HISTORICAL_DAY, "identities": ["111101", "113467"]}, through=THROUGH)
-    requests = [r["query"] for r in provider.transcript if r.get("table") == sharadar.SEP]
+            {"session": HISTORICAL_DAY, "identities": ["111101", "113467"]},
+            through=THROUGH, fetch=provider.fetch_rows)
+    requests = [r["query"] for r in provider.transcript if r.get("table") == archive_tables.SEP]
     assert len(requests) == 2
     assert requests[0] == requests[1]
     assert requests[0]["date.gte"] == requests[0]["date.lte"] == HISTORICAL_DAY
     assert set(requests[0]["ticker"].split(",")) == {
         "CYCNV", "CYCN", "KRSA", "PHGE", "HLSQ"}
-    metadata = [r["query"] for r in provider.transcript if r.get("table") == sharadar.TICKERS]
+    metadata = [r["query"] for r in provider.transcript if r.get("table") == archive_tables.TICKERS]
     assert any("CHACU" in r.get("ticker", "").split(",") for r in metadata)
     assert any("XNDU" in r.get("ticker", "").split(",") for r in metadata)
 
@@ -123,7 +129,8 @@ def test_cheap_retry_cannot_hide_conflicting_context_from_full_projection():
     with simulated_runtime(provider, commit="a" * 40):
         with pytest.raises(SourceDataPending, match="incomplete or ambiguous"):
             source_probe.require_recovery_probe(
-                {"session": HISTORICAL_DAY, "identities": ["111101", "113467"]}, through=THROUGH)
+                {"session": HISTORICAL_DAY, "identities": ["111101", "113467"]},
+                through=THROUGH, fetch=provider.fetch_rows)
 
 
 @pytest.mark.parametrize("fault", [None, "missing-older-pair", "missing-last-price"])
@@ -177,7 +184,7 @@ def test_production_capture_rebuild_and_publication_with_complete_history(fault,
                     assert conn.execute("SELECT COUNT(*) FROM feed_ingest_runs").fetchone()[0] == 0
                     assert conn.execute("SELECT COUNT(*) FROM sentinel_bars").fetchone()[0] == 2
                     sep_requests = [r["query"] for r in provider.transcript
-                                    if r.get("table") == sharadar.SEP]
+                                    if r.get("table") == archive_tables.SEP]
                     assert sep_requests and all(r["date.gte"] == r["date.lte"]
                                                 for r in sep_requests)
                     expected_days = {days[0], THROUGH}

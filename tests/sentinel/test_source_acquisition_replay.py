@@ -1,4 +1,4 @@
-"""Real production daily, simulated HTTP lifecycle, and real PostgreSQL."""
+"""Historical daily publication with captured market data and private PostgreSQL."""
 from functools import partial
 import subprocess
 
@@ -18,7 +18,7 @@ def test_standalone_replay_refuses_missing_checkout_identity(monkeypatch, tmp_pa
 
 @pytest.mark.parametrize("case,polls", [("bounded_happy_daily", 2),
                                        ("bounded_sep_creating", 0)])
-def test_bounded_daily_waits_and_recovers_through_real_protocol(monkeypatch, tmp_path, case, polls):
+def test_bounded_daily_waits_and_recovers_from_incomplete_capture(monkeypatch, tmp_path, case, polls):
     server = _EphemeralPostgres()
     server.start()
     try:

@@ -10,7 +10,7 @@ import subprocess
 import pytest
 
 from sentinel.panel import model
-from sentinel.panel.render import render
+from sentinel.panel.render import CONTROLLER_VERSION, render
 from tests.support.dashboard_review import reviewed_panel
 
 
@@ -75,7 +75,7 @@ def assert_initial_cadence(html, milliseconds):
 
 
 @pytest.mark.parametrize('scenario', [
-    'cadence', 'late-visual', 'monotonic-visual', 'owned-heartbeat', 'resume',
+    'controller-handoff', 'cadence', 'late-visual', 'monotonic-visual', 'owned-heartbeat', 'resume',
     'short-boundary', 'moving-boundary'])
 def test_current_clock_handoff_uses_actual_controller_and_reconciler(scenario):
     result = run(scenario)
@@ -97,5 +97,5 @@ def test_original_scheduler_and_visual_regressions_are_detected(scenario, mutati
 
 def test_controller_version_distinguishes_offered_html_from_running_code():
     html = render(fixture(NOW, 26))
-    assert 'data-controller-version="3"' in html
-    assert 'window.sentinelDashboardControllerVersion = "3";' in html
+    assert f'data-controller-version="{CONTROLLER_VERSION}"' in html
+    assert f'window.sentinelDashboardControllerVersion = "{CONTROLLER_VERSION}";' in html

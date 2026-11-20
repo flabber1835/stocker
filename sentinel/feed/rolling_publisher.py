@@ -10,7 +10,7 @@ from sentinel import backup_runtime_authority, identity
 from sentinel.dependency_availability import database_unavailable
 from sentinel.feed import (
     authority, publisher_pipeline, rolling_jobs as jobs, runtime_schema,
-    sharadar, snapshot_export, staging, store, writer_schedule,
+    archive_tables, snapshot_export, staging, store, writer_schedule,
 )
 from sentinel.feed.publication import CorpusLockUnavailable
 from sentinel.feed.publisher_pipeline import (
@@ -100,7 +100,8 @@ def _record_failure(conn, lease, exc, *, operational=False):
         return
     try:
         remaining = jobs.status(conn, lease.job_id)["remaining_seconds"]
-        delay = max(1, math.ceil(exc.delay)) if isinstance(exc, sharadar.SharadarRetryDeferred) else 10
+        delay = (max(1, math.ceil(exc.delay)) if isinstance(
+            exc, (AlpacaTransportUnavailable, archive_tables.RetryDeferred)) else 10)
         horizon = isinstance(exc, backup_runtime_authority.BackupHorizonExceeded)
         if isinstance(exc, SourceCoveragePending) and remaining > 1:
             record_source_wait(conn, lease, exc)
@@ -113,7 +114,7 @@ def _record_failure(conn, lease, exc, *, operational=False):
             state = jobs.status(conn, lease.job_id)["state"]
             jobs.wait(conn, lease, state="WAIT_SOURCE" if state == "ACQUIRING" else "RETRY_WAIT",
                       reason="EXPORT_GENERATION_PENDING", retry_seconds=delay)
-        elif (isinstance(exc, (sharadar.SharadarRetryDeferred,
+        elif (isinstance(exc, (archive_tables.RetryDeferred,
                                AlpacaTransportUnavailable, ConnectionError,
                                CorpusLockUnavailable))
               or database_unavailable(exc)) and remaining > delay:

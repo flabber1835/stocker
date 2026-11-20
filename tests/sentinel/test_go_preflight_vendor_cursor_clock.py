@@ -14,25 +14,8 @@ if str(SCRIPTS) not in sys.path:
 import sentinel_go_readonly_data_preflight as preflight  # noqa: E402
 
 
-def test_readonly_preflight_keeps_sep_vendor_clock_separate_from_market_clock():
+def test_diagnostic_compares_the_published_frontier_to_the_source_final_session():
     code = preflight._READ_ONLY_CODE
-    assert "source_day = dt.datetime.now(dt.timezone.utc).date()" in code
-    assert "target=source_day" in code
-    assert "boundary_label='current source observation date'" in code
-    assert "if through >= target:" not in code
-    assert "BOUNDED_SOURCE_EXPORTS_AVAILABLE" in code
-    assert "'source_rows': 0" in code
-    assert "maintenance._stable_rows" not in code
-
-
-def test_readonly_preflight_keeps_market_cursors_on_market_target():
-    code = preflight._READ_ONLY_CODE
-    assert (
-        "actions_cursor, name=maintenance.ACTIONS_CURSOR_NAME, target=target"
-        in code)
-    assert (
-        "recent_cursor, name=recent_reconciliation.CURSOR_NAME, target=target"
-        in code)
-    assert "operational_source.acquisition(start, end)" in code
-    assert "operational_source.price_window(target_raw)" in code
-    assert "sharadar.fetch_table" not in code
+    assert "operational_snapshot.source_final_session()" in code
+    assert "held.window_end > frontier" in code
+    assert "held.window_end < frontier" in code

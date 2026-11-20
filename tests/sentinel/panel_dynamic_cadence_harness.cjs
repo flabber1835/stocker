@@ -55,7 +55,7 @@ const detail=document.querySelector('.wrap').childNodes[2];detail.open=true;
 let scrollCalls=0;
 function schedule(fn,delay){const id=++sequence;timers.set(id,{fn,delay,due:now+delay,age:fn.name==='heartbeatTick'});return id;}
 class Clock extends Date {static now(){return now;}}
-const context={document,Date:Clock,DOMParser:class{parseFromString(html){return makeDocument(JSON.parse(html));}},AbortController,
+const context={document,URL,Date:Clock,DOMParser:class{parseFromString(html){return makeDocument(JSON.parse(html));}},AbortController,
  performance:{now:()=>mono},navigator:{onLine:true},location:{href:'https://fixture.invalid/'},
  window:{scrollY:42,scrollTo(){scrollCalls++;},addEventListener:(name,fn)=>{listeners[name]=fn;}},
  setTimeout:schedule,clearTimeout:id=>timers.delete(id),setInterval:()=>{throw new Error('one owned heartbeat timeout required');},
@@ -77,7 +77,16 @@ async function accept(budget,lag=0){
 function ageTick(){const entry=[...timers.entries()].find(([,t])=>t.age);assert(entry);timers.delete(entry[0]);entry[1].fn();}
 (async()=>{
  vm.runInNewContext(input.script,context);
- if(input.scenario==='initial-cadence'){
+ if(input.scenario==='controller-handoff'){
+  const writes=[];
+  document.open=()=>writes.push('open'); document.write=html=>writes.push(JSON.parse(html).controllerVersion);
+  document.close=()=>writes.push('close');
+  const oldVersion=context.window.sentinelDashboardControllerVersion;
+  input.incoming.controllerVersion='4';
+  await advance(13000); await accept(8);
+  assert.deepEqual(writes,['open','4','close'],'fresh release must launch its actual document once');
+  assert.equal(document.body.dataset.controllerVersion,oldVersion,'old controller cannot claim the new version');
+ }else if(input.scenario==='initial-cadence'){
   assert.deepEqual(activePoll(),[input.expectedPoll],'initial cadence must follow the actual health proof');
   assert.equal(timers.size,2,'one heartbeat owner and one refresh owner');
  }else if(input.scenario==='cadence'){

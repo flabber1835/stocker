@@ -211,7 +211,7 @@ def test_case_8_failed_daily_publication_cannot_reach_cdc(monkeypatch):
         ingest._impl.feed_store, "latest_visible_session",
         lambda conn: "2026-08-21")
     monkeypatch.setattr(
-        coherence, "StableSharadarFetch",
+        coherence, 'StableTableFetch',
         lambda fetch, after_session=None: fetch)
     monkeypatch.setattr(
         recovery, "extended_overlap_days", lambda conn, requested: requested)

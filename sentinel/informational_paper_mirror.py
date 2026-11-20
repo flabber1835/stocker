@@ -2,7 +2,7 @@
 
 This is intentionally not pre-open authority.  A plan is stamped PENDING before
 its first possible broker mutation, then every later source-final publication
-rechecks all prior mirror sessions.  A delayed Sharadar correction therefore
+rechecks all prior mirror sessions.  A delayed data correction therefore
 remains visible as a PAPER reporting mismatch; current reconciliation governs
 transport. It never
 rewrites either the plan or the certified shadow ledger.

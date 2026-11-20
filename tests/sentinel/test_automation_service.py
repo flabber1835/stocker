@@ -29,7 +29,7 @@ from tests.support.postgres import _EphemeralPostgres
 
 
 UTC = timezone.utc
-# The reviewed Sharadar boundary is fixed at 23:45 America/New_York, not the
+# The historical publication boundary is fixed at 23:45 America/New_York, not the
 # former close+delay schedule.  These service tests start just after that exact
 # source-finality wake while still remaining before Thursday's open.
 AFTER_WEDNESDAY_CLOSE = datetime(2026, 8, 13, 3, 46, tzinfo=UTC)

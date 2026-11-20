@@ -1,6 +1,6 @@
 """ACTIONS epoch v10 — preserve source-precision split authority.
 
-The v6 implementation remains the complete Sharadar ACTIONS source authority.
+The v6 implementation remains the complete Source ACTIONS source authority.
 This public epoch composes that source proof with the A1 semantic migration: a
 reviewed disputed cash action is replayed once through the ordinary normalized
 bar path before a current cursor can be earned. The v8 epoch removed
@@ -9,14 +9,15 @@ The v9 epoch preserves combined-event cash entitlement on its old-share basis.
 The v10 epoch replays retained splits after correcting reciprocal reconstruction.
 """
 from __future__ import annotations
+from sentinel import archive_identifiers
 
 import datetime as dt
 
 from sentinel.feed import corporate_action_authority
 from sentinel.feed import maintenance_impl as _core
 
-ACTIONS_CURSOR_NAME = "sharadar-actions-export-reconcile:v10"
-ACTIONS_CURSOR_KIND = "sharadar-actions-export-reconcile/v10"
+ACTIONS_CURSOR_NAME = archive_identifiers.FEED['ACTIONS_RECONCILE_V10']
+ACTIONS_CURSOR_KIND = archive_identifiers.FEED['ACTIONS_RECONCILE_KIND_V10']
 
 
 def load_actions_cursor(conn):
@@ -53,12 +54,12 @@ def _cash_adjudication_audit(conn, *, run_id: str, dates, windows) -> list[dict]
         if len(matching_source) != 1:
             raise corporate_action_authority.CorporateActionAuthorityRefused(
                 f"cash adjudication {adjudication.event_id} lost its exact "
-                f"published Sharadar source row while building audit evidence")
+                f"published source row while building audit evidence")
         source_row_id = str(matching_source[0].get("source_row_id") or "")
         if not source_row_id:
             raise corporate_action_authority.CorporateActionAuthorityRefused(
                 f"cash adjudication {adjudication.event_id} has no durable "
-                "Sharadar source-row identity")
+                "source-row identity")
 
         with conn.cursor() as cur:
             cur.execute(
@@ -164,18 +165,18 @@ def _cash_semantic_migration(conn, *, fetch, through: dt.date):
         })
 
 
-def reconcile_actions_if_due(conn, *, fetch=_core.sharadar.fetch_table,
+def reconcile_actions_if_due(conn, *, fetch=_core.archive_tables.fetch_table,
                              through: str, force: bool = False):
     """Earn complete source authority plus v10 economic semantics."""
     _core.store._assert_corpus_locked(conn)
     hi = dt.date.fromisoformat(str(through))
     prior = load_actions_cursor(conn)
     if prior is not None and prior.processed_through > hi:
-        raise _core.SharadarMutationRefused(
+        raise _core.SourceMutationRefused(
             f"ACTIONS v10 reconciliation cursor {prior.processed_through} is "
             f"ahead of requested reconciliation through {hi}")
 
-    # v6 proves the complete current Sharadar ACTIONS snapshot and handles all
+    # v6 proves the complete current Source ACTIONS snapshot and handles all
     # ordinary changed-row/recovery semantics. v10 may be granted only after it.
     _core.reconcile_actions_if_due(
         conn, fetch=fetch, through=hi.isoformat(), force=force)

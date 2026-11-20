@@ -33,7 +33,7 @@ MUTANTS = {
         "if False:", "test_corroboration_refuses_changed_benchmark"),
     "partition_refresh": (
         "sentinel.feed.rolling_source",
-        "if len({s.refreshed for s in self.snapshots if s.table == sharadar.SEP}) != 1:",
+        "if len({s.refreshed for s in self.snapshots if s.table == archive_tables.SEP}) != 1:",
         "if False:", "test_preflight_refuses_mixed_sep_refreshes"),
     "closed_target": (
         "sentinel.feed.rolling_source", "if str(self.window.end) > calendar.latest_closed_session():",
@@ -47,11 +47,12 @@ MUTANTS = {
         "test_comparison_catalog_is_immutable"),
     "retry_after": (
         "sentinel.feed.rolling_publisher",
-        "delay = max(1, math.ceil(exc.delay)) if isinstance(exc, sharadar.SharadarRetryDeferred) else 10",
-        "delay = 1", "test_retry_after_is_not_shortened"),
+        "exc, (AlpacaTransportUnavailable, archive_tables.RetryDeferred)) else 10)",
+        "exc, ()) else 10)", "test_provider_retry_horizon_is_recorded_in_scheduler"),
 }
 
 if __name__ == "__main__":
     raise SystemExit(main(mutants=MUTANTS,
-                          test_file="tests/sentinel/test_rolling_snapshot_publisher.py",
+                          test_file=lambda name: ("tests/sentinel/test_provider_budget.py" if name == "retry_after"
+                                                  else "tests/sentinel/test_rolling_snapshot_publisher.py"),
                           runner="tools.sentinel_rolling_publisher_falsifiers"))

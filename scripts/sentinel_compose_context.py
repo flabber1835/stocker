@@ -6,6 +6,7 @@ from pathlib import Path
 import shlex
 
 FILES = ('scripts/sentinel_compose_context.py','scripts/sentinel-compose.sh','scripts/sentinel-env.sh','scripts/sentinel_env.py',
+    'scripts/go-archive-format-v1.json',
     'scripts/sentinel_postgres_helpers.py','scripts/sentinel_host_capabilities.py',
     'scripts/sentinel_strip_cpu_limits.py','docker-compose.sentinel.yml',
     'docker-compose.sentinel-backup.yml','docker-compose.sentinel-install-progress.yml','.env',

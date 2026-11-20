@@ -30,7 +30,7 @@ DIGEST = 'sha256:' + 'b' * 64
 TEST_KEY = 'SENTINEL_TEST_IMAGE_DIGEST'
 ROUTES = ('preparation', 'parity', 'readiness', 'database', 'activation')
 FUNCTIONS = {'parity': 'probe_active_wealth_parity',
-             'readiness': 'probe_sharadar_readiness',
+             'readiness': 'probe_market_data_readiness',
              'database': 'probe_database_financial_health'}
 CHILD = '''
 import json
@@ -103,7 +103,7 @@ def command_for(route, values, monkeypatch):
             go.probe_active_wealth_parity(runner, candidate_image_digest=DIGEST,
                 runtime_image_digest=DIGEST, source_identity_sha256='c' * 64, **kwargs)
         elif route == 'readiness':
-            go.probe_sharadar_readiness(runner, runtime_ref=DIGEST, **kwargs)
+            go.probe_market_data_readiness(runner, runtime_ref=DIGEST, **kwargs)
         else:
             go.probe_database_financial_health(runner, runtime_ref=DIGEST,
                 bounded_ingest_milliseconds=1, full_forward_decision_replay_milliseconds=1, **kwargs)
@@ -180,7 +180,7 @@ def test_child_does_not_invent_or_repair_unproven_test_identity(route, defect, m
 def test_removing_test_identity_forwarding_is_detected_by_real_child(route, monkeypatch):
     if route == 'activation':
         function = deploy._reviewed_shadow_lineage_preflight
-        raw = inspect.getsource(function)
+        raw = inspect.getsource(function).replace("\r\n", "\n")
         needle = '        "SENTINEL_TEST_IMAGE_DIGEST",\n'
         assert raw.count(needle) == 1
         namespace = {}

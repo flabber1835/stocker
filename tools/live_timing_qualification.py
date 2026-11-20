@@ -153,9 +153,10 @@ def require_database_address(database, campaign_id):
 
 
 def require_environment(values=None, *, sentinel_file=None, cgroup=Path('/sys/fs/cgroup')):
+    from sentinel.archive_identifiers import PROVIDER
     values = os.environ if values is None else values
     for key, value in values.items():
-        require(not value or not (key.startswith(('ALPACA_', 'OPENFIGI_', 'SHARADAR_', 'NDL_'))
+        require(not value or not (key.startswith(('ALPACA_', 'OPENFIGI_', PROVIDER + '_', 'NDL_'))
                 or key in {'REHEARSAL_PRODUCTION_DATABASE_URL', 'SENTINEL_PAPER_DEBUG_WINDOW'}),
                 'PROVIDER_CREDENTIAL_OR_DEBUG_ENVIRONMENT_FORBIDDEN')
     if sentinel_file is None:

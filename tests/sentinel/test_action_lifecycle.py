@@ -123,18 +123,18 @@ def _publish_old_split(conn):
 
 
 def _corrective_fetch(table, params=None):
-    from sentinel.feed import sharadar
+    from sentinel.feed import archive_tables
 
     params = dict(params or {})
-    if table == sharadar.TICKERS:
+    if table == archive_tables.TICKERS:
         return [{"permaticker": "SEC-AAA", "ticker": "AAA",
                  "firstpricedate": "2020-01-01",
                  "lastpricedate": EVENT, "category": "Domestic"}]
-    if table == sharadar.ACTIONS:
+    if table == archive_tables.ACTIONS:
         return [CONTROL_ACTION] if params.get("date.gte") == "1900-01-01" else []
-    if table == sharadar.SFP:
+    if table == archive_tables.SFP:
         return [{"ticker": "SPY", "date": EVENT, "closeadj": 500.0}]
-    if table == sharadar.SEP:
+    if table == archive_tables.SEP:
         # Both domains move together.  EVENT therefore has a real predecessor-
         # based unsnapped ratio of 1.0 rather than the missing-predecessor
         # fallback that caused the reviewed false resolution.
@@ -215,11 +215,11 @@ def test_v5_semantic_reearn_repairs_unchanged_accepted_legacy_split_economics(
             conn, start=maintenance.ACTIONS_FULL_WINDOW_START, end=END)}
 
     def unchanged_fetch(table, params=None):
-        from sentinel.feed import sharadar
+        from sentinel.feed import archive_tables
 
-        if table == sharadar.ACTIONS:
+        if table == archive_tables.ACTIONS:
             return [dict(row) for row in source_actions]
-        if table == sharadar.SEP:
+        if table == archive_tables.SEP:
             rows = [
                 {"ticker": "AAA", "date": PRIOR, "close": prior_signal,
                  "closeunadj": prior_raw, "open": prior_signal,
@@ -295,11 +295,11 @@ def test_v5_reearns_a_legacy_nonunit_bar_with_no_action_or_disposition(conn):
         kinds=anomalies.SPLIT_DISPOSITION_KINDS) == []
 
     def unchanged_fetch(table, params=None):
-        from sentinel.feed import sharadar
+        from sentinel.feed import archive_tables
 
-        if table == sharadar.ACTIONS:
+        if table == archive_tables.ACTIONS:
             return [dict(row) for row in source_actions]
-        if table == sharadar.SEP:
+        if table == archive_tables.SEP:
             rows = [
                 {"ticker": "AAA", "date": PRIOR, "close": 50.0,
                  "closeunadj": 50.0, "open": 50.0, "volume": 1_000_000},
@@ -826,22 +826,22 @@ def test_failed_13216_row_daily_candidate_is_retired_by_later_daily_retry(conn):
                     "firstpricedate": "2020-01-01", "lastpricedate": "2026-08-14"})
 
     def corrected_fetch(table, params=None):
-        from sentinel.feed import sharadar
+        from sentinel.feed import archive_tables
         params = dict(params or {})
-        if table == sharadar.TICKERS:
+        if table == archive_tables.TICKERS:
             return tickers
-        if table == sharadar.ACTIONS:
+        if table == archive_tables.ACTIONS:
             return [
                 {"ticker": "XRN", "date": "2026-08-14", "action": "relation",
                  "value": None, "contraticker": "XRTXF"},
                 {"ticker": "XRN", "date": "2026-08-14", "action": "relation",
                  "value": None, "contraticker": "XORT"},
             ]
-        if table == sharadar.SFP:
+        if table == archive_tables.SFP:
             return [{"ticker": "SPY", "date": day, "closeadj": 500.0 + i}
                     for i, day in enumerate(calendar.sessions_in_range(
                         params["date.gte"], params["date.lte"]))]
-        if table == sharadar.SEP:
+        if table == archive_tables.SEP:
             rows = [
                 {"ticker": "AAA", "date": "2026-08-13", "close": 50,
                  "closeunadj": 50, "open": 50, "volume": 1_000_000,
@@ -931,15 +931,15 @@ def test_later_daily_retry_rewrites_failed_bar_spy_and_bil_owners(conn):
     assert P.coherence(conn).unpublished_rows == 3
 
     def corrected_fetch(table, params=None):
-        from sentinel.feed import sharadar
+        from sentinel.feed import archive_tables
         params = dict(params or {})
-        if table == sharadar.TICKERS:
+        if table == archive_tables.TICKERS:
             return [{"permaticker": "SEC-AAA", "ticker": "AAA",
                      "firstpricedate": "2020-01-01",
                      "lastpricedate": "2026-08-14"}]
-        if table == sharadar.ACTIONS:
+        if table == archive_tables.ACTIONS:
             return [CONTROL_ACTION] if params.get("date.gte") == "1900-01-01" else []
-        if table == sharadar.SFP:
+        if table == archive_tables.SFP:
             return [row
                     for i, day in enumerate(calendar.sessions_in_range(
                         params["date.gte"], params["date.lte"]))
@@ -952,7 +952,7 @@ def test_later_daily_retry_rewrites_failed_bar_spy_and_bil_owners(conn):
                          "closeadj": 91.1 + i / 100,
                          "closeunadj": 91.0 + i / 100},
                     )]
-        if table == sharadar.SEP:
+        if table == archive_tables.SEP:
             rows = [
                 {"ticker": "AAA", "date": "2026-08-13", "close": 50,
                  "closeunadj": 50, "open": 50, "volume": 1_000_000,

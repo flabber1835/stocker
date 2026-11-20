@@ -9,6 +9,8 @@ from sentinel import mirror_projection
 from sentinel.execution import evidence_projection as coverage, journal
 from sentinel.feed import store
 from tests.support.postgres import _EphemeralPostgres
+from tests.support import coverage_feed_ddl as archive
+from tests.sentinel.test_fractional_order_amount import install_v2
 
 BASE='base-20261029T072734Z'
 MARKER='sentinel-backup-20261029T072734Z-123'
@@ -26,7 +28,12 @@ def database():
 def prepared(database, monkeypatch, request):
     c=database
     monkeypatch.setenv('SENTINEL_PUBLICATION_RECEIPT_KEY','private-migration-recovery-'*4)
-    schema.ensure_schema(c);store.migrate_schema(c)
+    complete = getattr(request,'param',True)
+    if complete == 'v2':
+        install_v2(c)
+    else:
+        schema.ensure_schema(c)
+    archive.install(c)
     binding.bind(c,deployment_id='fixture-paper',broker='alpaca',broker_account_id='PA-fixture')
     c.execute(schema._BACKUP_PROGRESS_V1_DDL[2])
     c.execute(schema._BACKUP_PROGRESS_V1_DDL[3])
@@ -56,9 +63,14 @@ def prepared(database, monkeypatch, request):
     assert c.execute('SHOW transaction_read_only').fetchone()[0]=='on'
     before=recovery.operational_ddl_epoch.current(c)
     c.rollback()
-    schema.ensure_schema(c)
-    complete=getattr(request,'param',True)
-    if complete:store.migrate_schema(c)
+    if complete == 'v2':
+        # Original protected installer predates the v3 exclusive order amount.
+        with c.cursor() as cur:
+            schema._migrate_chain_progress(cur, schema._read_runtime_catalog(cur))
+        c.commit()
+    else:
+        schema.ensure_schema(c)
+    if complete:archive.install(c)
     after=recovery.operational_ddl_epoch.current(c);c.rollback()
     assert after[0]==before[0] and after[1]-before[1]==(recovery.DDL_ADVANCE if complete else 1)
     try:yield c,document
@@ -76,6 +88,7 @@ def raw(c):
     c.rollback();return rows
 
 
+@pytest.mark.parametrize('prepared', [True, 'v2'], indirect=True)
 def test_real_migration_preserves_bodies_and_transfers_both_exact_prefixes_once(prepared):
     c,document=prepared
     before=raw(c)
@@ -288,8 +301,7 @@ def test_paused_physical_recovery_proves_unlogged_scratch_without_reading_it(mon
 
 def test_complete_canonical_installer_migration_preserves_sources_and_measures_epoch(prepared):
     c,document=prepared
-    # The installer follows ensure_schema with this reviewed public feed entry.
-    # Qualify the complete entrypoint, not just the three trigger statements.
+    # The protected installer followed the behavioral change with its feed SQL.
     current=recovery.operational_ddl_epoch.current(c)
     assert current[0]==document['witness']['ddl'][0]
     advance=current[1]-document['witness']['ddl'][1]

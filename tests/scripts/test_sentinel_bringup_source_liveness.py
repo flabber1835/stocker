@@ -23,7 +23,7 @@ spec.loader.exec_module(liveness)
 def test_payload_requires_exactly_one_machine_report():
     value = {
         "status": "PASS",
-        "reason_code": "SHARADAR_LIVENESS_OK",
+        "reason_code": "ROLLING_PUBLICATION_CURRENT",
         "source_rows": 9,
     }
     line = liveness.MARKER + json.dumps(value, sort_keys=True) + "\n"
@@ -41,37 +41,11 @@ def test_safe_detail_suppresses_credentials_and_urls():
     assert liveness.safe_detail("bounded source timeout") == "bounded source timeout"
 
 
-def test_probe_uses_read_only_database_and_small_sep_equity_window():
-    source = MODULE.read_text(encoding="utf-8")
+def test_probe_reads_only_the_bound_rolling_publication():
+    source = liveness._CODE
     assert "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY" in source
     assert "SHOW transaction_read_only" in source
-    assert "'ticker': 'AAPL'" in source
-    assert "'ticker': 'SPY'" not in source
-    assert "dt.timedelta(days=14)" in source
-    assert "sharadar.SEP" in source
-    assert "source_rows" in source
-
-
-def test_probe_documents_that_fund_symbols_are_not_valid_sep_liveness_authority():
-    source = MODULE.read_text(encoding="utf-8")
-    assert "fund/ETF symbols such as SPY belong to SFP" in source
-
-
-def test_probe_has_no_source_stability_identity_or_mutation_authority():
-    source = MODULE.read_text(encoding="utf-8")
-    forbidden = (
-        "_stable_rows",
-        "CanonicalSourceFetch",
-        "SepUpdateEnvelope",
-        "identity_refresh",
-        "HistoricalIdentityMutation",
-        "sharadar.TICKERS",
-        "INSERT INTO",
-        "UPDATE sentinel_",
-        "DELETE FROM",
-        "CREATE TABLE",
-        "TRUNCATE TABLE",
-        "pg_switch_wal",
-    )
-    for token in forbidden:
-        assert token not in source
+    assert "require_alpaca_openfigi" in source
+    assert "source_final_session" in source
+    for unsafe in ("fetch_table", ".acquisition(", "INSERT INTO", "UPDATE sentinel_", "CREATE TABLE"):
+        assert unsafe not in source

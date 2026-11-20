@@ -6,7 +6,7 @@ import hashlib
 from itertools import islice
 from contextlib import contextmanager
 
-from sentinel.feed import acquisition_work, authority, progress, rolling_jobs as jobs, store
+from sentinel.feed import authority, progress, provider_budget, rolling_jobs as jobs, store
 from sentinel.feed.rolling_contract import canonical_json, digest
 from sentinel.feed.tickers_authority import _Fingerprint
 
@@ -49,7 +49,7 @@ class Parts:
         jobs.heartbeat(self.conn, self.lease, lease_seconds=600)
         remaining = jobs.status(self.conn, self.lease.job_id)["remaining_seconds"]
         self.conn.commit()
-        with acquisition_work.budget(seconds=min(500, remaining)):
+        with provider_budget.budget(seconds=min(500, remaining)):
             yield
 
     def _manifest(self, part_id, *, expected_generation=None, defer_prices=False, commit_progress=True):

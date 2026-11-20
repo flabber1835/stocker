@@ -1,7 +1,7 @@
 """Append-only shadow segmentation for causal outage recovery.
 
 A shadow performance chain is attributable only while every decision session was
-observed prospectively. Multi-day Sentinel/Sharadar outages therefore cannot be
+observed prospectively. Multi-day service or feed outages therefore cannot be
 backfilled from today's corpus. Instead the old segment remains immutable and a
 new segment starts from the next causally eligible close.
 

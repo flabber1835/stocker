@@ -60,7 +60,7 @@ services:
     # number is the only tell. It cost a long detour through query plans and
     # index checks before anything pointed at shared memory.
     #
-    # This container now holds what bt-postgres used to (the ~35M-row Sharadar
+    # This container now holds what bt-postgres used to (the ~35M-row historical
     # corpus every window scan reads), so it inherits bt-postgres's 1gb rather
     # than the live stack's 512mb. The guard that would have caught the omission
     # named the two compose files the retirement deleted — see

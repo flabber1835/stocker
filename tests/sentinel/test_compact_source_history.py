@@ -6,9 +6,9 @@ import json
 
 import pytest
 
-from scripts.sentinel_source_history import encoded
+from scripts.sentinel_source_history import encoded, pool_history
 from sentinel import runtime_admission as admission, url_selected_source_basis as basis
-from tests.support.source_history import expanded_profile
+from tests.support.source_history import expanded_profile, stored_deltas
 
 
 def test_original_twenty_two_maps_keep_the_independently_recorded_git_witness():
@@ -69,7 +69,7 @@ def test_storage_is_small_and_roundtrip_preserves_every_logical_map():
 
 
 def test_shared_paths_are_validated_once_and_every_complete_map_is_still_hashed(monkeypatch):
-    wire = json.loads(basis.PROFILE.read_bytes())
+    wire = stored_deltas()
     maps, closures = [], []
     original_map, original_closure = basis._source_map, basis._validated_closure
     def validated(value):
@@ -97,7 +97,7 @@ def repin_wire(tmp_path, monkeypatch, value):
 @pytest.mark.parametrize('fault', ['redundant', 'conflict', 'duplicate', 'unsorted',
     'unknown_removal', 'bad_path', 'bad_digest', 'recursive', 'files', 'foreign_field', 'missing_map'])
 def test_repinning_compact_wire_cannot_admit_ambiguous_or_foreign_maps(tmp_path, monkeypatch, fault):
-    value = json.loads(basis.PROFILE.read_bytes())
+    value = stored_deltas()
     revision = basis.RETAINED_REVISION
     record = value['retained_predecessors'][revision]
     candidate = value['retained_anchor_files']
@@ -125,7 +125,7 @@ def test_repinning_compact_wire_cannot_admit_ambiguous_or_foreign_maps(tmp_path,
         del value['retained_predecessors'][revision]
     else:
         record['foreign'] = True
-    repin_wire(tmp_path, monkeypatch, value)
+    repin_wire(tmp_path, monkeypatch, pool_history(value))
     with pytest.raises(ValueError, match='URL_SOURCE_'):
         basis._profile()
 
@@ -215,8 +215,10 @@ def test_fixed_anchor_guard_has_an_executed_falsifier(tmp_path, monkeypatch):
      'd853b854c38ce7aba19eafef3fa3f486ab252798b219afb253c004707ae4e969'),
     ('0f26fdb21123ae8677b933bcbc71250715cfcff5', 500,
      '522fc3adfb1889179c7ffa6a0341a909ec3adb34a6d898a6264e743b797ce7a4'),
+    ('5a5331d435705f23d2b6d6228a6ec8fda8c94979', 500,
+     '1d0a33e3a6b3d31b754f5f72a12657cca7f04a84ed1bad4131dda1326001fa06'),
 ], ids=['installed-pr605', 'installed-pr606', 'installed-nov18-posttrade', 'installed-pr607',
-        'installed-pr608', 'installed-pr610', 'installed-pr611'])
+        'installed-pr608', 'installed-pr610', 'installed-pr611', 'installed-pr612'])
 def test_opening_fixes_retain_exact_installed_source(revision, count, digest):
     predecessor = basis._profile()['retained_predecessors'][revision]['files']
     assert len(predecessor) == count
@@ -225,3 +227,19 @@ def test_opening_fixes_retain_exact_installed_source(revision, count, digest):
     assert basis.predecessor_view(actual, previous=predecessor) == predecessor
     altered = {**actual, 'automation/env_config.py': 'f' * 64}
     assert basis.predecessor_view(altered, previous=predecessor) == altered
+
+
+@pytest.mark.parametrize('fault', ['duplicate', 'unused', 'negative', 'bool', 'out-of-range'])
+def test_pooled_object_identity_is_canonical_even_after_repin(tmp_path, monkeypatch, fault):
+    value = json.loads(basis.PROFILE.read_bytes())
+    pool = value['retained_objects']
+    record = next(item for item in value['retained_predecessors'].values() if item['overrides'])
+    if fault == 'duplicate':
+        pool.insert(0, pool[0])
+    elif fault == 'unused':
+        pool.append(['zzzzz.py', '0'*64])
+    else:
+        record['overrides'][0] = {'negative': -1, 'bool': False, 'out-of-range': len(pool)}[fault]
+    repin_wire(tmp_path, monkeypatch, value)
+    with pytest.raises(ValueError, match='RETAINED_POOL_CHANGED'):
+        basis._profile()

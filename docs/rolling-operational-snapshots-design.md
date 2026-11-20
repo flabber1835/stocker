@@ -1,20 +1,21 @@
 # Atomic rolling operational snapshots
 
-Status: **IMPLEMENTATION IN PROGRESS**. The additive private generation storage
+Design record for feature #384. Provider choices below describe that rollout.
+For current GO and daily acquisition use the [operating contract](sentinel-deployment.md). The additive private generation storage
 and versioned scope descriptor are specified in
 [rolling-snapshot-storage.md](rolling-snapshot-storage.md). Fenced preparation
 jobs and immutable source-completion checkpoints are specified in
-[rolling-snapshot-jobs.md](rolling-snapshot-jobs.md). The opt-in direct Sharadar
-[comparison publisher](rolling-snapshot-publisher.md) prepares complete private
-snapshots without the nested seed path. Receipted operational publication,
+[rolling-snapshot-jobs.md](rolling-snapshot-jobs.md). The original
+[comparison publisher](rolling-snapshot-publisher.md) prepared complete private
+snapshots from the historical source. Receipted operational publication,
 opt-in cold start and bounded daily checkpoints are implemented. The
 [GO data integration](rolling-go-inputs.md) connects preparation and read-only
 probes; the [rolling shadow runtime](rolling-shadow-runtime.md) connects bounded
 runtime authority and the broker-free daily service. Paper automation and
 retention remain separate. Installing the
 storage does not switch running services, verification verdicts, strategy,
-provider selection or deployment authority. Sharadar remains the production
-source; execution remains paper-only under the existing contract.
+provider selection or deployment authority. The later Alpaca/OpenFIGI migration
+selected the current inputs. Execution remains PAPER-only.
 
 The next independent consumer boundary is specified in
 [snapshot-native cold-start inputs](rolling-cold-start-inputs.md). It removes
@@ -389,8 +390,9 @@ followed by prospective paper qualification under feature #376. Record input,
 universe, feature, state and decision differences; do not declare vendor
 equivalence from aggregate returns alone. No silent mixed-provider fallback.
 If another reference source is necessary, document it as a multi-provider
-architecture requiring separate approval. Retiring Sharadar is not authorized
-by this rolling-window design PR.
+architecture requiring separate approval. The original rolling-window design deferred source retirement to a separate
+review. The [retirement decision](market-maintenance-qualification.md) now governs
+historical replay and current acquisition.
 
 ## 11. Decisions requiring explicit review
 

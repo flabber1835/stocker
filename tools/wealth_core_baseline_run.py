@@ -28,6 +28,11 @@ import urllib.request
 import uuid
 
 
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from sentinel.archive_identifiers import PROVIDER as ARCHIVE_PROVIDER
+
+
 SCHEMA = "sentinel.wealth-core-baseline-run/1"
 PRODUCER = "tools/wealth_core_baseline_run.py"
 EXPECTED_SCHEMA = "wealth_core_expected_hashes.v1"
@@ -151,10 +156,10 @@ def _expected(artifact: Mapping[str, Any]) -> tuple[dict[str, str], str]:
             corpus, run, window, provenance)):
         raise BaselineRunRefused("expected-hash artifact is incomplete")
     if (corpus.get("status") != "READY"
-            or corpus.get("source_mode") != "sharadar"
+            or corpus.get("source_mode") != ARCHIVE_PROVIDER.lower()
             or corpus.get("split_source") != "actions"
             or not corpus.get("version")):
-        raise BaselineRunRefused("expected hashes do not bind a READY Sharadar ACTIONS corpus")
+        raise BaselineRunRefused("expected hashes do not bind a READY historical ACTIONS corpus")
     population_fields = (
         "distinct_securities", "first_session_securities",
         "last_session_securities", "maximum_session_securities")
@@ -461,7 +466,7 @@ def _validate_cross_bindings(record: Mapping[str, Any], *,
         raise BaselineRunRefused("terminal baseline did not report exact parity")
     if (str(provenance.get("bt_data_version")) != version
             or provenance.get("bt_data_status") != "READY"
-            or provenance.get("bt_data_source_mode") != "sharadar"
+            or provenance.get("bt_data_source_mode") != ARCHIVE_PROVIDER.lower()
             or provenance.get("split_source") != "actions"):
         raise BaselineRunRefused("terminal baseline used a different corpus generation/source")
 
@@ -470,7 +475,7 @@ def _validate_cross_bindings(record: Mapping[str, Any], *,
         "status": "success", "divergence_identical": True,
         "parity_hashes_sha256": canonical_sha256(expected_values),
         "bt_data_version": version, "bt_data_status": "READY",
-        "bt_data_source_mode": "sharadar", "split_source": "actions",
+        "bt_data_source_mode": ARCHIVE_PROVIDER.lower(), "split_source": "actions",
     }
     if dict(outcome) != wanted_outcome or record["status"] != "success":
         raise BaselineRunRefused("outcome does not derive from terminal row")
@@ -620,7 +625,7 @@ def invoke(*, expected_path: Path, manifest_path: Path, output_path: Path,
             "status": "success", "divergence_identical": True,
             "parity_hashes_sha256": canonical_sha256(expected["hashes"]),
             "bt_data_version": str(expected["corpus"]["version"]),
-            "bt_data_status": "READY", "bt_data_source_mode": "sharadar",
+            "bt_data_status": "READY", "bt_data_source_mode": ARCHIVE_PROVIDER.lower(),
             "split_source": "actions",
         },
     }

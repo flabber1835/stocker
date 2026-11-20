@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Literal
 from psycopg import sql
 from sentinel import chain_progress_recovery as shared
+from sentinel import coverage_recovery_catalog as historical_feed
 from sentinel import deployment_fence, operational_ddl_epoch, operational_schema, schema
 from sentinel.automation import store as automation_store
 from sentinel.execution import evidence_projection as coverage, evidence_schema, journal
@@ -43,11 +44,6 @@ def _sign(value):
     return _receipt_hmac({'purpose': SCHEMA, 'witness': value})
 
 
-def _order_amount_contract():
-    from sentinel.feed.runtime_schema import DDL
-    return coverage.digest([schema._ORDER_AMOUNT_DDL, DDL])
-
-
 def _command_digest(conn, *, successor):
     if successor:
         _require(not conn.execute('SELECT EXISTS (SELECT 1 FROM sentinel_commands '
@@ -74,12 +70,12 @@ def _validate_predecessor(conn):
                  'order-amount witness requires the exact v2 behavioral schema')
         schema._validate_stage4_runtime(cur, catalog)
     operational_schema.require_schema(conn)
-    store.require_feed_schema(conn)
+    return historical_feed.require(conn)
 
 
 def _snapshot(conn, *, backup, marker, metadata_sha256):
     """Capture the already established prefix; callers enforce restore isolation."""
-    _validate_predecessor(conn)
+    contract = _validate_predecessor(conn)
     _require(conn.execute('SELECT 1 FROM sentinel_backup_recovery_markers WHERE marker=%s',
                          (marker,)).fetchone(), 'restore marker is absent')
     deployment_fence.require(conn)
@@ -90,7 +86,7 @@ def _snapshot(conn, *, backup, marker, metadata_sha256):
         _require(heads[domain][2] == 0, 'tracking has been reset')
         prefixes[domain] = _prefix_digest(payload)
     value = Witness(schema_version=SCHEMA,
-        order_amount_contract_sha256=_order_amount_contract(),
+        order_amount_contract_sha256=contract,
         commands_sha256=_command_digest(conn, successor=False), backup=backup, marker=marker,
         metadata_sha256=metadata_sha256,
         system=str(conn.execute('SELECT system_identifier::text FROM pg_control_system()').fetchone()[0]),
@@ -112,7 +108,8 @@ def validate(document):
     _require(isinstance(document,dict) and set(document)=={'witness','hmac_sha256'},
              'witness envelope is malformed')
     value = Witness.model_validate(document['witness']).model_dump(mode='json')
-    _require(value['order_amount_contract_sha256']==_order_amount_contract(), 'order-amount migration contract changed')
+    _require(value['order_amount_contract_sha256'] in (historical_feed.ORIGINAL, historical_feed.POST_COMPACTION),
+             'order-amount migration contract changed')
     _require(set(value['heads']) == set(DOMAINS) == set(value['prefixes']), 'witness domains differ')
     _require(_mandatory_sources()<=set(value['sources'])<=_source_candidates(), 'witness source relations differ')
     _require(value['ddl'][1] >= 0 and all(len(v)==64 and all(c in '0123456789abcdef' for c in v)
@@ -140,7 +137,7 @@ def apply(conn, document, *, expected_backup, expected_account, expected_deploym
             sql.SQL(',').join(sql.Identifier(name) for name in sorted(locked))))
         schema.require_runtime_schema(conn)
         operational_schema.require_schema(conn)
-        store.require_feed_schema(conn)
+        historical_feed.require(conn, expected=value['order_amount_contract_sha256'])
         deployment_fence.require(conn)
         control = automation_store.load_control(conn)
         _require(not control.enabled and control.kill_switch_engaged, 'disabled+killed control is required')

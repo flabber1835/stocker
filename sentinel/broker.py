@@ -25,10 +25,7 @@ Alpaca PAPER account
 ```
 
 Administrative positions are read with a stable broker asset id and exact
-Decimal quantity, then closed by a named SELL persisted before send. The old
-broker-native close method remains only for compatibility with retired component
-tests; the production handover never calls it because it cannot carry a client
-key and cannot resolve an accept-then-timeout outcome.
+Decimal quantity, then closed by a named SELL persisted before send.
 """
 from __future__ import annotations
 
@@ -112,10 +109,6 @@ class SentinelBroker(abc.ABC):
     @abc.abstractmethod
     async def cancel_orders(self, order_ids: tuple[str, ...]) -> int:
         """Cancel the named orders. Returns how many the broker accepted."""
-
-    @abc.abstractmethod
-    async def close_position(self, ticker: str) -> CloseResult:
-        """Close 100% of `ticker`."""
 
     async def find_liquidation(self, client_key: str) -> Optional[OpenOrder]:
         """Resolve a migration order by its exact durable client key."""
@@ -284,12 +277,6 @@ class AlpacaSentinelBroker(SentinelBroker):
         raise NotImplementedError(
             "migration requires exact single-order cancellation; cancel-all "
             "is not a safe fallback")
-
-    async def close_position(self, ticker: str) -> CloseResult:
-        order_id, status, error = await self._adapter.close_position(ticker)
-        return CloseResult(
-            ticker=ticker, broker_order_id=order_id, status=status, error=error
-        )
 
     async def find_liquidation(self, client_key: str) -> Optional[OpenOrder]:
         order = await self._adapter.get_order_by_client_order_id(client_key)

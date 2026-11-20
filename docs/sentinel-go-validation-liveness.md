@@ -6,7 +6,7 @@
 
 The prior NAS GO path mixed stable exact-artifact certification, volatile market/data readiness, production corpus mutation, and operator activation verdicts in one serial command. Legitimate fail-closed states were therefore discovered late and an unchanged retry repeated the expensive certification work.
 
-The correction must improve liveness without allowing uncertified code to mutate the production financial corpus, weakening Sharadar authority, or confusing local Docker image IDs with the registry RepoDigests used by broker-authorized services.
+The correction must improve liveness without allowing uncertified code to mutate the production financial corpus, weakening source validation, or confusing local Docker image IDs with the registry RepoDigests used by broker-authorized services.
 
 ## Supported operator entry
 
@@ -28,8 +28,8 @@ A  cheap READ-ONLY prerequisites
    - stale/missing prior ordinary image is diagnostic, not authority
    - GET-only paper-account preflight for broker-capable targets
    - SHADOW target skips the paper-account preflight
-   - exact ordinary-runtime READ-ONLY SEP CDC diagnostic after source-finality
-   - no schema/cursor/bar/publication mutation in that diagnostic
+   - read-only diagnostic of the installed rolling publication
+   - no schema or publication mutation in that diagnostic
         |
         v
 B  stable exact-artifact certification
@@ -57,7 +57,7 @@ D  read-only financial readiness
    - current publication and publication chain
    - Wealth Core differential/parity
    - database/index/schema health
-   - current Sharadar readiness
+   - market-data readiness bound to the admitted publication
    - fresh actual remaining time to following execution open
    - second, final GET-only paper-account observation for broker-capable verdicts
         |
@@ -86,11 +86,11 @@ G  separately reviewed autonomous deployment / signed activation
 ## Non-negotiable rules
 
 1. A cheap preflight may not mutate the production financial database merely to save time. Production corpus mutation is allowed only after exact-artifact certification is PASS and complete.
-2. A certification failure cannot reach schema migration, Sharadar catch-up, or any other production-corpus mutation. The preparation membrane requires both the inherited GO flock and the verified-entry process capability.
+2. A certification failure cannot reach schema migration, rolling market-data preparation, or any other production-corpus mutation. The preparation membrane requires both the inherited GO flock and the verified-entry process capability.
 3. Mutable preparation happens once per validation attempt. An already-current coherent corpus is success; a second explicit daily ingest adds source risk without proving application semantics.
 4. A preparation failure does not spend additional parity/readiness time after its verdict is already necessarily NO_GO.
 5. A source-authority ambiguity does not automatically trigger a reseed. Preparation diagnostics distinguish local cursor state from ambiguous vendor/source evidence; the latter remains fail-closed.
-6. The early read-only Sharadar diagnostic is deliberately narrower than the certified daily path. It can fail fast on deterministic SEP CDC cursor/source/identity/raw-close defects, but it does not claim to pre-certify every TICKERS, ACTIONS, reconciliation, failed-candidate-recovery, or publication condition that the real daily transaction must still prove.
+6. The read-only diagnostic inspects the installed publication. The certified preparation path verifies component coverage, identities, corporate actions, provider corroboration and atomic publication for the selected closed session.
 7. Runtime deadlines are enforced by subprocess timeouts, not merely evaluated after a command eventually returns.
 8. Time-sensitive readiness uses an actual wall-clock observation after the long readiness work. GO requires the reviewed minimum remaining pre-open margin, not merely `next_open > now`.
 9. The GO bundle keeps the established public v1 database-health schema so the autonomous-deploy parser remains exact-key compatible. Fresh wall-clock timing is an enforced predicate and caps the bundle `valid_until`; it is not smuggled in as an incompatible new public field.

@@ -12,7 +12,7 @@ from pathlib import Path
 _INSPECTION_TARGETS = (
     "sentinel-base-backup.sh",
     "sentinel-backup-lib.sh",
-    "split-sharadar-zip.sh",
+    "split-archive-zip.sh",
 )
 
 

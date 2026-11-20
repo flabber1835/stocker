@@ -29,7 +29,7 @@ same command made all 29. Probing one keeps this to seconds instead of an hour.
 
 ```bash
 python3 scripts/sentinel-sep-split-probe.py \
-    --zip artifacts/sharadar-bulk/SHARADAR_SEP.zip
+    --zip /path/to/bulk-prices.zip
 ```
 
 Pure stdlib. Writes nothing to disk — every candidate is built in memory.
@@ -46,6 +46,11 @@ import sys
 import zipfile
 from pathlib import Path
 
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from sentinel.archive_identifiers import PROVIDER as ARCHIVE_PROVIDER
+
 REPO = Path(__file__).resolve().parents[1]
 STANDALONE = (REPO / "docs" / "sentinel-reference-implementation"
               / "sentinel_1p1_standalone.py")
@@ -58,7 +63,7 @@ def pinned_hash(year: int) -> str:
     start = src.index("EXPECTED_HASHES = {")
     block = src[start:src.index("}", start)]
     found = dict(re.findall(r"'([^']+)'\s*:\s*'([0-9a-f]{64})'", block))
-    name = f"SHARADAR_SEP_{year}.csv.gz"
+    name = f"{ARCHIVE_PROVIDER}_SEP_{year}.csv.gz"
     if name not in found:
         raise SystemExit(f"{name} is not pinned in {STANDALONE}")
     return found[name]
@@ -100,7 +105,7 @@ def candidates(header: str, rows: list):
 
             # With the filename stamped in, as `gzip file.csv` would do.
             buf = io.BytesIO()
-            with gzip.GzipFile(filename=f"SHARADAR_SEP_{PROBE_YEAR}.csv",
+            with gzip.GzipFile(filename=f"{ARCHIVE_PROVIDER}_SEP_{PROBE_YEAR}.csv",
                                fileobj=buf, mode="wb",
                                compresslevel=level, mtime=0) as g:
                 g.write(payload)
@@ -114,7 +119,7 @@ def main() -> int:
     args = ap.parse_args()
 
     want = pinned_hash(args.year)
-    print(f"target  SHARADAR_SEP_{args.year}.csv.gz")
+    print(f"target  {ARCHIVE_PROVIDER}_SEP_{args.year}.csv.gz")
     print(f"pinned  {want}")
     print(f"reading {args.zip_path} ...", file=sys.stderr)
 

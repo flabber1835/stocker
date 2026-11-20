@@ -128,18 +128,24 @@ def _source_digests(conn, names=None):
     return result
 
 
-def _validate_predecessor(conn):
+def _validate_progress_schema(conn, *, predecessor):
+    from sentinel import coverage_recovery_catalog as historical_feed
     operational_schema.require_schema(conn)
-    with conn.cursor() as cur:
+    with conn.transaction(force_rollback=True), conn.cursor() as cur:
+        cur.execute("SET LOCAL search_path TO public, pg_temp")
+        cur.execute("SET LOCAL lock_timeout TO '2000ms'")
         catalog=schema._read_runtime_catalog(cur)
-        schema._validate_ledgered(cur, catalog)
+        schema._validate_backup_infrastructure(*catalog)
+        _require(schema._validate_ledgered(cur, catalog, allow_previous=True) in (2, 3),
+                 'chain progress requires the protected behavioral catalog')
         schema._validate_stage4_runtime(cur, catalog,
-            expected_catalog=schema._PRE_CHAIN_PROGRESS_CATALOG_SHA256)
+            expected_catalog=schema._PRE_CHAIN_PROGRESS_CATALOG_SHA256 if predecessor else None)
+    historical_feed.require(conn, expected=historical_feed.ORIGINAL)
 
 
 def _snapshot(conn, *, backup, marker, metadata_sha256):
     """Capture the already established prefix; callers enforce restore isolation."""
-    _validate_predecessor(conn)
+    _validate_progress_schema(conn, predecessor=True)
     _require(conn.execute('SELECT 1 FROM sentinel_backup_recovery_markers WHERE marker=%s',
                          (marker,)).fetchone(), 'restore marker is absent')
     deployment_fence.require(conn)
@@ -193,8 +199,7 @@ def apply(conn, document, *, expected_backup, expected_account, expected_deploym
         _require(watched==set(value['sources']), 'source relation set changed')
         conn.execute(sql.SQL('LOCK TABLE {} IN SHARE MODE').format(
             sql.SQL(',').join(sql.Identifier(name) for name in sorted(watched))))
-        schema.require_runtime_schema(conn)
-        operational_schema.require_schema(conn)
+        _validate_progress_schema(conn, predecessor=False)
         deployment_fence.require(conn)
         control = automation_store.load_control(conn)
         _require(not control.enabled and control.kill_switch_engaged, 'disabled+killed control is required')

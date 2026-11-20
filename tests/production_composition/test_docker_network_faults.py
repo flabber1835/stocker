@@ -180,9 +180,9 @@ def test_github_dns_or_tls_style_url_failure_is_fail_closed():
 
 @pytest.mark.parametrize(("text", "reason"), [
     ("VendorPublicationUnstable", "SOURCE_PUBLICATION_UNSTABLE"),
-    ("SharadarMutationRefused: source cursor cannot move backward", "LOCAL_CURSOR_CORRUPT"),
-    ("SharadarMutationRefused: no permanent identity for fixture", "SOURCE_IDENTITY_UNRESOLVED"),
-    ("SharadarMutationRefused: no positive raw close for fixture", "SOURCE_RAW_CLOSE_INVALID"),
+    ("SourceAuthorityRefused: source cursor cannot move backward", "LOCAL_CURSOR_CORRUPT"),
+    ("SourceAuthorityRefused: no permanent identity for fixture", "SOURCE_IDENTITY_UNRESOLVED"),
+    ("SourceAuthorityRefused: no positive raw close for fixture", "SOURCE_RAW_CLOSE_INVALID"),
 ])
 def test_vendor_partial_failures_keep_specific_preparation_reason(text, reason):
     observed, _detail = phase._classify_preparation_failure(text)

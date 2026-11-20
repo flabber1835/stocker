@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from sentinel.feed import sharadar, tickers_authority
+from sentinel.feed import archive_tables, tickers_authority
 from sentinel.feed.source_authority.duplicates import CanonicalSourceFetch
 
 
@@ -94,11 +94,11 @@ def test_source_membrane_validates_tickers_before_downstream_fingerprint():
     rows = [_row(), _row()]
 
     def fetch(table, params=None, **kwargs):
-        assert table == sharadar.TICKERS
+        assert table == archive_tables.TICKERS
         return list(rows)
 
     guarded = CanonicalSourceFetch(fetch, validate_tickers=True)
-    assert list(guarded(sharadar.TICKERS)) == [_row()]
+    assert list(guarded(archive_tables.TICKERS)) == [_row()]
 
 
 def test_source_membrane_refuses_ambiguous_tickers_before_use():
@@ -108,9 +108,9 @@ def test_source_membrane_refuses_ambiguous_tickers_before_use():
     ]
 
     def fetch(table, params=None, **kwargs):
-        assert table == sharadar.TICKERS
+        assert table == archive_tables.TICKERS
         return list(rows)
 
     guarded = CanonicalSourceFetch(fetch, validate_tickers=True)
     with pytest.raises(tickers_authority.TickersStructureInvalid):
-        list(guarded(sharadar.TICKERS))
+        list(guarded(archive_tables.TICKERS))

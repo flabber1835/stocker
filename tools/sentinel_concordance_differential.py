@@ -1,6 +1,6 @@
 """No-oracle deterministic integration differential for Simplified LD-RC v3.
 
-Both sides receive the same pinned Sharadar/Wealth-Core/native-parent inputs.
+Both sides receive the same pinned market data, Wealth Core and native parent inputs.
 The production side is :func:`sentinel.core.kernel.advance_session`. The
 reference side below is deliberately handwritten from the retained strategy
 formula and imports neither ``recent_leadership`` nor ``ldrc`` nor the

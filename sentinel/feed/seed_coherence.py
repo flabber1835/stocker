@@ -1,6 +1,6 @@
 """Public post-seed coherence membrane.
 
-Only production Sharadar snapshot seeds opt into this authority by durably
+Only production Source snapshot seeds opt into this authority by durably
 recording ``seed_coherence`` at run start. Injected/replay fetch seams do not
 manufacture vendor-generation evidence and therefore remain non-certifying.
 """

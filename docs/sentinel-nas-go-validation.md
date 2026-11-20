@@ -1,7 +1,7 @@
 # Sentinel NAS financial GO validation
 
 This document defines the final, source-backed deployment decision for a NAS
-that has local Sharadar and Alpaca PAPER credentials. Credentials remain on the
+with local Alpaca PAPER credentials and an optional OpenFIGI key. Credentials remain on the
 NAS. They are never committed, copied into an evidence bundle, or pasted into a
 GitHub issue or pull request.
 
@@ -16,7 +16,7 @@ PAPER_EXECUTION_GO    Alpaca PAPER order execution may run
 
 `SHADOW_GO` is sufficient for observing the strategy through year end. It is
 not permission to submit, replace, or cancel an Alpaca order. Its return series
-comes from the canonical Wealth Core state machine, Sharadar-published sessions,
+comes from the canonical Wealth Core state machine, validated rolling market-data publications,
 the next published session's open for pending executions, and the same source
 cash/action economics used by the strategy. Because it never uses an Alpaca
 paper holding as its economic book, Alpaca's paper-only omissions cannot silently
@@ -25,10 +25,10 @@ become strategy profit or loss.
 `PAPER_EXECUTION_GO` is stronger. It requires every paper execution cycle to
 have the affirmative pre-open share-unit authority, official-close account NAV,
 complete fixed account-fill interval, and final close-cash activity evidence
-defined in `sentinel-execution-contract.md`. Sharadar and Alpaca can provide
-positive corporate-action observations, but their public contracts do not
-provide a complete per-security pre-open no-event attestation. Source silence
-therefore never produces multiplier `1`, and the current two-source
+defined in `sentinel-execution-contract.md`. Alpaca supplies
+positive corporate-action observations. The production inputs cannot establish
+a complete per-security pre-open no-event attestation. Source silence
+therefore never produces multiplier `1`, and the current
 configuration remains `PAPER_EXECUTION_NO_GO` for a nonempty book.
 
 `DUAL_RUN_GO` is the deployable year-end observation mode. Its broker side is
@@ -48,7 +48,7 @@ orders until an explicit operator review/reactivation; it does not liquidate
 the existing PAPER book. Normal orders awaiting fills remain `RECONCILING`.
 Because Alpaca cannot prove the complete pre-open no-event set, the mirror
 durably stamps each active raw close-unit plan `PREOPEN_UNPROVEN/PENDING` before
-transport and validates its actual unit mapping from source-final Sharadar after
+transport and validates its actual unit mapping from the validated rolling publication after
 the effective-session close. A post-close unit mismatch blocks future PAPER
 mutations but never rewrites or invalidates an otherwise valid shadow result.
 
@@ -67,13 +67,13 @@ step before the read-only evidence boundary:
 - it refreshes `origin/main` with `git fetch --prune origin main` before
   comparing the clean local `main` commit, so a stale remote-tracking ref
   cannot certify an old checkout;
-- the exact candidate runtime migrates the existing schema and runs one bounded
-  Sharadar daily ingest, including the readiness-required BIL tail, only after
-  the fixed 23:45 New York source not-before and while the following XNYS open
-  is still future; a run outside that prospective window fails closed and can
-  be rerun, while an already-current exact publication is accepted without
-  requiring an artificial new publication version;
-- Sharadar and Alpaca network calls are GET-only;
+- the exact candidate runtime migrates the existing schema and prepares the
+  latest closed XNYS session. A matching publication can be reused. Otherwise
+  the source job verifies Alpaca SIP prices, benchmarks, corporate actions and
+  OpenFIGI classifications before publishing one coherent generation.
+  Prospective strategy decisions retain their own following-open cutoff.
+- Alpaca market-data requests use GET. OpenFIGI classification mappings use
+  POST to the fixed mapping endpoint. Both operations read source data.
 - no order, cancellation, replacement, account reset, or cash mutation is
   attempted;
 - after preparation, PostgreSQL parity/readiness probes run in read-only
@@ -118,7 +118,7 @@ secret-scan.json
 created_at / valid_until
 git commit and clean-tree verdict
 candidate image and runtime digests
-explicit prevalidation schema/Sharadar preparation result
+explicit prevalidation schema and market-data preparation result
 sanitized financial database checks, counts, timings, thresholds, and margin
 bound-subject digests (never raw account or host identifiers)
 financial-source gate verdicts
@@ -134,13 +134,11 @@ review status and reviewed bundle digest
 The `shadow_configuration` subject is the exact SHA-256 of canonical JSON over
 the observation id, normalized explicit starting cash, execution model
 `PROSPECTIVE_CONCORDANCE_SCALAR_CORE_BIL_V3`, cutoff policy
-`STRICT_BEFORE_OFFICIAL_NEXT_XNYS_OPEN_V1`, fixed source-finality policy
-`SHARADAR_SEP_SFP_SECOND_UPDATE_PLUS_15M_2345_AMERICA_NEW_YORK_V1`, and
-validated source identity. The source-finality policy waits until 23:45 New
-York time on the decision session—15 minutes after the documented second 23:30
-ET daily update for both [Sharadar SEP](https://data.nasdaq.com/databases/SEP)
-and [Sharadar SFP](https://data.nasdaq.com/databases/SFP)—before trusting an
-existing frontier or calling ingest. The same configuration digest is required
+`STRICT_BEFORE_OFFICIAL_NEXT_XNYS_OPEN_V1`, source timing policy
+`ALPACA_OPENFIGI_VALIDATED_CLOSED_SESSION_V2`, and validated source identity.
+A session becomes eligible for acquisition at its actual XNYS close, including
+early closes. A rolling receipt establishes publication only after coverage
+and corroboration pass. The same configuration digest is required
 by the runtime. The `data_publication` subject binds the held current
 publication fingerprint and exact visible frontier without publishing either
 raw preimage.
@@ -152,7 +150,7 @@ git_identity
 certified_suite_no_skips
 database_financial_health
 wealth_core_nas_parity
-sharadar_readiness
+market_data_readiness
 preopen_share_unit_authority
 alpaca_paper_account
 official_close_nav
@@ -209,15 +207,15 @@ the deployer:
 
 | Measured workload | Maximum |
 |---|---:|
-| Bounded schema + Sharadar daily ingest command | 7,200,000 ms (2h) |
+| Bounded schema and rolling market-data preparation | 7,200,000 ms (2h) |
 | Current-strategy operational parity, including 252-session warm-up | 14,400,000 ms (4h) |
 | Cold 252-session warm-up revision scan | 1,800,000 ms (30m) |
 | Sum of all three | 17,550,000 ms (4h52m30s) |
 
-The shortest fixed 23:45 ET source-final to following 09:30 ET XNYS-open
-window is 35,100,000 ms (9h45m). The combined bound consumes at most half and
-therefore preserves at least 17,550,000 ms (4h52m30s) of margin. A weekend or
-holiday may increase the observed window but can never relax the weekday bound.
+The validation timing contract requires at least 35,100,000 ms (9h45m) from
+the session close to the following XNYS open. The combined limit preserves at
+least 17,550,000 ms (4h52m30s) within that budget. The observed interval comes
+from the exchange calendar, including early closes and holidays.
 
 `wealth_core_nas_parity` follows the operational proof defined in
 `production-certification-separation.md`: the current production selector,
@@ -291,8 +289,8 @@ genesis/candidate commit. A corpus change in the small recheck-to-start window
 therefore refuses rather than beginning an unreviewed lineage.
 
 Reviewed shadow mode starts only the dedicated `sentinel-shadow` service. That
-service receives Sharadar, PostgreSQL, and reviewed identity/configuration
-and data-publication bindings, but no Alpaca key, secret, or account id. The broker-capable
+service receives the market-data credentials, PostgreSQL access and reviewed
+identity/configuration and publication bindings. It has no PAPER account binding. The broker-capable
 `sentinel-automation` service remains stopped while its durable control stays
 disabled and killed. The paper command requires `PAPER_EXECUTION_GO`;
 `SHADOW_GO` can never be promoted by a flag, and the present two-source bundle
@@ -304,7 +302,7 @@ empty/owned, positive, cash-only PAPER account, installs the existing signed
 `PAPER_OBSERVATION_ONLY` authority, and prepares one immutable plan directly
 from the exact verified shadow state/record. The canonical adapter account-sizes
 that intent using the bound complete Alpaca snapshot/observation and pinned
-Sharadar close marks; it persists a one-way commitment to every sizing input
+rolling as-traded close marks; it persists a one-way commitment to every sizing input
 and re-derives the basket/fingerprint before transport. Dual mode may not
 advance or read a separate PAPER catch-up strategy lineage. The PAPER account
 may have any positive enrolled starting equity and reports only normalized,
@@ -328,8 +326,8 @@ data/revision/lineage gate fails.
 
 The strongest honest statement is:
 
-> Every result labelled VERIFIED is attributable to the strategy, the accepted
-> Sharadar inputs, and the explicitly named observation model. Unsupported,
+> Every result labelled VERIFIED is attributable to the strategy, the admitted
+> rolling inputs, and the explicitly named observation model. Unsupported,
 > revised, or incomplete evidence stops verification instead of changing the
 > reported strategy result.
 

@@ -2,7 +2,7 @@
 
 Architecture invariant #3 already reads *"every snapshot and decision records
 `data_version`"*. It was ADOPTED and UNIMPLEMENTED — there was no version to
-record, and `sentinel_bars` is a destructive upsert, so a Sharadar restatement
+record, and `sentinel_bars` is a destructive upsert, so a Source restatement
 rewrote the evidence underneath a decision that had already been made. This
 module is the missing implementation.
 

@@ -31,7 +31,7 @@ for name in sentinel-base-backup.sh sentinel-backup-status.sh sentinel-backup-li
             sentinel-archive-wal.sh sentinel_host_python.py sentinel_backup_lock.py \
             sentinel_lock_ownership.py sentinel_storage_capacity.py sentinel_restore_storage.py \
             sentinel_maintenance_process.py sentinel_backup_deadlines.py \
-            sentinel-env.sh sentinel_env.py; do
+            sentinel-env.sh sentinel_env.py go-archive-format-v1.json; do
   cp "scripts/$name" "$repo/scripts/$name"
 done
 cp docker-compose.sentinel-backup.yml "$repo/"

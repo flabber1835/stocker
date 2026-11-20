@@ -12,6 +12,7 @@ from typing import Literal
 from psycopg import sql
 
 from sentinel import chain_progress_recovery as shared
+from sentinel import coverage_recovery_catalog as historical_feed
 from sentinel import deployment_fence, operational_ddl_epoch, operational_schema, schema
 from sentinel.automation import store as automation_store
 from sentinel.execution import evidence_projection as coverage, evidence_schema, journal
@@ -65,6 +66,7 @@ def snapshot(conn, *, backup, marker, metadata_sha256):
         "to_regprocedure('public.sentinel_acquisition_price_delete_guard()')").fetchone()
     _require(row is not None and hashlib.sha256(' '.join(row[0].split()).encode()).hexdigest()
              == PREDECESSOR_GUARD_SHA256, 'restore has the wrong retention guard')
+    historical_feed.require(conn, expected=historical_feed.ORIGINAL)
     _require(conn.execute('SELECT 1 FROM sentinel_backup_recovery_markers WHERE marker=%s',
                          (marker,)).fetchone(), 'restore marker is absent')
     heads = {}
@@ -114,7 +116,7 @@ def apply(conn, document, *, expected_backup, expected_account, expected_deploym
             sql.SQL(',').join(sql.Identifier('public', name) for name in sorted(locked))))
         schema.require_runtime_schema(conn)
         operational_schema.require_schema(conn)
-        store.require_feed_schema(conn)
+        historical_feed.require(conn, expected=historical_feed.POST_COMPACTION)
         deployment_fence.require(conn)
         control = automation_store.load_control(conn)
         _require(not control.enabled and control.kill_switch_engaged, 'disabled+killed control is required')

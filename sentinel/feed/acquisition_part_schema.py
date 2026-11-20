@@ -62,7 +62,7 @@ DDL.append("""CREATE OR REPLACE FUNCTION sentinel_acquisition_part_pinned(target
     $$""")
 DDL.append("""CREATE OR REPLACE FUNCTION sentinel_acquisition_delete_guard()
     RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
-      PERFORM sentinel_retention_locks();
+      PERFORM sentinel_acquisition_retention_locks();
       IF sentinel_acquisition_part_pinned(OLD.part_id) THEN
         RAISE EXCEPTION 'active acquisition part cannot be retired';
       END IF;
@@ -76,6 +76,28 @@ DDL.append("""CREATE OR REPLACE FUNCTION sentinel_acquisition_price_insert_guard
       END IF;
       RETURN NEW;
     END $$""")
+DDL.append("""CREATE OR REPLACE FUNCTION sentinel_acquisition_binding_insert_guard()
+    RETURNS trigger LANGUAGE plpgsql AS $$ DECLARE expected bigint; newborn boolean; linked_payload_id text;
+    BEGIN
+      IF EXISTS(SELECT 1 FROM sentinel_acquisition_bindings WHERE job_id=NEW.job_id
+                AND component=NEW.component AND part_id=NEW.part_id) THEN RETURN NEW; END IF;
+      SELECT (manifest->>'rows')::bigint, xmin=pg_current_xact_id()::xid INTO expected,newborn
+        FROM sentinel_acquisition_parts WHERE part_id=NEW.part_id FOR SHARE;
+      IF NOT FOUND THEN RAISE EXCEPTION 'new binding requires an existing acquisition part'; END IF;
+      IF newborn OR NEW.component NOT LIKE 'SEP.%' THEN RETURN NEW; END IF;
+      IF sentinel_acquisition_part_pinned(NEW.part_id) THEN RETURN NEW; END IF;
+      SELECT payload_part_id INTO linked_payload_id FROM sentinel_acquisition_price_links WHERE part_id=NEW.part_id;
+      IF (SELECT count(*) FROM sentinel_acquisition_prices WHERE part_id=COALESCE(linked_payload_id,NEW.part_id))
+         IS DISTINCT FROM expected THEN
+        RAISE EXCEPTION 'new binding requires a complete acquisition price payload';
+      END IF;
+      RETURN NEW;
+    END $$""")
+DDL.extend([
+    'DROP TRIGGER IF EXISTS acquisition_binding_insert_guard ON sentinel_acquisition_bindings',
+    'CREATE TRIGGER acquisition_binding_insert_guard BEFORE INSERT ON sentinel_acquisition_bindings '
+    'FOR EACH ROW EXECUTE FUNCTION sentinel_acquisition_binding_insert_guard()',
+])
 DDL.extend([
     "DROP TRIGGER IF EXISTS acquisition_price_insert_guard ON sentinel_acquisition_prices",
     "CREATE TRIGGER acquisition_price_insert_guard BEFORE INSERT ON sentinel_acquisition_prices "
@@ -130,6 +152,8 @@ for _table in tuple(COLUMNS)[2:]:
         "before delete or update", "for each row", "execute function sentinel_snapshot_immutable()")
 TRIGGERS["sentinel_acquisition_prices"]["acquisition_price_insert_guard"] = (
     "before insert", "for each row", "execute function sentinel_acquisition_price_insert_guard()")
+TRIGGERS["sentinel_acquisition_bindings"]["acquisition_binding_insert_guard"] = (
+    "before insert", "for each row", "execute function sentinel_acquisition_binding_insert_guard()")
 CONSTRAINTS = {
     "sentinel_acquisition_parts": (("c", ("canonical_reference", "reference_payload is null",
         "octet_length(canonical_reference)", "268435456", "sha256", "content_sha256")),),

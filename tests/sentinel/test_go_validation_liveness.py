@@ -86,38 +86,34 @@ def test_failed_certification_cannot_reach_mutable_preparation():
         phase_entry._ORIGINAL_PREPARATION = original
     assert result.status == controller.go.NOT_PROVEN
     assert result.schema_migration_attempted is False
-    assert result.bounded_sharadar_daily_attempted is False
+    assert result.bounded_market_data_daily_attempted is False
 
 
 def test_failed_preparation_short_circuits_expensive_readiness():
     entry_text = ENTRY_SCRIPT.read_text(encoding="utf-8")
     assert 'if not _PHASE["prepared"]' in entry_text
     assert '"wealth_core_nas_parity", controller.go.NOT_PROVEN' in entry_text
-    assert '"sharadar_readiness", controller.go.NOT_PROVEN' in entry_text
+    assert '"market_data_readiness", controller.go.NOT_PROVEN' in entry_text
     assert 'reason="PREPARATION_NOT_PASS"' in entry_text
 
 
 def test_already_current_contract_is_source_owned_and_has_no_second_ingest():
     original = controller.go._PREPARATION_CODE
     try:
-        phase_entry._install_reviewed_preparation_contract()
+        controller._install_single_preparation_contract()
         code = controller.go._PREPARATION_CODE
-        marker = "if recovered.mode == 'ALREADY_CURRENT':"
-        start = code.index(marker)
-        end = code.index("elif recovered.mode in {'BOUNDED_RESEED', 'BOUNDED_INITIAL_SEED'}:", start)
-        block = code[start:end]
-        assert "ingest.daily" not in block
-        assert "pass" in block
+        assert code.count("retained_go.prepare(c,") == 1
+        assert "outage_recovery.catch_up" not in code and "ingest.daily(" not in code
     finally:
         controller.go._PREPARATION_CODE = original
 
 
 def test_mutation_refusal_reason_codes_distinguish_local_from_source_authority():
     local = (
-        "sentinel.feed.maintenance_impl.SharadarMutationRefused: "
-        "source cursor sharadar-sep-lastupdated:v1 has an unknown durable state shape")
+        "sentinel.feed.maintenance_impl.SourceAuthorityRefused: "
+        "source cursor fixture-watermark:v1 has an unknown durable state shape")
     source = (
-        "sentinel.feed.maintenance_impl.SharadarMutationRefused: "
+        "sentinel.feed.maintenance_impl.SourceAuthorityRefused: "
         "SEP mutation ABC/2026-08-20 has no permanent identity; refusing to advance")
     assert controller._classify_preparation_failure(local)[0] == "LOCAL_CURSOR_CORRUPT"
     assert controller._classify_preparation_failure(source)[0] == "SOURCE_IDENTITY_UNRESOLVED"
@@ -125,7 +121,7 @@ def test_mutation_refusal_reason_codes_distinguish_local_from_source_authority()
 
 def test_mutation_refusal_detail_never_echoes_secret_or_url_shaped_text():
     code, detail = controller._classify_preparation_failure(
-        "SharadarMutationRefused: https://example.invalid?api_key=secret")
+        "SourceAuthorityRefused: https://example.invalid?api_key=secret")
     assert code == "SOURCE_AUTHORITY_REFUSED"
     assert detail is None
 

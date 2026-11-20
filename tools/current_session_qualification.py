@@ -87,7 +87,8 @@ def session_status(now):
 
 
 def require_private_host(values):
-    require(not any(value and name.startswith(('ALPACA_', 'NDL_', 'SHARADAR_', 'OPENFIGI_'))
+    from sentinel.archive_identifiers import PROVIDER
+    require(not any(value and name.startswith(('ALPACA_', 'OPENFIGI_', PROVIDER + '_', 'NDL_'))
                     for name, value in values.items()), 'PROVIDER_CREDENTIAL_ENVIRONMENT_FORBIDDEN')
     names = ('SENTINEL_PRIVATE_PG16_URL', 'SENTINEL_PRIVATE_PG16_SYSTEM_ID',
              'SENTINEL_PRIVATE_QUALIFICATION_TOKEN')

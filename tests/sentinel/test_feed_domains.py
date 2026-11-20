@@ -40,10 +40,6 @@ CLOSEADJ_PERMITTED = (
     # Names the prohibition in order to ENFORCE it: SEP_FORBIDDEN_COLUMNS is
     # what makes the ingest drop the column. Naming it is not reading it.
     "sentinel/feed/domains.py",
-    # Narrow transport/persistence path into the dedicated SPY-only table.
-    # sharadar.py names the field only to validate the SFP wire schema; it never
-    # exposes it to the security-bar domain.
-    "sentinel/feed/sharadar.py",
     # Alpaca's GO adapter maps only the adjusted SPY/BIL benchmark close into
     # the existing SFP wire field. Security bars remain separate raw/split.
     "sentinel/feed/alpaca_source.py",
@@ -195,7 +191,6 @@ class TestTheForbiddenColumn:
         assert CLOSEADJ_PERMITTED == (
             "sentinel/regime/spy.py",
             "sentinel/feed/domains.py",
-            "sentinel/feed/sharadar.py",
             "sentinel/feed/alpaca_source.py",
             "sentinel/feed/staging_impl.py",
             "sentinel/feed/store.py",
@@ -411,7 +406,7 @@ class TestNormalisation:
         assert bars[0].vendor.dividend_per_share == 0.75
 
     def test_both_column_spellings_are_accepted(self):
-        """Sharadar's raw export says `closeunadj`; bt_prices stores it as
+        """The archived raw export says `closeunadj`; bt_prices stores it as
         `close_unadjusted`. Reading one spelling would silently drop every row
         from the other source."""
         for key in ("closeunadj", "close_unadjusted"):

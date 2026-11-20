@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from sentinel import archive_identifiers as archive_ids
+
 from contextlib import contextmanager
 import importlib
 import os
@@ -68,7 +70,7 @@ def _real_deployment_config(tmp_path, **overrides):
         "SENTINEL_DEPLOYMENT_ID", "SENTINEL_PAPER_ACCOUNT_ID",
         "SENTINEL_RUNTIME_IMAGE_REPOSITORY", "SENTINEL_TEST_IMAGE_REPOSITORY",
         "SENTINEL_DEPLOY_SIGNING_KEY_ID", "SENTINEL_POSTGRES_PASSWORD",
-        "SENTINEL_BACKUP_DIR", "ALPACA_API_KEY", "ALPACA_SECRET_KEY", "SHARADAR_API_KEY")}
+        "SENTINEL_BACKUP_DIR", "ALPACA_API_KEY", "ALPACA_SECRET_KEY", archive_ids.RETIRED_CREDENTIAL)}
     env.update(SENTINEL_DEPLOY_SIGNING_KEY_FILE=str(key),
                SENTINEL_AUTHORITY_ARTIFACTS_DIR=str(tmp_path / "authority"))
     env.update(overrides)

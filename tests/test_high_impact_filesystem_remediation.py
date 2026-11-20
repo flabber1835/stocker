@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 
 import pytest
 
+from sentinel.archive_identifiers import PROVIDER as ARCHIVE_PROVIDER, RETIRED_CREDENTIAL
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -123,7 +125,7 @@ def test_env_writer_refuses_symlink_destination_even_with_force(
     source = tmp_path / "legacy.env"
     source.write_text("ALPACA_API_KEY=fixture-key\n"
                       "ALPACA_SECRET_KEY=fixture-secret\n"
-                      "SHARADAR_API_KEY=retired-secret\n")
+                      f"{RETIRED_CREDENTIAL}=retired-secret\n")
     victim = tmp_path / "victim"
     victim.write_text("ORIGINAL\n")
     destination = tmp_path / ".env"
@@ -142,13 +144,13 @@ def test_env_writer_creates_mode_0600_from_first_publication(tmp_path) -> None:
     source = tmp_path / "legacy.env"
     source.write_text("ALPACA_API_KEY=fixture-key\n"
                       "ALPACA_SECRET_KEY=fixture-secret\n"
-                      "SHARADAR_API_KEY=retired-secret\n")
+                      f"{RETIRED_CREDENTIAL}=retired-secret\n")
     destination = tmp_path / ".env"
 
     assert module.main([
         "--from", str(source), "--to", str(destination)]) == 0
     assert destination.stat().st_mode & 0o777 == 0o600
-    assert "SHARADAR_API_KEY" not in destination.read_text()
+    assert RETIRED_CREDENTIAL not in destination.read_text()
 
 
 def test_sep_interrupted_backed_up_promotion_restores_prior_generation(
@@ -161,7 +163,7 @@ def test_sep_interrupted_backed_up_promotion_restores_prior_generation(
     backup_dir = out / ".sentinel-sep-backup.deadbeef"
     backup_dir.mkdir()
 
-    final = out / "SHARADAR_SEP_2007.csv.gz"
+    final = out / f"{ARCHIVE_PROVIDER}_SEP_2007.csv.gz"
     backup = backup_dir / final.name
     staged = staging / final.name
     fingerprint_final = tmp_path / "sep-fingerprint.json"
@@ -207,7 +209,7 @@ def test_sep_rollback_can_restart_after_consuming_one_backup(
 
     entries = []
     for year in (2007, 2008):
-        final = out / f"SHARADAR_SEP_{year}.csv.gz"
+        final = out / f"{ARCHIVE_PROVIDER}_SEP_{year}.csv.gz"
         staged = staging / final.name
         backup = backup_dir / final.name
         final.write_bytes(f"new-{year}".encode())
@@ -247,8 +249,8 @@ def test_sep_rollback_can_restart_after_consuming_one_backup(
 
     module._recover_promotion(out, fingerprint_final=fingerprint_final)
 
-    assert (out / "SHARADAR_SEP_2007.csv.gz").read_bytes() == b"old-2007"
-    assert (out / "SHARADAR_SEP_2008.csv.gz").read_bytes() == b"old-2008"
+    assert (out / f"{ARCHIVE_PROVIDER}_SEP_2007.csv.gz").read_bytes() == b"old-2007"
+    assert (out / f"{ARCHIVE_PROVIDER}_SEP_2008.csv.gz").read_bytes() == b"old-2008"
     assert not marker.exists()
 
 

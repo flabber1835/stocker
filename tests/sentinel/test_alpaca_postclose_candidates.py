@@ -60,7 +60,9 @@ class Httpx:
         self.calls = []
         outer = self
 
-        class Client:
+        from tests.sentinel.activity_stream_fixture import ActivityStreamClient
+
+        class Client(ActivityStreamClient):
             def __init__(self, **_kwargs):
                 pass
 

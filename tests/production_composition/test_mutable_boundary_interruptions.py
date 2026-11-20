@@ -80,14 +80,14 @@ def test_kill_after_backup_refresh_before_audit_cannot_enter_schema_or_ingest(mo
 
     assert summary.status == backup.go.NOT_PROVEN
     assert summary.schema_migration_attempted is False
-    assert summary.bounded_sharadar_daily_attempted is False
+    assert summary.bounded_market_data_daily_attempted is False
     assert mutations == []
 
 
 @pytest.mark.parametrize("code,feed_boundary,prepare_call,publication_call", [
     (entry._RECOVERY_PREPARATION_CODE,
-     "store.migrate_schema(c)",
-     "outage_recovery.catch_up_waiting(", "publication.current(c)"),
+     "store.require_feed_schema(c)",
+     "retained_go.prepare(c, target_session=target,", "rolling_go_inputs.current(c)"),
     (install_entry._PREPARATION_CODE,
      "store.require_feed_schema(c)",
      "retained_go.prepare(c, target_session=target,", "rolling_go_inputs.current(c)"),
@@ -113,10 +113,10 @@ def test_installed_phase_guard_accepts_one_resumable_preparation(monkeypatch, du
     monkeypatch.setattr(phase.controller.entry, "install", lambda: None)
     monkeypatch.setattr(phase.controller.go, "_PREPARATION_CODE", code)
     if duplicate:
-        with pytest.raises(phase.controller.PhaseRefused, match="more than one data path"):
-            phase._install_reviewed_preparation_contract()
+        with pytest.raises(phase.controller.PhaseRefused, match="differs from the reviewed program"):
+            phase.controller._install_single_preparation_contract()
     else:
-        phase._install_reviewed_preparation_contract()
+        phase.controller._install_single_preparation_contract()
 
 
 @pytest.mark.parametrize("signal_rc", [137, 143])

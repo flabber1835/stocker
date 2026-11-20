@@ -1,5 +1,6 @@
 """Durable, non-authoritative hints for bounded missing-source recovery."""
 from __future__ import annotations
+from sentinel import archive_identifiers
 
 import json
 
@@ -15,7 +16,7 @@ class SourceCoveragePending(SourceAuthorityRefused):
         self.evidence = evidence
         from sentinel.feed import source_corrections
         self.corrections_sha256 = digest(source_corrections.current())
-        super().__init__('Sharadar SEP seed eligible-set coverage refused: '
+        super().__init__(archive_identifiers.FEED['SOURCE_COVERAGE_PREFIX']
                          + json.dumps(evidence, separators=(",", ":")))
 
 
@@ -30,7 +31,7 @@ def record(conn, lease, exc):
 def check(conn, lease, request, source):
     """A probe only permits another full proof, never publication by itself."""
     from sentinel.automation.model import SourceDataPending
-    from sentinel.feed import acquisition_work, rolling_source
+    from sentinel.feed import rolling_source
     from sentinel.feed.acquisition_parts import PartCorrupt, SourceRevision
     jobs._owned(conn, lease)
     row = conn.execute('SELECT evidence_sha256,payload FROM sentinel_acquisition_source_wait '
@@ -63,12 +64,8 @@ def check(conn, lease, request, source):
             source_probe.require_recovery_probe(hint, through=str(request.window.end))
         except SourceDataPending as exc:
             raise pending from exc
-        # Provider JSON now contains the absent identity. Discard only the
-        # affected monthly export, then require the full independent export proof.
         snapshot = next((item for item in source.snapshots if item.table == 'SEP'
                          and item.params['date.gte'] <= hint['session'] <= item.params['date.lte']), None)
         if snapshot is None:
             raise PartCorrupt('source wait session outside frozen acquisition window')
-        with acquisition_work.cached_file(snapshot) as path:
-            path.unlink(missing_ok=True)
         raise SourceRevision(rolling_source.component(snapshot), checksum, 'SOURCE_PROBE_RECOVERED')

@@ -2202,7 +2202,7 @@ def test_publishing_a_control_pass_before_cycle_validation_is_detected(monkeypat
 
 @pytest.fixture
 def idle_attestation(monkeypatch):
-    cfg = config()
+    cfg = config().model_copy(update={"control_poll_seconds": 3, "heartbeat_seconds": 3})
     runtime = production(cfg)
     waiting = cycle(cfg, state=CycleState.WAITING_OPEN)
     conn = FakeConnection(lease_row=(
@@ -2313,6 +2313,107 @@ def idle_attestation(monkeypatch):
                            full=full_checks, lifecycle=lifecycle_checks,
                            verdicts=verdicts, blocked=blocked, cfg=cfg,
                            flight_type=CompletedFlight)
+
+
+@async_test
+@pytest.mark.parametrize("phase", range(4))
+async def test_idle_renewal_during_recurring_writer_windows(idle_attestation, monkeypatch, phase):
+    item = idle_attestation
+    runtime = item.runtime
+    await runtime.control_wake(item.conn)
+    assert [v["verdict"] for v in item.verdicts] == ["PASS"]
+    last_pass = NOW
+    # The first full observer encounters a writer after the parent admits it.
+    item.state["now"] = NOW + timedelta(seconds=30)
+
+    def busy(_conn):
+        raise automation_runtime.publication.CorpusLockUnavailable("cleanup writer")
+
+    with monkeypatch.context() as child:
+        child.setattr(automation_runtime.feed_inputs, "require_current", busy)
+        await runtime.control_wake(item.conn)
+    assert len(item.verdicts) == 1
+
+    for tick in range(210):
+        now = NOW + timedelta(seconds=33 + 3 * tick)
+        item.state["now"] = now
+        item.conn.lease_row = (*item.conn.lease_row[:-1], now + timedelta(seconds=12))
+        count = len(item.verdicts)
+        with monkeypatch.context() as parent:
+            if tick % 4 == phase:
+                parent.setattr(runtime, "_idle_pin_mutable_authority", busy)
+            await runtime.control_wake(item.conn)
+        assert now - last_pass < timedelta(minutes=5), "eligible idle renewal starved"
+        if len(item.verdicts) > count:
+            assert item.verdicts[-1]["verdict"] == "PASS"
+            last_pass = now
+    assert not item.blocked
+
+
+@async_test
+async def test_idle_retry_counts_new_attempts_and_observes_revocation(idle_attestation, monkeypatch):
+    item = idle_attestation
+    runtime = item.runtime
+
+    def busy(_conn):
+        raise automation_runtime.publication.CorpusLockUnavailable("observer lost the pin")
+
+    monkeypatch.setattr(automation_runtime.feed_inputs, "require_current", busy)
+    for delay in (5, 10, 20, 40):
+        now = item.state["now"]
+        due = now + timedelta(seconds=delay)
+        assert await runtime.control_wake(item.conn) == due
+        item.state["now"] = now + timedelta(seconds=1)
+        assert await runtime.control_wake(item.conn) == due
+        item.state["now"] = due
+    assert not item.verdicts
+    item.state.update(now=due - timedelta(seconds=1), revoked=True)
+    await runtime.control_wake(item.conn)
+    assert [v["verdict"] for v in item.verdicts] == ["FAIL"]
+    assert item.blocked
+
+
+@async_test
+async def test_due_idle_retry_waits_one_poll_for_cancelled_observer_reap(idle_attestation):
+    item = idle_attestation
+    runtime = item.runtime
+    flight = item.flight_type({})
+    flight.cancelled.set()
+    flight.finished.clear()
+    permit = context(item.cfg).permit
+    runtime._idle_authority_flight = (
+        flight, runtime._idle_attestation_key(item.state["control"], permit), NOW)
+    due = runtime._idle_authority_retry(NOW)
+    item.state["now"] = due + timedelta(seconds=1)
+    assert await runtime.control_wake(item.conn) > item.state["now"]
+    assert runtime._idle_authority_retry_at == due
+    assert runtime._idle_authority_flight[0] is flight and not item.verdicts
+
+
+@async_test
+@pytest.mark.parametrize("first_failure", ["parent_pin", "connect"])
+async def test_clock_rollback_invalidates_pending_idle_retry(idle_attestation, monkeypatch, first_failure):
+    item = idle_attestation
+    item.state["now"] = NOW + timedelta(seconds=30)
+    with monkeypatch.context() as conflict:
+        def busy(_conn):
+            raise automation_runtime.publication.CorpusLockUnavailable("writer")
+
+        if first_failure == "connect":
+            from psycopg import OperationalError
+
+            def unavailable(*args, **kwargs):
+                raise OperationalError("unavailable")
+
+            conflict.setattr(automation_runtime.feed_store, "connect", unavailable)
+            wake = await item.runtime.bounded_control_wake(item.conn)
+        else:
+            conflict.setattr(item.runtime, "_idle_pin_mutable_authority", busy)
+            wake = await item.runtime.control_wake(item.conn)
+        assert wake > item.state["now"]
+    item.state["now"] -= timedelta(seconds=1)
+    await item.runtime.control_wake(item.conn)
+    assert [v["verdict"] for v in item.verdicts] == ["PASS"]
 
 
 @async_test

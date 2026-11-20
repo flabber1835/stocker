@@ -1,15 +1,12 @@
 """Local capacity evidence must reject incomplete work and resource pressure."""
 import argparse
 import ast
-import csv
 import inspect
-import io
 import json
-import zipfile
 
 import pytest
 
-from tools.acquisition_resources import cache_probe, fixtures, measurement, runner
+from tools.acquisition_resources import fixtures, measurement, runner
 
 
 def test_sampler_retains_phase_peaks_without_retaining_samples(tmp_path, monkeypatch):
@@ -93,32 +90,54 @@ def test_cgroup_working_set_excludes_inactive_file_cache(tmp_path):
         (tmp_path / name).write_text(value)
     result = measurement.cgroup(tmp_path)
     assert result["working"] == 500 and result["anon"] == 300 and result["peak"] == 950
+    (tmp_path / "memory.max").write_text("max\n")
+    unbounded = measurement.cgroup(tmp_path)
+    assert unbounded["limit"] is None and unbounded["working"] == result["working"]
+    assert not measurement.qualifies({**healthy(), "cgroup": unbounded}, 1000)
     (tmp_path / "memory.peak").unlink()
     with pytest.raises(FileNotFoundError):
         measurement.cgroup(tmp_path)
 
 
-def test_streamed_fixture_cardinality_and_csv_metadata(tmp_path):
-    profile = fixtures.Profile(name="test", securities=2, tickers=3, actions=7)
-    manifest = fixtures.build(profile, tmp_path)
-    assert sum(v["rows"] for k, v in manifest.items() if k.startswith("SEP-")) == 2 * 379
-    assert manifest["ACTIONS"]["rows"] == 7
-    assert manifest["TICKERS"]["rows"] == 3
-    for key, entry in manifest.items():
-        with zipfile.ZipFile(tmp_path / (key + ".zip")) as archive:
-            content = archive.read(archive.namelist()[0])
-        assert len(content) == entry["csv_bytes"]
-        assert len(list(csv.DictReader(io.StringIO(content.decode())))) == entry["rows"]
+@pytest.mark.parametrize("kernel_limit,expected", [("max", None), ("1000", 1000)])
+def test_database_sampler_uses_the_kernel_ceiling(monkeypatch, kernel_limit, expected):
+    stats = ("oom 0\noom_kill 0\nfile 100\ninactive_file 100\nactive_file 0\n"
+             "anon 400\nshmem 0\nslab_unreclaimable 0\nkernel_stack 0\npagetables 0")
+    monkeypatch.setattr(runner, "command", lambda *args: f"500\n600\n{kernel_limit}\n{stats}")
+    result = runner.database_memory("database")
+    assert result["limit"] == expected
+    assert measurement.qualifies({**healthy(), "cgroup": result}, 1000) == (expected == 1000)
 
 
-def test_cache_probe_reports_actual_disk_consumption(tmp_path):
-    result = cache_probe.probe(tmp_path)
-    assert result["larger"] == measurement.disk(tmp_path)
-    assert result["small"]["cache_files"] == 64
-    assert result["small"]["cache_bytes"] == 64 * 4096
-    assert result["larger"]["cache_files"] == 64
-    assert result["larger"]["cache_bytes"] == 64 * 16384
-    assert result["larger"]["partial_bytes"] == 0
+def test_native_resource_profile_reuses_retained_price_pages(tmp_path, monkeypatch):
+    import threading
+    from http.server import ThreadingHTTPServer
+    from tests.support.postgres import _EphemeralPostgres
+    from tools.acquisition_resources import worker
+    profile = fixtures.Profile(name="test", securities=2, tickers=3, actions=7, formation=False)
+    server = ThreadingHTTPServer(('127.0.0.1', 0), fixtures.handler(profile))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    db = _EphemeralPostgres()
+    db.start()
+    thread.start()
+    try:
+        monkeypatch.setenv('RESOURCE_DSN', db.sync_dsn)
+        monkeypatch.setenv('SENTINEL_STATE_DIR', str(tmp_path))
+        monkeypatch.setenv('ALPACA_API_KEY', 'fixture-data-id')
+        monkeypatch.setenv('ALPACA_SECRET_KEY', 'fixture-data-secret')
+        monkeypatch.setenv('OPENFIGI_API_KEY', 'fixture-mapping')
+        from sentinel import backup_runtime_authority
+        monkeypatch.setattr(backup_runtime_authority, 'POLICY_MARKER', tmp_path/'no-policy')
+        result = worker.run(profile, 2, address=f'http://127.0.0.1:{server.server_port}')
+        cold, replay = result['cycles']
+        assert cold['rows'] == replay['rows'] == 600
+        assert cold['provider']['/v2/stocks/bars'] == replay['provider']['/v2/stocks/bars'] > 0
+        assert cold['provider']['/v3/mapping'] == replay['provider']['/v3/mapping'] > 0
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+        db.stop()
 
 
 @pytest.mark.parametrize("failure", (RuntimeError, KeyboardInterrupt))

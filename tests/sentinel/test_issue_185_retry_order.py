@@ -28,7 +28,7 @@ def _base(monkeypatch, events, failed_provider, *, on_publish=None):
         ingest._impl.feed_store, "latest_visible_session",
         lambda conn: "2026-08-17")
     monkeypatch.setattr(
-        coherence, "StableSharadarFetch",
+        coherence, 'StableTableFetch',
         lambda fetch, after_session=None: fetch)
     monkeypatch.setattr(
         recovery, "extended_overlap_days", lambda conn, requested: requested)

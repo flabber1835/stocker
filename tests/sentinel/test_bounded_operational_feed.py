@@ -7,10 +7,9 @@ from types import SimpleNamespace
 import pytest
 
 from sentinel.feed import (
-    operational_source as source, snapshot_export as export, sharadar,
+    operational_source as source, snapshot_export as export, archive_tables,
     authority, publication, ingest, outage_recovery, maintenance_impl,
 )
-from tests.support.table_export import _Http, _Response, _status
 
 
 def install_source(monkeypatch, *, changed=False):
@@ -22,11 +21,11 @@ def install_source(monkeypatch, *, changed=False):
         return export.ExportSnapshot(table, dict(params or {}), "https://unit.invalid/file", stamp, stamp)
     def download(snapshot, *, required):
         calls.append(("download", snapshot.table, snapshot.params))
-        if snapshot.table == sharadar.SEP:
+        if snapshot.table == archive_tables.SEP:
             day = source.calendar.sessions_in_range(snapshot.params["date.gte"], snapshot.params["date.lte"])[-1]
             rows = [{"date": day, "ticker": "TEST", "lastupdated": "2026-08-19",
                      "open": "10", "close": "10", "closeunadj": "10", "volume": "100"}]
-        elif snapshot.table == sharadar.ACTIONS:
+        elif snapshot.table == archive_tables.ACTIONS:
             rows = [{"date": "2000-01-03", "action": "renamefrom", "ticker": "TEST", "name": "Test",
                      "value": "0", "contraticker": "OLD", "contraname": "Old"}]
         else:
@@ -55,7 +54,7 @@ def test_capture_predecessors_resolve_renames_and_reused_tickers_at_source_date(
                 dict(ticker="REUSE", date="2026-08-19", close="20", closeunadj="20"),
                 dict(ticker="RENAMED", date="2026-08-20", close="6", closeunadj="12")]
         capture.db.executemany("INSERT INTO source VALUES (?,?,?,?,?,?)", [
-            (sharadar.SEP, r["date"], "", r["ticker"], "", json.dumps(r)) for r in reversed(rows)])
+            (archive_tables.SEP, r["date"], "", r["ticker"], "", json.dumps(r)) for r in reversed(rows)])
 
         def resolve(ticker, day):
             return "OLD-ID" if ticker == "RENAMED" or day == "2026-08-18" else "NEW-ID"
@@ -74,7 +73,7 @@ def test_same_capture_predecessor_does_not_hide_real_split_disagreement():
         capture.loaded = True
         prior = dict(ticker="AAA", date=capture.start, close="50", closeunadj="100")
         capture.db.execute("INSERT INTO source VALUES (?,?,?,?,?,?)",
-                           (sharadar.SEP, capture.start, "", "AAA", "", json.dumps(prior)))
+                           (archive_tables.SEP, capture.start, "", "AAA", "", json.dumps(prior)))
         report = domains.NormalisationReport()
         row = dict(ticker="AAA", date=capture.end, close="50", closeunadj="50", open="50", volume="100")
         bars = list(domains.normalise_sep_rows([row], report=report,
@@ -95,14 +94,9 @@ def test_larger_startup_requirement_refuses(monkeypatch):
         source.price_window("2026-09-14")
 
 
-@pytest.mark.parametrize("status", ["creating", "regenerating"])
-def test_diagnostic_probe_reports_pending_without_polling_or_download(monkeypatch, status):
-    monkeypatch.setenv("SHARADAR_API_KEY", "unit-key")
-    http = _Http([_Response(payload=_status(state=status))])
-    with pytest.raises(export.ExportPending, match="status=" + status):
-        export.probe_snapshot(sharadar.SEP, params=sharadar.date_params("2026-08-18", "2026-08-19"),
-                              http=http, sleep=lambda *a: pytest.fail("export probe cannot poll"))
-    assert len(http.client.calls) == 1
+def test_remote_generation_probe_has_no_source_when_replaying_history():
+    with pytest.raises(archive_tables.CaptureRequired):
+        export.probe_snapshot(archive_tables.SEP, params=archive_tables.date_params("2026-08-18", "2026-08-19"))
 
 
 def test_bounded_recovery_includes_stable_local_key_and_value_drift():
@@ -111,16 +105,16 @@ def test_bounded_recovery_includes_stable_local_key_and_value_drift():
         assert failure in outage_recovery._RECOVERABLE_LOCAL_STATE
 
 
-@pytest.mark.parametrize("table", [sharadar.ACTIONS, sharadar.TICKERS, sharadar.SEP])
+@pytest.mark.parametrize("table", [archive_tables.ACTIONS, archive_tables.TICKERS, archive_tables.SEP])
 def test_preflight_refuses_before_any_file_download(monkeypatch, table):
     calls = install_source(monkeypatch)
     original = export.probe_snapshot
     def unavailable(selected, **kwargs):
         if selected == table:
-            raise export.SharadarSnapshotExportError("status=creating")
+            raise export.SnapshotExportError("status=creating")
         return original(selected, **kwargs)
     monkeypatch.setattr(export, "probe_snapshot", unavailable)
-    with pytest.raises(export.SharadarSnapshotExportError, match="creating"):
+    with pytest.raises(export.SnapshotExportError, match="creating"):
         with source.acquisition("2026-08-18", "2026-08-19"):
             pytest.fail("acquisition must refuse")
     assert not any(c[0] == "download" for c in calls)
@@ -129,21 +123,19 @@ def test_preflight_refuses_before_any_file_download(monkeypatch, table):
 
 def test_repeated_sep_and_cdc_proofs_download_once(monkeypatch):
     calls = install_source(monkeypatch)
-    monkeypatch.setattr(sharadar.DEFAULT_SOURCE, "fetch_table",
-                        lambda *a, **k: pytest.fail("no paginated fallback"))
     with source.acquisition("2026-08-18", "2026-08-19") as capture:
-        params = sharadar.date_params(capture.start, capture.end)
-        first = list(sharadar.fetch_table(sharadar.SEP, params))
+        params = archive_tables.date_params(capture.start, capture.end)
+        first = list(archive_tables.fetch_table(archive_tables.SEP, params))
         first[0]["close"] = "99"
-        second = list(sharadar.fetch_table(sharadar.SEP, params))
+        second = list(archive_tables.fetch_table(archive_tables.SEP, params))
         assert second[0]["close"] == "10"
-        assert list(sharadar.fetch_table(sharadar.SEP, {"lastupdated.gte": "2026-08-19", "lastupdated.lte": "2026-08-19"})) == second
+        assert list(archive_tables.fetch_table(archive_tables.SEP, {"lastupdated.gte": "2026-08-19", "lastupdated.lte": "2026-08-19"})) == second
         rows, evidence = export.fetch_complete_sep(start="2026-08-19", end="2026-08-19")
         assert rows == second
         assert evidence["file_sha256"] == "a" * 64
-        assert list(sharadar.fetch_table(sharadar.ACTIONS, {"date.gte": "1900-01-01", "date.lte": capture.end}))[0]["date"] == "2000-01-03"
-        assert len(list(sharadar.fetch_table(sharadar.ACTIONS, {"action": "renamefrom,rename"}))) == 1
-        assert not list(sharadar.fetch_table(sharadar.ACTIONS, {"action": "split"}))
+        assert list(archive_tables.fetch_table(archive_tables.ACTIONS, {"date.gte": "1900-01-01", "date.lte": capture.end}))[0]["date"] == "2000-01-03"
+        assert len(list(archive_tables.fetch_table(archive_tables.ACTIONS, {"action": "renamefrom,rename"}))) == 1
+        assert not list(archive_tables.fetch_table(archive_tables.ACTIONS, {"action": "split"}))
         capture.corroborate()
     assert len([c for c in calls if c[:2] == ("download", "SEP")]) == 1
     assert source.current() is None
@@ -162,20 +154,20 @@ def test_monthly_exports_are_each_downloaded_once_across_all_replays(monkeypatch
     original = export.download_snapshot
     def partition(snapshot, **kwargs):
         rows, evidence = original(snapshot, **kwargs)
-        if snapshot.table == sharadar.SEP:
+        if snapshot.table == archive_tables.SEP:
             rows[0]["date"] = source.calendar.sessions_in_range(
                 snapshot.params["date.gte"], snapshot.params["date.lte"])[0]
         return rows, evidence
     monkeypatch.setattr(export, "download_snapshot", partition)
     start, end = source.price_window("2026-09-14")
     with source.acquisition(start, end) as capture:
-        first = list(sharadar.fetch_table(sharadar.SEP, sharadar.date_params(start, end)))
-        assert list(sharadar.fetch_table(sharadar.SEP, sharadar.date_params(start, end))) == first
+        first = list(archive_tables.fetch_table(archive_tables.SEP, archive_tables.date_params(start, end)))
+        assert list(archive_tables.fetch_table(archive_tables.SEP, archive_tables.date_params(start, end))) == first
         recent, evidence = export.fetch_complete_sep(start="2026-08-01", end=end)
         assert recent and all("2026-08-01" <= r["date"] <= end for r in recent)
         assert len(capture.evidence) == len(capture.snapshots)
         assert evidence["parts"]
-    downloads = [c for c in calls if c[:2] == ("download", sharadar.SEP)]
+    downloads = [c for c in calls if c[:2] == ("download", archive_tables.SEP)]
     assert len(downloads) == len(list(source._months(start, end)))
     assert all(start <= c[2]["date.gte"] <= c[2]["date.lte"] <= end for c in downloads)
 
@@ -185,7 +177,7 @@ def test_mixed_sep_partition_refresh_refuses_before_download(monkeypatch):
     original = export.probe_snapshot
     def mixed(table, *, params=None):
         result = original(table, params=params)
-        if table == sharadar.SEP and params["date.gte"].startswith("2026-09"):
+        if table == archive_tables.SEP and params["date.gte"].startswith("2026-09"):
             result = export.ExportSnapshot(table, result.params, result.link,
                                            result.snapshot + timedelta(seconds=1),
                                            result.refreshed + timedelta(seconds=1))
@@ -201,7 +193,7 @@ def test_outside_window_refuses_before_acquisition(monkeypatch):
     calls = install_source(monkeypatch)
     with source.acquisition("2026-08-18", "2026-08-19") as capture:
         with pytest.raises(source.OperationalAcquisitionRefused, match="allowed"):
-            list(capture.fetch_rows(sharadar.SEP, {"date.gte": "2006-01-01", "date.lte": capture.end}))
+            list(capture.fetch_rows(archive_tables.SEP, {"date.gte": "2006-01-01", "date.lte": capture.end}))
     assert not any(c[0] == "download" for c in calls)
 
 
@@ -223,7 +215,7 @@ def test_non_session_source_row_refuses_before_private_staging(monkeypatch):
     original = export.download_snapshot
     def weekend(snapshot, **kwargs):
         rows, evidence = original(snapshot, **kwargs)
-        if snapshot.table == sharadar.SEP:
+        if snapshot.table == archive_tables.SEP:
             rows[0]["date"] = "2026-08-22"
         return rows, evidence
     monkeypatch.setattr(export, "download_snapshot", weekend)

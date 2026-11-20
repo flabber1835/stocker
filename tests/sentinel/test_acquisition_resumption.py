@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 
 from sentinel.feed import publisher_pipeline, rolling_jobs as jobs, rolling_publisher as publisher
-from sentinel.feed import rolling_source, sharadar, snapshot_export
+from sentinel.feed import rolling_source, archive_tables, snapshot_export
 from sentinel.feed.rolling_contract import FormationWindow, digest
 from tests.sentinel.test_rolling_snapshot_publisher import conn, pg, source, retry_now
 
@@ -190,12 +190,12 @@ def test_nineteen_partitions_resume_without_repeated_download(conn, source, monk
         if snapshot.table == "SEP":
             attempted += 1
             if attempted == 3:
-                raise sharadar.SharadarRetryDeferred(1)
+                raise archive_tables.RetryDeferred(1)
         downloads[rolling_source.component(snapshot)] += 1
         return original(snapshot, **kwargs)
     monkeypatch.setattr(snapshot_export, "download_snapshot", interrupted)
     deadline = jobs.status(conn, job)["deadline"]
-    with pytest.raises(sharadar.SharadarRetryDeferred):
+    with pytest.raises(archive_tables.RetryDeferred):
         publisher.prepare(conn, job)
     retry_now(conn, job)
     publisher.prepare(conn, job)
@@ -215,20 +215,25 @@ def drive(conn, job, monkeypatch):
 
 
 def real_exports(source, monkeypatch, tmp_path):
-    """Keep actual ZIP parsing, checksum/cache, source validation and staging."""
+    """Stage independent ZIP captures and observe verified archive reads."""
     import csv
+    import hashlib
     import io
     import zipfile
     from sentinel.feed import acquisition_work
     monkeypatch.setenv("SENTINEL_STATE_DIR", str(tmp_path))
-    downloads = Counter()
-    def transfer(client, link, *, details, **kwargs):
-        table = details["table"]
+    reads = Counter()
+    cache = acquisition_work.cache_root()
+    def key(snapshot):
+        return snapshot.table, tuple(sorted(snapshot.params.items()))
+    def stage(snapshot):
+        path = cache / (acquisition_work.file_key(snapshot) + ".zip")
+        if path.exists() or key(snapshot) in reads:
+            return snapshot
+        table = snapshot.table
         rows = source[table]
         if table == "SEP":
-            rows = [r for r in rows if details["date_from"] <= r["date"] <= details["date_to"]]
-        key = (table, details["date_from"], details["date_to"])
-        downloads[key] += 1
+            rows = [r for r in rows if snapshot.params["date.gte"] <= r["date"] <= snapshot.params["date.lte"]]
         body = io.StringIO(newline="")
         writer = csv.DictWriter(body, fieldnames=list(rows[0]))
         writer.writeheader()
@@ -236,21 +241,30 @@ def real_exports(source, monkeypatch, tmp_path):
         blob = io.BytesIO()
         with zipfile.ZipFile(blob, "w", zipfile.ZIP_DEFLATED) as archive:
             archive.writestr(table + ".csv", body.getvalue())
-        return blob.getvalue()
-    monkeypatch.setattr(snapshot_export, "_safe_download", transfer)
+        data = blob.getvalue()
+        path.write_bytes(data)
+        path.with_suffix(".sha256").write_bytes(hashlib.sha256(data).hexdigest().encode())
+        return snapshot
+    read = acquisition_work.read_cached
+    def counted(snapshot):
+        reads[key(snapshot)] += 1
+        return read(snapshot)
+    monkeypatch.setattr(acquisition_work, "read_cached", counted)
     monkeypatch.setattr(snapshot_export, "download_snapshot", REAL_DOWNLOAD)
-    return downloads, acquisition_work.cache_root()
+    return reads, cache, stage
 
 
 def test_repeated_pauses_cache_eviction_and_repackaging_do_not_redownload(conn, source, monkeypatch, tmp_path):
     from dataclasses import replace
     from datetime import timedelta
     job = formation_job(conn, source)
-    downloads, cache = real_exports(source, monkeypatch, tmp_path)
+    reads, cache, stage = real_exports(source, monkeypatch, tmp_path)
     probe = snapshot_export.probe_snapshot
     epoch = [0]
-    monkeypatch.setattr(snapshot_export, "probe_snapshot", lambda *a, **kw:
-        replace(probe(*a, **kw), snapshot=probe(*a, **kw).snapshot + timedelta(seconds=epoch[0])))
+    def observed(*args, **kwargs):
+        snapshot = probe(*args, **kwargs)
+        return stage(replace(snapshot, snapshot=snapshot.snapshot + timedelta(seconds=epoch[0])))
+    monkeypatch.setattr(snapshot_export, "probe_snapshot", observed)
     calls = [0]
     def interrupted(snapshot, **kwargs):
         if snapshot.table == "SEP":
@@ -259,12 +273,12 @@ def test_repeated_pauses_cache_eviction_and_repackaging_do_not_redownload(conn, 
                 epoch[0] += 1  # Provider repackages unchanged-generation exports.
                 for path in cache.glob("*.zip"):
                     path.unlink()  # Retained parts must survive ZIP eviction.
-                raise sharadar.SharadarRetryDeferred(1)
+                raise archive_tables.RetryDeferred(1)
         return REAL_DOWNLOAD(snapshot, **kwargs)
     monkeypatch.setattr(snapshot_export, "download_snapshot", interrupted)
     result = drive(conn, job, monkeypatch)
     assert result and epoch[0] >= 5
-    assert len(downloads) == 21 and set(downloads.values()) == {1}
+    assert len(reads) == 21 and set(reads.values()) == {1}
     assert conn.execute("SELECT COUNT(*) FROM sentinel_acquisition_prices").fetchone()[0] == 758
     assert conn.execute("SELECT COUNT(*) FROM sentinel_snapshot_comparisons").fetchone()[0] == 1
 
@@ -273,7 +287,7 @@ def test_repeated_pauses_cache_eviction_and_repackaging_do_not_redownload(conn, 
 def test_reference_revision_reuses_prices_and_preserves_deadline(conn, source, monkeypatch, component):
     job = formation_job(conn, source)
     deadline = jobs.status(conn, job)["deadline"]
-    original = rolling_source.SharadarSource.corroborate
+    original = rolling_source.ArchiveSource.corroborate
     calls = [0]
     def revised(self):
         calls[0] += 1
@@ -283,7 +297,7 @@ def test_reference_revision_reuses_prices_and_preserves_deadline(conn, source, m
             else:
                 source[component][0]["open"] = "50.01"
         return original(self)
-    monkeypatch.setattr(rolling_source.SharadarSource, "corroborate", revised)
+    monkeypatch.setattr(rolling_source.ArchiveSource, "corroborate", revised)
     result = drive(conn, job, monkeypatch)
     child = str(conn.execute("SELECT child_job_id FROM sentinel_acquisition_successors").fetchone()[0])
     assert result and jobs.status(conn, job)["state"] == "REFUSED"
@@ -304,13 +318,13 @@ def test_persistent_reference_instability_stops_at_durable_restart_limit(conn, s
     job = formation_job(conn, source, absolute_deadline=expected_deadline)
     deadline = datetime.fromisoformat(jobs.status(conn, job)["deadline"])
     assert deadline == expected_deadline
-    original = rolling_source.SharadarSource.corroborate
+    original = rolling_source.ArchiveSource.corroborate
     counter = [0]
     def revised(self):
         counter[0] += 1
         source["TICKERS"][0]["sector"] = "Healthcare" if counter[0] % 2 else "Technology"
         return original(self)
-    monkeypatch.setattr(rolling_source.SharadarSource, "corroborate", revised)
+    monkeypatch.setattr(rolling_source.ArchiveSource, "corroborate", revised)
     with pytest.raises(jobs.JobRefused, match="restart limit"):
         drive(conn, job, monkeypatch)
     assert counter[0] == MAX_SUCCESSORS + 1
@@ -429,7 +443,7 @@ def test_sep_refresh_invalidates_old_prices_but_reuses_references(conn, source, 
         counts[rolling_source.component(snapshot)] += 1
         if snapshot.table == "SEP" and sum(v for k, v in counts.items() if k.startswith("SEP.")) == 3:
             revised[0] = True
-            raise sharadar.SharadarRetryDeferred(1)
+            raise archive_tables.RetryDeferred(1)
         rows, proof = download(snapshot, **kwargs)
         proof["last_refreshed_time"] = snapshot.refreshed.isoformat()
         return rows, proof
@@ -507,7 +521,7 @@ def test_successor_never_renews_exhausted_deadline(conn, source):
 @pytest.mark.parametrize('component', ['TICKERS.ASSETS','TICKERS.PLAN','TICKERS.FIGI.1'])
 def test_metadata_successor_does_not_parse_suffix_as_date(conn,source,capsys,component):
     from sentinel.feed.acquisition_parts import successor
-    import sentinel_go_feed_progress as host_progress
+    from scripts import sentinel_go_feed_progress as host_progress
     job = formation_job(conn,source)
     lease = jobs.claim(conn,job,lease_seconds=600)
     deadline = jobs.status(conn,job)['deadline']
@@ -725,7 +739,7 @@ def test_progress_distinguishes_reuse_from_download(conn, source, monkeypatch, c
         if snapshot.table == "SEP":
             calls[0] += 1
             if calls[0] == 2:
-                raise sharadar.SharadarRetryDeferred(1)
+                raise archive_tables.RetryDeferred(1)
         return original(snapshot, **kwargs)
     monkeypatch.setattr(snapshot_export, "download_snapshot", pause)
     drive(conn, job, monkeypatch)

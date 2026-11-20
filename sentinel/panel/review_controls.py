@@ -90,11 +90,19 @@ def render(review, *, current=True):
 
 SCRIPT = """<script>
 (function(){
+  var pending = false;
+  var spent = new Set();
+  window.syncReviewControl = function() {
+    var control = document.getElementById('review-acknowledge');
+    if (control) { control.disabled = pending || !control.dataset.viewToken || spent.has(control.dataset.viewToken); }
+  };
   document.addEventListener('click', async function(event){
     var button = event.target && event.target.closest('#review-acknowledge');
-    if (!button || button.disabled || button.dataset.reviewSubmitting === 'true') { return; }
+    if (!button || button.disabled || pending || !button.dataset.viewToken || spent.has(button.dataset.viewToken)) { return; }
+    var token = button.dataset.viewToken;
+    pending = true;
+    spent.add(token);
     button.disabled = true;
-    button.dataset.reviewSubmitting = 'true';
     var result = document.getElementById('review-result');
     result.textContent = 'Checking the current state…';
     var controller = new AbortController();
@@ -103,7 +111,7 @@ SCRIPT = """<script>
       var response = await fetch('/review/acknowledge', {
         method:'POST', cache:'no-store', credentials:'same-origin',
         headers:{'Content-Type':'application/json'}, signal:controller.signal,
-        body:JSON.stringify({token:button.dataset.viewToken})
+        body:JSON.stringify({token:token})
       });
       if (!response.ok) { throw new Error('changed'); }
       var reviewed = await response.json();
@@ -116,7 +124,8 @@ SCRIPT = """<script>
       result.textContent = 'State changed or is unavailable. Refresh and review again.';
     } finally {
       clearTimeout(timeout);
-      // A consumed or stale view must never be submitted again from this page.
+      pending = false;
+      window.syncReviewControl();
     }
   });
 })();

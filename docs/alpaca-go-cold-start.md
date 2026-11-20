@@ -1,5 +1,16 @@
 # Alpaca-led cold-start GO without Sharadar
 
+## Provider retirement
+
+Current acquisition uses Alpaca and OpenFIGI. Each transport owns its rate
+limit and receives the remaining time from the job's original deadline. A
+cooldown for a different provider cannot delay admission. Historical table
+names, data and signed receipts identify their actual origin. Reading or
+restoring those records grants no authority to contact their former vendor.
+The image packages the original correction dataset from `data/market-history/`
+with its certified contents. The offline corpus tools use the identifiers
+recorded in the archive to locate historical files.
+
 The current [source `/3` tradability boundary](alpaca-tradability-boundary.md)
 supersedes the historical `tradable` inventory criterion below. Active listing
 identity supplies market data; broker trading permission remains in execution.
@@ -27,10 +38,10 @@ and [inclusive stock-bar bounds](https://docs.alpaca.markets/us/reference/stockb
 
 Alpaca SIP daily bars and corporate actions supply operational market facts.
 The free Nasdaq Trader `nasdaqlisted.txt` and `otherlisted.txt` directories
-supply a conservative current common-stock universe. This is an Alpaca-led,
-Sharadar-free operational path, **not literally Alpaca-only input**. Preserve
-Sharadar code, database data, and backtest tools for historical research; do not
-query Sharadar, read its operational tables, or require its credential in GO.
+supply a conservative current common-stock universe. This was the original
+Alpaca-led universe policy. Historical research replays captured data and uses
+the original signed source identifiers. Current GO uses the active providers
+specified in the deployment contract.
 Alpaca account/position/activity APIs remain inside execution and
 reconciliation. Wealth Core and Sentinel do not read broker holdings.
 The GO preparation child receives the two Alpaca API credentials solely to
@@ -50,9 +61,9 @@ The older local-full read-only Sharadar preflight is not part of this GO route.
 Both normal and local-full GO use the same bounded Alpaca preparation and
 readiness checks; retaining a separate Sharadar preflight would reintroduce a
 credential/source dependency before that preparation begins.
-The human-facing D2 banner calls this market-data readiness. Its existing
-`sharadar_readiness` evidence key stays unchanged in schema v1 so older bundle
-readers do not misparse the verdict; the gate now reads Alpaca/Nasdaq content.
+The current GO banner and bundle gate use `market_data_readiness`. The gate
+reads the authenticated Alpaca/OpenFIGI publication. Previously produced
+bundles retain their original identifiers.
 
 The selected strategy and snapshot have new source/policy identities. An old
 Sharadar publication or book cannot satisfy this GO. The first GO does not

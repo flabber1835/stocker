@@ -61,7 +61,7 @@ SHADOW_GATES = frozenset({
     "certified_suite_no_skips",
     "database_financial_health",
     "wealth_core_nas_parity",
-    "sharadar_readiness",
+    "market_data_readiness",
     "zero_mutation_boundary",
 })
 
@@ -162,7 +162,8 @@ def _panel_image_id() -> str:
 
 def _assert_publication_advance(seeded, published, bound_subject: str) -> None:
     _require(isinstance(seeded, dict) and published["version"] > seeded["version"]
-             and published["visible_frontier"] > seeded["visible_frontier"],
+             and bool(published["visible_frontier"])
+             and (seeded["visible_frontier"] is None or published["visible_frontier"] > seeded["visible_frontier"]),
              "canonical GO did not advance and publish beyond the retained seed")
     publication_value = go.data_publication_subject_value({
         key: published[key] for key in ("publication_fingerprint", "visible_frontier")})
@@ -188,7 +189,7 @@ def _success_evidence(completed: subprocess.CompletedProcess[str], commit: str) 
     )
 
     validation, bundle_path, bundle_sha256 = _load_validation_from_log(log)
-    _require(validation.get("schema") == "sentinel.nas-go-validation/1",
+    _require(validation.get("schema") == "sentinel.nas-go-validation/2",
              "validation bundle schema changed")
     git = validation.get("git") if isinstance(validation.get("git"), dict) else {}
     _require(git.get("commit") == commit and git.get("origin_main") == commit,
@@ -219,8 +220,8 @@ def _success_evidence(completed: subprocess.CompletedProcess[str], commit: str) 
              "Phase C schema/feed preparation did not PASS")
     _require(prep.get("schema_migration_attempted") is True,
              "schema migration was not exercised by the successful GO")
-    _require(prep.get("bounded_sharadar_daily_attempted") is True,
-             "bounded Sharadar preparation was not exercised by the successful GO")
+    _require(prep.get("bounded_market_data_daily_attempted") is True,
+             "bounded market-data preparation was not exercised by the successful GO")
 
     health = validation.get("database_financial_health")
     _require(isinstance(health, dict) and health.get("status") == "PASS",
@@ -248,6 +249,7 @@ def _success_evidence(completed: subprocess.CompletedProcess[str], commit: str) 
     seeded = base.SEEDED_PUBLICATION
     _assert_publication_advance(seeded, published, subjects["data_publication"])
 
+    base.require_provider_requests(base.SOURCE_REQUESTS)
     handoff = base._load_json(base.HANDOFF)
     _require(handoff.get("git_commit") == commit,
              "handoff is not bound to the tested commit")
@@ -501,7 +503,7 @@ def run(*, output: Path, sensitivity: bool, sensitivity_group: str = "all") -> d
     backup = work / "backup"
     backup.mkdir(parents=True)
     result = {
-        "schema": "sentinel.production-go-e2e/1",
+        "schema": "sentinel.production-go-e2e/2",
         "git_commit": commit,
         "canonical_entrypoint": list(base.ENTRYPOINT),
         "ci_git_authority": "local_bare_origin_main_bound_to_tested_commit",

@@ -31,129 +31,12 @@ from sentinel.execution.commands import committed_quantity
 from sentinel.execution.numeric import display_decimal, exact_decimal
 from sentinel.execution.plan import ExecutionPlan, OpeningIntent
 from sentinel.execution.projection import Projection, desired_basket, project
+from sentinel import archive_identifiers
 from sentinel.feed import calendar
 
 
 DEFENSIVE_SECURITY_ID = "SENTINEL:BIL"
-DATA_SEMANTICS_IDENTITY_SCHEMA = "sentinel-sharadar-book-semantics/v1"
-_DATA_SEMANTICS_MODULES = (
-    "sentinel.breadth.classifier",
-    "sentinel.controller.median5_breadth",
-    "sentinel.breadth.returns",
-    "sentinel.controller.concordance",
-    "sentinel.controller.concordance_parent",
-    "sentinel.controller.frozen_rule",
-    "sentinel.controller.ldrc",
-    "sentinel.controller.median5",
-    "sentinel.controller.ex3_v6",
-    "sentinel.controller.champion",
-    "sentinel.controller.champion_config",
-    "sentinel.controller.champion_frozen",
-    "sentinel.controller.owned_impairment",
-    "sentinel.controller.machine",
-    "sentinel.controller.recent_leadership",
-    "sentinel.core.bootstrap",
-    "sentinel.core.formation",
-    "sentinel.core.formation_inputs",
-    "sentinel.formation_bootstrap",
-    "sentinel.formed_origin",
-    "sentinel.formed_economics",
-    "sentinel.core.catchup",
-    "sentinel.core.decision",
-    "sentinel.core.loader",
-    "sentinel.core.kernel",
-    "sentinel.core.cash_distributions",
-    "sentinel.economic_migration",
-    "sentinel.core.history",
-    "sentinel.core.spinoffs",
-    "sentinel.core.production",
-    "sentinel.core.rolling_inputs",
-    "sentinel.core.rolling_continuity",
-    "sentinel.core.window_policy",
-    "sentinel.core.window_features",
-    "sentinel.core.window_continuity",
-    "sentinel.core.rolling_reader",
-    "sentinel.core.session",
-    "sentinel.core.terminal",
-    "sentinel.execution.plan",
-    "sentinel.execution.projection",
-    "sentinel.execution.reconcile",
-    "sentinel.execution.share_units",
-    "sentinel.execution.feed_actions",
-    "sentinel.execution.feed_cash",
-    "sentinel.execution.target_reprojection",
-    "sentinel.execution.opening_prices",
-    "sentinel.execution.opening_sizing",
-    "sentinel.execution.held_targets",
-    "sentinel.execution.numeric",
-    "sentinel.feed.action_source",
-    "sentinel.feed.actions",
-    "sentinel.feed.actions_map",
-    "sentinel.feed.symbol_identity",
-    "sentinel.feed.source_aliases",
-    "sentinel.feed.actions_reconcile_v7",
-    "sentinel.feed.anomalies",
-    "sentinel.feed.calendar",
-    "sentinel.feed.corporate_action_authority",
-    "sentinel.feed.correction_model",
-    "sentinel.feed.source_corrections",
-    "sentinel.feed.domains",
-    "sentinel.feed.ingest",
-    "sentinel.feed.ingest_impl",
-    "sentinel.feed.maintenance",
-    "sentinel.feed.operational_coherence",
-    "sentinel.feed.publication",
-    "sentinel.feed.readers",
-    "sentinel.feed.readiness_scope",
-    "sentinel.structural_verification",
-    "sentinel.feed.operational_snapshot",
-    "sentinel.feed.rolling_builder",
-    "sentinel.feed.rolling_contract",
-    "sentinel.feed.rolling_jobs",
-    "sentinel.feed.rolling_go_inputs",
-    "sentinel.feed.rolling_go_health",
-    "sentinel.rolling_authority",
-    "sentinel.rolling_recovery",
-    "sentinel.rolling_reconstruction_evidence",
-    "sentinel.rolling_runtime",
-    "sentinel.feed.rolling_publisher",
-    "sentinel.feed.rolling_source",
-    "sentinel.feed.action_history",
-    "sentinel.feed.action_history_schema",
-    "sentinel.feed.retention",
-    "sentinel.feed.retention_schema",
-    "sentinel.feed.rolling_store",
-    "sentinel.feed.history_mutations",
-    "sentinel.feed.history_mutation_schema",
-    "sentinel.feed.requirements",
-    "sentinel.feed.repair",
-    "sentinel.feed.recovery",
-    "sentinel.feed.renormalize",
-    "sentinel.feed.reseed",
-    "sentinel.feed.sep_reconciliation",
-    "sentinel.feed.sharadar",
-    "sentinel.feed.snapshot_export",
-    "sentinel.feed.snapshot_source",
-    "sentinel.feed.source_authority.corporate_action_data",
-    "sentinel.feed.staging",
-    "sentinel.feed.store",
-    "sentinel.feed.universe",
-    "sentinel.feed.universe_projection",
-    "sentinel.paper",
-    "sentinel.paper_performance",
-    "sentinel.regime.spy",
-    "sentinel.shadow_observation",
-    "sentinel.observation_storage",
-    "sentinel.shadow_runtime",
-    "sentinel.rolling_checkpoint",
-    "sentinel.rolling_initialization",
-    "sentinel.rolling_daily",
-    "sentinel.rolling_daily_checkpoint",
-    "sentinel.strategy",
-    "stock_strategy_shared.split_reconciliation",
-    "stock_strategy_shared.terminal_coalescing",
-    "stock_strategy_shared.wealth_core.sharadar_domains",
-)
+DATA_SEMANTICS_IDENTITY_SCHEMA = archive_identifiers.BOOK_SCHEMA
 
 
 @dataclass(frozen=True)
@@ -198,7 +81,7 @@ def _canonical_hash(value) -> str:
 
 
 def data_semantics_source_identity() -> dict[str, object]:
-    """Hash every reviewed source boundary that turns Sharadar into a book.
+    """Hash every reviewed source boundary that turns published inputs into a book.
 
     A corpus version names the published rows, not the decoder that assigned
     their economic domains. Keep this bundle deliberately explicit so a
@@ -247,7 +130,7 @@ def runtime_strategy_identity(
 
     package_file = getattr(wealth_core_package, "__file__", None)
     package_root = Path(package_file).resolve().parent if package_file else None
-    from sentinel.performance_source_basis import wealth_core_source_hash
+    from sentinel.economic_manifest import wealth_core_source_hash
     source = wealth_core_source_hash(package_root)
     source_digest = source.get("hash")
     if not source_digest or not source.get("files"):
@@ -280,7 +163,7 @@ def runtime_strategy_identity(
                 REFERENCE_SOURCE_SHA256 = champion_config.REFERENCE_SOURCE_SHA256
             result.pop("research_reference_ast_sha256")
             result["research_reference_source_sha256"] = REFERENCE_SOURCE_SHA256
-            result["universe"] = "BROAD_SHARADAR_COMMON_EQUITY"
+            result["universe"] = archive_identifiers.UNIVERSE
         return result
     if not concordance:
         return result

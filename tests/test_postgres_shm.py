@@ -123,7 +123,7 @@ def test_non_server_postgres_image_helpers_are_not_treated_as_databases():
 def test_the_corpus_database_gets_at_least_the_allowance_that_was_needed():
     """1gb, the value bt-postgres was raised to when the failure was diagnosed.
 
-    `sentinel-postgres` inherited that role — it holds the Sharadar corpus every
+    `sentinel-postgres` inherited that role — it holds the archived corpus every
     window load scans — so it inherits the number. Asserted absolutely rather
     than relatively: the old form compared bt-postgres against the live stack,
     and with one database left there is nothing to compare against, so the

@@ -6,12 +6,47 @@ complete all-hour CI owner. No runtime or native authority is substituted here.
 from __future__ import annotations
 
 import ast
+import asyncio
 import inspect
 import os
 
+import httpx
 import pytest
 
 from tests.support.current_service_faults import assert_owned_worker
+
+
+@pytest.mark.parametrize("service", [False, True])
+def test_private_broker_proxies_stream_and_close_finite_activity_responses(service):
+    from tests.support.current_service_faults import ServiceProxyTransport
+    from tests.support.current_workflow_faults import ProxyTransport
+
+    body = ": " + "x" * 94 + "é\r\ndata: {}\r\n\r\n"
+    class Provider:
+        def __init__(self):
+            self.calls = []
+
+        def request(self, method, url, params, *pids):
+            self.calls.append((method, params, pids))
+            return {"payload": None, "status": 200, "text": body}
+
+    provider = Provider()
+    pid = os.getpid()
+    transport = (ServiceProxyTransport(provider, worker_pid=pid) if service
+                 else ProxyTransport(provider, parent_pid=pid))
+
+    async def consume():
+        async with transport.AsyncClient() as client:
+            async with client.stream("GET", "http://private.test/v2beta1/events/activities",
+                                     params={"until_id": "upper"}, timeout=60.0) as response:
+                with pytest.raises(httpx.ResponseNotRead):
+                    _ = response.text
+                assert [line async for line in response.aiter_lines()] == [
+                    ": " + "x" * 94 + "é", "data: {}", ""]
+            assert response.is_closed
+
+    asyncio.run(consume())
+    assert provider.calls == [("GET", {"until_id": "upper"}, (pid, pid) if service else (pid,))]
 
 
 def _require_final_order_witness(ordinary_sequences, exact_sequences):

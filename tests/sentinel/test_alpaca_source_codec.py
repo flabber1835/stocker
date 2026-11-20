@@ -1,4 +1,6 @@
 """Production factory and adapter round trips; only native HTTP is a fixture."""
+
+from sentinel import archive_identifiers as archive_ids
 import asyncio
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -39,9 +41,9 @@ class EvidenceConnection:
         return self.row
 
 
-@pytest.mark.parametrize('provider', ['ALPACA_OPENFIGI', 'ALPACA_NASDAQ', 'SHARADAR'])
+@pytest.mark.parametrize('provider', ['ALPACA_OPENFIGI', 'ALPACA_NASDAQ', archive_ids.PROVIDER])
 def test_source_resolver_factory_and_native_instrument_roundtrip(monkeypatch, provider):
-    native = provider != 'SHARADAR'
+    native = provider != archive_ids.PROVIDER
     symbol = 'PBR.A' if native else 'BRK-B'
     wire = 'PBR.A' if native else 'BRK.B'
     calls = []

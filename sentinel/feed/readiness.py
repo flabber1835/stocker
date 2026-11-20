@@ -181,7 +181,7 @@ def _add_source_maintenance_checks(conn, result, *, today,
         if sep is None:
             result.add(
                 "SEP mutation watermark", _impl.FAIL,
-                "no complete seed/reconciliation has established the Sharadar "
+                "no complete seed/reconciliation has established the Source "
                 "SEP lastupdated watermark")
         elif sep.processed_through > source_day:
             result.add(
@@ -223,7 +223,7 @@ def _add_source_maintenance_checks(conn, result, *, today,
         if actions is None:
             result.add(
                 "ACTIONS complete reconciliation", _impl.FAIL,
-                "no complete export-backed Sharadar ACTIONS reconciliation has "
+                "no complete export-backed Source ACTIONS reconciliation has "
                 "been recorded")
         elif actions.processed_through > source_day:
             result.add(

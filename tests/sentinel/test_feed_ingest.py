@@ -25,7 +25,7 @@ sys.path.insert(0, str(ROOT / "shared"))
 
 from tests.support.postgres import _EphemeralPostgres  # noqa: E402
 
-from sentinel.feed import ingest, sharadar  # noqa: E402
+from sentinel.feed import ingest, archive_tables  # noqa: E402
 from sentinel.feed import store as S  # noqa: E402
 
 
@@ -83,7 +83,7 @@ def fetcher(sep_rows, action_rows=None, ticker_rows=None, sfp_rows=()):
     identity resolves 1:1 and these tests stay about ORCHESTRATION. Resolution
     itself is covered in test_feed_universe.py.
 
-    The real complete Sharadar ACTIONS table is globally non-empty. Most tests
+    The real complete archived ACTIONS table is globally non-empty. Most tests
     here have no action relevant to their securities, so an unrelated historical
     control row keeps the synthetic *source* realistic without changing the
     economic assertions under test.
@@ -98,13 +98,13 @@ def fetcher(sep_rows, action_rows=None, ticker_rows=None, sfp_rows=()):
     def fetch(table, params=None, **kw):
         params = dict(params or {})
         calls.append((table, params))
-        if table == sharadar.TICKERS:
+        if table == archive_tables.TICKERS:
             return list(ticker_rows)
         lo = params.get("date.gte", "0000-00-00")
         hi = params.get("date.lte", "9999-99-99")
-        if table == sharadar.ACTIONS:
+        if table == archive_tables.ACTIONS:
             return [r for r in action_rows if lo <= r["date"] <= hi]
-        if table == sharadar.SFP:
+        if table == archive_tables.SFP:
             return [r for r in sfp_rows if lo <= r["date"] <= hi]
         if "lastupdated.gte" in params or "lastupdated.lte" in params:
             update_lo = params.get("lastupdated.gte", "0000-00-00")
@@ -159,26 +159,26 @@ class TestSeed:
         f = fetcher([sep_row("AAA", "2020-06-01")])
         ingest.seed(conn, date_from="2020-01-01", date_to="2020-12-31", fetch=f)
         assert [c[0] for c in f.calls[:4]] == [
-            sharadar.TICKERS, sharadar.ACTIONS, sharadar.SFP, sharadar.SEP]
+            archive_tables.TICKERS, archive_tables.ACTIONS, archive_tables.SFP, archive_tables.SEP]
 
     def test_an_interrupted_seed_RESUMES_without_duplicating(self, conn):
         rows = [sep_row("AAA", "2020-06-01"), sep_row("AAA", "2021-06-01")]
         boom = {"n": 0}
 
         def flaky(table, params=None, **kw):
-            if table == sharadar.TICKERS:
+            if table == archive_tables.TICKERS:
                 return [{"ticker": "AAA", "permaticker": "P-AAA"}]
-            if table == sharadar.SEP:
+            if table == archive_tables.SEP:
                 boom["n"] += 1
                 # Each chunk now needs two complete observations before it can
                 # publish. Fail on the next chunk so the first remains committed.
                 if boom["n"] == 3:
                     raise RuntimeError("connection reset")
-            if table == sharadar.SFP:
+            if table == archive_tables.SFP:
                 return []
             lo = (params or {}).get("date.gte", "")
             hi = (params or {}).get("date.lte", "z")
-            return [] if table == sharadar.ACTIONS else \
+            return [] if table == archive_tables.ACTIONS else \
                 [r for r in rows if lo <= r["date"] <= hi]
 
         with pytest.raises(RuntimeError):
@@ -211,7 +211,7 @@ class TestSeed:
 class TestDaily:
     def test_it_OVERLAPS_the_frontier_so_restatements_are_repaired(self, conn):
         """Resuming strictly after the last stored session never revisits a bar,
-        and Sharadar restates. A stale close would live forever — and the
+        and the source revises its history. A stale close would live forever — and the
         trailing stop reads exactly those closes."""
         # 2024-01-15 was the Martin Luther King Jr. market holiday. Use the next
         # real XNYS session so this orchestration test does not model an invalid
@@ -224,7 +224,7 @@ class TestDaily:
         ingest.daily(conn, fetch=f, today="2024-02-01")
 
         requested_from = [c for c in f.calls
-                          if c[0] == sharadar.SEP and "date.gte" in c[1]][0][1]["date.gte"]
+                          if c[0] == archive_tables.SEP and "date.gte" in c[1]][0][1]["date.gte"]
         assert requested_from < prior_session, "the daily window did not overlap"
         with conn.cursor() as cur:
             cur.execute("SELECT close_unadjusted FROM sentinel_bars"
@@ -242,7 +242,7 @@ class TestDaily:
         ingest.seed(conn, date_from="2024-01-01", date_to="2024-01-31",
                     fetch=fetcher([prior]))
         # Use distinct canonical source keys. Repeating BBB/2024-02-01 twenty
-        # times is itself invalid Sharadar evidence under the duplicate-key
+        # times is itself invalid archived evidence under the duplicate-key
         # authority gate and would correctly refuse before exercising the raw
         # price-domain coverage failure this test is intended to probe.
         blank = [dict(sep_row(f"BBB{i:02d}", "2024-02-01"), closeunadj=None)

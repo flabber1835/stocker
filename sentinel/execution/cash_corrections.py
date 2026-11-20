@@ -115,7 +115,7 @@ def classify(marker, original, correction, *, publication_version, coverage_sha2
         from sentinel.feed.source_authority.corporate_action_data import (
             CASH_ADJUDICATION_AUTHORITIES, DISPUTED_CASH_EVENTS)
         from sentinel.feed.universe import IdentityResolver, listings_from_rows
-        from stock_strategy_shared.wealth_core.sharadar_domains import raw_dividend_per_share
+        from stock_strategy_shared.wealth_core.price_domains import raw_dividend_per_share
 
         _require(isinstance(marker, dict) and set(marker) == _MARKER_KEYS)
         sid, ticker, session = marker['security_id'], marker['ticker'], marker['session']

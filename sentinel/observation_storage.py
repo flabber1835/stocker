@@ -1,5 +1,6 @@
 """Atomic observation inserts without parsing a whole feed as JSON text."""
 from itertools import islice
+from typing import NamedTuple
 from decimal import Decimal
 import json
 import base64
@@ -118,7 +119,41 @@ def _pack_events(events, *, raw=None):
             'data': base64.b64encode(zlib.compress(raw)).decode('ascii')}
 
 
-def encode(candidate, state_field, *, ledger_writer=None):
+class _StoredLedgerGroup(NamedTuple):
+    session: str
+    group: dict
+
+
+class LedgerPrefix:
+    """A detached copy of already verified complete groups, local to one store."""
+    def __init__(self):
+        self.rows = {}
+        self.payloads = []
+        self.count = 0
+        self.groups = []
+        self.bytes = 0
+        self.sequence = hashlib.sha256(b'[')
+
+    def add(self, reference, raw, sequence):
+        self.payloads.append(raw)
+        self.groups.append(dict(reference))
+        self.count += reference['count']
+        self.bytes += len(raw)
+        self.sequence = sequence.copy()
+
+    def matches(self, events):
+        if len(events) < self.count:
+            return False
+        start = 0
+        for reference, payload in zip(self.groups, self.payloads, strict=True):
+            stop = start + reference['count']
+            if _json(events[start:stop]).encode('ascii') != payload:
+                return False
+            start = stop
+        return True
+
+
+def encode(candidate, state_field, *, ledger_writer=None, prefix=None):
     _require(LEDGER_KEY not in candidate, 'reserved ledger storage envelope in logical input')
     value = _encode_series(candidate, state_field)
     state = value.get(state_field)
@@ -129,7 +164,14 @@ def encode(candidate, state_field, *, ledger_writer=None):
     _require(len(events) <= LEDGER_GROUP_SIZE * MAX_LEDGER_GROUPS, 'ledger event count exceeds bound')
     groups, total = [], 0
     sequence = hashlib.sha256(b'[')
-    for start in range(0, len(events), LEDGER_GROUP_SIZE):
+    start_at = 0
+    if ledger_writer is not None and prefix is not None and prefix.matches(events):
+        groups = list(prefix.groups)
+        total = prefix.bytes
+        start_at = prefix.count
+        sequence = prefix.sequence.copy()
+        _require(total <= MAX_LEDGER_BYTES, 'ledger decoded bytes exceed bound')
+    for start in range(start_at, len(events), LEDGER_GROUP_SIZE):
         batch = events[start:start + LEDGER_GROUP_SIZE]
         raw = _json(batch).encode('ascii')
         group = _pack_events(batch, raw=raw)
@@ -172,7 +214,7 @@ def _unpack_events(group, *, loads):
     return events, raw
 
 
-def decode(value, *, loads=json.loads, ledger_reader=None):
+def decode(value, *, loads=json.loads, ledger_reader=None, remember_prefix=None):
     value = _decode_series(value, loads=loads)
     if LEDGER_KEY not in value:
         return value
@@ -188,9 +230,11 @@ def decode(value, *, loads=json.loads, ledger_reader=None):
              and isinstance(groups, list) and len(groups) == (count + LEDGER_GROUP_SIZE - 1) // LEDGER_GROUP_SIZE,
              'ledger group inventory mismatch')
     events, total = [], 0
+    prefix = LedgerPrefix() if remember_prefix is not None else None
     sequence = hashlib.sha256(b'[')
     for index, encoded in enumerate(groups):
         group = encoded
+        stored_session = None
         if isinstance(encoded, dict) and 'ref' in encoded:
             _require(set(encoded) == {'count', 'bytes', 'sha256', 'ref'}
                      and isinstance(encoded['sha256'], str) and len(encoded['sha256']) == 64
@@ -199,6 +243,8 @@ def decode(value, *, loads=json.loads, ledger_reader=None):
                      and encoded['count'] == LEDGER_GROUP_SIZE and ledger_reader is not None,
                      'invalid or unavailable ledger reference')
             group = ledger_reader(encoded['ref'])
+            if isinstance(group, _StoredLedgerGroup):
+                stored_session, group = group
             _require(isinstance(group, dict) and all(group.get(key) == encoded[key]
                      for key in ('count', 'bytes', 'sha256')), 'ledger reference binding changed')
         _require(isinstance(group, dict) and type(group.get('bytes')) is int,
@@ -208,30 +254,51 @@ def decode(value, *, loads=json.loads, ledger_reader=None):
         batch, raw = _unpack_events(group, loads=loads)
         _require(len(batch) == min(LEDGER_GROUP_SIZE, count - index * LEDGER_GROUP_SIZE),
                  'ledger group sequence count mismatch')
+        if stored_session is not None:
+            _require(isinstance(batch[-1], dict) and batch[-1].get('session') == stored_session,
+                     'ledger chunk session differs from final event')
         events.extend(batch)
         if index:
             sequence.update(b',')
-        sequence.update(raw[1:-1])
+        sequence.update(memoryview(raw)[1:-1])
+        if prefix is not None and stored_session is not None and len(prefix.groups) == index:
+            prefix.add(encoded, raw, sequence)
     sequence.update(b']')
     _require(sequence.hexdigest() == envelope['sha256'], 'ledger sequence checksum mismatch')
+    if prefix is not None:
+        remember_prefix(prefix)
     return {key: item for key, item in value.items() if key != LEDGER_KEY} | {
         field: {**state, 'ledger': {**ledger, 'events': events}}}
 
 
-def _read_ledger_chunk_payload(conn, name):
+def _read_ledger_chunk_payload(conn, name, versions=None):
     with conn.cursor() as cur:
-        cur.execute('SELECT session,state FROM sentinel_processed_sessions WHERE cursor_name=%s', (name,))
+        columns = 'session,state' if versions is None else 'session,state,tableoid,xmin::text,ctid::text'
+        cur.execute(f'SELECT {columns} FROM sentinel_processed_sessions WHERE cursor_name=%s', (name,))
         row = cur.fetchone()
     _require(row is not None, 'ledger reference is missing')
     value = row[1]
     _require(isinstance(value, dict) and set(value) == {'schema', 'session', 'group'}
              and value['schema'] == LEDGER_CHUNK_SCHEMA and str(row[0]) == value['session'],
              'ledger chunk shape or session changed')
+    if versions is not None:
+        versions[name] = tuple(row[2:])
     return value
 
 
-def _read_ledger_chunk(conn, name):
-    return _read_ledger_chunk_payload(conn, name)['group']
+def _read_ledger_chunk(conn, name, versions=None):
+    payload = _read_ledger_chunk_payload(conn, name, versions)
+    return _StoredLedgerGroup(payload['session'], payload['group'])
+
+
+def _current_prefix(conn, prefix):
+    if prefix is None or not prefix.groups:
+        return None
+    with conn.cursor() as cur:
+        cur.execute('SELECT cursor_name,tableoid,xmin::text,ctid::text FROM sentinel_processed_sessions'
+                    ' WHERE cursor_name=ANY(%s) ORDER BY cursor_name FOR SHARE', (list(prefix.rows),))
+        actual = {name: tuple(version) for name, *version in cur.fetchall()}
+    return prefix if actual == prefix.rows and len(actual) == len({g['ref'] for g in prefix.groups}) else None
 
 
 def _write_ledger_chunk(conn, group, session):
@@ -244,9 +311,9 @@ def _write_ledger_chunk(conn, group, session):
     _require(_read_ledger_chunk_payload(conn, name) == payload, 'existing ledger chunk differs')
 
 
-def insert(conn, *, name, session, candidate, state_field):
+def insert(conn, *, name, session, candidate, state_field, prefix=None):
     """One atomic append in the caller-owned transaction, no partial state."""
-    encoded = encode(candidate, state_field,
+    encoded = encode(candidate, state_field, prefix=_current_prefix(conn, prefix),
                      ledger_writer=lambda group, day: _write_ledger_chunk(conn, group, day))
     with conn.cursor() as cur:
         cur.execute(

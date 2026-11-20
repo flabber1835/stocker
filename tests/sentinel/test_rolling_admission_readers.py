@@ -332,7 +332,7 @@ def test_generated_installer_programs_refuse_legacy_provider_then_read_rolling(
     with pytest.raises(operational_snapshot.OperationalSnapshotRefused,
                        match="ALPACA_OPENFIGI_SOURCE_REQUIRED"):
         driver.AutonomousDeploy._readiness_verdict(task)
-    # This fixture intentionally publishes a historical Sharadar candidate.
+    # This fixture intentionally publishes a historical candidate.
     # The provider refusal above is real; isolate the remaining generated
     # installer-program assertions from that independently tested policy.
     monkeypatch.setattr(operational_snapshot, "require_alpaca_openfigi",

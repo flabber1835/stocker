@@ -108,7 +108,7 @@ def test_recent_reconciliation_refuses_backward_source_traversal(monkeypatch):
         lambda *args, **kwargs: reconciled.append((args, kwargs)))
 
     with pytest.raises(
-            maintenance.SharadarMutationRefused,
+            maintenance.SourceMutationRefused,
             match="ahead of requested reconciliation"):
         R.reconcile_recent(object(), through="2026-01-02")
     assert reconciled == []

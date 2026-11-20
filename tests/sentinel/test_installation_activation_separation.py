@@ -948,7 +948,7 @@ def frontier_failure(**changes):
     detail = 'ROLLING_INPUTS_NOT_READY: rolling source-final frontier'
     value = dict(phase='DAILY_CATCHUP', error_type='RollingSourceFrontierPending',
         reason_code='PREPARATION_DAILY_CATCHUP_FAILED', schema_migration_attempted=True,
-        bounded_sharadar_daily_attempted=True, detail=detail,
+        bounded_market_data_daily_attempted=True, detail=detail,
         detail_sha256=hashlib.sha256(detail.encode()).hexdigest())
     value.update(changes)
     return value
@@ -980,7 +980,7 @@ def test_nonexact_source_failures_remain_terminal(defect):
     elif defect == 'combined': value['detail'] += '; rolling current BIL domains'
     elif defect == 'bad-hash': value['detail_sha256'] = 'a'*64
     elif defect == 'missing-hash': value.pop('detail_sha256')
-    elif defect == 'false-attempt': value['bounded_sharadar_daily_attempted'] = False
+    elif defect == 'false-attempt': value['bounded_market_data_daily_attempted'] = False
     elif defect == 'numeric-attempt': value['schema_migration_attempted'] = 1
     elif defect == 'extra-nonfinite': value['unexpected'] = float('nan')
     result = frontier_completed(value)

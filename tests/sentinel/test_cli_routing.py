@@ -125,61 +125,50 @@ def test_cli_router_invokes_selected_owner_once(monkeypatch):
     assert calls[0][1] == "status"
 
 
-def test_feed_daily_calls_ingest_with_validated_session(monkeypatch):
+@pytest.mark.parametrize(('status','called','code'), [
+    ('ATTESTED_STRUCTURAL', True, 0), ('RECONSTRUCTED_STRUCTURAL', True, 0),
+    ('VERIFIED_UNCHANGED', False, 0), ('NOT_STARTED', False, 2),
+    ('RECONSTRUCTION_REQUIRED', False, 2)])
+def test_manual_daily_uses_the_authenticated_source_boundary(monkeypatch, status, called, code):
+    from contextlib import nullcontext
+    from sentinel import rolling_checkpoint, rolling_runtime
     calls = []
-
-    class Connection:
-        closed = False
-
-        def close(self):
-            self.closed = True
-
-    conn = Connection()
-    args = SimpleNamespace(
-        through=["2026-08-28"],
-        boundary=SimpleNamespace(through="2026-08-28"),
-    )
-    monkeypatch.setattr(
-        "sentinel.identity.require_feed_producer_identity",
-        lambda: {
-            "git_commit": "a" * 40,
-            "runtime_image_digest": "sha256:" + "b" * 64,
-        },
-    )
-    monkeypatch.setattr(feed_store, "connect", lambda url: conn)
-    monkeypatch.setattr(feed_store, "require_feed_schema", lambda c: None)
-    monkeypatch.setattr(feed_store, "reclaim_orphans", lambda c: 0)
-
-    def daily(c, *, today):
-        calls.append((c, today))
-        return SimpleNamespace(
-            kind="daily", chunks_done=2, rows_written=3, rows_dropped=0)
-
-    monkeypatch.setattr("sentinel.feed.ingest.daily", daily)
-    config = SimpleNamespace(database_url="postgres://test")
-    assert feed_cli.cmd_feed_daily(config, args) == 0
-    assert calls == [(conn, "2026-08-28")]
-    assert conn.closed is True
+    conn = object()
+    monkeypatch.setattr(feed_cli, '_feed_producer_or_refuse', lambda: {})
+    monkeypatch.setattr(feed_store, 'connect', lambda _: nullcontext(conn))
+    monkeypatch.setattr(rolling_checkpoint, 'read',
+        lambda _: SimpleNamespace(observation_id='paper-shadow', starting_cash='50000'))
+    def classify(c, **args):
+        assert c is conn and args == dict(observation_id='paper-shadow', starting_cash='50000',
+            structural_only=True, unchanged_through='2026-08-28')
+        return {'status':status, 'latest_session':'2026-08-27'}
+    monkeypatch.setattr(rolling_runtime, 'classify', classify)
+    monkeypatch.setattr(rolling_runtime, 'prepare_adjacent', lambda c, **args: calls.append((c,args)))
+    args = SimpleNamespace(boundary=SimpleNamespace(through='2026-08-28'))
+    assert feed_cli.cmd_feed_daily(SimpleNamespace(database_url='test'), args) == code
+    assert bool(calls) is called
+    if called:
+        assert calls[0][0] is conn
+        assert calls[0][1]['through'] == '2026-08-28' and calls[0][1]['previous'] == '2026-08-27'
 
 
-def test_feed_daily_waits_on_export_without_changing_target(monkeypatch):
-    from sentinel.feed import acquisition_work, ingest, snapshot_export
-    calls, waits = [], []
-    conn = SimpleNamespace(close=lambda: None, rollback=lambda: calls.append("rollback"))
-    monkeypatch.setattr(feed_cli, "_feed_producer_or_refuse", lambda: {"verified": True})
-    monkeypatch.setattr(feed_store, "connect", lambda url: conn)
-    monkeypatch.setattr(feed_store, "require_feed_schema", lambda c: None)
-    monkeypatch.setattr(feed_store, "reclaim_orphans", lambda c: 0)
-    monkeypatch.setattr(acquisition_work.time, "sleep", waits.append)
-    def daily(c, *, today):
-        calls.append(today)
-        if not waits:
-            raise snapshot_export.ExportPending("SEP", "creating", {})
-        return SimpleNamespace(kind="daily", chunks_done=1, rows_written=1, rows_dropped=0)
-    monkeypatch.setattr(ingest, "daily", daily)
-    args = SimpleNamespace(boundary=SimpleNamespace(through="2026-08-28"))
-    assert feed_cli.cmd_feed_daily(SimpleNamespace(database_url="test"), args) == 0
-    assert calls == ["2026-08-28", "rollback", "2026-08-28"]
+@pytest.mark.parametrize("date_from,date_to,accepted", [
+    (None, None, True), (None, "2026-08-28", True),
+    ("2026-07-01", "2026-08-28", False), (None, "2026-08-27", False)])
+def test_manual_seed_uses_source_final_first_deployment(monkeypatch, date_from, date_to, accepted):
+    from contextlib import nullcontext
+    from sentinel.feed import operational_snapshot, rolling_go_inputs
+
+    calls = []
+    monkeypatch.setattr(feed_cli, "_feed_producer_or_refuse", lambda: {})
+    monkeypatch.setattr(operational_snapshot, "source_final_session", lambda: "2026-08-28")
+    monkeypatch.setattr(feed_store, "connect", lambda _: nullcontext("connection"))
+    monkeypatch.setattr(rolling_go_inputs, "prepare",
+                        lambda c, *, target_session: calls.append((c, target_session)) or {})
+    args = SimpleNamespace(date_from=date_from, date_to=date_to)
+    result = feed_cli.cmd_feed_seed(SimpleNamespace(database_url="private"), args)
+    assert result == (feed_cli.EXIT_OK if accepted else feed_cli.EXIT_CONFIG)
+    assert calls == ([("connection", "2026-08-28")] if accepted else [])
 
 
 def test_feed_daily_boundary_refuses_before_configuration(monkeypatch, capsys):

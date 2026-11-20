@@ -57,10 +57,20 @@ def buy(oid, ticker):
     return OpenOrder(order_id=oid, ticker=ticker, side="buy")
 
 
-def run(broker, store, *, max_cycles=8):
+from sentinel.execution.identity import DeploymentIdentity
+from tests.sentinel.test_migration_recovery_remediation import conn, pg
+
+
+@pytest.fixture
+def run(conn):
+    return lambda broker, store, **options: _run(conn, broker, store, **options)
+
+
+def _run(conn, broker, store, *, max_cycles=8):
     async def _go():
         return await establish_ownership(
-            broker=broker, store=store, max_cycles=max_cycles,
+            broker=broker, store=store, max_cycles=max_cycles, conn=conn,
+            deployment=DeploymentIdentity("test", "sim", "paper", 1),
             poll_seconds=0, sleep=lambda *_: asyncio.sleep(0))
     try:
         return asyncio.run(_go()), None
@@ -161,7 +171,7 @@ class _CancelsOnTheSecondAsk(FakeBroker):
 
 class TestEndToEnd:
 
-    def test_zero_cancellations_never_reaches_liquidation(self):
+    def test_zero_cancellations_never_reaches_liquidation(self, run):
         b = _Stubborn(positions={"AAPL": 10},
                       orders=[buy("legacy-buy-1", "NVDA")])
         store = InMemoryOwnershipStore()
@@ -174,7 +184,7 @@ class TestEndToEnd:
             "the cancel was never retried — the defect exactly")
         assert "LEGACY_ORDERS_CANCELLED" not in states(store)
 
-    def test_an_ACCEPTED_cancel_that_did_nothing_is_retried(self):
+    def test_an_ACCEPTED_cancel_that_did_nothing_is_retried(self, run):
         """A count check would pass here. Only observation catches it."""
         b = _LiesAboutTheCount(positions={"AAPL": 10},
                                orders=[buy("o1", "NVDA")])
@@ -184,7 +194,7 @@ class TestEndToEnd:
         assert b.cancelled.count("o1") > 1
         assert "LEGACY_ORDERS_CANCELLED" not in states(store)
 
-    def test_PARTIAL_cancellation_keeps_cleaning(self):
+    def test_PARTIAL_cancellation_keeps_cleaning(self, run):
         class _OnlyFirst(FakeBroker):
             async def cancel_orders(self, order_ids):
                 self.cancelled.extend(order_ids)
@@ -199,7 +209,7 @@ class TestEndToEnd:
         assert b.closes == []
         assert b.cancelled.count("o2") > 1
 
-    def test_a_RETRY_that_succeeds_completes_the_handover(self):
+    def test_a_RETRY_that_succeeds_completes_the_handover(self, run):
         """The control: the gate must not merely block, it must let a genuine
         cleanup through once the orders are actually gone."""
         b = _CancelsOnTheSecondAsk(positions={"AAPL": 10},
@@ -212,7 +222,7 @@ class TestEndToEnd:
         assert seq.index("LEGACY_ORDERS_CANCELLED") < seq.index("LIQUIDATION_SUBMITTED")
         assert b.closes == ["AAPL"]
 
-    def test_a_legacy_BUY_that_FILLS_during_cleanup_is_liquidated_too(self):
+    def test_a_legacy_BUY_that_FILLS_during_cleanup_is_liquidated_too(self, run):
         """The loss mechanism cancel-before-sell exists to prevent. If the buy
         fills anyway, the new position must be treated as legacy and sold — not
         inherited by Wealth Core."""
@@ -240,7 +250,7 @@ class TestEndToEnd:
             "the position created by the late fill was not liquidated, so "
             "Wealth Core would have inherited it")
 
-    def test_a_RESTART_between_request_and_confirmation_re_cancels(self):
+    def test_a_RESTART_between_request_and_confirmation_re_cancels(self, run):
         """State persisted mid-cleanup is LEGACY_CLEANUP_REQUIRED, so a restart
         re-observes and re-cancels rather than resuming as if confirmed."""
         b = _Stubborn(positions={"AAPL": 10}, orders=[buy("o1", "NVDA")])
@@ -255,7 +265,7 @@ class TestEndToEnd:
         assert exc is None and res.bootstrap_allowed
         assert b2.cancelled, "the restart did not re-attempt the cancellation"
 
-    def test_ownership_is_still_a_NO_OP_once_established(self):
+    def test_ownership_is_still_a_NO_OP_once_established(self, run):
         """The invariant the whole module protects, unchanged by this work: the
         same code path that empties a legacy book will happily empty a live
         one."""

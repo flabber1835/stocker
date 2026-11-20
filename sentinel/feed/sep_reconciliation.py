@@ -147,7 +147,7 @@ def _complete_export_source(
         *, start: str, end: str, observation_ceiling=None,
         source_observation_boundary=None):
     """Return complete Exporter authority bound to one frozen source observation."""
-    from sentinel.feed import sharadar, snapshot_export
+    from sentinel.feed import archive_tables, snapshot_export
 
     ceiling = (
         None if observation_ceiling is None
@@ -205,10 +205,10 @@ def _complete_export_source(
                 pass
         raise
 
-    expected = sharadar.date_params(start, end)
+    expected = archive_tables.date_params(start, end)
 
     def export_fetch(table, params=None, **_kwargs):
-        if table != sharadar.SEP or dict(params or {}) != expected:
+        if table != archive_tables.SEP or dict(params or {}) != expected:
             raise ValueError(
                 "SEP retirement export may be replayed only for its exact bounded "
                 "partition")
@@ -230,7 +230,7 @@ def _complete_export_source(
         sep_negative_space_guarded._SEP_RETIREMENT_CAPABILITY)
     authority = {
         "authority": "nasdaq-data-link-table-export-composite/v1",
-        "table": sharadar.SEP,
+        "table": archive_tables.SEP,
         "window": [str(start), str(end)],
         "source_rows": total_rows,
         "last_refreshed_time": refresh_marker,
@@ -266,7 +266,7 @@ def _fresh_actions_retirement_authority(conn, *, through: dt.date) -> dict:
         changed = sorted(
             identity for identity in set(source).intersection(local)
             if source[identity] != local[identity])
-        raise maintenance.SharadarMutationRefused(
+        raise maintenance.SourceMutationRefused(
             "fresh complete ACTIONS authority disagrees with the active "
             "published projection after forced reconciliation: "
             f"missing={missing[:8]}, extra={extra[:8]}, changed={changed[:8]}")
@@ -387,7 +387,7 @@ def reconcile_year(
             local = _local_fingerprint(conn, start=start, end=end)
     if source.rows != local.rows or source.key_digest != local.key_digest:
         raise _core.SepKeysetDrift(
-            f"stable Sharadar SEP {year} normalized key set disagrees with "
+            f"stable source SEP {year} normalized key set disagrees with "
             f"published corpus: source {source.rows:,}/{source.key_digest[:16]}, "
             f"local {local.rows:,}/{local.key_digest[:16]}. This can be a vendor "
             "insertion, identity restatement, lost local row, or an unproved "
@@ -395,7 +395,7 @@ def reconcile_year(
             "guess which side to repair.")
     if source.value_digest != local.value_digest:
         raise _core.SepValueDrift(
-            f"stable Sharadar SEP {year} strategy values disagree with published "
+            f"stable source SEP {year} strategy values disagree with published "
             f"corpus despite an identical {source.rows:,}-row key set: source "
             f"{source.value_digest[:16]}, local {local.value_digest[:16]}. "
             "At least one signal/raw/open/volume value is stale or corrupted; "
@@ -451,7 +451,7 @@ def reconcile_next(conn, *, fetch=None, through: str, observation_ceiling=None):
 
     _core.store._assert_corpus_locked(conn)
     if YEARS_PER_RUN < 1:
-        raise ValueError("SHARADAR_SEP_RECONCILE_YEARS_PER_RUN must be >= 1")
+        raise ValueError("SENTINEL_SEP_RECONCILE_YEARS_PER_RUN must be >= 1")
     production = fetch is None
     if production:
         fetch = snapshot_source.fetch_table

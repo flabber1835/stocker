@@ -1,17 +1,17 @@
-"""Sharadar-specific economic-domain conversions shared by live and replay paths.
+"""Economic price-domain conversions shared by live and replay paths.
 
-Sharadar SEP publishes split-adjusted `close`, `open`, and `volume`, while
+Archived SEP tables publish split-adjusted `close`, `open`, and `volume`, while
 `closeunadj` is the actual as-traded close. Dollar liquidity and opening price
 are invariant only when every value is expressed in the same split domain.
 
-Sharadar ACTIONS dividend values are stated on the vendor's current
+ACTIONS dividend values are stated on the vendor's current
 split-adjusted share basis. Wealth Core, however, owns historical as-traded share
 quantities. Dividend cash is therefore invariant only after the per-share amount
 is converted back to the raw/as-traded share domain using the same cumulative
 split factor visible in SEP.closeunadj / SEP.close.
 
 The source boundary is DECIMAL, even though the canonical engine stores floats.
-Equivalent Sharadar publication rebases must therefore be reduced in an exact
+Equivalent publication rebases must therefore be reduced in an exact
 rational domain before the one final float conversion. Performing the ratio in
 binary float makes representations such as 20.002/100.01 change the last bits of
 volume, dividend, or raw-open economics even when the source publications are
@@ -68,7 +68,7 @@ def raw_compatible_volume(
     raw_close: object,
     reported_split_adjusted_volume: object,
 ) -> Optional[float]:
-    """Convert Sharadar SEP volume into the raw/as-traded share domain.
+    """Convert split-adjusted SEP volume into the raw/as-traded share domain.
 
     The conversion preserves dollar liquidity in exact source-decimal arithmetic:
 

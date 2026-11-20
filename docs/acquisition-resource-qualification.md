@@ -1,5 +1,8 @@
 # Local acquisition resource qualification
 
+Current acquisition uses the synthetic Alpaca SIP asset, bar and corporate-action endpoints and OpenFIGI mapping. The worker measures durable price acquisition in PostgreSQL, canonical ordered reads, vendor corroboration and reuse of the same retained parts. Startup uses the current 426-session formation window and daily acquisition uses 300 sessions. Resource reports from the earlier Tables/ZIP implementation below are historical measurements. Current operating capacity requires a new run with the selected profile.
+
+
 This work measures the production acquisition path before changing its resource
 policy. It grants no GO, economic, broker or NAS authority. The input profiles
 are explicit synthetic loads, not a claim about the current vendor row counts.
@@ -46,6 +49,9 @@ and staging sizes, WAL bytes and PostgreSQL temporary spill. A frequent backgrou
 sampler measures anonymous memory and working-set high water while work runs;
 kernel cgroup lifetime peaks capture short allocations the sampler might miss.
 Report full cgroup memory (including file cache) separately from working set.
+A kernel limit of `max` is recorded as an unbounded (null) ceiling. These
+samples can describe acquisition behavior. Passing resource qualification
+requires both measured ceilings to equal their requested finite limits.
 
 A profile passes only when all semantic checks complete, container limits match,
 no OOM is recorded, and measured working-set peaks stay below 80% of the worker
@@ -76,7 +82,6 @@ python -m tools.acquisition_resources.runner --image acquisition-resources:local
 python -m tools.acquisition_resources.runner --image acquisition-resources:local --profile stress --output artifacts/acquisition-resources/stress.json
 python -m tools.acquisition_resources.runner --image acquisition-resources:local --profile daily --worker-memory-mib 2048 --worker-cpus 1 --output artifacts/acquisition-resources/automation-budget.json
 python -m tools.acquisition_resources.runner --image acquisition-resources:local --profile startup --worker-memory-mib 256 --cycles 1 --output artifacts/acquisition-resources/constrained.json
-docker run --rm --network none acquisition-resources:local -m tools.acquisition_resources.cache_probe
 ```
 
 Run these sequentially. The constrained experiment is expected to return a

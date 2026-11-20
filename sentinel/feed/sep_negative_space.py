@@ -1,6 +1,6 @@
-"""Bounded self-heal for stable Sharadar SEP local-only rows.
+"""Bounded self-heal for stable Source SEP local-only rows.
 
-A current Sharadar traversal can legitimately retract a historical SEP row that
+A current Source traversal can legitimately retract a historical SEP row that
 was previously published.  ``lastupdated`` cannot express absence, so ordinary
 upsert maintenance leaves the old local row in place and complete reconciliation
 fails on a local-only key.
@@ -26,7 +26,7 @@ from sentinel.feed import (
     domains,
     publication,
     sep_reconciliation_impl as recon,
-    sharadar,
+    archive_tables,
     staging,
     store,
     universe,
@@ -105,8 +105,8 @@ def _source_proof_and_keys(
         fetch, sep_update_envelope=SepUpdateEnvelope.through(
             observation_ceiling,
             context="SEP negative-space retirement re-observation"))
-    stable = authority.StableSharadarFetch(guarded, after_session=end)
-    rows = stable(sharadar.SEP, sharadar.date_params(start, end))
+    stable = authority.StableTableFetch(guarded, after_session=end)
+    rows = stable(archive_tables.SEP, archive_tables.date_params(start, end))
 
     max_updated: dt.date | None = None
 

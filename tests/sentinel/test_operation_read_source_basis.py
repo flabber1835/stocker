@@ -73,7 +73,7 @@ def test_full_reviewed_compiler_reconstructs_actual_independent_predecessor(modu
     reconstruct(module,raw)
     from tests.sentinel.test_fractional_source_basis import qualified_predecessor
     assert sha(qualified_predecessor(module,raw))==basis.CANDIDATES[module]!=basis.BASELINES[module]
-    assert basis.contribution(module,raw)==basis.BASELINES[module]
+    assert basis.contribution(module,economic.previous_source(module,raw))==basis.BASELINES[module]
 
 
 def physical_read_predecessor(path, raw):

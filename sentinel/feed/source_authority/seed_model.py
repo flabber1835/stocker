@@ -46,11 +46,11 @@ class SeedTerminalCoverageException:
 
 
 _EXCEPTION_REASON = (
-    "reviewed Sharadar secondary-class unit source-onset sparsity around "
+    "reviewed Source secondary-class unit source-onset sparsity around "
     "TICKERS firstpricedate"
 )
 _TERMINAL_EXCEPTION_REASON = (
-    "reviewed exchange-confirmed terminal no-trade session despite Sharadar "
+    "reviewed exchange-confirmed terminal no-trade session despite Source "
     "TICKERS lastpricedate"
 )
 

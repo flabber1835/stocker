@@ -1,5 +1,6 @@
 """Canonical SEP/SFP key uniqueness and TICKERS structural authority."""
 from __future__ import annotations
+from sentinel import archive_identifiers
 
 import hashlib
 import json
@@ -8,7 +9,7 @@ import tempfile
 from pathlib import Path
 from typing import Iterable, Iterator, Mapping, Optional
 
-from sentinel.feed import sharadar, tickers_authority
+from sentinel.feed import archive_tables, tickers_authority
 from .dates import (
     CanonicalSourceDuplicate, SepUpdateEnvelope, SourceAuthorityRefused,
     _canonical_key, _canonical_row,
@@ -43,9 +44,9 @@ def validated_source_rows(
         table: str, rows: Iterable[Mapping], *,
         update_envelope: Optional[SepUpdateEnvelope] = None) -> Iterator[dict]:
     expected = str(table).upper()
-    if expected not in {sharadar.SEP, sharadar.SFP}:
+    if expected not in {archive_tables.SEP, archive_tables.SFP}:
         raise ValueError("canonical source-key validation applies only to SEP/SFP")
-    if update_envelope is not None and expected != sharadar.SEP:
+    if update_envelope is not None and expected != archive_tables.SEP:
         raise ValueError("lastupdated envelopes apply only to SEP")
 
     directory, conn = _open_key_store()
@@ -127,7 +128,7 @@ def _duplicate_refusal(table: str, conn: sqlite3.Connection
         "identical_duplicate_policy": "reject",
     }
     return CanonicalSourceDuplicate(
-        "Sharadar canonical source-key duplicate refused: "
+        archive_identifiers.FEED['SOURCE_COLLISION_PREFIX']
         + json.dumps(evidence, sort_keys=True, separators=(",", ":")))
 
 
@@ -137,7 +138,7 @@ class CanonicalSourceFetch:
     SEP/SFP uniqueness is always safe for injected deterministic fixtures.  The
     full TICKERS structural membrane is enabled explicitly by production callers
     because unit/replay fetch seams intentionally use abbreviated TICKERS rows
-    that are not claiming to be complete Sharadar source snapshots.
+    that are not claiming to be complete source snapshots.
 
     When an SEP update envelope is configured, request shape is part of the
     authority contract. A caller may not silently drift away from the bounded
@@ -153,7 +154,7 @@ class CanonicalSourceFetch:
 
     def __call__(self, table, params=None, **kwargs):
         request = params or {}
-        if table == sharadar.SEP and self._sep_update_envelope is not None:
+        if table == archive_tables.SEP and self._sep_update_envelope is not None:
             if not _is_matching_update_request(
                     request, self._sep_update_envelope):
                 envelope = self._sep_update_envelope
@@ -172,19 +173,19 @@ class CanonicalSourceFetch:
                     "reason": "SEP update request shape differs from configured envelope",
                 }
                 raise SourceAuthorityRefused(
-                    "Sharadar SEP update request envelope refused: "
+                    "Source SEP update request envelope refused: "
                     + json.dumps(evidence, sort_keys=True, separators=(",", ":")))
 
         rows = self._fetch(table, params, **kwargs)
-        if table == sharadar.TICKERS and self._validate_tickers:
+        if table == archive_tables.TICKERS and self._validate_tickers:
             # Materialization is bounded by the TICKERS table (~22k SEP rows).
-            # Validation occurs here, upstream of coherence.StableSharadarFetch,
+            # Validation occurs here, upstream of coherence.StableTableFetch,
             # so an invalid stable snapshot can never earn its first fingerprint.
             return tickers_authority.validate(rows)
-        if table not in {sharadar.SEP, sharadar.SFP}:
+        if table not in {archive_tables.SEP, archive_tables.SFP}:
             return rows
         envelope = (
-            self._sep_update_envelope if table == sharadar.SEP else None)
+            self._sep_update_envelope if table == archive_tables.SEP else None)
         return validated_source_rows(table, rows, update_envelope=envelope)
 
 

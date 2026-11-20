@@ -446,7 +446,7 @@ class TestATermsBlockStillReachesTheEquityGate:
     def test_a_delisted_security_SETTLES_when_the_grace_expires(self):
         """REGRESSION, rehearsal-blocking. Found 2026-08-08.
 
-        Sharadar's 19,216 delisted securities all STOP PRINTING at delisting, so
+        The archive's 19,216 delisted securities all STOP PRINTING at delisting, so
         a security carried under C1 goes stale at exactly the rate the grace
         elapses. With C1_GRACE_SESSIONS == 10 and MARK_RECENCY_SESSIONS == 10,
         re-measuring staleness at expiry puts the mark 11 sessions out — past the
@@ -592,7 +592,7 @@ class TestTheCarriedNotionalIsNotTheSettledNotional:
 
     def test_a_carry_that_never_prints_again_reconciles_to_ZERO(self):
         """The control, and the reason the rehearsal's delta is 0.08% rather
-        than large: Sharadar's delisted securities STOP printing at delisting,
+        than large: the archived delisted securities STOP printing at delisting,
         so most carries settle at the very mark they were carried at and
         contribute nothing to the difference. Only the episodes that printed
         mid-grace can account for the $283.04."""

@@ -1,4 +1,4 @@
-"""Sharadar feed and data-contract command owners."""
+"""Market-data feed and contract command owners."""
 
 from __future__ import annotations
 
@@ -277,42 +277,21 @@ def cmd_rejection_audit(config: SentinelConfig, args) -> int:
 
 
 def cmd_feed_seed(config: SentinelConfig, args) -> int:
-    """Run an ingest. Progress is committed per chunk, so watch it from another
-    shell with `feed-status` rather than by staring at this one."""
-    from sentinel.feed import ingest
-    from sentinel.feed import store as feed_store
+    """Prepare the reviewed first-deployment snapshot for its source-final session."""
+    from sentinel.feed import operational_snapshot, rolling_go_inputs, store
 
-    # BEFORE database construction.  A stale image is allowed to describe
-    # itself, but it must not reclaim a run, open a new run row, or touch one
-    # corpus row merely because its immutable digest resolved successfully.
     if _feed_producer_or_refuse() is None:
         return EXIT_NOT_ESTABLISHED
     if not config.database_url:
-        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
         return EXIT_CONFIG
-    log = logging.getLogger("sentinel")
-    conn = feed_store.connect(config.database_url)
-    try:
-        feed_store.require_feed_schema(conn)
-        # Before anything else: a `running` row left by a dead process would
-        # otherwise be reported by feed-status as an ingest with nothing behind
-        # it — the confusion the Wealth Core rehearsal produced for half an hour.
-        reclaimed = feed_store.reclaim_orphans(conn)
-        if reclaimed:
-            log.warning("sentinel: reclaimed %d abandoned ingest run(s)", reclaimed)
-
-        kw = {}
-        if args.date_from:
-            kw["date_from"] = args.date_from
-        if args.date_to:
-            kw["date_to"] = args.date_to
-        log.info("sentinel: seeding — watch with `feed-status` from another shell")
-        p = ingest.seed(conn, **kw)
-        log.info("sentinel: %s complete — %d chunks, %s rows written, %s dropped",
-                 p.kind, p.chunks_done, f"{p.rows_written:,}", f"{p.rows_dropped:,}")
-        return EXIT_OK
-    finally:
-        conn.close()
+    through = operational_snapshot.source_final_session()
+    if args.date_from or (args.date_to is not None and args.date_to != through):
+        print("REFUSED: initial formation uses the reviewed window ending " + through, file=sys.stderr)
+        return EXIT_CONFIG
+    with store.connect(config.database_url) as conn:
+        result = rolling_go_inputs.prepare(conn, target_session=through)
+    print(json.dumps(result, sort_keys=True, default=str))
+    return EXIT_OK
 
 
 def cmd_feed_status(config: SentinelConfig, args) -> int:
@@ -415,31 +394,26 @@ def prepare_feed_daily(args) -> int | None:
 
 
 def cmd_feed_daily(config: SentinelConfig, args) -> int:
-    """Run one explicitly bounded manual daily ingest."""
-    from sentinel.feed import acquisition_work, ingest
-    from sentinel.feed import store as feed_store
-
+    """Prepare the next publication against the authenticated SHADOW checkpoint."""
+    from sentinel import rolling_checkpoint, rolling_runtime, shadow_budget
+    from sentinel.feed import store
     if _feed_producer_or_refuse() is None:
         return EXIT_NOT_ESTABLISHED
     if not config.database_url:
-        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
         return EXIT_CONFIG
-    log = logging.getLogger("sentinel")
-    conn = feed_store.connect(config.database_url)
-    try:
-        feed_store.require_feed_schema(conn)
-        reclaimed = feed_store.reclaim_orphans(conn)
-        if reclaimed:
-            log.warning(
-                "sentinel: reclaimed %d abandoned ingest run(s)", reclaimed)
-        p = acquisition_work.retry_source(
-            lambda: ingest.daily(conn, today=args.boundary.through),
-            rollback=lambda: conn.rollback(), target_session=args.boundary.through)
-        log.info(
-            "sentinel: %s complete — %d chunks, %s rows written, %s dropped",
-            p.kind, p.chunks_done, f"{p.rows_written:,}",
-            f"{p.rows_dropped:,}",
-        )
-        return EXIT_OK
-    finally:
-        conn.close()
+    with store.connect(config.database_url) as conn:
+        checkpoint = rolling_checkpoint.read(conn)
+        if checkpoint is None:
+            print("REFUSED: daily preparation requires an established SHADOW checkpoint", file=sys.stderr)
+            return EXIT_NOT_ESTABLISHED
+        target = args.boundary.through
+        classified = rolling_runtime.classify(conn, observation_id=checkpoint.observation_id,
+            starting_cash=checkpoint.starting_cash, structural_only=True, unchanged_through=target)
+        if classified['status'] == 'VERIFIED_UNCHANGED':
+            return EXIT_OK
+        if classified['status'] not in {'ATTESTED_STRUCTURAL', 'RECONSTRUCTED_STRUCTURAL'}:
+            print("REFUSED: SHADOW must recover its checkpoint before publication", file=sys.stderr)
+            return EXIT_NOT_ESTABLISHED
+        rolling_runtime.prepare_adjacent(conn, previous=classified['latest_session'], through=target,
+                                         acquisition_deadline=shadow_budget.cutoff())
+    return EXIT_OK

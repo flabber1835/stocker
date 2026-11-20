@@ -10,8 +10,11 @@ and is never accepted.
 from __future__ import annotations
 
 import hashlib
+import hashlib
 import json
 import logging
+from contextlib import AsyncExitStack, asynccontextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timezone
 from decimal import Decimal, InvalidOperation
@@ -27,7 +30,7 @@ from sentinel.execution.contract import (
     BrokerObservation, BrokerOrder, BrokerPosition, CommandOutcome, Completeness, ExecutionBroker,
     MalformedBrokerEvidence, OrderTerms, Side)
 from sentinel.execution.guarded import BrokerAuthorityRefused
-from sentinel.execution import broker_cash, contract, journal
+from sentinel.execution import activity_stream, broker_cash, contract, journal
 from sentinel.execution.identity import is_sentinel_key
 from sentinel.execution.numeric import decimal_text
 from sentinel.execution.states import CommandState, CommandState as S, TERMINAL
@@ -489,6 +492,7 @@ class AlpacaExecutionBroker(ExecutionBroker):
         self._trading_endpoint = endpoint
         self._live_admission = live_admission
         self.certification_name = endpoint.broker_namespace
+        self._observation_clients = ContextVar("alpaca_observation_clients", default=None)
         self._http_provider = http_provider
         self._clock_provider = (
             clock_provider or (lambda: datetime.now(timezone.utc)))
@@ -554,8 +558,29 @@ class AlpacaExecutionBroker(ExecutionBroker):
         return _required_aware_ts(
             self._clock_provider(), where="Alpaca observation clock")
 
+    @asynccontextmanager
+    async def _observation_scope(self):
+        async with AsyncExitStack() as stack:
+            token = self._observation_clients.set((stack, []))
+            try:
+                yield
+            finally:
+                self._observation_clients.reset(token)
+
+    @asynccontextmanager
+    async def _read_client(self, timeout):
+        scope = self._observation_clients.get()
+        if scope is None:
+            async with self._httpx.AsyncClient(timeout=timeout) as client:
+                yield client
+            return
+        stack, clients = scope
+        if not clients:
+            clients.append(await stack.enter_async_context(self._httpx.AsyncClient(timeout=timeout)))
+        yield clients[0]
+
     async def _get(self, path: str, params: Optional[dict] = None):
-        async with self._httpx.AsyncClient(timeout=20.0) as client:
+        async with self._read_client(20.0) as client:
             self._require_transport_authority()
             resp = await client.get(
                 f"{self.base_url}{path}", headers=self._headers(),
@@ -969,7 +994,8 @@ class AlpacaExecutionBroker(ExecutionBroker):
             last_activity_id=last_id)
 
     async def observe(self) -> BrokerObservation:
-        return await self._observe_snapshot()
+        async with self._observation_scope():
+            return await self._observe_snapshot()
 
     async def observe_with_terminal_recovery(
             self, *, submitted_after: datetime,
@@ -984,8 +1010,9 @@ class AlpacaExecutionBroker(ExecutionBroker):
                 "terminal recovery clock is behind the durable processed "
                 f"watermark ({recovery_through.isoformat()} < "
                 f"{checkpoint.isoformat()}); refusing to skip broker history")
-        return await self._observe_snapshot(
-            terminal_floor=floor, recovery_through=recovery_through)
+        async with self._observation_scope():
+            return await self._observe_snapshot(
+                terminal_floor=floor, recovery_through=recovery_through)
 
     async def _observe_snapshot(
             self, *, terminal_floor: Optional[datetime] = None,
@@ -1436,20 +1463,8 @@ class AlpacaExecutionBroker(ExecutionBroker):
 
 
 def _fingerprint(orders) -> tuple:
-    return tuple(sorted((
-        order.broker_order_id, order.client_key or "",
-        order.instrument.security_id, order.instrument.broker_id or "",
-        order.side.value, str(order.quantity), str(order.notional),
-        order.state.value, str(order.filled_quantity),
-        (str(order.filled_average_price)
-         if order.filled_average_price is not None else ""),
-        (order.submitted_at.isoformat()
-         if order.submitted_at is not None else ""),
-        order.external_replacement,
-        order.replaced_by or "", order.replaces or "",
-        json.dumps(None if order.order_terms is None else order.order_terms.to_dict(),
-                   sort_keys=True, separators=(',', ':')),
-    ) for order in orders))
+    return tuple(contract.order_observation_fingerprint(order)
+                 for order in sorted(orders, key=lambda item: item.broker_order_id))
 
 
 def _position_fingerprint(positions) -> tuple:
@@ -1457,7 +1472,7 @@ def _position_fingerprint(positions) -> tuple:
         position.instrument.security_id,
         position.instrument.symbol,
         position.instrument.broker_id or "",
-        str(position.quantity),
+        position.quantity,
     ) for position in positions))
 
 
@@ -1525,47 +1540,6 @@ def _loads_state(raw, *, where: str) -> dict:
     if not isinstance(value, dict):
         raise RuntimeError(f"{where} must be a JSON object")
     return value
-
-def _sse_events(text: str, *, malformed) -> tuple[dict, ...]:
-    """Parse a bounded Alpaca SSE response; comments that signal loss refuse."""
-    events: list[dict] = []
-    data: list[str] = []
-
-    def flush() -> None:
-        if not data:
-            return
-        payload = "\n".join(data)
-        data.clear()
-        try:
-            event = json.loads(payload)
-        except Exception as exc:
-            raise malformed("Activity SSE contained malformed JSON") from exc
-        if not isinstance(event, dict):
-            raise malformed("Activity SSE data event must be a JSON object")
-        events.append(event)
-
-    for raw in str(text).splitlines():
-        line = raw.rstrip("\r")
-        if line.startswith(":"):
-            lowered = line.lower()
-            if "dropped" in lowered or "internal server error" in lowered:
-                raise malformed(
-                    "Activity SSE reported message loss/server failure; "
-                    "history is not complete")
-            continue
-        if line == "":
-            flush()
-            continue
-        if line.startswith("data:"):
-            data.append(line[5:].lstrip())
-            continue
-        # event/id/retry fields are transport metadata. Unknown non-comment,
-        # non-SSE fields are not ignored because doing so can hide corruption.
-        if line.startswith(("event:", "id:", "retry:")):
-            continue
-        raise malformed(f"Activity SSE contained unknown line {line!r}")
-    flush()
-    return tuple(events)
 
 def _json(raw, *, where: str) -> dict:
     if isinstance(raw, dict):
@@ -1961,109 +1935,125 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
         headers = dict(self._headers())
         headers["Accept"] = "text/event-stream"
 
-        async def request(params: Mapping[str, str]) -> tuple[dict, ...]:
+        cursor = None if since_event_id is None else str(since_event_id).strip()
+        if cursor == "":
+            raise MalformedBrokerPayload("Activity SSE since_event_id must be non-empty")
+
+        @asynccontextmanager
+        async def response(params):
+            from httpx import TransportError
             try:
-                async with self._httpx.AsyncClient(timeout=60.0) as client:
+                async with self._read_client(60.0) as client:
                     self._require_transport_authority()
-                    resp = await client.get(
-                        f"{self.base_url}/v2beta1/events/activities",
-                        headers=headers, params=dict(params))
-            except BrokerAuthorityRefused:
-                raise
-            except Exception as exc:                      # noqa: BLE001
-                raise RuntimeError(
-                    "Activity SSE transport failed: "
-                    f"{type(exc).__name__}: {exc}") from exc
-            if resp.status_code in (401, 403):
-                raise AlpacaCredentialsRefused(
-                    "Activity SSE authority refused with HTTP "
-                    f"{resp.status_code}")
-            if resp.status_code != 200:
-                raise RuntimeError(
-                    f"Activity SSE returned HTTP {resp.status_code}")
-            events = tuple(_sse_events(
-                resp.text, malformed=MalformedBrokerPayload))
-            seen_event: set[str] = set()
-            seen_ref: set[str] = set()
-            prior_event = ""
-            for event in events:
-                event_id = str(event.get("event_id") or "").strip()
-                ref_id = str(event.get("ref_id") or "").strip()
-                event_account = str(event.get("account_id") or "").strip()
-                native_event = (event if ref_id and
-                    str(event.get("activity_type") or "").upper() == "TRD" else None)
-                if not event_id or not ref_id:
-                    raise MalformedBrokerPayload(
-                        "Activity SSE event omitted event_id/ref_id",
-                        raw_event=native_event)
-                if "account_id" in event and event_account != account_uuid:
-                    raise MalformedBrokerPayload(
-                        "Activity SSE event belongs to another account",
-                        raw_event=native_event)
-                # The cash and fill consumers below are USD ledgers and
-                # accept only completed economic state changes.  Alpaca's
-                # common envelope requires both fields; silently accepting
-                # a missing/foreign currency would interpret local-currency
-                # ``net_amount``/``price`` values as USD, while accepting a
-                # non-final status could book economics before completion.
-                currency = str(event.get("currency") or "").strip().upper()
-                if currency != "USD":
-                    raise MalformedBrokerPayload(
-                        f"Activity SSE event {event_id} currency "
-                        f"{currency or '<missing>'!r} is not USD",
-                        raw_event=native_event)
-                status = str(event.get("status") or "").strip().lower()
-                if status != "executed":
-                    raise MalformedBrokerPayload(
-                        f"Activity SSE event {event_id} status "
-                        f"{status or '<missing>'!r} is not executed",
-                        raw_event=native_event)
-                try:
-                    business_at = _required_aware_ts(
-                        event.get("at"),
-                        where=f"Activity SSE {event_id} business time")
-                except MalformedBrokerPayload as exc:
-                    raise MalformedBrokerPayload(
-                        str(exc), raw_event=native_event) from exc
-                if not (floor <= business_at <= upper):
-                    raise MalformedBrokerPayload(
-                        f"Activity SSE event {event_id} business time lies "
-                        "outside the requested bounded snapshot",
-                        raw_event=native_event)
-                try:
-                    _required_aware_ts(
-                        event.get("executed_at"),
-                        where=f"Activity SSE {event_id} execution time")
-                except MalformedBrokerPayload as exc:
-                    raise MalformedBrokerPayload(str(exc), raw_event=event) from exc
-                settle_date = event.get("settle_date")
-                try:
-                    if not isinstance(settle_date, str):
-                        raise TypeError
-                    date.fromisoformat(settle_date)
-                except (TypeError, ValueError) as exc:
-                    raise MalformedBrokerPayload(
-                        f"Activity SSE event {event_id} settle_date is "
-                        "not an ISO date", raw_event=native_event) from exc
-                if event_id in seen_event:
-                    raise MalformedBrokerPayload(
-                        f"Activity SSE repeated event_id {event_id}",
-                        raw_event=native_event)
-                if ref_id in seen_ref:
-                    raise MalformedBrokerPayload(
-                        f"Activity SSE repeated ref_id {ref_id}",
-                        raw_event=native_event)
-                if prior_event and event_id <= prior_event:
-                    raise MalformedBrokerPayload(
-                        "Activity SSE event_id order is not strictly monotonic",
-                        raw_event=native_event)
-                seen_event.add(event_id)
-                seen_ref.add(ref_id)
-                prior_event = event_id
-                if not isinstance(event.get("details"), dict):
-                    raise MalformedBrokerPayload(
-                        f"Activity SSE event {event_id} has no details object",
-                        raw_event=native_event)
+                    async with client.stream(
+                            "GET", f"{self.base_url}/v2beta1/events/activities",
+                            headers=headers, params=dict(params), timeout=60.0) as resp:
+                        if resp.status_code in (401, 403):
+                            raise AlpacaCredentialsRefused(
+                                f"Activity SSE authority refused with HTTP {resp.status_code}")
+                        if resp.status_code != 200:
+                            raise RuntimeError(f"Activity SSE returned HTTP {resp.status_code}")
+                        yield resp
+            except (OSError, TransportError) as exc:
+                raise RuntimeError(f"Activity SSE transport failed: {type(exc).__name__}: {exc}") from exc
+
+        def validate(event, *, prior_event, references):
+            event_id = str(event.get("event_id") or "").strip()
+            ref_id = str(event.get("ref_id") or "").strip()
+            event_account = str(event.get("account_id") or "").strip()
+            native_event = (event if ref_id and
+                str(event.get("activity_type") or "").upper() == "TRD" else None)
+            if not event_id or not ref_id:
+                raise MalformedBrokerPayload(
+                    "Activity SSE event omitted event_id/ref_id",
+                    raw_event=native_event)
+            if "account_id" in event and event_account != account_uuid:
+                raise MalformedBrokerPayload(
+                    "Activity SSE event belongs to another account",
+                    raw_event=native_event)
+            # The cash and fill consumers below are USD ledgers and
+            # accept only completed economic state changes.  Alpaca's
+            # common envelope requires both fields; silently accepting
+            # a missing/foreign currency would interpret local-currency
+            # ``net_amount``/``price`` values as USD, while accepting a
+            # non-final status could book economics before completion.
+            currency = str(event.get("currency") or "").strip().upper()
+            if currency != "USD":
+                raise MalformedBrokerPayload(
+                    f"Activity SSE event {event_id} currency "
+                    f"{currency or '<missing>'!r} is not USD",
+                    raw_event=native_event)
+            status = str(event.get("status") or "").strip().lower()
+            if status != "executed":
+                raise MalformedBrokerPayload(
+                    f"Activity SSE event {event_id} status "
+                    f"{status or '<missing>'!r} is not executed",
+                    raw_event=native_event)
+            try:
+                business_at = _required_aware_ts(
+                    event.get("at"),
+                    where=f"Activity SSE {event_id} business time")
+            except MalformedBrokerPayload as exc:
+                raise MalformedBrokerPayload(
+                    str(exc), raw_event=native_event) from exc
+            if not (floor <= business_at <= upper):
+                raise MalformedBrokerPayload(
+                    f"Activity SSE event {event_id} business time lies "
+                    "outside the requested bounded snapshot",
+                    raw_event=native_event)
+            try:
+                _required_aware_ts(
+                    event.get("executed_at"),
+                    where=f"Activity SSE {event_id} execution time")
+            except MalformedBrokerPayload as exc:
+                raise MalformedBrokerPayload(str(exc), raw_event=event) from exc
+            settle_date = event.get("settle_date")
+            try:
+                if not isinstance(settle_date, str):
+                    raise TypeError
+                date.fromisoformat(settle_date)
+            except (TypeError, ValueError) as exc:
+                raise MalformedBrokerPayload(
+                    f"Activity SSE event {event_id} settle_date is "
+                    "not an ISO date", raw_event=native_event) from exc
+            if event_id == prior_event:
+                raise MalformedBrokerPayload(
+                    f"Activity SSE repeated event_id {event_id}",
+                    raw_event=native_event)
+            if not references.add(ref_id):
+                raise MalformedBrokerPayload(
+                    f"Activity SSE repeated ref_id {ref_id}",
+                    raw_event=native_event)
+            if prior_event and event_id <= prior_event:
+                raise MalformedBrokerPayload(
+                    "Activity SSE event_id order is not strictly monotonic",
+                    raw_event=native_event)
+            if not isinstance(event.get("details"), dict):
+                raise MalformedBrokerPayload(
+                    f"Activity SSE event {event_id} has no details object",
+                    raw_event=native_event)
+            return event_id
+
+        async def request(params, *, retain):
+            digest = hashlib.sha256()
+            retained = []
+            last = ""
+            anchor = None
+            with activity_stream.UniqueReferences() as references:
+                async with response(params) as resp:
+                    async for event in activity_stream.events(
+                            resp.aiter_lines(), malformed=MalformedBrokerPayload):
+                        last = validate(event, prior_event=last, references=references)
+                        if "since_id" in params and last < cursor:
+                            raise MalformedBrokerPayload("Activity SSE cursor replay crossed behind its durable id")
+                        if cursor is None or last >= cursor:
+                            encoded = json.dumps(event, sort_keys=True, separators=(",", ":")).encode()
+                            if last == cursor:
+                                anchor = hashlib.sha256(encoded).digest()
+                            else:
+                                digest.update(encoded + b"\\n")
+                            if retain:
+                                retained.append(event)
             # Trading API activities are scoped by the owned endpoint and may
             # omit the partner stream's per-event account_id. Bind every finite
             # response to the same native account on both sides of the read.
@@ -2075,7 +2065,7 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
                         and account_after.raw.get("created_at") != account.raw.get("created_at"))):
                 raise MalformedBrokerPayload(
                     "Alpaca account identity changed around Activity SSE read")
-            return events
+            return last, anchor, digest.digest(), tuple(retained)
 
         def accepted(events):
             if cash_activity:
@@ -2092,48 +2082,27 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
         # Timestamp filters establish only a *bounded snapshot*. They are
         # not a replay cursor because Alpaca filters business time (`at`),
         # while delayed/backfilled events append later in event_id order.
-        snapshot = await request({
-            "since": floor.isoformat(), "until": upper.isoformat()})
-        if since_event_id is None:
+        bounds = {"since": floor.isoformat(), "until": upper.isoformat()}
+        head, anchor, discovery_digest, snapshot = await request(bounds, retain=cursor is None)
+        if cursor is None:
             if verify_snapshot_replay:
-                # until_id requires a real since_id. Initial discovery owns
-                # no prior native cursor, so repeat the valid timestamp query.
-                # Matching snapshots prove neither a fixed publication frontier
-                # nor the absence of later backfills, including when empty.
-                replay = await request({
-                    "since": floor.isoformat(), "until": upper.isoformat()})
-                if replay != snapshot:
+                replay_head, _, replay_digest, _ = await request(bounds, retain=False)
+                if (replay_head, replay_digest) != (head, discovery_digest):
                     raise MalformedBrokerPayload(
-                        "Activity SSE bounded snapshot replay disagreed with "
-                        "its discovery snapshot")
+                        "Activity SSE bounded snapshot replay disagreed with its discovery snapshot")
             return accepted(snapshot)
-        cursor = str(since_event_id).strip()
-        if not cursor:
-            raise MalformedBrokerPayload(
-                "Activity SSE since_event_id must be non-empty")
-        if not snapshot:
-            # A retained cursor proves at least one event was previously
-            # visible.  An empty exhaustive discovery snapshot contradicts
-            # that retained source; treating it as "no changes" would hide
-            # source truncation, account drift, or a vendor regression.
-            raise MalformedBrokerPayload(
-                "Activity SSE exhaustive discovery omitted the retained "
-                "event cursor")
-        upper_event_id = str(snapshot[-1]["event_id"])
-        if upper_event_id < cursor:
-            raise MalformedBrokerPayload(
-                "Activity SSE bounded upper event_id regressed")
-        if upper_event_id == cursor:
+        if head and head < cursor:
+            raise MalformedBrokerPayload("Activity SSE bounded upper event_id regressed")
+        if anchor is None:
+            raise MalformedBrokerPayload("Activity SSE exhaustive discovery omitted the retained event cursor")
+        if head == cursor:
             return ()
-
-        replay = await request({
-            "since_id": cursor, "until_id": upper_event_id})
-        if not replay or str(replay[-1]["event_id"]) != upper_event_id:
-            raise MalformedBrokerPayload(
-                "Activity SSE cursor replay did not reach its bounded upper id")
-        if str(replay[0]["event_id"]) < cursor:
-            raise MalformedBrokerPayload(
-                "Activity SSE cursor replay crossed behind its durable id")
+        replay_head, replay_anchor, replay_digest, replay = await request(
+            {"since_id": cursor, "until_id": head}, retain=True)
+        if not replay or replay_head != head:
+            raise MalformedBrokerPayload("Activity SSE cursor replay did not reach its bounded upper id")
+        if replay_digest != discovery_digest or (replay_anchor is not None and replay_anchor != anchor):
+            raise MalformedBrokerPayload("Activity SSE cursor replay disagreed with its discovery snapshot")
         return accepted(replay)
 
     async def account_cash_activities(

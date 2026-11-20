@@ -249,7 +249,7 @@ def test_read_only_freshness_uses_same_chain_guards_and_no_writer(monkeypatch,tm
 def test_market_deferred_shared_renewal_uses_read_only_selection_and_reports_work(
         monkeypatch,tmp_path,capsys,hash_operations,full_scrub,read_passes):
     prepare_tick(monkeypatch,tmp_path)
-    monkeypatch.setattr(coordinator, 'heavy_work_allowed', lambda observation: False)
+    monkeypatch.setattr(coordinator, 'heavy_work_allowed', lambda observation, reserved, runner: False)
     boundary = FreshBoundary()
     boundary.receipt_counts = (hash_operations, full_scrub)
     result = coordinator.tick('/media', boundary)
@@ -313,14 +313,18 @@ def test_retention_failure_preserves_already_published_fact(monkeypatch,tmp_path
     assert result['outcome'] == 'BLOCKED'
 
 
-def test_observe_current_succeeds_during_exclusive_writer_without_mutation(media):
+@pytest.mark.parametrize('market', [False, True])
+def test_observe_current_succeeds_during_exclusive_writer_without_mutation(media, market):
     before = media.selected()
+    clock = int(datetime(2026, 11, 19, 21, tzinfo=timezone.utc).timestamp())
     with retention.media_lock(media.base):
         result = subprocess.run([sys.executable,'-B','-m','sentinel.backup_retention','observe-current',
-            '--root',str(media.base.parent),'--system-id',SYSTEM,'--timeout-seconds','5'],
-            capture_output=True,text=True,timeout=3)
+            '--root',str(media.base.parent),'--system-id',SYSTEM,'--timeout-seconds','10',
+            *(['--market-at', str(clock)] if market else [])],
+            capture_output=True,text=True,timeout=12)
     assert result.returncode == 0,result.stderr
-    assert json.loads(result.stdout) == before
+    expected = {'selected': before, 'market_reserved': True} if market else before
+    assert json.loads(result.stdout) == expected
     assert len(media.inventory()) == 72 and not (media.base/retention.JOURNAL).exists()
 
 

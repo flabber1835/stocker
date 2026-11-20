@@ -260,6 +260,7 @@ class Boundary:
         self.old = False
         self.selected_override = None
         self.published = []
+        self.close_work = False
 
     def selected(self):
         return {"name": self.selected_override or self.name, "metadata_sha256": "a" * 64,
@@ -278,6 +279,10 @@ class Boundary:
             return ""
         if command[:3] == ["docker", "image", "inspect"]:
             return "f" * 40
+        if command[:3] == ["docker", "rm", "-f"]:
+            assert any("observe-current" in call and "--name" in call
+                       and call[call.index("--name") + 1] == command[3] for call in self.calls)
+            return ""
         if command[:3] in (["docker", "volume", "ls"], ["docker", "network", "ls"]):
             return ""
         if "WHERE kind='BASE_BACKUP'" in joined:
@@ -288,7 +293,10 @@ class Boundary:
                 marker=item['marker'],marker_lsn=item['target_lsn'],system_identifier=SYSTEM)))
         if "json_build_object" in joined and 'INSERT INTO sentinel_backup_evidence' not in joined:
             return json.dumps({"system_id": SYSTEM, "now": NOW, "timeline": "00000001",
-                               "lsn": "0/D000000", "segment_size": SEGMENT})
+                               "lsn": "0/D000000", "segment_size": SEGMENT,
+                               "callback_tables": True, "publication_tables": True})
+        if command[-1].startswith('SELECT EXISTS (SELECT FROM sentinel_automation_lease'):
+            return 't' if self.close_work else 'f'
         if "INSERT INTO sentinel_backup_evidence" in joined:
             value = json.loads(command[-1].split("WITH evidence AS (SELECT '", 1)[1]
                                .split("'::jsonb AS proof)", 1)[0])
@@ -299,6 +307,9 @@ class Boundary:
             return json.dumps(receipt(self.selected())) if self.restored else ""
         if "sentinel.backup_retention" in command:
             if "observe" in command or 'observe-current' in command:
+                if '--market-at' in command:
+                    now = int(command[command.index('--market-at') + 1])
+                    return json.dumps(dict(selected=self.selected(), market_reserved=retention.market_reservation(now)))
                 return json.dumps(self.selected())
             request = json.loads(kwargs["stdin"])
             retention.valid_receipt(request["receipt"], self.selected(), SYSTEM, request['image'])
@@ -479,11 +490,116 @@ def test_proactive_wal_boundary_is_independent_of_age(boundary, segments, due):
     assert coordinator.renewal_due(item, observation) is due
 
 
-@pytest.mark.parametrize('hour,minute,allowed',[(9,0,True),(12,29,True),(12,30,False),
-                                               (13,31,False),(20,59,False),(21,0,True)])
-def test_heavy_work_yields_to_market_and_preparation(hour,minute,allowed):
-    stamp=int(datetime(2026,10,15,hour,minute,tzinfo=timezone.utc).timestamp())
-    assert coordinator.heavy_work_allowed({'now':stamp}) is allowed
+@pytest.mark.parametrize('utc,allowed', [
+    ('2026-07-13T12:29:59',True), ('2026-07-13T12:30:00',False),
+    ('2026-07-13T20:59:59',False), ('2026-07-13T21:00:00',True),
+    ('2026-11-19T13:29:59',True), ('2026-11-19T13:30:00',False),
+    ('2026-11-19T21:00:00',False), ('2026-11-19T21:59:59',False), ('2026-11-19T22:00:00',True),
+    ('2026-11-27T18:59:59',False), ('2026-11-27T19:00:00',True),
+    ('2026-11-26T16:00:00',True), ('2026-11-28T16:00:00',True),
+])
+def test_exchange_reservation_controls_actual_bulk_tick(boundary, monkeypatch, utc, allowed):
+    now = int(datetime.fromisoformat(utc).replace(tzinfo=timezone.utc).timestamp())
+    monkeypatch.setitem(globals(), 'NOW', now)
+    result = coordinator.tick('/media', boundary)
+    assert ('retention_ready' in result) == allowed
+    assert len(boundary.published) == 1
+
+
+def test_live_close_job_after_window_releases_discretionary_work_only_at_completion(boundary):
+    boundary.close_work = True
+    assert coordinator.tick('/media', boundary)['maintenance_deferred']
+    boundary.close_work = False
+    assert coordinator.tick('/media', boundary)['retention_ready']
+
+
+def test_calendar_unavailability_keeps_freshness_and_defers_discretionary_work(boundary, monkeypatch):
+    from sentinel.feed import calendar
+    def unavailable(day):
+        raise calendar.CalendarUnavailable('missing calendar')
+    monkeypatch.setattr(calendar, 'session_window', unavailable)
+    result = coordinator.tick('/media', boundary)
+    assert result['maintenance_deferred'] and result['runtime_chain_current']
+    assert not any('retain' in command for command in boundary.calls)
+
+
+def test_live_close_work_requires_native_owner_and_unexpired_lease():
+    import psycopg
+    from tests.support.postgres import _EphemeralPostgres
+    server = _EphemeralPostgres()
+    try:
+        server.start()
+        with psycopg.connect(server.sync_dsn, autocommit=True) as conn:
+            def runner(command, **kwargs):
+                value = conn.execute(command[-1]).fetchone()[0]
+                return json.dumps(value) if isinstance(value, dict) else ('t' if value else 'f')
+            conn.execute("""CREATE TEMP TABLE sentinel_backup_evidence(kind text, observed_at timestamptz,
+                proof jsonb, evidence_sha256 text, seq bigint)""")
+            def allowed():
+                observation = coordinator.observe_primary(runner)
+                return coordinator.heavy_work_allowed(observation, False, runner)
+            assert allowed()  # Base backups can run before the rest of the schema exists.
+            conn.execute("""
+                CREATE TEMP TABLE sentinel_automation_lease(id int, holder_id text, expires_at timestamptz);
+                CREATE TEMP TABLE sentinel_automation_service_instances(instance_id text, state text,
+                    heartbeat_at timestamptz, callback_started_at timestamptz, callback_deadline_at timestamptz);
+                INSERT INTO sentinel_automation_lease VALUES (1,'leader',now()+interval '1 hour');
+                INSERT INTO sentinel_automation_service_instances VALUES
+                    ('leader','PREPARE_CALLBACK',now(),now(),now()+interval '1 minute')
+                """)
+            assert not allowed()
+            conn.execute("UPDATE sentinel_automation_service_instances SET callback_deadline_at=now()")
+            assert allowed()
+            conn.execute("""
+                CREATE TEMP TABLE sentinel_operational_snapshot_jobs(job_id int);
+                CREATE TEMP TABLE sentinel_snapshot_workers(job_id int, owner text);
+                CREATE TEMP TABLE sentinel_snapshot_jobs(job_id int, owner text, fence int, state text,
+                    publication_version int, lease_until timestamptz, deadline timestamptz);
+                INSERT INTO sentinel_operational_snapshot_jobs VALUES(1);
+                INSERT INTO sentinel_snapshot_jobs VALUES(1,'worker',1,'VALIDATING',NULL,
+                    now()+interval '1 minute',now()+interval '5 minutes')
+                """)
+            assert allowed()
+            conn.execute("INSERT INTO sentinel_snapshot_workers VALUES(1,'worker')")
+            assert not allowed()
+            conn.execute("UPDATE sentinel_snapshot_jobs SET lease_until=now()")
+            assert allowed()
+    finally:
+        server.stop()
+
+
+@pytest.mark.parametrize('reason', ['timeline','wal','age_limit','small_segment_count'])
+def test_urgent_base_runs_inside_market_reservation_without_retention(boundary, monkeypatch, reason):
+    stamp = int(datetime(2026,11,19,21,0,tzinfo=timezone.utc).timestamp())
+    monkeypatch.setitem(globals(), 'NOW', stamp)
+    initial = boundary.selected()
+    ordinary = coordinator.observe_primary
+    def observe(runner):
+        value = ordinary(runner)
+        if boundary.old and reason == 'timeline':
+            value['timeline'] = '00000002'
+        if boundary.old and reason in ('wal','small_segment_count'):
+            if reason == 'small_segment_count':
+                value['segment_size'] = 1024**2
+            lsn = initial['ranges'][0]['end'] + 512 * value['segment_size']
+            value['lsn'] = f'{lsn >> 32:X}/{lsn & 0xffffffff:X}'
+        return value
+    previous = boundary.selected
+    def selected():
+        value = previous()
+        if boundary.old and reason == 'age_limit':
+            value['timestamp'] = stamp - (30*3600-1200)
+        return value
+    monkeypatch.setattr(boundary,'selected',selected)
+    monkeypatch.setattr(coordinator,'observe_primary',observe)
+    boundary.old = True
+    result = coordinator.tick('/media', boundary)
+    assert result['base_renewed_for'] == ('wal' if reason=='small_segment_count' else reason)
+    assert sum('scripts/sentinel-base-backup.sh' in call for call in boundary.calls) == 1
+    assert result['runtime_chain_current'] and result['maintenance_deferred']
+    phases = [proof['phase'] for proof in boundary.published if 'phase' in proof]
+    assert phases == ['BASE_BACKUP', 'VERIFY_CHAIN', 'COMPLETE']
+    assert not any('retain' in call for call in boundary.calls)
 
 
 def test_daily_preopen_slot_and_installation_result_reuse(boundary):
@@ -524,8 +640,7 @@ def test_market_deferral_publishes_current_chain_without_allocation_or_deletion(
 def test_market_deferral_never_excuses_a_failed_chain_or_evidence(
         boundary, monkeypatch, capsys, fault):
     stamp=int(datetime(2026,10,15,13,31,tzinfo=timezone.utc).timestamp())
-    original=coordinator.observe_primary
-    monkeypatch.setattr(coordinator,'observe_primary',lambda runner:{**original(runner),'now':stamp})
+    monkeypatch.setitem(globals(), 'NOW', stamp)
     if fault == 'base-proof':
         boundary.base_verified = False
     def runner(command, **kwargs):
@@ -774,6 +889,8 @@ def test_promoted_backup_without_runtime_selection_cannot_be_healthy(
             with retention.media_lock(disk.base):
                 item = disk.selected()
             item['timestamp'] = NOW  # Control fixture age; selection bytes are real.
+            if '--market-at' in command:
+                return json.dumps(dict(selected=item, market_reserved=retention.market_reservation(NOW)))
             return json.dumps(item)
         return boundary(command, **kwargs)
     if interrupted:

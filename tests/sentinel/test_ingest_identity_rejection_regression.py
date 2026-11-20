@@ -27,7 +27,7 @@ sys.path.insert(0, str(ROOT / "shared"))
 from tests.support.postgres import _EphemeralPostgres  # noqa: E402
 
 from sentinel.feed import domains as D  # noqa: E402
-from sentinel.feed import ingest, publication, rejection_audit as RA, sharadar  # noqa: E402
+from sentinel.feed import ingest, publication, rejection_audit as RA, archive_tables  # noqa: E402
 from sentinel.feed import store as S  # noqa: E402
 from sentinel import identity  # noqa: E402
 
@@ -92,15 +92,15 @@ def fetcher(sep_rows):
 
     def fetch(table, params=None, **_kw):
         params = dict(params or {})
-        if table == sharadar.TICKERS:
+        if table == archive_tables.TICKERS:
             return list(tickers)
-        if table == sharadar.ACTIONS:
+        if table == archive_tables.ACTIONS:
             if params.get("date.gte") == "1900-01-01":
                 return [{"ticker": "__SOURCE_HEALTH__", "date": "1900-01-02",
                          "action": "listed", "value": None,
                          "contraticker": None}]
             return []
-        if table == sharadar.SFP:
+        if table == archive_tables.SFP:
             return []
         if "lastupdated.gte" in params or "lastupdated.lte" in params:
             lo = params.get("lastupdated.gte", "0000-00-00")

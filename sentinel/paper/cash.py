@@ -335,6 +335,7 @@ def require_exact_native_fee_cash(conn, *, plan, deployment, account,
     _require_exact_fee_cash(account=account, exact_expected=exact_expected)
 
 
+@broker_cash.share_membership_observation
 def native_fee_plan_continuation(conn, *, plan, deployment, account,
                                   activity_state) -> bool:
     """Canonical plan-only proof, with no supplied exception or observation."""
@@ -353,6 +354,7 @@ def native_fee_plan_continuation(conn, *, plan, deployment, account,
     return fees
 
 
+@broker_cash.share_membership_observation
 def _cash_authority_or_refuse(
         conn, *, plan: ExecutionPlan, deployment,
         account: BrokerAccountSnapshot, observation: BrokerObservation,

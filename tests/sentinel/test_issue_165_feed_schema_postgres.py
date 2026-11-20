@@ -83,6 +83,16 @@ def test_explicit_migration_is_idempotent_and_runtime_valid(migrated):
     assert second == first
 
 
+@pytest.mark.parametrize('name', ['sentinel_retention_locks', 'sentinel_acquisition_retention_locks'])
+def test_private_disposal_verifies_both_database_ownership_guards(migrated, name):
+    migrated.execute(f'CREATE OR REPLACE FUNCTION {name}() RETURNS void LANGUAGE plpgsql AS $$ BEGIN RETURN; END $$')
+    migrated.commit()
+    with pytest.raises(runtime_schema.FeedSchemaRefused, match=name):
+        feed_store.require_feed_schema(migrated)
+    feed_store.migrate_schema(migrated)
+    feed_store.require_feed_schema(migrated)
+
+
 def test_explicit_migration_upgrades_the_acquisition_retirement_guard(migrated):
     (legacy_guard,) = (
         statement for statement in acquisition_part_schema.DDL

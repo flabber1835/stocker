@@ -29,6 +29,8 @@ def isolated_source_cache(tmp_path, monkeypatch):
     root = tmp_path / "source-cache"
     root.mkdir()
     monkeypatch.setattr(acquisition_work, "cache_root", lambda: root)
+    from sentinel.feed import provider_budget
+    monkeypatch.setattr(provider_budget, "cache_root", lambda: root)
 
 
 @pytest.fixture(autouse=True)

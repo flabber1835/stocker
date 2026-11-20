@@ -1,5 +1,6 @@
 """Bounded exact observed-vs-expected historical SEP membership proof."""
 from __future__ import annotations
+from sentinel import archive_identifiers
 
 import json
 import sqlite3
@@ -7,7 +8,7 @@ import tempfile
 from pathlib import Path
 from typing import Mapping, Sequence
 
-from sentinel.feed import calendar, sharadar
+from sentinel.feed import calendar, archive_tables
 from .dates import SourceAuthorityRefused, _canonical_key
 from .collisions import bar_witness, require_no_collisions
 from .seed_model import (
@@ -53,7 +54,7 @@ class SeedCoverageAccumulator:
         """)
 
     def add(self, row: Mapping) -> bool:
-        ticker, session = _canonical_key(sharadar.SEP, row)
+        ticker, session = _canonical_key(archive_tables.SEP, row)
         permaticker = self.resolve(ticker, session)
         if permaticker is None:
             self._db.execute(
@@ -163,7 +164,7 @@ class SeedCoverageAccumulator:
                     from sentinel.feed.source_wait import SourceCoveragePending
                     raise SourceCoveragePending(evidence)
                 raise SourceAuthorityRefused(
-                    "Sharadar SEP seed eligible-set coverage refused: "
+                    archive_identifiers.FEED['SOURCE_COVERAGE_PREFIX']
                     # Stable insertion order puts the failed session and keys
                     # before the GO boundary's bounded diagnostic truncation.
                     + json.dumps(evidence, separators=(",", ":")))

@@ -1,6 +1,6 @@
 """Publication-scoped corporate-action snapshots.
 
-Every Sharadar ACTIONS fetch used here is a complete response for one explicit
+Every Source ACTIONS fetch used here is a complete response for one explicit
 raw-date window.  The durable representation therefore needs to say both
 "present now" and "was present in the preceding publication, absent now".
 `sentinel_active_actions` exposes the published answer; this module adds the

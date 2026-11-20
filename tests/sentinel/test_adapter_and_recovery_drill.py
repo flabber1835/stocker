@@ -91,7 +91,9 @@ class FakeHttpx:
         self.calls: list = []
         client = self
 
-        class _Client:
+        from tests.sentinel.activity_stream_fixture import ActivityStreamClient
+
+        class _Client(ActivityStreamClient):
             def __init__(self, **kw):
                 pass
 

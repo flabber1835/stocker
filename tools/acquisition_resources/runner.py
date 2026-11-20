@@ -7,7 +7,7 @@ import time
 import uuid
 
 from tools.acquisition_resources.profiles import SPECS
-from tools.acquisition_resources.measurement import pairs, qualifies
+from tools.acquisition_resources.measurement import memory_limit, pairs, qualifies
 
 POSTGRES = "postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b"
 GIB = 1024 ** 3
@@ -29,7 +29,8 @@ def database_memory(name):
         "cat /sys/fs/cgroup/memory.current /sys/fs/cgroup/memory.peak "
         "/sys/fs/cgroup/memory.max /sys/fs/cgroup/memory.events /sys/fs/cgroup/memory.stat")
     lines = raw.splitlines()
-    current, peak, limit = map(int, lines[:3])
+    current, peak = map(int, lines[:2])
+    limit = memory_limit(lines[2])
     values = pairs("\n".join(lines[3:]))
     return dict(current=current, peak=peak, limit=limit,
                 working=max(0, current-values["inactive_file"]), anon=values["anon"],
@@ -98,8 +99,8 @@ def run(args):
                 "--memory", str(limit), "--memory-swap", str(limit), "--cpus", str(args.worker_cpus),
                 "--mount", f"type=volume,src={volumes[1]},dst=/var/lib/sentinel",
                 "-e", "SENTINEL_STATE_DIR=/var/lib/sentinel",
-                "-e", "NDL_BASE_URL=http://provider:8080/api/v3/datatables/SHARADAR",
-                "-e", "SHARADAR_ALLOW_INSECURE_BASE_URL=1", "-e", "SHARADAR_API_KEY=resource-fixture-only",
+                "-e", "ALPACA_API_KEY=fixture-data-id", "-e", "ALPACA_SECRET_KEY=fixture-data-secret",
+                "-e", "OPENFIGI_API_KEY=fixture-mapping",
                 "-e", "RESOURCE_DSN=postgresql://postgres:resource-fixture-only@database/postgres",
                 image, "-u", "-m", "tools.acquisition_resources.worker", "--profile", args.profile,
                 "--cycles", str(args.cycles))

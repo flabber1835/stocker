@@ -1,15 +1,17 @@
 """Independent PIT authority for disputed cash actions."""
 from __future__ import annotations
 
+from sentinel import archive_identifiers as archive_ids
+
 import copy
 from decimal import Decimal
 
 import pytest
 
 from sentinel.feed import corporate_action_authority as CAA
-from sentinel.feed import actions_map, ingest, maintenance, sharadar, store
+from sentinel.feed import actions_map, ingest, maintenance, archive_tables, store
 from sentinel.feed.domains import RawPriceDomainUnavailable
-from stock_strategy_shared.wealth_core.sharadar_domains import raw_dividend_per_share
+from stock_strategy_shared.wealth_core.price_domains import raw_dividend_per_share
 from sentinel.feed.source_authority.corporate_action_data import (
     CASH_ADJUDICATION_AUTHORITIES,
 )
@@ -148,7 +150,7 @@ def tri_vendor(*, cash="1.36", rebase=1):
         params = dict(params or {})
         lo = str(params.get("date.gte", "0000-00-00"))
         hi = str(params.get("date.lte", "9999-99-99"))
-        if table == sharadar.SEP:
+        if table == archive_tables.SEP:
             return [
                 {"date": day, "ticker": "TRI", "close": str(Decimal(100) / Decimal(rebase)),
                  "closeunadj": "98.456" if day < EVENT_DAY else "100",
@@ -157,11 +159,11 @@ def tri_vendor(*, cash="1.36", rebase=1):
                  "lastupdated": day}
                 for day in sessions if lo <= day <= hi
             ]
-        if table == sharadar.ACTIONS:
+        if table == archive_tables.ACTIONS:
             return [action, split] if lo <= EVENT_DAY <= hi else []
-        if table == sharadar.SFP:
+        if table == archive_tables.SFP:
             return []
-        if table == sharadar.TICKERS:
+        if table == archive_tables.TICKERS:
             return [{
                 "permaticker": "P:TRI", "ticker": "TRI",
                 "firstpricedate": "2002-06-12", "lastpricedate": None,
@@ -188,13 +190,13 @@ def _tri_bar_dividend(conn):
     return float(row[0])
 
 
-def test_common_mode_sharadar_fact_loses_authority_but_source_is_preserved(conn):
-    # The reproduced case has the same stale 1.36 fact on the Sharadar ACTIONS
-    # surface and in Sharadar's total-return economics. Internal vendor agreement
+def test_common_mode_archive_fact_loses_authority_but_source_is_preserved(conn):
+    # The reproduced case has the same stale 1.36 fact on the archived ACTIONS
+    # surface and in the archive's total-return economics. Internal vendor agreement
     # therefore cannot grant authority over the independently finalized term.
-    sharadar_actions_cash = Decimal("1.36")
-    sharadar_sep_implied_cash = Decimal("1.36")
-    assert sharadar_actions_cash == sharadar_sep_implied_cash
+    archive_actions_cash = Decimal("1.36")
+    archive_sep_implied_cash = Decimal("1.36")
+    assert archive_actions_cash == archive_sep_implied_cash
 
     _seed(conn)
     assert _tri_bar_dividend(conn) == pytest.approx(CASH_PER_NEW_SHARE)
@@ -234,7 +236,7 @@ def test_existing_stale_bar_is_reearned_through_current_semantic_replay(conn, mo
         _seed(conn)
 
     assert maintenance._core.load_actions_cursor(conn).kind == \
-        "sharadar-actions-export-reconcile/v6"
+        archive_ids.FEED['ACTIONS_RECONCILE_KIND_V6']
     assert maintenance.load_actions_cursor(conn) is None
     assert _tri_bar_dividend(conn) == pytest.approx(1.36)
 
@@ -242,7 +244,7 @@ def test_existing_stale_bar_is_reearned_through_current_semantic_replay(conn, mo
         cursor = maintenance.reconcile_actions_if_due(
             conn, fetch=tri_vendor(), through=END, force=True)
 
-    assert cursor.kind == "sharadar-actions-export-reconcile/v10"
+    assert cursor.kind == archive_ids.FEED['ACTIONS_RECONCILE_KIND_V10']
     assert _tri_bar_dividend(conn) == pytest.approx(CASH_PER_NEW_SHARE)
     with conn.cursor() as cur:
         cur.execute("SELECT MAX(version) FROM sentinel_corpus_publications")
@@ -274,8 +276,8 @@ def test_v8_correct_amount_wrong_basis_is_replayed_once_and_old_state_refused(co
     assert _tri_bar_dividend(conn) == 1.435518
     with store.corpus_write_lock(conn):
         maintenance._core._write_cursor(
-            conn, name="sharadar-actions-export-reconcile:v8",
-            kind="sharadar-actions-export-reconcile/v8", through=date.fromisoformat(END),
+            conn, name=archive_ids.FEED['ACTIONS_RECONCILE_V10'].removesuffix('v10') + 'v8',
+            kind=archive_ids.FEED['ACTIONS_RECONCILE_KIND_V10'].removesuffix('v10') + 'v8', through=date.fromisoformat(END),
             publication_version=prior.version)
         assert maintenance.load_actions_cursor(conn) is None
         maintenance.reconcile_actions_if_due(conn, fetch=tri_vendor(), through=END)

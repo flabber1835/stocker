@@ -11,7 +11,7 @@ from sentinel.panel import review_controls
 from sentinel.panel.review_model import OperatorReview
 
 
-@pytest.mark.parametrize('case',['absent','success','refused','network','timeout','malformed'])
+@pytest.mark.parametrize('case',['absent','success','refused','network','timeout','malformed','renew-during','renew-after'])
 def test_acknowledgement_requires_click_and_a_current_successful_server_response(case):
     node=shutil.which('node')
     if not node:

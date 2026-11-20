@@ -6,7 +6,7 @@ import pickle
 import tempfile
 from contextlib import ExitStack
 
-from sentinel.feed import progress, sharadar, snapshot_export
+from sentinel.feed import progress, archive_tables, snapshot_export
 
 
 class ActionsSnapshotSource:
@@ -19,13 +19,13 @@ class ActionsSnapshotSource:
         self.evidence = None
 
     def __call__(self, table, params=None, **kwargs):
-        if table != sharadar.ACTIONS:
+        if table != archive_tables.ACTIONS:
             def download():
                 details = {"table": table, "date_from": str((params or {}).get("date.gte", "")),
                            "date_to": str((params or {}).get("date.lte", ""))}
                 from sentinel.feed import operational_source
                 stage = ("source_replay" if operational_source.current() is not None
-                         and table == sharadar.SEP else "download_" + table.lower())
+                         and table == archive_tables.SEP else "download_" + table.lower())
                 with progress.phase(stage, **details) as count:
                     for row in self.fetch(table, params, **kwargs):
                         count[0] += 1
@@ -48,10 +48,10 @@ class ActionsSnapshotSource:
                 for row in rows:
                     day = dt.date.fromisoformat(str(row.get("date")))
                     if not dt.date(1900, 1, 1) <= day <= hi:
-                        raise snapshot_export.SharadarSnapshotExportError(
+                        raise snapshot_export.SnapshotExportError(
                             "ACTIONS export row lies outside its requested interval")
                 if not rows:
-                    raise snapshot_export.SharadarSnapshotExportError(
+                    raise snapshot_export.SnapshotExportError(
                         "complete seed ACTIONS export returned zero rows")
                 self.rows = [dict(row) for row in rows
                              if str(row["date"]) >= lo.isoformat()]
@@ -109,8 +109,8 @@ class CapturedRows:
         if kwargs:
             raise ValueError("captured seed replay does not accept transport options")
         key = self.key(table, params)
-        if key not in self.files and table == sharadar.ACTIONS:
-            full = sharadar.date_params("1900-01-01", params["date.lte"])
+        if key not in self.files and table == archive_tables.ACTIONS:
+            full = archive_tables.date_params("1900-01-01", params["date.lte"])
             for row in self(table, full):
                 if params["date.gte"] <= str(row["date"]) <= params["date.lte"]:
                     yield row
@@ -135,27 +135,27 @@ def run_generation(conn, *, recovery_plan, fetch, final_hi, boundary,
     lo, hi = recovery_plan.date_from, recovery_plan.date_to
     with CapturedRows() as captured:
         guarded.begin_seed_capture()
-        captured.capture(guarded, sharadar.TICKERS)
-        guarded.preflight_seed_identity(tickers=captured(sharadar.TICKERS), fetch=fetch,
+        captured.capture(guarded, archive_tables.TICKERS)
+        guarded.preflight_seed_identity(tickers=captured(archive_tables.TICKERS), fetch=fetch,
                                         date_from=lo, date_to=hi)
         plan = None
         with progress.phase("identity_preflight"):
             try:
                 ingest.identity_refresh.assert_candidate_history_safe(
-                    conn, captured(sharadar.TICKERS))
+                    conn, captured(archive_tables.TICKERS))
             except ingest.universe.HistoricalIdentityMutation:
                 plan = ingest.identity_rebuild.prepare(conn, date_from=lo, date_to=hi)
                 progress.emit("identity_rebuild", "selected")
         full = plan is not None or bool(recovery_plan.retired_run_ids)
         action_start = ingest.maintenance.ACTIONS_FULL_WINDOW_START
-        captured.capture(guarded, sharadar.ACTIONS,
-                         sharadar.date_params(action_start, hi))
-        captured.capture(guarded, sharadar.SFP,
+        captured.capture(guarded, archive_tables.ACTIONS,
+                         archive_tables.date_params(action_start, hi))
+        captured.capture(guarded, archive_tables.SFP,
                          {"ticker": ingest.SFP_REFERENCE_TICKERS,
-                          **sharadar.date_params(lo, hi)})
+                          **archive_tables.date_params(lo, hi)})
         guarded.preflight_seed_membership(date_from=lo, date_to=hi)
-        for start, end in sharadar.year_chunks(lo, hi):
-            captured.capture(guarded, sharadar.SEP, sharadar.date_params(start, end))
+        for start, end in archive_tables.year_chunks(lo, hi):
+            captured.capture(guarded, archive_tables.SEP, archive_tables.date_params(start, end))
         guarded.finalize_seed_capture(captured, date_from=lo, date_to=hi)
         from sentinel.feed import source_aliases
         prior_aliases = source_aliases.load(conn)

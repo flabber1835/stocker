@@ -40,7 +40,9 @@ class Httpx:
         self.event = event
         outer = self
 
-        class Client:
+        from tests.sentinel.activity_stream_fixture import ActivityStreamClient
+
+        class Client(ActivityStreamClient):
             def __init__(self, **_kwargs):
                 pass
 

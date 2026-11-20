@@ -1,3 +1,5 @@
+
+from sentinel import archive_identifiers as archive_ids
 from pathlib import Path
 
 from sentinel import paper
@@ -15,7 +17,7 @@ def test_default_paper_runtime_is_the_shared_compact_champion():
     assert (config, identity) == production_strategy()
     assert config.strategy_id == identity["strategy"] == STRATEGY_ID
     assert identity["research_reference_source_sha256"] == REFERENCE_SOURCE_SHA256
-    assert identity["universe"] == "BROAD_SHARADAR_COMMON_EQUITY"
+    assert identity["universe"] == archive_ids.UNIVERSE
 
 
 def test_simplified_v3_entry_and_recovery_constants_are_frozen():

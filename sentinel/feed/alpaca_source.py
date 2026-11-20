@@ -281,15 +281,19 @@ class AlpacaSource:
                                 if kind in ('forward_splits', 'reverse_splits'):
                                     try:
                                         event = stock_split(kind, record, axis=axis)
-                                        key = (event['ticker'], event['date'])
-                                        old = splits.get(key)
-                                        if old is not None and old['ratio'] != event['ratio']:
-                                            raise AlpacaTransportRefused('conflicting split terms')
-                                        splits[key] = event
-                                        continue
                                     except AlpacaTransportRefused:
                                         # No split inference: reset only an unowned candidate.
                                         pass
+                                    else:
+                                        key = (event['ticker'], event['date'])
+                                        old = splits.get(key)
+                                        if old is not None:
+                                            if old['ratio'] != event['ratio']:
+                                                raise AlpacaTransportRefused('conflicting split terms')
+                                            ids = sorted({*old.get('source_ids', [old['id']]), event['id']})
+                                            event.update(id=ids[0], source_ids=ids)
+                                        splits[key] = event
+                                        continue
                                 for symbol in involved:
                                     resets.append((symbol, economic_date, record['id']))
         identity_bindings = alpaca_identity.bind(selected=self.selected, records=structural,
@@ -396,6 +400,7 @@ class AlpacaSource:
         self.selected = refs["selected"]
         actions = self._part("ACTIONS", {**base, "component": "actions",
                                           'stock_merger_roles': 1,
+                                          'split_identity': 2,
                                           'prior_identity_sha256': digest(self._previous_identity()),
                                           "start": (self.window.start - timedelta(days=365)).isoformat()},
                              self._action_rows, checkpoint)

@@ -6,7 +6,7 @@ import copy
 import pytest
 
 from sentinel.feed import acquisition_parts, acquisition_work, preparation_wait, rolling_jobs as jobs
-from sentinel.feed import rolling_publisher as publisher, rolling_source, rolling_store, sharadar
+from sentinel.feed import rolling_publisher as publisher, rolling_source, rolling_store, archive_tables
 from sentinel.feed import source_corrections as data
 from sentinel.feed.source_wait import SourceCoveragePending
 from test_rolling_snapshot_publisher import pg, conn, source, enqueue, retry_now, count
@@ -35,7 +35,7 @@ def filtered_fetch(source, monkeypatch):
         if "date.gte" in params:
             rows = [r for r in rows if params["date.gte"] <= r["date"] <= params["date.lte"]]
         return iter(rows)
-    monkeypatch.setattr(sharadar, "fetch_table", fetch)
+    monkeypatch.setattr(archive_tables, "fetch_table", fetch)
 
 
 def test_missing_repeated_probe_then_reviewed_data_recovers_after_restart(conn, source, installed_state, monkeypatch):
@@ -74,10 +74,9 @@ def test_provider_repair_only_reacquires_affected_partition_with_original_deadli
     job, absent = missing(conn, source)
     deadline = jobs.status(conn, job)["deadline"]
     before = [c for c in source["calls"] if c[0] == "download"]
-    # A cached ZIP must not defeat the successful independent repair probe.
     snapshot = rolling_source.snapshot_export.probe_snapshot("SEP", params=before[2][2])
-    with acquisition_work.cached_file(snapshot) as path:
-        path.write_bytes(b"stale synthetic ZIP")
+    path = acquisition_work.cache_root() / (acquisition_work.file_key(snapshot) + ".zip")
+    path.write_bytes(b"stale synthetic ZIP")
     source["SEP"].insert(0, absent)
     retry_now(conn, job)
     if scheduled:
@@ -91,7 +90,7 @@ def test_provider_repair_only_reacquires_affected_partition_with_original_deadli
         with pytest.raises(acquisition_parts.SourceRevision) as changed:
             publisher.prepare(conn, job)
         child = acquisition_parts.successor(conn, job, changed.value.component)
-    assert not path.exists()
+    assert path.read_bytes() == b"stale synthetic ZIP"
     assert count(conn, "sentinel_snapshot_comparisons") == 0
     result = publisher.prepare(conn, child)
     assert jobs.status(conn, child)["deadline"] == deadline
@@ -130,26 +129,26 @@ def test_wait_deadline_is_terminal_without_republishing_or_extending(conn, sourc
 
 @pytest.mark.parametrize("legacy", [False, True])
 def test_ready_resume_uses_sealed_corrections_even_if_active_install_is_unavailable(conn, source, installed_state, monkeypatch, legacy):
-    original = rolling_source.SharadarSource.corroborate
-    payload = rolling_source.SharadarSource.source_payload
+    original = rolling_source.ArchiveSource.corroborate
+    payload = rolling_source.ArchiveSource.source_payload
     if legacy:
         def old_payload(self):
             value = payload(self)
             value.pop("source_corrections")
             return value
-        monkeypatch.setattr(rolling_source.SharadarSource, "source_payload", old_payload)
+        monkeypatch.setattr(rolling_source.ArchiveSource, "source_payload", old_payload)
     def interrupted(self):
         raise KeyboardInterrupt()
-    monkeypatch.setattr(rolling_source.SharadarSource, "corroborate", interrupted)
+    monkeypatch.setattr(rolling_source.ArchiveSource, "corroborate", interrupted)
     job = enqueue(conn)
     with pytest.raises(KeyboardInterrupt):
         publisher.prepare(conn, job)
     before = rolling_store.manifest(conn, jobs.status(conn, job)["candidate_id"])
-    monkeypatch.setattr(rolling_source.SharadarSource, "source_payload", payload)
+    monkeypatch.setattr(rolling_source.ArchiveSource, "source_payload", payload)
     install(addition())
     (data.root() / "current.json").unlink()
     retry_now(conn, job)
-    monkeypatch.setattr(rolling_source.SharadarSource, "corroborate", original)
+    monkeypatch.setattr(rolling_source.ArchiveSource, "corroborate", original)
     result = publisher.prepare(conn, job)
     assert result["snapshot_id"] == before.snapshot_id
 
@@ -169,13 +168,13 @@ def test_probe_success_but_stale_export_never_publishes_or_resets_retry_bound(co
     filtered_fetch(source, monkeypatch)
     job, absent = missing(conn, source)
     deadline = jobs.status(conn, job)["deadline"]
-    fetch = sharadar.fetch_table
+    fetch = archive_tables.fetch_table
     def corrected_json(table, params=None, **kwargs):
         rows = list(fetch(table, params, **kwargs))
         if table == "SEP":
             rows.append(absent)
         return iter(rows)
-    monkeypatch.setattr(sharadar, "fetch_table", corrected_json)
+    monkeypatch.setattr(archive_tables, "fetch_table", corrected_json)
     for index in range(acquisition_parts.MAX_SUCCESSORS + 1):
         retry_now(conn, job)
         with pytest.raises(acquisition_parts.SourceRevision) as changed:

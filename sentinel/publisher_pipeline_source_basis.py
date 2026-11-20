@@ -15,5 +15,6 @@ SNAPSHOT_ADMISSION_SHA256 = '8b7cba0d389fa93aa597c4cf95923b359ae414c01cf91e1457c
 
 def contribution(raw: bytes) -> str:
     """Every unknown economic pipeline byte sequence contributes its real hash."""
-    actual = hashlib.sha256(raw).hexdigest()
-    return BASE_SHA256 if actual in (EXTRACTED_PIPELINE_SHA256, PIPELINE_SHA256) else actual
+    from sentinel.economic_manifest import previous_source
+    prior = hashlib.sha256(previous_source(PIPELINE_MODULE, raw)).hexdigest()
+    return BASE_SHA256 if prior in (EXTRACTED_PIPELINE_SHA256, PIPELINE_SHA256) else hashlib.sha256(raw).hexdigest()

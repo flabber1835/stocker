@@ -19,6 +19,7 @@ import time
 import uuid
 
 from tools.opening_gateway_qualification import Response
+from tests.sentinel.activity_stream_fixture import ActivityStreamClient
 from tests.support.current_workflow_transport import NativeWorkflowAlpaca
 
 
@@ -176,7 +177,7 @@ def independent_provider(*, state_path, clock, **kwargs):
 class ProxyTransport:
     """RPC only; the adapter sees the usual local HTTP response shape."""
     def __init__(self, provider, *, parent_pid):
-        class Client:
+        class Client(ActivityStreamClient):
             def __init__(self, **_kwargs):
                 pass
 

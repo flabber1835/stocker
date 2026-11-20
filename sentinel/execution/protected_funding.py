@@ -359,6 +359,7 @@ def _assert_current_evidence(*, basis, account, activity_state, composition,
                 activity_error=activity_error, activity_message=activity_message, commands=commands)
 
 
+@broker_cash.share_membership_observation
 def _assert_native_fee_evidence(conn, *, basis, plan, deployment, account,
                                 activity_state, activity_error, activity_message, commands=None):
     """The funding owner earns the exception; callers cannot supply a verdict."""

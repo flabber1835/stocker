@@ -1,0 +1,23 @@
+{
+  "health_schema": "sentinel.nas-financial-db-health/1",
+  "ingestion_milliseconds": "bounded_sharadar_ingest",
+  "ingestion_scope": "BOUNDED_SHARADAR_DAILY_INGEST",
+  "preparation_attempted": "bounded_sharadar_daily_attempted",
+  "preparation_schema": "sentinel.nas-go-preparation/1",
+  "readiness_gate": "sharadar_readiness",
+  "retired_api_key": "SHARADAR_API_KEY",
+  "retired_env_names": [
+    "SHARADAR_API_KEY",
+    "SHARADAR_FETCH_TIMEOUT",
+    "SHARADAR_FETCH_RETRIES",
+    "SHARADAR_FETCH_BACKOFF",
+    "SHARADAR_429_BACKOFF_CAP",
+    "NDL_BASE_URL",
+    "SHARADAR_ALLOW_INSECURE_BASE_URL"
+  ],
+  "retired_env_prefixes": [
+    "SHARADAR_",
+    "NDL_"
+  ],
+  "validation_schema": "sentinel.nas-go-validation/1"
+}

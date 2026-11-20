@@ -108,7 +108,7 @@ def main(*, mutants=MUTANTS, test_file=TEST,
     parser.add_argument("--child", choices=mutants)
     args = parser.parse_args()
     if args.child:
-        return child(args.child, mutants=mutants, test_file=test_file)
+        return child(args.child, mutants=mutants, test_file=test_file(args.child) if callable(test_file) else test_file)
     failed = []
     for name in mutants:
         result = subprocess.run(

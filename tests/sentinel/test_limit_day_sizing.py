@@ -1,4 +1,6 @@
 """Protected BUY allocation, RAW provenance, and historical-policy separation."""
+
+from sentinel import archive_identifiers as archive_ids
 from contextlib import contextmanager
 from dataclasses import replace
 from decimal import Decimal as D
@@ -213,7 +215,7 @@ def test_openfigi_stock_ids_cannot_silently_fall_back_to_symbol_only():
     _state, _plan, _projection, refs = protected_case()
     with pytest.raises(projections.TargetProjectionRefused, match="source-native"):
         replace(refs, provider_asset_ids={})
-    assert replace(refs, source_provider="SHARADAR", provider_asset_ids={}).provider_asset_ids == {}
+    assert replace(refs, source_provider=archive_ids.PROVIDER, provider_asset_ids={}).provider_asset_ids == {}
 
 
 def test_quantities_use_scaled_budget_limit_and_headroom_without_mutating_state():

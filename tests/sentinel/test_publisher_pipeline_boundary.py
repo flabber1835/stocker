@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from sentinel import publisher_pipeline_source_basis as basis
+from sentinel import economic_manifest, publisher_pipeline_source_basis as basis
 from sentinel import semantic_source_basis as semantics
 from sentinel.feed import publisher_pipeline as pipeline, rolling_publisher as lifecycle
 from tests.support.publisher_source_proofs import publisher_baseline
@@ -103,7 +103,8 @@ def _assert_complete_pipeline(baseline_raw, pipeline_raw):
 
 
 def test_complete_economic_pipeline_ast_matches_independent_installed_git_witness():
-    _assert_complete_pipeline(publisher_baseline(), Path(pipeline.__file__).read_bytes())
+    _assert_complete_pipeline(publisher_baseline(),
+        economic_manifest.previous_source(basis.PIPELINE_MODULE, Path(pipeline.__file__).read_bytes()))
 
 
 @pytest.mark.parametrize('before,after', [
@@ -130,7 +131,7 @@ def test_economic_neighbor_edits_fail_full_ast_and_contribute_actual_hash(before
 
 def test_lifecycle_retains_original_failure_and_cleanup_ast():
     old = ast.parse(publisher_baseline())
-    new = ast.parse(Path(lifecycle.__file__).read_bytes())
+    new = ast.parse(economic_manifest.previous_source(basis.MODULE, Path(lifecycle.__file__).read_bytes()))
     for name in ('prepare', '_record_failure'):
         assert _dump(_definition(old, name)) == _dump(_definition(new, name))
     old_prepare = _definition(old, '_prepare')
@@ -173,15 +174,16 @@ def test_lifecycle_retains_original_failure_and_cleanup_ast():
 
 def test_current_logical_slot_uses_fixed_pipeline_bytes():
     raw = Path(pipeline.__file__).read_bytes()
-    assert hashlib.sha256(raw).hexdigest() == basis.PIPELINE_SHA256
+    prior = economic_manifest.previous_source(basis.PIPELINE_MODULE, raw)
+    assert hashlib.sha256(prior).hexdigest() == basis.PIPELINE_SHA256
     value = semantics.economic_sources([basis.MODULE], schema='pipeline-boundary-test')
     assert value['files'] == [{'module': basis.MODULE, 'sha256': basis.BASE_SHA256}]
-    assert {'module': basis.MODULE, 'actual_sha256': basis.PIPELINE_SHA256,
+    assert {'module': basis.MODULE, 'actual_sha256': hashlib.sha256(raw).hexdigest(),
             'economic_sha256': basis.BASE_SHA256} in value['administrative_source_basis']['observed_seams']
 
 
 def test_original_extracted_pipeline_still_has_its_proven_identity():
-    raw = Path(pipeline.__file__).read_bytes()
+    raw = economic_manifest.previous_source(basis.PIPELINE_MODULE, Path(pipeline.__file__).read_bytes())
     tree = ast.parse(raw)
     observer = _definition(tree, 'Observer')
     run = _definition(tree, 'run')
@@ -249,7 +251,7 @@ def test_economic_identity_matches_current_signed_strategy():
 
 def test_closed_pipeline_mapping_has_behavioral_falsifier(monkeypatch):
     source = inspect.getsource(basis.contribution)
-    needle = 'actual in (EXTRACTED_PIPELINE_SHA256, PIPELINE_SHA256)'
+    needle = 'prior in (EXTRACTED_PIPELINE_SHA256, PIPELINE_SHA256)'
     assert source.count(needle) == 1
     namespace = {}
     exec(compile(source.replace(needle, 'True'), 'unclosed-pipeline', 'exec'), basis.__dict__, namespace)

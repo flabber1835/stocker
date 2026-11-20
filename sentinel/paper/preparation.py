@@ -952,7 +952,7 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                         broker_cash.record_plan_baseline(
                             conn, plan_id=latest.plan_id,
                             decision_session=latest.decision_session,
-                            activity_state=activity_state, **carried_postings)
+                            activity_state=activity_state, return_baseline=False, **carried_postings)
                         if carried_postings:
                             from .cash import fractional_posting_reserve
                             reserve = fractional_posting_reserve(conn, plan=latest, deployment=binding.identity,
@@ -1061,7 +1061,7 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     broker_cash.record_plan_baseline(
                         conn, plan_id=latest.plan_id,
                         decision_session=latest.decision_session,
-                        activity_state=activity_state)
+                        activity_state=activity_state, return_baseline=False)
                 except broker_cash.BrokerCashAuthorityRefused as exc:
                     raise PaperActivationRefused(
                         f"cannot establish immutable plan cash baseline: {exc}") from exc

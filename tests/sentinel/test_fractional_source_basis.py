@@ -14,6 +14,7 @@ PREVIOUS = Path(__file__).parents[1] / 'support/fractional-reconcile-aed1.py.txt
 
 
 def qualified_predecessor(module, raw):
+    raw = economic_manifest.previous_source(module, raw)
     profile = basis._profile()
     if module != basis.MODULE or hashlib.sha256(raw).hexdigest() not in (
             profile['after'], profile['entitlements_after'], profile['settlement_after'],
@@ -58,7 +59,7 @@ def opening_predecessor(raw):
 
 
 def test_opening_source_witness_reconstructs_installed_reconcile_exactly():
-    current = Path(reconcile.__file__).read_bytes()
+    current = economic_manifest.previous_source(basis.MODULE, Path(reconcile.__file__).read_bytes())
     prior = opening_predecessor(current)
     before, after = ast.parse(prior), ast.parse(current)
     assert len(before.body) == len(after.body)
@@ -76,7 +77,7 @@ def test_opening_source_witness_reconstructs_installed_reconcile_exactly():
 
 
 def test_only_execution_definitions_change_and_action_input_bytes_stay_exact():
-    current = Path(reconcile.__file__).read_bytes()
+    current = economic_manifest.previous_source(basis.MODULE, Path(reconcile.__file__).read_bytes())
     prior = qualified_predecessor(basis.MODULE, current)
     assert prior != current
     before, after = ast.parse(prior), ast.parse(current)
@@ -109,7 +110,7 @@ def test_unknown_execution_or_action_source_never_inherits_qualified_identity():
 
 def test_account_plan_comparison_keeps_every_canonical_definition_and_unknown_byte():
     from sentinel.core import decision
-    raw = Path(decision.__file__).read_bytes()
+    raw = economic_manifest.previous_source("sentinel.core.decision", Path(decision.__file__).read_bytes())
     prior = basis.decision_predecessor(raw)
     assert prior != raw and hashlib.sha256(prior).hexdigest() == basis._profile()["decision"]["before"]
     before, after = ast.parse(prior), ast.parse(raw)
@@ -127,16 +128,22 @@ def test_account_plan_comparison_preserves_actual_scope_and_hash_guards():
     raw = Path(decision.__file__).read_bytes()
     actual = {"core/decision.py": hashlib.sha256(raw).hexdigest()}
     scope = ScopeProof({}, {}, actual, "actual-closure")
-    comparison, prior = basis.decision_comparison_scope(scope, raw)
+    from sentinel.runtime_admission import _decision_comparison_scope
+    comparison, prior = _decision_comparison_scope(scope, raw)
     assert comparison is not scope and scope.current_files == actual
     assert comparison.current_files["core/decision.py"] == hashlib.sha256(prior).hexdigest()
     edited = raw+b'\n# unknown\n'
-    assert basis.decision_comparison_scope(scope, edited) == (scope, edited)
+    assert _decision_comparison_scope(scope, edited) == (scope, edited)
+    edited_files = {"core/decision.py": hashlib.sha256(edited).hexdigest()}
+    edited_scope = ScopeProof({}, {}, edited_files, "edited-closure")
+    assert _decision_comparison_scope(edited_scope, edited) == (edited_scope, edited)
+    assert hashlib.sha256(prior).hexdigest() == basis._profile()["decision"]["before"]
 
 
 def test_decision_predecessor_guard_falsifier(monkeypatch):
     from sentinel.core import decision
-    prior = basis.decision_predecessor(Path(decision.__file__).read_bytes())
+    prior = basis.decision_predecessor(economic_manifest.previous_source(
+        "sentinel.core.decision", Path(decision.__file__).read_bytes()))
     monkeypatch.setattr(basis, "decision_predecessor", lambda raw: prior)
     with pytest.raises(AssertionError):
         test_account_plan_comparison_keeps_every_canonical_definition_and_unknown_byte()
@@ -192,6 +199,9 @@ def test_complete_runtime_transition_keeps_exact_pre_fractional_executable():
     assert runtime_basis.predecessor_view(edited, previous=settlement) is edited
     recovery = profile["retained_predecessors"][runtime_basis.FRACTIONAL_RECOVERY_PREDECESSOR]["files"]
     assert recovery["execution/reconcile.py"] == basis._profile()["recovery_after"]
-    assert actual["execution/reconcile.py"] == basis._profile()["opening_after"]
+    raw = Path(reconcile.__file__).read_bytes()
+    assert actual["execution/reconcile.py"] == hashlib.sha256(raw).hexdigest()
+    predecessor = economic_manifest.previous_source(basis.MODULE, raw)
+    assert hashlib.sha256(predecessor).hexdigest() == basis._profile()["opening_after"]
     assert runtime_basis.predecessor_view(actual, previous=recovery) == recovery
     assert runtime_basis.predecessor_view(edited, previous=recovery) is edited

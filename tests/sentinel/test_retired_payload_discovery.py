@@ -57,15 +57,15 @@ def test_empty_and_benchmark_only_retirements_use_bounded_extents_and_drain(
         assert len(bulk) == 1 and bulk[0]['Node Type'] == 'Tid Range Scan'
     conn.commit()
 
-    # One hundred rows per wake, including the benchmark-only retirement.
+    # Fifteen bounded payload passes can each yield once to private staging.
     monkeypatch.setattr(retention, 'maintain', MAINTAIN)
     deleted = 0
-    for _ in range(15):
+    for _ in range(2 * 15):
         step = retention.maintain(conn, batch_rows=100)
         assert step['status'] == 'COMPLETE'
         assert 0 <= step['deleted_rows'] <= 100
         deleted += step['deleted_rows']
-        if not step['more_work']:
+        if deleted == 1200:
             break
     assert deleted == 1200
     for table in retention.PAYLOAD_TABLES.values():

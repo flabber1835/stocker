@@ -1,4 +1,6 @@
 """Fail-closed cgroup-v2 and Linux process measurements for local experiments."""
+from __future__ import annotations
+
 from contextlib import contextmanager
 import json
 from pathlib import Path
@@ -15,11 +17,16 @@ def pairs(text):
     return {key: int(value) for key, value in (line.split() for line in text.splitlines())}
 
 
+def memory_limit(text: str) -> int | None:
+    value = text.strip()
+    return None if value == "max" else int(value)
+
+
 def cgroup(root=Path("/sys/fs/cgroup")):
     current = int((root / "memory.current").read_text())
     stats = pairs((root / "memory.stat").read_text())
     return dict(current=current, peak=int((root / "memory.peak").read_text()),
-                limit=int((root / "memory.max").read_text()),
+                limit=memory_limit((root / "memory.max").read_text()),
                 working=max(0, current - stats["inactive_file"]), anon=stats["anon"],
                 events=pairs((root / "memory.events").read_text()))
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import Counter, deque
-from contextlib import ExitStack
+from contextlib import ExitStack, asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from functools import wraps
@@ -35,6 +35,10 @@ class Response:
     def __init__(self, payload=None, *, text="", status=200):
         self.payload, self.text, self.status_code = payload, text, status
         self.headers = {}
+
+    async def aiter_lines(self):
+        for line in self.text.splitlines():
+            yield line
 
     def json(self, **_kwargs):
         return self.payload
@@ -81,6 +85,12 @@ class LocalAlpaca:
 
             async def __aexit__(self, *_args):
                 return False
+
+            @asynccontextmanager
+            async def stream(self, method, url, **kwargs):
+                assert method == "GET"
+                assert kwargs.pop("timeout") == 60.0
+                yield await self.get(url, **kwargs)
 
             async def get(self, url, headers=None, params=None):
                 return owner.get(url, dict(params or {}))
@@ -330,7 +340,8 @@ def fixture_assets(plan, proof, resolver, metadata=None):
     from sentinel.paper.targets import _plan_deltas
     metadata = metadata or {}
     provider_ids = resolver.provider_asset_ids
-    if resolver.source_provider not in {"ALPACA_OPENFIGI", "SHARADAR"}:
+    from sentinel.archive_identifiers import PROVIDER as ARCHIVED_PROVIDER
+    if resolver.source_provider not in {"ALPACA_OPENFIGI", ARCHIVED_PROVIDER}:
         raise QualificationRefused("UNSUPPORTED_FIXTURE_SOURCE_PROVIDER")
     flat = BrokerObservation(observed_at=datetime.now(timezone.utc), orders=(), positions=(),
                              completeness=Completeness.COMPLETE)

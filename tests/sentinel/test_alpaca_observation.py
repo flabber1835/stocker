@@ -107,6 +107,36 @@ def test_unresolved_cash_does_not_quarantine_valid_price_history(rate):
     assert result['pending_cash'][0]['id'] == 'pending'
 
 
+@pytest.mark.parametrize("second_ratio", [2, 3])
+def test_split_economics_and_corroboration_are_independent_of_page_order(second_ratio):
+    dates = list(map(date.fromisoformat, AXIS))
+    source = AlpacaSource(SimpleNamespace(start=dates[0], end=dates[-1], sessions=dates), None, None)
+    source._previous_identity = lambda: None
+    source._inventory = lambda: ({"assets": []}, None)
+    source.assets = []
+    source.selected = [{"ticker": "AAA"}]
+    common = dict(symbol="AAA", ex_date=AXIS[1], process_date=AXIS[-1], old_rate=1)
+    wires = [dict(common, id="z", new_rate=2), dict(common, id="a", new_rate=second_ratio)]
+    source.client = SimpleNamespace(pages=lambda *a, **kw: [
+        ({"forward_splits": [wire]}, {}) for wire in wires])
+    if second_ratio != 2:
+        for _ in range(2):
+            with pytest.raises(AlpacaTransportRefused, match="conflicting split terms"):
+                source._action_rows()
+            wires.reverse()
+        return
+    actions, *_ = source._action_rows()
+    source.splits = actions["splits"]
+    assert source.splits == [dict(id="a", ticker="AAA", date=AXIS[1], ratio="2", source_ids=["a", "z"])]
+    wires.reverse()
+    wires.append(wires[0])
+    source.corroborate()
+    wires.pop(1)
+    from sentinel.feed.acquisition_parts import SourceRevision
+    with pytest.raises(SourceRevision):
+        source.corroborate()
+
+
 def test_pairing_and_no_action_contiguous_history():
     raw = {"A": [_bar(day) for day in AXIS], "B": [_bar(AXIS[-1])]}
     adjusted = {"A": [_bar(day, 95) for day in AXIS], "B": [_bar(AXIS[-1])]}

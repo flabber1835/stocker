@@ -192,7 +192,7 @@ def _full_reseed_fixture(monkeypatch, *, actions_rows):
     monkeypatch.setattr(reseed.feed_store, "_assert_corpus_locked", lambda conn: None)
     monkeypatch.setattr(reseed.feed_store, "IngestRun", _Run)
     monkeypatch.setattr(
-        reseed.sharadar, "year_chunks",
+        reseed.archive_tables, "year_chunks",
         lambda lo, hi: [("2025-12-31", "2025-12-31"),
                         ("2026-01-01", "2026-01-02")])
     monkeypatch.setattr(
@@ -262,12 +262,12 @@ def _full_reseed_fixture(monkeypatch, *, actions_rows):
         lambda *a, **k: events.append("publish"))
 
     def fetch(table, params=None):
-        if table == reseed.sharadar.ACTIONS:
+        if table == reseed.archive_tables.ACTIONS:
             action_requests.append(dict(params or {}))
             return list(actions_rows)
-        if table == reseed.sharadar.SEP:
+        if table == reseed.archive_tables.SEP:
             return [params["date.gte"]]
-        if table == reseed.sharadar.SFP:
+        if table == reseed.archive_tables.SFP:
             return [
                 {"ticker": "SPY", "date": params["date.lte"],
                  "closeadj": 600.0},
@@ -318,7 +318,7 @@ def test_full_reseed_refuses_stably_empty_actions_before_any_bar_retirement(
     events, _requests, _scopes, fetch = _full_reseed_fixture(
         monkeypatch, actions_rows=[])
 
-    with pytest.raises(maintenance.SharadarMutationRefused,
+    with pytest.raises(maintenance.SourceMutationRefused,
                        match="zero rows"):
         reseed.full_reseed_locked(
             object(), date_from="2025-12-31", date_to="2026-01-02",
