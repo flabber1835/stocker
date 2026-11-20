@@ -15,7 +15,7 @@ from pathlib import Path
 import re
 from functools import lru_cache
 
-MANIFEST_SHA256 = '93c89da9e1e4862d5aaf47dfa345f2774cdf82ac7ba78e4946b1d4f98d3d41f0'
+MANIFEST_SHA256 = '1c12204e30baabec214edb53745bd74d062ac537bbed3deea4f6ec1ab44637d7'
 MANIFEST = Path(__file__).with_name('economic-implementation-v2.json')
 PREDECESSOR = 'b2e308bb664718da373175f1a7d988d07b159ae2'
 PREDECESSOR_DATA_SEMANTICS_SHA256 = '38c750bd9bb244bc71600aaeba8c4aad22d2095747f4199e9ac4e0bd433425cb'
@@ -23,6 +23,11 @@ RETIREMENT_SHA256 = '4263d51eff9e9cc50d3bce78d7c6b8e56ee17c3f51cc6b2eec635e10d8b
 COMPACT_WINDOW_MODULE = 'sentinel.core.window_material'
 COMPACT_WINDOW_SHA256 = 'ce7ef77041f9b4fd5f8517254a6e39053a202ef34740535e4570fddd65e57435'
 SNAPSHOT_ADMISSION_SHA256 = '8b7cba0d389fa93aa597c4cf95923b359ae414c01cf91e1457cd656e6329bc2a'
+CLOSE_READINESS_COMPILERS = {
+    'sentinel.core.rolling_inputs': '5a0c3426368e52c7f5a13e8fcba941a7afad2a7283f8b0476accfdfd087a07ac',
+    'sentinel.feed.operational_snapshot': '44868fb475332a825b75259d5af6588e87f54f8b200b649629e678d460fd15ab',
+    'sentinel.feed.rolling_store': 'bd5c1916d7f677454486299bdcc5835f9bda556fe203fa61e8b2e111b26b7a43',
+}
 
 
 class EconomicManifestRefused(ValueError):
@@ -240,10 +245,15 @@ def identity(*, schema):
     profile = _retired_source_profile()
     retirement = profile['modules']
     port_digests = {name: _sha(_module_raw(name)) for name in profile['ports']}
+    close_compilers = {
+        name: _module_raw(retirement.get(name, {}).get('module', name))
+        for name in CLOSE_READINESS_COMPILERS}
+    exact_close_readiness = all(_sha(raw) == CLOSE_READINESS_COMPILERS[name]
+                                for name, raw in close_compilers.items())
     for name in sorted(expected):
         transition = retirement.get(name)
         installed = transition['module'] if transition else name
-        raw = _module_raw(installed)
+        raw = close_compilers[name] if name in close_compilers else _module_raw(installed)
         dependencies = local_imports(raw, module_name=installed)
         approved_edges = transition['dependencies'] if transition else value['dependencies'][name]
         if dependencies != approved_edges:
@@ -255,6 +265,9 @@ def identity(*, schema):
                 raise EconomicManifestRefused('ECONOMIC_PORT_CHANGED:'+name)
         if name == 'sentinel.feed.rolling_builder':
             actual[name] = page_contribution(name, raw, profile)
+            continue
+        if exact_close_readiness and name in close_compilers:
+            actual[name] = expected[name]
             continue
         if transition and _sha(raw) == transition['after']:
             if name in profile['reverse']:

@@ -479,6 +479,10 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
         headline_status = WARN
         operational_headline = ('SYSTEM HEALTH AMBER — WAITING FOR ALPACA'
                                 if current_activation_fee_wait(panel) is not None else
+                                'SYSTEM HEALTH AMBER — CLOSING EVIDENCE REFRESHING'
+                                if health.get('closing_refresh') else
+                                'SYSTEM HEALTH AMBER — NEXT-OPEN PREPARATION IN PROGRESS'
+                                if health.get('close_preparation_pending') else
                                 'SYSTEM HEALTH AMBER — DEGRADED OR NEEDS REVIEW')
     else:
         headline_status = FAIL

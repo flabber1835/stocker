@@ -14,6 +14,9 @@ _PAPER = frozenset({'financial_activation', 'paper_reconciliation', 'paper_plan'
 _INDEPENDENT = frozenset({'backup_restore', 'shadow_worker', 'automation_alerts',
     'alert_dispatcher', 'trading_environment'})
 _KNOWN = _SHADOW | _PAPER | _INDEPENDENT
+_CLOSE_STABLE_PAPER = frozenset({'ownership', 'authority', 'alpaca_account', 'broker',
+    'automation', 'automation_leader', 'runtime_identity', 'issuer_reference'})
+_SHADOW_VALUATION = model.SHADOW_ROW_KEYS - {'shadow_verification'}
 
 
 def display_current(panel):
@@ -25,6 +28,11 @@ def display_current(panel):
 def display_keys(panel):
     return tuple(row.key for row in panel.rows
                  if row.key in _KNOWN or row.key.startswith('automation_step_'))
+
+
+def close_cycle_display_keys(panel):
+    return tuple(row.key for row in panel.rows
+                 if row.key in _CLOSE_STABLE_PAPER and row.recovery is None)
 
 
 def complete_receipt_handoff(panel):
@@ -49,8 +57,13 @@ def finish_display_handoff(panel, *, now, owner_expiry, snapshot_expiry, account
     finished = replace(panel, now=now)
     keys = tuple(row.key for row in finished.rows
                  if row.key in finished.observation_display_keys and row_current(finished, row))
+    complete = all(row.key in keys or (
+        row.key in _SHADOW_VALUATION and row.key in finished.observation_display_keys
+        and 'SHADOW' not in finished.observation_changed_scopes
+        and row.status in {model.OK, model.WARN} and row.is_stale(now) and not row.is_future(now))
+        for row in finished.rows)
     return replace(finished, observation_display_keys=keys,
-                   observation_display_current=now < snapshot_expiry and len(keys) == len(finished.rows))
+                   observation_display_current=now < snapshot_expiry and complete)
 
 
 def opening_refresh_deadline(panel):

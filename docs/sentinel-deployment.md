@@ -1,5 +1,8 @@
 # Sentinel current operating contract
 
+[Close work and evidence handoffs](close-work-and-evidence.md) describes the
+verified validation, progress, dashboard, and scheduler paths at market close.
+
 [Closing observation continuity](close-price-observation-continuity.md) records
 the forward-only transition and recovery through corrected historical SIP closes.
 

@@ -1819,17 +1819,20 @@ class ProductionAutomation:
         conn = None
         input_scope = ExitStack()
         try:
-            conn = self.connect()
-            feed_store.require_feed_schema(conn)
-            schema.require_runtime_schema(conn)
-            require_observation_integrity(conn)
-            cycle, control = self._assert_cycle_authority(
-                conn, context, operation_scope="RECOVER")
-            if getattr(self, '_operational_source_only', False):
-                input_scope.enter_context(feed_inputs.pinned(conn, commit=False))
+            with opening_stage_log.preflight('recovery_connection_schema'):
+                conn = self.connect()
+                feed_store.require_feed_schema(conn)
+                schema.require_runtime_schema(conn)
+                require_observation_integrity(conn)
+            with opening_stage_log.preflight('recovery_cycle_authority'):
+                cycle, control = self._assert_cycle_authority(conn, context, operation_scope='RECOVER')
+            with opening_stage_log.preflight('recovery_publication_pin'):
+                if getattr(self, '_operational_source_only', False):
+                    input_scope.enter_context(feed_inputs.pinned(conn, commit=False))
             identity_session, preflight = self._recovery_identity_session(cycle)
             try:
-                broker = self._broker(conn, identity_session)
+                with opening_stage_log.preflight('recovery_broker_identity'):
+                    broker = self._broker(conn, identity_session)
             except feed_inputs.ExecutionInputsRefused as exc:
                 if preflight and str(exc) == "ROLLING_IDENTITY_BEYOND_NEXT_SESSION":
                     raise SourceDataPending(
@@ -1839,19 +1842,18 @@ class ProductionAutomation:
                 context.require_active()
                 from sentinel import trading
                 recover = trading.recover_trading_account if getattr(self, "_live_run_enabled", False) else paper.recover_automated_paper_cycle
-                result = await recover(
-                    conn=conn, broker=broker,
-                    base_url=self.sentinel_config.base_url,
-                    grant=_grant(
-                        context, "RECOVER", binding=control.binding),
-                    automation_config_sha256=
-                        self.automation_config.fingerprint,
-                    dual_shadow_observation_id=(
-                        self._shadow_observation_id
-                        if self._dual_run_enabled or getattr(self, "_live_run_enabled", False) else None),
-                    dual_shadow_starting_cash=(
-                        self._shadow_starting_cash
-                        if self._dual_run_enabled or getattr(self, "_live_run_enabled", False) else None))
+                with opening_stage_log.preflight('recovery_broker_reconciliation'):
+                    result = await recover(
+                        conn=conn, broker=broker,
+                        base_url=self.sentinel_config.base_url,
+                        grant=_grant(context, 'RECOVER', binding=control.binding),
+                        automation_config_sha256=self.automation_config.fingerprint,
+                        dual_shadow_observation_id=(
+                            self._shadow_observation_id
+                            if self._dual_run_enabled or getattr(self, '_live_run_enabled', False) else None),
+                        dual_shadow_starting_cash=(
+                            self._shadow_starting_cash
+                            if self._dual_run_enabled or getattr(self, '_live_run_enabled', False) else None))
                 context.require_active()
             except paper.PreOpenShareUnitAuthorityUnavailable as exc:
                 detail = str(exc)

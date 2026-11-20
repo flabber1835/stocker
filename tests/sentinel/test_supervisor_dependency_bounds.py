@@ -83,6 +83,75 @@ def test_real_snapshot_lock_is_bounded_then_recovers(conn):
     assert second[2] > first[2]
 
 
+def test_warm_watchdog_connection_is_reused_and_replaced_after_lock(conn, monkeypatch):
+    schema.ensure_schema(conn)
+    holder = 'warm-watchdog'
+    store.register_instance(conn, instance_id=holder, state='RECOVER_CALLBACK',
+                            callback_deadline_seconds=900)
+    connects = multiprocessing.get_context('fork').RawValue('i', 0)
+    connect = supervisor.feed_store.connect
+
+    def counted_connect(*args, **kwargs):
+        connects.value += 1
+        return connect(*args, **kwargs)
+
+    monkeypatch.setattr(supervisor.feed_store, 'connect', counted_connect)
+    reader = supervisor.SnapshotReader(conn.info.dsn)
+    try:
+        first = reader.read(conn.info.dsn, holder)
+        pid = reader.process.pid
+        store.register_instance(conn, instance_id=holder, state='RECOVER_CALLBACK',
+                                callback_deadline_seconds=900)
+        second = reader.read(conn.info.dsn, holder)
+        assert second.invocation > first.invocation
+        assert reader.process.pid == pid
+        assert connects.value == 1
+
+        conn.execute('LOCK TABLE sentinel_automation_service_instances IN ACCESS EXCLUSIVE MODE')
+        started = time.monotonic()
+        try:
+            with pytest.raises((TimeoutError, supervisor_io.DependencyError), match='timeout|timed out'):
+                reader.read(conn.info.dsn, holder)
+        finally:
+            conn.rollback()
+        assert time.monotonic() - started < 1.5
+        assert reader.stage.value == 2
+        assert reader.process is None
+        with pytest.raises(ProcessLookupError):
+            os.kill(pid, 0)
+        assert reader.read(conn.info.dsn, holder).invocation == second.invocation
+        assert connects.value == 2
+    finally:
+        reader.close()
+
+
+def test_warm_watchdog_drops_unresponsive_reader_before_next_observation(monkeypatch):
+    monkeypatch.setattr(supervisor, 'SNAPSHOT_SECONDS', .18)
+    context = multiprocessing.get_context('fork')
+    reads = context.RawValue('i', 0)
+    monkeypatch.setattr(supervisor.feed_store, 'connect', lambda *a, **k: SimpleNamespace(close=lambda: None))
+
+    def query(_conn, _holder, stage):
+        reads.value += 1
+        stage.value = 2
+        if reads.value == 1:
+            time.sleep(10)
+        return supervisor.InstanceSnapshot('fresh', 0.)
+
+    monkeypatch.setattr(supervisor, '_query_snapshot', query)
+    reader = supervisor.SnapshotReader('test-db')
+    try:
+        started = time.monotonic()
+        with pytest.raises(TimeoutError):
+            reader.read('test-db', 'holder')
+        assert time.monotonic() - started < .7
+        assert reader.process is None
+        assert reader.read('test-db', 'holder').state == 'fresh'
+        assert reads.value == 2
+    finally:
+        reader.close()
+
+
 __all__ = ['conn', 'pg']
 def test_persistent_shadow_latch_survives_restart_without_worker(tmp_path, monkeypatch):
     from sentinel import shadow_supervisor as supervisor

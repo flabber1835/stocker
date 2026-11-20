@@ -208,7 +208,7 @@ def prepare(conn, *, target_session, budget_seconds=3600, resume_job_id=None,
 
 
 def _prepare(conn, *, target_session, budget_seconds=3600, wait=False, resume_job_id=None,
-             absolute_deadline=None):
+             absolute_deadline=None, continuation=False):
     """Shared acquisition; callers first prove fresh or attested runtime state."""
     try:
         if target_session != snapshots.source_final_session():
@@ -245,7 +245,7 @@ def _prepare(conn, *, target_session, budget_seconds=3600, wait=False, resume_jo
                 if original != digest(selected):
                     from sentinel.feed.generation_admission import admit_current
                     binding, _ = admit_current(conn,held,strategy=selected,target=target_session)
-                else:
+                elif not continuation:
                     binding, _ = validate_status(conn, held)
             conn.commit()
             return {"schema": SCHEMA, "status": "ALREADY_CURRENT", **binding}
@@ -263,11 +263,12 @@ def _prepare(conn, *, target_session, budget_seconds=3600, wait=False, resume_jo
                                         check_target=check_target)
                    if wait else preparation_wait.once(conn, job, prepare=snapshots.prepare,
                                                       check_target=check_target))
-        with snapshots.pinned(conn, commit=False) as (held, _):
-            checked, _ = validate_status(conn, held)
-            if checked != binding or held.window_end != target_session:
-                raise RollingGoRefused("ROLLING_PREPARATION_PUBLICATION_CHANGED")
-        conn.commit()
+        if not continuation:
+            with pinned(conn) as held:
+                checked, _ = validate_status(conn, held)
+                if checked != binding or held.window_end != target_session:
+                    raise RollingGoRefused("ROLLING_PREPARATION_PUBLICATION_CHANGED")
+            conn.commit()
         return {"schema": SCHEMA, "status": "PUBLISHED", **binding}
     except BaseException as exc:
         if not writer_schedule.connection_discarded(exc):

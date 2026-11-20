@@ -137,7 +137,7 @@ def test_removed_confirmation_is_detected(monkeypatch):
     def remove(tree):
         for node in ast.walk(tree):
             if isinstance(node, ast.Try) and any(
-                    isinstance(item, ast.Assign) and 'snapshot = _snapshot' in ast.unparse(item)
+                    isinstance(item, ast.Assign) and 'snapshot = observe' in ast.unparse(item)
                     for item in node.body):
                 node.body = [item for item in node.body if not (
                     isinstance(item, ast.If) and '_instance_stalled' in ast.unparse(item.test))]

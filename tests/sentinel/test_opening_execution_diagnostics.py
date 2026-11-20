@@ -2,6 +2,7 @@
 
 import asyncio
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 import logging
 import subprocess
 import sys
@@ -68,6 +69,22 @@ def test_preflight_times_a_refusal_and_preserves_its_exception(monkeypatch, capl
                 raise refusal
     assert caught.value is refusal
     assert caplog.messages == ['automation_preflight_stage stage=cycle_authority elapsed_ms=12']
+
+
+def test_close_preflight_separates_dispatch_delay_from_callback_time(monkeypatch, caplog):
+    ticks = iter((5_000_000, 7_000_000, 10_000_000, 17_250_000))
+    monkeypatch.setattr(opening_stage_log, 'perf_counter_ns', lambda: next(ticks))
+    due_at = datetime(2026, 11, 20, 21, 0, tzinfo=timezone.utc)
+    with caplog.at_level(logging.INFO, logger=opening_stage_log.LOGGER_NAME):
+        with opening_stage_log.close_preflight(due_at + timedelta(seconds=2), due_at):
+            with opening_stage_log.callback_startup('PREFLIGHT_RECOVER', 'callback_registration'):
+                pass
+    assert caplog.messages == [
+        'automation_close_preflight event=dispatch retry_due_ms=2000',
+        'automation_callback_startup stage=close_preflight_callback_registration event=begin',
+        'automation_callback_startup stage=close_preflight_callback_registration event=end elapsed_ms=3',
+        'automation_close_preflight event=return elapsed_ms=12',
+    ]
 
 
 def test_terminal_transition_timer_preserves_result_and_failure(monkeypatch, caplog):

@@ -209,9 +209,10 @@ class SnapshotReferences:
                                  resolve_with_reason=self.resolver.resolve_with_reason)
 
 
-def _snapshot_context(conn, candidate_id, snapshot_id):
+def _snapshot_context(conn, candidate_id, snapshot_id, *, staged=False):
     refs = SnapshotReferences(conn, candidate_id=candidate_id, snapshot_id=snapshot_id)
-    rolling_store.verify_content(conn, candidate_id)
+    if not staged:
+        rolling_store.verify_content(conn, candidate_id)
     session = str(refs.manifest.window.end)
     count = 299 if refs.current_window else PREFERRED_SESSIONS
     axis = calendar.previous_sessions(session, count + 1)
@@ -309,9 +310,11 @@ def summarize_readiness(material):
     return summary
 
 
-def readiness_inputs(conn, *, candidate_id: str, snapshot_id: str) -> ReadinessInputs:
-    refs, session, axis, warm, meta, _sectors = _snapshot_context(conn, candidate_id, snapshot_id)
-    facts = rolling_store.readiness_facts(conn, candidate_id)
+def readiness_inputs(conn, *, candidate_id: str, snapshot_id: str, staged=False) -> ReadinessInputs:
+    refs, session, axis, warm, meta, _sectors = _snapshot_context(
+        conn, candidate_id, snapshot_id, staged=staged)
+    read_facts = rolling_store.staged_readiness_facts if staged else rolling_store.readiness_facts
+    facts = read_facts(conn, candidate_id)
     if facts is None:
         summary = ReadinessInputs(session, warm, _benchmarks(conn, candidate_id, session),
                                   any(m.related_tickers for m in meta.values()))

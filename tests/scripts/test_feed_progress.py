@@ -3,6 +3,7 @@ import os
 import sys
 import pytest
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT") or Path(__file__).resolve().parents[2])
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -82,6 +83,76 @@ def test_real_builder_protocol_reaches_host(stage, capsys):
     assert stage.replace("_", " ") in progress.describe(events[-1])
     if stage == "rolling_identity":
         assert "alias discovery" in progress.describe(events[-1])
+    if stage in progress.COST_STAGES:
+        assert 'cpu_ms' not in events[0]
+        assert type(events[-1]['cpu_ms']) is int and events[-1]['cpu_ms'] >= 0
+
+
+def test_publication_presence_keeps_the_exact_commit_observation(capsys):
+    from sentinel.feed import progress as producer
+
+    job = '12f7a9c2-7bf5-41a9-9ad9-eead86e0d3d4'
+    stamp = '2026-11-20T21:12:19.964471+00:00'
+    producer.emit('rolling_operational_visibility', 'completed', job_id=job, commit_observed_at=stamp)
+    event, = progress.collect(capsys.readouterr().err)
+    assert progress.describe(event) == 'closing publication commit observed at ' + stamp
+    for invalid in (dict(event, commit_observed_at='password=private'),
+                    dict(event, stage='rolling_operational_publication'),
+                    dict(event, rows=1), dict(event, cpu_ms=2), dict(event, status='working')):
+        assert progress.parse(progress.PREFIX + json.dumps(invalid)) is None
+
+
+def test_corroboration_counters_and_equity_units_survive_trace_parsing(capsys):
+    from sentinel.feed import alpaca_transport, progress as producer
+
+    with producer.phase('rolling_source_corroboration'):
+        metrics = alpaca_transport._request_metrics.get()
+        metrics.requests = 114
+        metrics.response_bytes = 1_000_000
+    with producer.phase('rolling_normalization') as counter:
+        counter[0] = 1_600_000
+    _, corroboration, _, normalization = progress.collect(capsys.readouterr().err)
+    assert corroboration['requests'] == 114 and corroboration['response_bytes'] == 1_000_000
+    assert '114 requests' in progress.describe(corroboration)
+    assert '1,600,000 equity price rows' in progress.describe(normalization)
+    invalid = dict(corroboration)
+    del invalid['http_ms']
+    for event in (invalid, dict(corroboration, status='working'),
+                  dict(normalization, cpu_ms=True), dict(normalization, requests=2)):
+        assert progress.parse(progress.PREFIX + json.dumps(event)) is None
+
+
+def test_seal_timing_closes_on_candidate_validation_admission(capsys, monkeypatch):
+    from sentinel.feed import progress as producer, rolling_publisher
+
+    job = '12f7a9c2-7bf5-41a9-9ad9-eead86e0d3d4'
+    observer = rolling_publisher.PublicationObserver(None, SimpleNamespace(job_id=job))
+    monotonic = iter((5.0, 7.5))
+    cpu = iter((0, 1_100_000_000))
+    monkeypatch.setattr(rolling_publisher, 'monotonic', lambda: next(monotonic))
+    monkeypatch.setattr(rolling_publisher, 'process_time_ns', lambda: next(cpu))
+    with producer.observing(observer.observe):
+        observer.stage('CANDIDATE_BUILD')
+        producer.emit('rolling_normalization', 'completed', job_id=job, rows=1_600_000)
+        assert 'rolling_candidate_seal' not in capsys.readouterr().err
+        observer.stage('CANDIDATE_VALIDATION')
+
+    event, = progress.collect(capsys.readouterr().err)
+    assert event['stage'] == 'rolling_candidate_seal'
+    assert (event['rows'], event['elapsed_ms'], event['cpu_ms']) == (1_600_000, 2500, 1100)
+
+
+def test_progress_setup_cannot_fail_on_unavailable_writer_metadata(monkeypatch):
+    from sentinel.feed.publication_progress import PublisherProgress
+
+    class UnavailableWriter:
+        @property
+        def info(self):
+            raise OSError('observer metadata unavailable')
+
+    monkeypatch.setenv('SENTINEL_FEED_SERVICE_MODE', 'SHADOW')
+    monkeypatch.setenv('SENTINEL_DATABASE_URL', 'postgresql://unused/sentinel')
+    assert PublisherProgress.for_worker(UnavailableWriter(), 'unused') is None
 
 
 def test_alpaca_acquisition_pairing_and_storage_progress_reaches_host(capsys):

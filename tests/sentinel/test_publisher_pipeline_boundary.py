@@ -131,9 +131,13 @@ def test_economic_neighbor_edits_fail_full_ast_and_contribute_actual_hash(before
 
 def test_lifecycle_retains_original_failure_and_cleanup_ast():
     old = ast.parse(publisher_baseline())
-    new = ast.parse(economic_manifest.previous_source(basis.MODULE, Path(lifecycle.__file__).read_bytes()))
-    for name in ('prepare', '_record_failure'):
-        assert _dump(_definition(old, name)) == _dump(_definition(new, name))
+    current = Path(lifecycle.__file__).read_text(encoding='utf-8')
+    new = ast.parse(current)
+    assert _dump(_definition(old, 'prepare')) == _dump(_definition(new, 'prepare'))
+    # af0ed1ecc supplied the unchanged post-provider-retirement failure policy.
+    failure_body = ast.get_source_segment(current, _definition(new, '_record_failure'))
+    assert hashlib.sha256(failure_body.encode()).hexdigest() == (
+        '34e6ca88c5c6e126003b41b09d39ccb06308c7bb7ada72517f531e36ff4bb5f7')
     old_prepare = _definition(old, '_prepare')
     new_prepare = _definition(new, '_prepare')
     old_try = next(n for n in old_prepare.body if isinstance(n, ast.Try))
@@ -148,7 +152,8 @@ def test_lifecycle_retains_original_failure_and_cleanup_ast():
         ast.Module(body=old_try.handlers, type_ignores=[]))
     # The idle SHADOW supervisor owns retention. Verify the exact remaining
     # operational commit, then restore retention solely for the baseline comparison.
-    cleanup = deepcopy(new_try.finalbody)
+    assert _dump(new_try.finalbody[0]) == _dump(ast.parse('observer.close()').body[0])
+    cleanup = deepcopy(new_try.finalbody[1:])
     operational_cleanup = cleanup[0].body[-1]
     assert _dump(operational_cleanup) == _dump(ast.parse(
         'if operational:\n    conn.commit()').body[0])
@@ -156,11 +161,13 @@ def test_lifecycle_retains_original_failure_and_cleanup_ast():
         'from sentinel.feed import retention\nconn.commit()\nretention.maintain(conn)').body
     assert _dump(ast.Module(body=cleanup, type_ignores=[])) == _dump(
         ast.Module(body=old_try.finalbody, type_ignores=[]))
-    assert _dump(new_try.body[0].value) == _dump(ast.parse(
-        'publisher_pipeline.run(conn, job_id, operational=operational, '
-        'boundary=boundary, lease=lease, observer=observer)').body[0].value)
+    assert _dump(new_try.body[0]) == _dump(ast.parse(
+        'with progress.observing(observer.observe):\n'
+        '    return publisher_pipeline.run(conn, job_id, operational=operational, '
+        'boundary=boundary, lease=lease, observer=observer)').body[0])
     restored = deepcopy(new_prepare)
-    observer_initialization = ast.parse('observer = PublicationObserver(conn, lease)').body[0]
+    observer_initialization = ast.parse(
+        'observer = PublicationObserver(conn, lease, operational=operational)').body[0]
     replacements = [index for index, node in enumerate(restored.body)
                     if _dump(node) == _dump(observer_initialization)]
     assert len(replacements) == 1
@@ -212,7 +219,10 @@ def test_snapshot_identity_changes_only_for_its_exact_prepublication_guard(monke
     name = operational_snapshot.__name__
     path = Path(operational_snapshot.__file__).resolve()
     current = path.read_bytes()
-    assert hashlib.sha256(current).hexdigest() == basis.SNAPSHOT_ADMISSION_SHA256
+    staged = b'readiness_inputs(conn, candidate_id=candidate, snapshot_id=manifest.snapshot_id, staged=True)'
+    assert current.count(staged) == 1
+    prior = current.replace(staged, staged.replace(b', staged=True', b''))
+    assert hashlib.sha256(prior).hexdigest() == basis.SNAPSHOT_ADMISSION_SHA256
     assert economic_manifest.SNAPSHOT_ADMISSION_SHA256 == basis.SNAPSHOT_ADMISSION_SHA256
     tag = (b'class PublicationAdmissionBusy(backup_runtime_authority.BackupIntegrityBusy):\n'
            b'    """An exact backup check refused the writer before any publication mutation."""\n\n\n')
@@ -220,18 +230,32 @@ def test_snapshot_identity_changes_only_for_its_exact_prepublication_guard(monke
     checked = (b'    try:\n    ' + guard + b'    except backup_runtime_authority.BackupIntegrityBusy as exc:\n'
                b'        raise PublicationAdmissionBusy(str(exc)) from exc\n')
     assert current.count(tag) == current.count(checked) == 1
-    old = current.replace(tag, b'').replace(checked, guard)
+    old = prior.replace(tag, b'').replace(checked, guard)
     assert hashlib.sha256(old).hexdigest() == basis.SNAPSHOT_BEFORE_SHA256
-    assert semantics.economic_sources([name], schema='snapshot-proof')['files'] == [
-        {'module': name, 'sha256': basis.SNAPSHOT_BEFORE_SHA256}]
-    changed = current.replace(checked, b'    pass\n')
     read = Path.read_bytes
+    with monkeypatch.context() as historical:
+        historical.setattr(Path, 'read_bytes', lambda p: prior if p == path else read(p))
+        assert semantics.economic_sources([name], schema='snapshot-proof')['files'] == [
+            {'module': name, 'sha256': basis.SNAPSHOT_BEFORE_SHA256}]
+    changed = current.replace(checked, b'    pass\n')
     monkeypatch.setattr(Path, 'read_bytes', lambda p: changed if p == path else read(p))
     assert semantics.economic_sources([name], schema='snapshot-proof')['files'] == [
         {'module': name, 'sha256': hashlib.sha256(changed).hexdigest()}]
     live = economic_manifest.identity(schema='snapshot-proof')
     assert {'module': name, 'sha256': hashlib.sha256(changed).hexdigest()} in live['files']
     assert live['sha256'] != economic_manifest.PREDECESSOR_DATA_SEMANTICS_SHA256
+
+
+@pytest.mark.parametrize('name', economic_manifest.CLOSE_READINESS_COMPILERS)
+def test_close_readiness_identity_requires_all_reviewed_compiler_bytes(monkeypatch, name):
+    before = economic_manifest.identity(schema='close-readiness')
+    assert before['economic_implementation']['preserved_behavior']
+    read = economic_manifest._module_raw
+    changed = read(name) + b'\n# unreviewed compiler bytes\n'
+    monkeypatch.setattr(economic_manifest, '_module_raw', lambda module: changed if module == name else read(module))
+    live = economic_manifest.identity(schema='close-readiness')
+    assert {'module': name, 'sha256': hashlib.sha256(changed).hexdigest()} in live['files']
+    assert live['sha256'] != before['sha256']
 
 
 def test_unknown_pipeline_bytes_reach_real_economic_bundle(monkeypatch):

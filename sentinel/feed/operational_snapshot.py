@@ -152,7 +152,7 @@ def validate(conn, lease, request):
     manifest = rolling_store.manifest(conn, candidate)
     backup_runtime_authority.require_staging(conn, operation="operational snapshot validation")
     jobs._owned(conn, lease)
-    readiness_inputs(conn, candidate_id=candidate, snapshot_id=manifest.snapshot_id)
+    readiness_inputs(conn, candidate_id=candidate, snapshot_id=manifest.snapshot_id, staged=True)
     proof = {"schema": VALIDATION_SCHEMA, "scope": "DATA_ONLY",
              "snapshot_id": manifest.snapshot_id, "reference_sha256": manifest.reference_sha256,
              "source_evidence_sha256": manifest.source_evidence_sha256,

@@ -224,6 +224,31 @@ class OperationalFact(BaseModel):
             raise ValueError('operational fact belongs to another row')
 
 
+class PreparationPhase(BaseModel):
+    """Display-only observation from the same registered producer."""
+    model_config = ConfigDict(extra='forbid', frozen=True)
+    phase: Literal['REFERENCES', 'PRICES', 'BUILDING', 'IDENTITY', 'NORMALIZATION',
+                   'SEALING', 'VALIDATION', 'CORROBORATION', 'PUBLICATION']
+    rows: int | None = Field(default=None, ge=0, lt=10**12, strict=True)
+    wait: Literal['DATABASE_LOCK', 'DATABASE_IO', 'DATABASE_SYNC'] | None = None
+
+    @model_validator(mode='after')
+    def row_unit(self):
+        if self.rows is not None and self.phase not in {'IDENTITY', 'SEALING'}:
+            raise ValueError('producer phase does not own an observed row count')
+        return self
+
+    @property
+    def label(self):
+        return {
+            'REFERENCES': 'Reading provider references', 'PRICES': 'Acquiring closing prices',
+            'BUILDING': 'Preparing the closing candidate', 'IDENTITY': 'Checking market-data identities',
+            'NORMALIZATION': 'Normalizing equity prices', 'SEALING': 'Sealing the closing candidate',
+            'VALIDATION': 'Checking the closing candidate', 'CORROBORATION': 'Corroborating provider evidence',
+            'PUBLICATION': 'Committing closing data',
+        }[self.phase]
+
+
 class PreparationWork(BaseModel):
     """Dated producer progress; it never admits market data or a trading plan."""
     model_config = ConfigDict(extra='forbid', frozen=True)
@@ -236,6 +261,7 @@ class PreparationWork(BaseModel):
     components_done: int = Field(ge=0, le=2**31-1, strict=True)
     source_rows_done: int | None = Field(default=None, ge=0, le=2**63-1, strict=True)
     final_price_batch_recorded: bool = Field(default=False, strict=True)
+    producer_phase: PreparationPhase | None = None
     created_at: datetime
     updated_at: datetime
     last_progress_at: datetime
@@ -261,6 +287,8 @@ class PreparationWork(BaseModel):
                 or (self.lease_until is not None
                     and not self.created_at <= self.lease_until <= self.deadline)):
             raise ValueError('preparation progress clocks or sessions disagree')
+        if self.producer_phase is not None and not self.active_at(self.observed_at):
+            raise ValueError('observed phase requires the original current producer lease')
         return self
 
     def visible_at(self, now: datetime) -> bool:
@@ -292,6 +320,15 @@ class PreparationWork(BaseModel):
         parts.append(f'{self.components_done:,} source components recorded')
         if self.state == 'STAGING':
             parts.append(f'{self.rows_done:,} rows staged')
+        if self.producer_phase is not None:
+            phase = self.producer_phase
+            if phase.rows is not None:
+                unit = 'price records scanned' if phase.phase == 'IDENTITY' else 'equity prices normalized'
+                parts.append(f'{phase.rows:,} {unit}')
+            if phase.wait:
+                parts.append({'DATABASE_LOCK': 'database lock wait observed',
+                              'DATABASE_IO': 'database I/O wait observed',
+                              'DATABASE_SYNC': 'database synchronization wait observed'}[phase.wait])
         return ' · '.join(parts)
 
 

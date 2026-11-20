@@ -229,6 +229,8 @@ def report_event(component: str, stage: str, outcome: str, *, error=None,
                 valid = type(value) is int and value > 0
             elif key == 'state':
                 valid = value is None or isinstance(value, str) and re.fullmatch(r'[A-Z_]{1,64}', value)
+            elif key == 'dependency_step':
+                valid = value in {'ADMISSION', 'CONNECT', 'QUERY', 'ROLLBACK', 'RESULT'}
             elif key in {'started', 'completed', 'elapsed_seconds', 'decision_at',
                          'heartbeat_age_seconds', 'lease_seconds', 'worker_started'}:
                 valid = value is None or type(value) in {float, int} and math.isfinite(value)

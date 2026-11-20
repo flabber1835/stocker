@@ -321,3 +321,90 @@ def test_retry_wake_keeps_independent_close_ingest_visible_without_extending_ret
         assert delivery.closing_refresh_deadline(replace(panel, rows=[
             changed if row.key == changed.key else row for row in rows])) is None
     assert delivery.closing_refresh_deadline(replace(panel, now=deadline)) is None
+
+
+@pytest.mark.parametrize('fault', [None, 'shadow_changed', 'stale_broker', 'future_valuation', 'expired'])
+def test_old_independent_shadow_valuation_does_not_invalidate_the_document(fault):
+    now = CLOSE + timedelta(minutes=4)
+    until = now + timedelta(seconds=5)
+    val = model.Row('shadow_nav', 'Verified NAV', 'Prior valuation', model.OK,
+        as_of=now+timedelta(seconds=6) if fault == 'future_valuation' else now-timedelta(minutes=1),
+        valid_until=now-timedelta(seconds=1), required_current=True)
+    broker = model.Row('broker', 'Broker', 'Current', model.OK, as_of=now,
+        valid_until=now-timedelta(seconds=1) if fault == 'stale_broker' else until, required_current=True)
+    panel = model.Panel(rows=[val, broker], now=now, observation_current=False,
+        observation_changed_scopes=('SHADOW', 'PAPER') if fault == 'shadow_changed' else ('PAPER',),
+        observation_display_keys=('shadow_nav', 'broker'), observation_valid_until=until)
+    finished = delivery.finish_display_handoff(panel, now=now, owner_expiry=until,
+        snapshot_expiry=now if fault == 'expired' else until, account_keys=())
+    assert delivery.display_current(finished) is (fault is None)
+    assert not finished.observation_current
+    assert finished.row('shadow_nav') is val and val.is_stale(now)
+
+
+def planless_cycle_advance(conn, monkeypatch, fault):
+    from sentinel.panel import display_dependencies
+
+    generated = CLOSE + timedelta(seconds=30)
+    moved = generated + timedelta(seconds=1)
+    now = moved + timedelta(seconds=1)
+    conn.execute('CREATE TEMP TABLE sentinel_automation_cycles (cycle_id text PRIMARY KEY, state text, '
+                 'control_generation bigint, last_fence_token bigint, decision_session date, '
+                 'execution_open_at timestamptz, plan_id text, historical_state_only bool, '
+                 'updated_at timestamptz, failure_code text)')
+    conn.execute('CREATE TEMP TABLE sentinel_automation_cycle_events (seq bigserial PRIMARY KEY, cycle_id text, '
+                 'from_state text, to_state text, control_generation bigint, fence_token bigint, at timestamptz)')
+    xid = conn.execute("INSERT INTO sentinel_automation_cycles VALUES('close','RETRY_WAIT',4,8,%s,%s,%s,false,%s,%s) "
+                       'RETURNING xmin::text', (CLOSE.date(), OPEN, 'different-plan' if fault == 'saved_plan' else None,
+                       moved, 'unresolved' if fault == 'terminal' else 'PreflightPublicationPinUnavailable')).fetchone()[0]
+    if fault == 'separate_transaction':
+        conn.commit()
+    conn.execute("INSERT INTO sentinel_automation_cycle_events(cycle_id,from_state,to_state,control_generation,fence_token,at) "
+                 "VALUES('close','DISCOVERED','RETRY_WAIT',4,%s,%s)", (7 if fault == 'foreign_fence' else 8, moved))
+    before_lease = ['leader', 8, 4, (now+timedelta(seconds=5)).isoformat()]
+    basis = dict(paper_revision=['epoch', 40, '12'], native={'SHADOW': 'shadow', 'PAPER': 'old'},
+                 automation_lease=before_lease, account_table=['1', '1'], account_anchor=['1', '2', '(1,2)'],
+                 observation_anchor=['2', '3', '(1,1)', '4', '5'])
+    after = {**basis, 'paper_revision': ['epoch', 43 if fault == 'extra_revision' else 42, xid],
+        'automation_lease': ['new', *before_lease[1:]] if fault == 'new_holder' else before_lease}
+    if fault == 'account_changed':
+        after['account_anchor'] = ['2', '4', '(1,3)']
+    monkeypatch.setattr(display_dependencies.read_projection, '_subject_for_revision', lambda *a, **k: 'old')
+    cycle = model.automation_cycle_row(installed=True, enabled=True, cycle_id='close', state='DISCOVERED',
+        decision_session='2026-11-11', updated_at=CLOSE, preflight_recovery=model.RecoveryEvidence(
+            phase='AUTOMATION_PREFLIGHT_RECOVER', automatic=True, deadline=OPEN))
+    plan = model.Row('paper_plan', 'Plan', 'Not prepared', model.PENDING)
+    leader = model.Row('automation_leader', 'Leader', 'Active', model.OK, as_of=generated,
+        valid_until=now+timedelta(seconds=5), required_current=True)
+    broker = model.Row('broker', 'Broker', 'Checking', model.WARN, as_of=generated,
+        recovery=cycle.recovery)
+    panel = model.Panel(rows=[cycle, plan, leader, broker], now=now, local_paper_mode=True,
+        observation_current=False, observation_generated_at=generated, observation_changed_scopes=('PAPER',))
+    ok = display_dependencies.close_cycle_advance(conn, '', basis, after, panel, facts=None, now=now)
+    assert ok is (fault is None), 'unproved PAPER advance affected dashboard delivery'
+    if ok:
+        panel = replace(panel, observation_display_keys=delivery.close_cycle_display_keys(panel))
+        assert delivery.row_current(panel, leader) and panel.row('automation_leader').as_of == generated
+        assert not any(delivery.row_current(panel, row) for row in (cycle, plan, broker))
+        assert not delivery.display_current(panel)
+        assert not delivery.row_current(replace(panel, now=leader.valid_until), leader)
+
+
+@pytest.mark.parametrize('fault', [None, 'extra_revision', 'separate_transaction', 'foreign_fence',
+                                   'account_changed', 'new_holder', 'saved_plan', 'terminal'])
+def test_only_the_exact_planless_close_transition_preserves_independent_paper_cards(conn, monkeypatch, fault):
+    planless_cycle_advance(conn, monkeypatch, fault)
+
+
+def test_extra_revision_guard_falsifier(conn, monkeypatch):
+    import inspect
+    from sentinel.panel import display_dependencies
+
+    source = inspect.getsource(display_dependencies.close_cycle_advance)
+    guard = ' or current[1] != prior[1] + 2'
+    assert source.count(guard) == 1
+    namespace = dict(vars(display_dependencies))
+    exec(compile(source.replace(guard, ''), '<unbound-cycle-revision>', 'exec'), namespace)
+    monkeypatch.setattr(display_dependencies, 'close_cycle_advance', namespace['close_cycle_advance'])
+    with pytest.raises(AssertionError, match='unproved PAPER advance affected dashboard delivery'):
+        planless_cycle_advance(conn, monkeypatch, 'extra_revision')

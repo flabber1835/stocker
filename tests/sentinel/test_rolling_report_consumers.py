@@ -62,8 +62,19 @@ def test_report_only_entrypoints_never_materialize(conn, published, monkeypatch,
 def test_first_acquisition_verification_never_materializes(conn, issuer_source, monkeypatch):
     schema.ensure_schema(conn)
     forbid_materialization(monkeypatch)
+    monkeypatch.setattr(rolling_store, 'read_bars', lambda *a, **kw: pytest.fail('duplicate validation stream'))
+    full_scan = rolling_store._verify_content_uncached
+    scans = []
+
+    def counted(connection, candidate, **kwargs):
+        scans.append((candidate, kwargs.get('collect_readiness', False)))
+        return full_scan(connection, candidate, **kwargs)
+
+    monkeypatch.setattr(rolling_store, '_verify_content_uncached', counted)
     result = inputs.prepare(conn, target_session='2026-09-14')
     assert result['status'] == 'PUBLISHED'
+    # READY and the standalone data-only coordinator each own a complete check.
+    assert scans == [(result['candidate_id'], True), (result['candidate_id'], False)]
     assert conn.execute('SELECT COUNT(*) FROM sentinel_corpus_publications').fetchone()[0] == 1
     assert conn.execute('SELECT COUNT(*) FROM sentinel_processed_sessions').fetchone()[0] == 0
 

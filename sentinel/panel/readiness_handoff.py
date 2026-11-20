@@ -99,8 +99,9 @@ def _current_diagnostic(diagnostic):
 
 def close_check_deadline(panel, *, now):
     """Attribute placeholder rows to the current close's independent check."""
-    if (not checking(panel, now=now) or 'SHADOW' in panel.observation_changed_scopes
-            or panel.observation_retained):
+    from sentinel.panel.delivery import complete_receipt_handoff
+    if (not checking(panel, now=now) or panel.observation_retained
+            or 'SHADOW' in panel.observation_changed_scopes and not complete_receipt_handoff(panel)):
         return None
     subject = panel.display_basis.get('native', {}).get('SHADOW')
     if not subject:
@@ -109,7 +110,8 @@ def close_check_deadline(panel, *, now):
     if feed is None:
         return None
     if feed.feed_readiness == 'AWAITING_VERDICT':
-        return deadline(panel, subject=subject, now=now)
+        until = deadline(panel, subject=subject, now=now)
+        return min(until, panel.row('shadow_verification').valid_until) if until is not None else None
     fact = feed.operational_fact
     session = calendar.latest_closed_session(now)
     if (feed.effective_status(now) != model.OK or fact is None or fact.kind != 'MARKET_DATA'

@@ -3,6 +3,7 @@ from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
 import inspect
 import json
+import time
 from types import SimpleNamespace
 import uuid
 
@@ -37,7 +38,7 @@ def record(**changes):
         deadline=NOW+timedelta(hours=1), lease_until=NOW+timedelta(minutes=5),
         fence=4, next_retry=None, publication_version=None)
     job.update(changes)
-    return [job, NOW, 7, 6, False, True, 31, 1720712, False]
+    return [job, NOW, 7, 6, False, True, 31, 1720712, False, None]
 
 
 class Connection:
@@ -71,6 +72,30 @@ def test_current_registered_request_exports_dated_progress_without_changing_run_
     assert work.last_progress_at == NOW-timedelta(minutes=2)
     assert len(connection.queries) == 2
     assert connection.queries[1] == (sources._PREPARATION_SQL, (TARGET,))
+
+
+@pytest.mark.parametrize('fault', [None, 'foreign', 'unowned', 'expired', 'non_atomic', 'wrong_count_unit'])
+def test_live_candidate_phase_uses_the_registered_original_lease(fault):
+    owner = str(uuid.uuid4())
+    candidate = record(owner=owner)
+    tag_owner = uuid.uuid4().hex if fault == 'foreign' else owner.replace('-', '')
+    code = 'N' if fault == 'wrong_count_unit' else 'S'
+    candidate[-1] = dict(tag=f'sf1:{tag_owner}:{code}:123:1600000',
+                         atomic=fault != 'non_atomic', wait='IO')
+    if fault == 'unowned':
+        candidate[5] = False
+    if fault == 'expired':
+        candidate[0]['lease_until'] = NOW
+    run = sources._operational_acquisition(Connection([candidate]), now=NOW)[0]
+    work = model.PreparationWork.model_validate(run['preparation'])
+    assert run['status'] == 'running' and work.state == 'ACQUIRING'
+    assert work.source_rows_done == 1720712 and work.last_progress_at == NOW-timedelta(minutes=2)
+    if fault is not None:
+        assert work.producer_phase is None
+    else:
+        assert work.producer_phase.label == 'Sealing the closing candidate'
+        assert '1,600,000 equity prices normalized' in work.recorded_counts()
+        assert 'database I/O wait observed' in work.recorded_counts()
 
 
 @pytest.mark.parametrize('fault', ['hash', 'scope', 'cursor', 'target', 'before_close',
@@ -217,6 +242,54 @@ def private_pg():
         yield server
     finally:
         server.stop()
+
+
+def test_live_phase_sql_requires_the_exact_writer_xid_and_corpus_lock(private_pg, monkeypatch):
+    from sentinel.feed import progress, publication_progress, rolling_publisher
+    from sentinel.feed.rolling_jobs import Lease
+
+    job = str(uuid.uuid4())
+    owner = uuid.uuid4()
+    monkeypatch.setenv('SENTINEL_DATABASE_URL', private_pg.sync_dsn)
+    monkeypatch.setenv('SENTINEL_FEED_SERVICE_MODE', 'SHADOW')
+    with (psycopg.connect(private_pg.sync_dsn) as writer,
+          psycopg.connect(private_pg.sync_dsn, autocommit=True) as reader):
+        created, xid = writer.execute('SELECT clock_timestamp(),pg_current_xact_id()::text').fetchone()
+        writer.execute('SELECT pg_advisory_lock(%s)', (publication_progress.CORPUS_LOCK_KEY,))
+        sql = ("SELECT phase.proof FROM (VALUES (%s::uuid,%s::timestamptz,'ACQUIRING',%s::text)) "
+               'j(owner,created_at,state,xmax) CROSS JOIN LATERAL (' + publication_progress.OBSERVATION_SQL + ') phase')
+
+        def observed(job_owner=owner, marker=xid):
+            proof = reader.execute(sql, (job_owner, created, marker)).fetchone()[0]
+            return publication_progress.read_phase(proof, str(job_owner))
+
+        def wait_for(expected):
+            deadline = time.monotonic() + 3
+            actual = observed()
+            while actual != expected and time.monotonic() < deadline:
+                time.sleep(.01)
+                actual = observed()
+            assert actual == expected
+
+        tag = f'sf1:{owner.hex}:I:{writer.info.backend_pid}:100000'
+        publisher = rolling_publisher.PublicationObserver(writer, Lease(job, str(owner), 4), operational=True)
+        try:
+            publisher.stage('CANDIDATE_BUILD')
+            with progress.observing(publisher.observe):
+                progress.emit('rolling_identity', 'working', subphase='alpaca_admission', rows=100000, job_id=job)
+            wait_for(dict(phase='IDENTITY', rows=100000, wait=None))
+            assert observed(job_owner=uuid.uuid4()) is None
+            assert observed(marker='0') is None
+            with psycopg.connect(private_pg.sync_dsn, autocommit=True) as duplicate:
+                duplicate.execute("SELECT set_config('application_name',%s,false)", (tag,))
+                assert observed() is None
+            writer.execute('SELECT pg_advisory_unlock(%s)', (publication_progress.CORPUS_LOCK_KEY,))
+            assert observed() is None
+            writer.execute('SELECT pg_advisory_lock(%s)', (publication_progress.CORPUS_LOCK_KEY,))
+            assert observed() is not None
+        finally:
+            publisher.close()
+        wait_for(None)
 
 
 def metadata_database(private_pg, *, registered=True, cursor=None, cas=7,
