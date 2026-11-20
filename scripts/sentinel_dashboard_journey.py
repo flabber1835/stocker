@@ -22,6 +22,8 @@ import uuid
 
 PROJECTS = ('webkit-iphone', 'chromium-pwa')
 MAX_BYTES = 20 * 1024 * 1024
+HEARTBEAT_TIMEOUT = 15
+RECORDER_STARTUP_TIMEOUT = 45
 INTEGRITY_CASES = frozenset({
     'records actual banner decoding and accepts a valid PNG',
     'records actual banner decoding and refuses an interrupted PNG',
@@ -119,12 +121,50 @@ def complete_opening(report):
                 'waiting_at', 'executing_at', 'completed_at', 'PAPER', 'SHADOW', 'displayed_at'))
         return (all(t.utcoffset() is not None for t in (waiting, executing, completed, paper, shadow, displayed))
                 and waiting < executing <= completed <= min(paper, shadow) <= max(paper, shadow) <= displayed
+                and continuous_opening(report['events'], executing, displayed)
                 and any(item.get('document', {}).get('generated_at') == progress['displayed_at']
                         for item in report['responses'])
                 and any(event.get('type') == 'meaningful-content'
                         and event.get('generated_at') == progress['displayed_at'] for event in report['events']))
     except (AttributeError, KeyError, TypeError, ValueError):
         return False
+
+
+def continuous_opening(events, executing, displayed):
+    samples = [item for item in events if item.get('type') == 'coverage-sample']
+    try:
+        wall = [item['wall_time_ms'] / 1000 for item in samples]
+        monotonic = [item['node_ms'] / 1000 for item in samples]
+        return (len(samples) >= 2 and wall[0] <= executing.timestamp()
+                and displayed.timestamp() - HEARTBEAT_TIMEOUT <= wall[-1]
+                and all(0 <= b-a <= HEARTBEAT_TIMEOUT for a, b in zip(wall, wall[1:]))
+                and all(0 <= b-a <= HEARTBEAT_TIMEOUT for a, b in zip(monotonic, monotonic[1:])))
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return False
+
+
+def publish_coverage(root, status, recorder=None):
+    pending = root / '.coverage.pending'
+    write_new(pending, dict(status=status, updated_at=time.time(), recorder_at=recorder))
+    pending.replace(root / 'coverage.json')
+
+
+def coverage_status(root, now):
+    try:
+        report = read_json(root / 'coverage.json')
+        status = report['status']
+        age = now - report['updated_at']
+        if status in {'STARTING', 'RUNNING'}:
+            if not 0 <= age <= HEARTBEAT_TIMEOUT:
+                return 'STALE_OWNER'
+            if status == 'RUNNING' and not 0 <= now - report['recorder_at'] <= HEARTBEAT_TIMEOUT:
+                return 'STALE_RECORDER'
+            return status
+        if status in {'FINISHED', 'INCOMPLETE'}:
+            return status
+    except (KeyError, OSError, TypeError, ValueError):
+        pass
+    return 'UNKNOWN'
 
 
 def playwright_matches(data, reports, projects, phase):
@@ -198,14 +238,22 @@ def write_new(path, value):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--url', required=True)
+    parser.add_argument('--url')
     parser.add_argument('--phase', choices=('integrity', 'capture', 'opening'), default='capture')
     parser.add_argument('--profile', choices=('direct', 'slow-refresh'), default='direct')
-    parser.add_argument('--dependency-cache', type=Path, required=True,
+    parser.add_argument('--dependency-cache', type=Path,
                         help='Existing node_modules containing Playwright; never downloaded')
+    parser.add_argument('--evidence-dir', type=Path, help='An unused private evidence directory')
+    parser.add_argument('--check-coverage', type=Path, help='Inspect an existing opening capture')
     parser.add_argument('--project', choices=PROJECTS, action='append')
     parser.add_argument('--channel', default='msedge' if os.name == 'nt' else 'chromium')
     args = parser.parse_args()
+    if args.check_coverage is not None:
+        status = coverage_status(args.check_coverage, time.time())
+        print(json.dumps(dict(status=status, evidence=str(args.check_coverage))))
+        return 0 if status in {'STARTING', 'RUNNING', 'FINISHED'} else 1
+    if args.url is None or args.dependency_cache is None:
+        parser.error('--url and --dependency-cache are required for capture')
     target = validate_url(args.url)
     if args.phase == 'integrity' and args.profile != 'direct':
         raise ValueError('Transport profiles apply only to the real capture phase')
@@ -233,6 +281,8 @@ def main():
         ['git', '--no-optional-locks', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
     root = source / '.codex-tmp' / ('dashboard-journey-' + args.phase + '-'
             + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ') + '-' + uuid.uuid4().hex[:8])
+    if args.evidence_dir is not None:
+        root = args.evidence_dir.absolute()
     root.mkdir(parents=True, mode=0o700)
     environment = {key: value for key, value in os.environ.items() if key.upper() in {
         'PATH', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP',
@@ -255,6 +305,12 @@ def main():
     started = time.monotonic()
     timed_out = False
     budget_exceeded = False
+    opening = args.phase == 'opening'
+    coverage_gap = False
+    interrupted = False
+    publish_at = started
+    if opening:
+        publish_coverage(root, 'STARTING')
     with (root / 'playwright.json').open('xb') as output, (root / 'stderr.log').open('xb') as error:
         process = subprocess.Popen(command, cwd=source / 'tests/browser', env=environment,
                                    stdout=output, stderr=error,
@@ -262,13 +318,25 @@ def main():
                                       else {'start_new_session': True}))
         try:
             while process.poll() is None:
-                if time.monotonic() - started > (1280 if args.phase == 'opening' else 280):
+                now = time.monotonic()
+                if now - started > (1280 if opening else 280):
                     timed_out = True
                     break
+                if opening and now >= publish_at:
+                    stamp = max((p.stat().st_mtime for p in
+                                 (root / 'artifacts').rglob('opening-heartbeat')), default=None)
+                    if (stamp is None and now-started > RECORDER_STARTUP_TIMEOUT
+                            or stamp is not None and not 0 <= time.time()-stamp <= HEARTBEAT_TIMEOUT):
+                        coverage_gap = True
+                        break
+                    publish_coverage(root, 'STARTING' if stamp is None else 'RUNNING', stamp)
+                    publish_at = now + 2
                 if sum(path.stat().st_size for path in root.rglob('*') if path.is_file()) > MAX_BYTES:
                     budget_exceeded = True
                     break
                 time.sleep(0.5)
+        except KeyboardInterrupt:
+            interrupted = True
         finally:
             if process.poll() is None:
                 if os.name == 'nt':
@@ -322,15 +390,19 @@ def main():
                        physical_home_screen='NOT_RUN')
     else:
         verdict = assess_run(process.returncode, reports, projects, opening=args.phase == 'opening',
-                             timed_out=timed_out or budget_exceeded or changed or not raw_matches)
+                             timed_out=(timed_out or budget_exceeded or changed or not raw_matches
+                                        or coverage_gap or interrupted))
     result = dict(schema='sentinel.dashboard-journey-run/1', source_head=head,
                   phase=args.phase, profile=args.profile, source_files=before, source_files_unchanged=not changed,
                   exit_code=process.returncode, timed_out=timed_out,
                   budget_exceeded=budget_exceeded, duration_ms=round((time.monotonic()-started)*1000),
+                  interrupted=interrupted, coverage_gap=coverage_gap,
                   raw_playwright_matches=raw_matches,
                   stats=data.get('stats', {}), reports=report_files, verdict=verdict,
                   raw_json_sha256=digest(root / 'playwright.json'))
     write_new(root / 'result.json', result)
+    if opening:
+        publish_coverage(root, 'INCOMPLETE' if verdict['status'] == 'INCOMPLETE' else 'FINISHED')
     print(json.dumps(dict(evidence=str(root), **result), sort_keys=True))
     return 0 if verdict['status'] in {'RECORDER_VERIFIED', 'PASSED_DESKTOP'} else 1
 

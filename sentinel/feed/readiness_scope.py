@@ -109,7 +109,9 @@ def material(conn, pub, load):
     _require_pin(conn, scope)
     publication._validate_publication(conn, pub, allow_snapshot=True)
     if scope.material is None:
-        value = load()
+        from sentinel.feed.shadow_readiness_memo import current_memo
+        memo = current_memo.get()
+        value = load() if memo is None else memo.measure(conn, pub, load)
         _require_pin(conn, scope)
         scope.material = deepcopy(value)
     value = deepcopy(scope.material)

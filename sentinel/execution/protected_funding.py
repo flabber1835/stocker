@@ -44,7 +44,7 @@ def _funding_key(plan_id: str) -> str:
 
 
 class _FundingBasis(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, serialize_by_alias=True)
 
     deployment: tuple[str, str, str, StrictInt]
     plan_id: str
@@ -89,7 +89,7 @@ class _FundingBasis(BaseModel):
 class FundingBasis(_FundingBasis):
     """The unchanged accepted-activity-backed evidence variant."""
 
-    schema: Literal["sentinel.protected-buy-funding/1"] = "sentinel.protected-buy-funding/1"
+    schema_id: Literal["sentinel.protected-buy-funding/1"] = Field(default="sentinel.protected-buy-funding/1", alias="schema")
     cash_activity_sha256: str
 
     _activity_digest = field_validator("cash_activity_sha256")(_FundingBasis.digest.__func__)
@@ -137,7 +137,7 @@ class NativeFeeBoundary(BaseModel):
 
 
 class NativeFeeFundingBasis(FundingBasis):
-    schema: Literal["sentinel.protected-buy-funding/3"] = "sentinel.protected-buy-funding/3"
+    schema_id: Literal["sentinel.protected-buy-funding/3"] = Field(default="sentinel.protected-buy-funding/3", alias="schema")
     cash_activity_boundary: NativeFeeBoundary
 
     @model_validator(mode="after")
@@ -153,7 +153,7 @@ class NativeFeeFundingBasis(FundingBasis):
 class PlanCashFundingBasis(_FundingBasis):
     """A fixed plan-cash ceiling; no native activity identity is claimed."""
 
-    schema: Literal["sentinel.protected-buy-funding/2"] = "sentinel.protected-buy-funding/2"
+    schema_id: Literal["sentinel.protected-buy-funding/2"] = Field(default="sentinel.protected-buy-funding/2", alias="schema")
     broker_composition_sha256: str
     plan_cash_ceiling: Decimal
 
@@ -164,8 +164,8 @@ class PlanCashFundingBasis(_FundingBasis):
 class ProtectedCohortContinuation(BaseModel):
     """Current routing evidence; never a replacement for a submission grant."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
-    schema: Literal["sentinel.protected-cohort-continuation/1"] = "sentinel.protected-cohort-continuation/1"
+    model_config = ConfigDict(extra="forbid", frozen=True, serialize_by_alias=True)
+    schema_id: Literal["sentinel.protected-cohort-continuation/1"] = Field(default="sentinel.protected-cohort-continuation/1", alias="schema")
     deployment: tuple[str, str, str, StrictInt]
     plan_id: str
     effective_session: date

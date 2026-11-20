@@ -1,4 +1,5 @@
 """Independent watchdog progress under silent dependencies and repeated phases."""
+import json
 import multiprocessing
 import os
 import time
@@ -220,18 +221,137 @@ def test_terminal_refusal_survives_latch_timeout_and_restart(
     assert len(starts) == 1
 
 
-def test_worker_arming_timeout_never_launches(tmp_path, monkeypatch):
+@pytest.fixture
+def shadow_arming(tmp_path, monkeypatch):
     from sentinel import shadow_supervisor as shadow
     monkeypatch.setattr(shadow, 'LATCH_FILE', tmp_path / 'critical.json')
-    monkeypatch.setattr(shadow.ShadowServiceConfig, 'from_env', lambda: object())
-    monkeypatch.setattr(shadow.signal, 'signal', lambda *a: None)
+    monkeypatch.setattr(shadow, 'HEARTBEAT_FILE', tmp_path / 'heartbeat')
+    monkeypatch.setenv('SENTINEL_PUBLICATION_RECEIPT_KEY', 'private-arming-fixture-' * 3)
+    monkeypatch.setattr(shadow.ShadowServiceConfig, 'from_env', lambda: SimpleNamespace(poll_seconds=0))
     monkeypatch.setattr(shadow, '_touch', lambda: None)
-    monkeypatch.setattr(shadow, '_arm_worker', lambda *a: time.sleep(.3))
-    observed = supervisor_io.run
-    monkeypatch.setattr(supervisor_io, 'run', lambda f, *a, **k: observed(f, *a, timeout=.05))
     monkeypatch.setattr(supervisor_io, 'report', lambda *a, **k: None)
+    handlers = {}
+    monkeypatch.setattr(shadow.signal, 'signal', lambda number, handler: handlers.update({number: handler}))
+
+    observe = supervisor_io.run
+    observations = []
+
+    def bounded(function, *args, **kwargs):
+        if function in (shadow._arm_worker, shadow._retry_arm_worker):
+            observations.append((function, shadow._STATUS_INCARNATION, kwargs['timeout']))
+            kwargs['timeout'] = .5
+        return observe(function, *args, **kwargs)
+
+    monkeypatch.setattr(supervisor_io, 'run', bounded)
+    return shadow, handlers, observations
+
+
+def test_worker_arming_timeout_never_launches(shadow_arming, monkeypatch):
+    shadow, _, observations = shadow_arming
+    monkeypatch.setattr(shadow, '_arm_worker', lambda *a: time.sleep(30))
+    monkeypatch.setattr(shadow, 'time', SimpleNamespace(sleep=lambda _: None))
     monkeypatch.setattr(shadow.subprocess, 'Popen', lambda *a, **k: pytest.fail('worker launched'))
     assert shadow.run() == shadow.EXIT_REFUSED
+    assert [item[0] for item in observations] == [shadow._arm_worker, shadow._retry_arm_worker]
+    assert [item[2] for item in observations] == [2, 2]
+
+
+def test_transient_admission_lock_timeout_recovers_in_same_supervisor(shadow_arming, tmp_path, monkeypatch):
+    import fcntl
+    from sentinel import shadow_drain
+
+    shadow, handlers, observations = shadow_arming
+    helper_pid = multiprocessing.get_context('fork').RawValue('i', 0)
+    arm = shadow._arm_worker
+
+    def record_helper(pid):
+        helper_pid.value = os.getpid()
+        return arm(pid)
+
+    monkeypatch.setattr(shadow, '_arm_worker', record_helper)
+    starts = []
+
+    def spawn(*args, **kwargs):
+        assert kwargs['pass_fds']
+        marker = shadow.restart_recovery.decode_pending(json.loads(shadow._pending_file().read_bytes()))
+        assert marker['supervisor_pid'] == os.getpid()
+        starts.append(shadow._STATUS_INCARNATION)
+        handlers[shadow.signal.SIGTERM]()
+        return SimpleNamespace(poll=lambda: 0)
+
+    monkeypatch.setattr(shadow.subprocess, 'Popen', spawn)
+    with (tmp_path / shadow_drain.LOCK_NAME).open('w+b') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+
+        def release(seconds):
+            assert seconds == 1
+            assert not starts and not shadow._pending_file().exists()
+            assert helper_pid.value > 0
+            with pytest.raises(ProcessLookupError):
+                os.kill(helper_pid.value, 0)
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+        monkeypatch.setattr(shadow, 'time', SimpleNamespace(monotonic=time.monotonic, sleep=release))
+        assert shadow.run() == 0
+
+    assert len(starts) == 1 and not shadow._pending_file().exists()
+    assert observations == [(record_helper, starts[0], 2), (shadow._retry_arm_worker, starts[0], 2)]
+
+
+def test_timeout_after_durable_arm_preserves_marker_without_launch(shadow_arming, monkeypatch):
+    shadow, _, observations = shadow_arming
+    write_marker = shadow._write_marker
+    writes = multiprocessing.get_context('fork').RawValue('i', 0)
+    retained = []
+
+    def stall_after_sync(path, payload):
+        writes.value += 1
+        write_marker(path, payload)
+        time.sleep(30)
+
+    def record_retained(seconds):
+        assert seconds == 1
+        retained.append(shadow._pending_file().read_bytes())
+
+    monkeypatch.setattr(shadow, '_write_marker', stall_after_sync)
+    monkeypatch.setattr(shadow, 'time', SimpleNamespace(sleep=record_retained))
+    monkeypatch.setattr(shadow.subprocess, 'Popen', lambda *a, **k: pytest.fail('worker launched'))
+    assert shadow.run() == shadow.EXIT_REFUSED
+    assert [item[0] for item in observations] == [shadow._arm_worker, shadow._retry_arm_worker]
+    assert writes.value == 1
+    assert shadow._pending_file().read_bytes() == retained[0]
+    shadow.restart_recovery.decode_pending(json.loads(retained[0]))
+
+
+@pytest.mark.parametrize('boundary', ['dangling-critical', 'read-error', 'shutdown'])
+def test_arming_retry_refuses_uncertain_state_and_respects_shutdown(shadow_arming, boundary, monkeypatch):
+    shadow, handlers, observations = shadow_arming
+    arm = shadow._arm_worker
+    monkeypatch.setattr(shadow, '_arm_worker', lambda *a: time.sleep(30))
+
+    def change_state(seconds):
+        assert seconds == 1
+        monkeypatch.setattr(shadow, '_arm_worker', arm)
+        if boundary == 'dangling-critical':
+            shadow.LATCH_FILE.symlink_to('missing')
+        elif boundary == 'read-error':
+            path_type = type(shadow.LATCH_FILE)
+            lstat = path_type.lstat
+
+            def unreadable(path, *args, **kwargs):
+                if path == shadow.LATCH_FILE:
+                    raise PermissionError('unreadable marker')
+                return lstat(path, *args, **kwargs)
+
+            monkeypatch.setattr(path_type, 'lstat', unreadable)
+        else:
+            handlers[shadow.signal.SIGTERM]()
+
+    monkeypatch.setattr(shadow, 'time', SimpleNamespace(sleep=change_state))
+    monkeypatch.setattr(shadow.subprocess, 'Popen', lambda *a, **k: pytest.fail('worker launched'))
+    assert shadow.run() == (0 if boundary == 'shutdown' else shadow.EXIT_REFUSED)
+    assert len(observations) == (1 if boundary == 'shutdown' else 2)
+    assert not shadow._pending_file().exists()
 
 
 @pytest.mark.parametrize('first_code', [0, 10, 11, 12, 13])

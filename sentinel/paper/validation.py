@@ -505,12 +505,12 @@ def _guard_broker(*, conn, broker: ExecutionBroker, grant, base_url: str,
     from sentinel.structural_verification import owned
     structural = owned(conn) or Scope(conn)
 
-    def validate(fresh, current_grant, operation, result):
+    def validate(fresh, current_grant, operation, result, strategy):
         with structural.guard(fresh):
             _validate_broker_grant(
                 fresh, current_grant, operation, result,
                 now_provider=now_provider,
-                strategy_provider=strategy_provider,
+                strategy_provider=lambda: strategy,
                 dual_shadow_observation_id=dual_shadow_observation_id,
                 dual_shadow_starting_cash=dual_shadow_starting_cash)
 
@@ -522,7 +522,8 @@ def _guard_broker(*, conn, broker: ExecutionBroker, grant, base_url: str,
         validate_grant=validate,
         automation_config_sha256=automation_config_sha256,
         authority_check=require_current_authority,
-        publish_operational_evidence=False)
+        publish_operational_evidence=False,
+        bind_strategy_to_grant=True)
     async def protected_funding(**kwargs):
         # The canonical membrane derives its own ceiling from committed rows.
         # Callers cannot supply a balance/proof that grants spend permission.

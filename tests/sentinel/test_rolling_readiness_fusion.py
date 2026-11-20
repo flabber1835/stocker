@@ -64,7 +64,7 @@ def old_summary(conn, context):
     return result
 
 
-def test_actual_resolver_first_path_supplies_completed_facts_without_second_stream(
+def test_actual_resolver_first_path_defers_one_complete_price_stream_to_readiness(
         conn, published, monkeypatch):
     events = []
     read = rolling_store._bar_rows
@@ -83,11 +83,17 @@ def test_actual_resolver_first_path_supplies_completed_facts_without_second_stre
     monkeypatch.setattr(adapter, 'SnapshotReferences', refs)
     with feed_inputs.pinned(conn, commit=False) as pub:
         paper.build_security_resolver(conn, calendar.next_session(pub.window_end))
-        assert events[:3] == ['bars-start', 'bars-complete', 'references']
+        assert events == ['references']
+        assert not readiness_scope._current.get().verified_snapshots
+        assert rolling_store.readiness_facts(conn, published['candidate_id']) is None
         monkeypatch.setattr(adapter, '_mapped_bars', lambda *a: pytest.fail('second mapped stream'))
         result = adapter.readiness_inputs(
             conn, candidate_id=published['candidate_id'], snapshot_id=published['snapshot_id'])
         assert result.counts[result.session] > 0
+        assert events.count('bars-start') == events.count('bars-complete') == 1
+        repeated = adapter.readiness_inputs(
+            conn, candidate_id=published['candidate_id'], snapshot_id=published['snapshot_id'])
+        assert repeated == result
         assert events.count('bars-start') == events.count('bars-complete') == 1
         record, = readiness_scope._current.get().verified_snapshots.values()
         assert isinstance(record, rolling_store.VerifiedSnapshot)

@@ -782,6 +782,7 @@ class ProductionAutomation:
         self._idle_attestation_publication_head: dict | None = None
         self._idle_authority_flight: tuple[
             idle_authority.IdleAuthorityFlight, tuple, datetime] | None = None
+        self._idle_authority_observer: idle_authority.IdleAuthorityObserver | None = None
         self._idle_authority_retry_at: datetime | None = None
         self._idle_authority_failures = 0
         self._idle_foreground_deadline: float | None = None
@@ -1332,15 +1333,20 @@ class ProductionAutomation:
     def _stop_idle_authority_observer(self):
         """Reap the read-only observer before a financial callback can fork."""
         active = getattr(self, "_idle_authority_flight", None)
-        if active is None:
-            return
-        flight, _identity, _started_at = active
-        if not flight.stop():
-            raise TransientInfrastructureFailure(
-                "idle authority observer could not be reaped before callback")
-        self._idle_authority_diagnostic(flight, "CANCELLED")
-        self._idle_authority_flight = None
-        self._idle_attestation = None
+        observer = getattr(self, "_idle_authority_observer", None)
+        if active is not None:
+            flight, _identity, _started_at = active
+            if not flight.stop():
+                raise TransientInfrastructureFailure(
+                    "idle authority observer could not stop before callback")
+            self._idle_authority_diagnostic(flight, "CANCELLED")
+            self._idle_authority_flight = None
+            self._idle_attestation = None
+        if observer is not None:
+            if not observer.close():
+                raise TransientInfrastructureFailure(
+                    "idle authority observer could not be reaped before callback")
+            self._idle_authority_observer = None
 
     def _cancel_idle_authority_observer(self):
         active = getattr(self, "_idle_authority_flight", None)
@@ -1371,10 +1377,14 @@ class ProductionAutomation:
         return self._idle_authority_retry_wake(now)
 
     def _start_idle_authority_observer(self, control, permit, observed_at):
-        args = (self.sentinel_config, self.automation_config,
-                self.holder_id, permit)
+        observer = getattr(self, "_idle_authority_observer", None)
+        if observer is None:
+            observer = idle_authority.IdleAuthorityObserver(
+                _observe_idle_control_authority, self.sentinel_config,
+                self.automation_config, self.holder_id)
+            self._idle_authority_observer = observer
         flight = idle_authority.IdleAuthorityFlight(
-            _observe_idle_control_authority, args,
+            observer, permit,
             timeout_seconds=_IDLE_AUTHORITY_OBSERVER_SECONDS)
         self._idle_authority_flight = (
             flight, self._idle_attestation_key(control, permit), observed_at)

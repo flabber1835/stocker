@@ -15,6 +15,7 @@ from sentinel.feed.rolling_contract import canonical_json
 log = logging.getLogger(__name__)
 BATCH_ROWS = rolling_store.BATCH_SIZE
 ACQUISITION_BATCH_ROWS = 128
+ACQUISITION_PASS_BATCHES = 8
 ACQUISITION_PAGE = 8
 ACQUISITION_BURST = 32
 _PRIVATE_ACQUISITION = object()
@@ -824,18 +825,31 @@ def _pass(conn, *, batch_rows, deadline=None, private=None):
             'active':None,'legacy':_physical_cursor(port,'BARS')})
         total['progress_made'] = True
     classes = [(progress.next_class + offset) % 7 for offset in range(7)]
-    if private is not None:
-        classes = [class_id for class_id in classes if (class_id == 5) == private]
+    if private is True:
+        classes = [5] * ACQUISITION_PASS_BATCHES
+    elif private is False:
+        classes = [class_id for class_id in classes if class_id != 5]
     errors = {}
+    private_deadline = None
     for class_id in classes:
-        if time.monotonic() >= admission_end:
+        now = time.monotonic()
+        if now >= admission_end:
             break
+        class_deadline = min(admission_end, now+CLASS_SECONDS)
+        step_rows = batch_rows
+        if private is True:
+            step_rows -= total['deleted_acquisition_rows']
+            if step_rows <= 0:
+                break
+            if private_deadline is not None:
+                if now >= private_deadline-EXTENT_RETURN_RESERVE:
+                    break
+                class_deadline = private_deadline
         before = progress
         conn.execute('SAVEPOINT retention_class')
-        work = _Budget(conn,min(admission_end,time.monotonic()+CLASS_SECONDS),
-                       ceiling_ms=500,authorization=authorization)
+        work = _Budget(conn,class_deadline,ceiling_ms=500,authorization=authorization)
         try:
-            after, changes = _run_class(work,class_id,before,batch_rows=batch_rows)
+            after, changes = _run_class(work,class_id,before,batch_rows=step_rows)
             work.check()
         except Exception as exc:
             conn.execute('ROLLBACK TO SAVEPOINT retention_class')
@@ -860,6 +874,12 @@ def _pass(conn, *, batch_rows, deadline=None, private=None):
         finally:
             conn.execute('RELEASE SAVEPOINT retention_class')
         progress = progress.model_copy(update={'next_class':(class_id+1)%7})
+        if private is True:
+            if errors or not (changes['deleted_acquisition_rows'] or changes['deleted_acquisition_parts']):
+                break
+            # A first positive step may have earned its post-authentication
+            # mutation slice. Further steps spend the remainder of that slice.
+            private_deadline = work.deadline
     else:
         if private is False:
             progress = progress.model_copy(update={'next_class':5})

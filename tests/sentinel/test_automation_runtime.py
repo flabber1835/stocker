@@ -723,7 +723,12 @@ async def test_close_preflight_observes_monday_with_friday_identity_frontier(mon
     monkeypatch.setattr(store, 'cycle_preflight_recovery_pending', lambda c: pending)
     refs = SimpleNamespace(manifest=SimpleNamespace(window=SimpleNamespace(end='2026-10-09')),
                            tickers=[], actions=[], candidate_id='c')
-    monkeypatch.setattr(automation_runtime.feed_inputs, 'references', lambda *a: refs)
+    from sentinel.core import rolling_inputs
+    monkeypatch.setattr(rolling_inputs, 'SnapshotReferences', lambda *a, **kw: refs)
+    monkeypatch.setattr(automation_runtime.feed_inputs.snapshots, '_bound',
+                        lambda *a: {'candidate_id': 'c', 'snapshot_id': 's'})
+    monkeypatch.setattr(automation_runtime.feed_inputs.snapshots, '_current', lambda *a: None)
+    monkeypatch.setattr(automation_runtime.feed_inputs.rolling_store, 'require_payload', lambda *a: None)
     monkeypatch.setattr(automation_runtime.feed_inputs.rolling_store, 'load_evidence',
                         lambda *a: {'alias_rejections': source_aliases.evidence()})
     sessions = []
@@ -3634,3 +3639,69 @@ async def test_quiet_predecessor_guard_preserves_other_notifications(monkeypatch
         assert len(alerts)==1
     if fault in {'blocked_action','exception'}:
         assert alerts[0]['severity']=='CRITICAL'
+
+
+def _sample_warm_idle_observer(path, permit, progress):
+    import os
+
+    from sentinel.automation.idle_authority import set_progress
+    from sentinel.economic_manifest import _syntax
+
+    raw = Path(path).read_bytes()
+    if raw == b'blocked':
+        time.sleep(30)
+    facts = _syntax('idle_observer_fixture', raw)
+    set_progress(progress, stage=6, backend_pid=42)
+    return {'pid': os.getpid(), 'fence': permit.fence_token,
+            'names': sorted(facts[1]), 'syntax_hits': _syntax.cache_info().hits}
+
+
+def test_warm_idle_observer_rechecks_current_bytes_and_permit_and_reaps_on_timeout(tmp_path):
+    import sys
+
+    from sentinel.automation.idle_authority import IdleAuthorityFlight, IdleAuthorityObserver
+
+    if sys.platform != 'linux':
+        pytest.skip('Linux supervisor process ownership')
+    proof_input = tmp_path/'origin'
+    proof_input.write_bytes(b'before = 1')
+    permit = LeaderPermit(holder_id='worker-a', fence_token=17,
+                          control_generation=3, acquired_at=NOW,
+                          expires_at=NOW+timedelta(seconds=90))
+    observer = IdleAuthorityObserver(_sample_warm_idle_observer, str(proof_input))
+
+    def sample(token, timeout=10):
+        flight = IdleAuthorityFlight(observer, permit.model_copy(update={'fence_token': token}),
+                                     timeout_seconds=timeout)
+        assert flight.finished.wait(timeout+2)
+        return flight
+
+    try:
+        first = sample(17)
+        assert first.error is None
+        assert first.stage == 'COMPLETE'
+        assert first.backend_pid == 42
+        second = sample(18)
+        assert second.error is None
+        assert first.value['pid'] == second.value['pid']
+        assert second.value['syntax_hits'] == first.value['syntax_hits']+1
+        assert second.value['fence'] == 18
+
+        proof_input.write_bytes(b'changed = 2')
+        changed = sample(19)
+        assert changed.error is None
+        assert changed.value['pid'] == first.value['pid']
+        assert changed.value['names'] == ['changed']
+
+        proof_input.write_bytes(b'blocked')
+        late = sample(19, timeout=.25)
+        assert isinstance(late.error, TimeoutError)
+        assert late.value is None and observer.process is None
+
+        proof_input.write_bytes(b'recovered = 3')
+        recovered = sample(20)
+        assert recovered.error is None
+        assert recovered.value['pid'] != first.value['pid']
+        assert recovered.value['names'] == ['recovered']
+    finally:
+        assert observer.close()

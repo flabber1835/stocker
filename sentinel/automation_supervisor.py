@@ -206,7 +206,7 @@ def _remove_holder():
     HOLDER_FILE.unlink(missing_ok=True)
 
 
-def main() -> int:
+def main(*, serve_health=False) -> int:
     sentinel_config = SentinelConfig.from_env()
     if not sentinel_config.database_url:
         supervisor_io.report("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
@@ -221,6 +221,21 @@ def main() -> int:
         supervisor_io.report("REFUSED: invalid automation supervisor timing", file=sys.stderr)
         return 2
 
+    reader = None
+    if serve_health:
+        from sentinel.automation_health_probe import WarmHealthReader
+
+        reader = WarmHealthReader(
+            sentinel_config.database_url, automation_config.lease_seconds,
+            max_pulse_age=poll_seconds + 2*SNAPSHOT_SECONDS + 1)
+    try:
+        return _watch(sentinel_config, automation_config, poll_seconds, startup_grace_seconds, reader)
+    finally:
+        if reader is not None:
+            reader.close()
+
+
+def _watch(sentinel_config, automation_config, poll_seconds, startup_grace_seconds, reader):
     stopping = False
     child: subprocess.Popen | None = None
 
@@ -255,6 +270,12 @@ def main() -> int:
                 # are gone. Reap the complete old group before replacement.
                 _terminate(child)
                 break
+            if reader is not None:
+                try:
+                    reader.tick()
+                except OSError as exc:
+                    supervisor_io.report(
+                        'automation health reader unavailable: '+type(exc).__name__)
             now_mono = time.monotonic()
             observation_started = now_mono
             observation_stage = 'SNAPSHOT'
@@ -362,6 +383,5 @@ def main() -> int:
         pass
     return 0
 
-
 if __name__ == "__main__":  # pragma: no cover
-    raise SystemExit(main())
+    raise SystemExit(main(serve_health=True))

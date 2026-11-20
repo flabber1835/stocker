@@ -5,6 +5,34 @@ const {panelAssets,servePanelAsset}=require('./panel-assets.cjs');
 const {startCapture,finishCapture}=require('./support/dashboard-journey-capture.cjs');
 
 test.use({serviceWorkers:'block'});
+test('recorder observes rendering that changes without a DOM mutation',async({page})=>{
+  const url='http://127.0.0.1:18947/';
+  const generated=new Date().toISOString();
+  await page.route(url,route=>route.fulfill({contentType:'text/html',
+    headers:{'X-Sentinel-Panel-Status':'CURRENT'},body:`<!doctype html>
+      <style>.next-plan {visibility:hidden}</style>
+      <body data-generated-at="${generated}">
+        <header class="brand"><span id="operational-state" class="state ok">Healthy</span></header>
+        <section class="next-plan">Current plan</section>
+      </body>`}));
+  const capture=await startCapture(page,{url,project:'recorder-layout'});
+  try {
+    await page.goto(url);
+    await expect.poll(()=>capture.report.events.some(event=>event.type==='visible-state' &&
+      event.generated_at===generated && event.meaningful_visible===false)).toBe(true);
+    await expect(page.locator('.next-plan')).toBeHidden();
+    await page.evaluate(()=>{
+      const sheet=document.styleSheets[0];
+      sheet.insertRule('.next-plan {visibility:visible}',sheet.cssRules.length);
+    });
+    await expect(page.locator('.next-plan')).toBeVisible();
+    await expect.poll(()=>capture.report.events.some(event=>event.type==='meaningful-content' &&
+      event.generated_at===generated && event.method==='visible_content_after_two_animation_frames')).toBe(true);
+  } finally {
+    await finishCapture(capture);
+  }
+});
+
 test('opening recorder follows the rendered page through both renewals and detects a late grey border',async({page,request})=>{
   test.setTimeout(55000);
   const fixture=JSON.parse(fs.readFileSync(process.env.SENTINEL_DOM_FIXTURE,'utf8'));

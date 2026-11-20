@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from contextvars import ContextVar
 import logging
 from time import perf_counter_ns
 
@@ -21,7 +22,11 @@ _TEMPLATES = frozenset({
     "automation_idle_authority_stage outcome=%s stage=%s "
     "elapsed_ms=%d budget_ms=%d backend_pid=%d",
     "automation_idle_authority_parent outcome=%s stage=%s elapsed_ms=%d",
+    "automation_callback_startup stage=%s event=begin",
+    "automation_callback_startup stage=%s event=end elapsed_ms=%d",
+    "paper_broker_read_timing operation=%s part=%s count=%d elapsed_ms=%d",
 })
+_BROKER_READS = ContextVar("opening_broker_reads", default=None)
 
 
 class _WorkerStageSink(logging.Handler):
@@ -60,6 +65,48 @@ def preflight(stage: str):
     finally:
         elapsed = min(86_400_000, max(0, (perf_counter_ns() - start) // 1_000_000))
         info("automation_preflight_stage stage=%s elapsed_ms=%d", stage, elapsed)
+
+
+@contextmanager
+def callback_startup(phase: str, stage: str):
+    if phase != "EXECUTE":
+        yield
+        return
+    start = perf_counter_ns()
+    info("automation_callback_startup stage=%s event=begin", stage)
+    try:
+        yield
+    finally:
+        elapsed = min(86_400_000, max(0, (perf_counter_ns() - start) // 1_000_000))
+        info("automation_callback_startup stage=%s event=end elapsed_ms=%d", stage, elapsed)
+
+
+@contextmanager
+def broker_reads():
+    counts = {}
+    token = _BROKER_READS.set(counts)
+    try:
+        yield
+    finally:
+        _BROKER_READS.reset(token)
+        for (operation, part), (count, elapsed) in counts.items():
+            info("paper_broker_read_timing operation=%s part=%s count=%d elapsed_ms=%d",
+                 operation, part, count, min(86_400_000, elapsed // 1_000_000))
+
+
+@contextmanager
+def broker_read(operation: str, part: str):
+    counts = _BROKER_READS.get()
+    if counts is None:
+        yield
+        return
+    start = perf_counter_ns()
+    try:
+        yield
+    finally:
+        key = (operation, part)
+        count, elapsed = counts.get(key, (0, 0))
+        counts[key] = count + 1, elapsed + max(0, perf_counter_ns() - start)
 
 
 def install_worker_sink() -> None:

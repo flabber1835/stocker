@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const fs = require('node:fs');
 const path = require('node:path');
 const {performance} = require('node:perf_hooks');
 
@@ -29,7 +30,7 @@ function serverDocument(body) {
 
 // This function executes in the browser. It observes only; it changes no HTML,
 // clocks, worker registration, request or financial state.
-function installRecorder({binding}) {
+function installRecorder({binding, opening}) {
   const send = value => {
     const record = {...value, browser_ms:performance.now(), document_time_origin_ms:performance.timeOrigin,wall_time_ms:Date.now()};
     try { window[binding](record).catch(() => {}); } catch (_) {}
@@ -39,6 +40,7 @@ function installRecorder({binding}) {
   let shownGeneration = null;
   let rootNumber = 0;
   let meaningfulScheduled = null;
+  let visibilityRetry = null;
   let observedBanner = null;
   function visible(element) {
     if (!element) return false;
@@ -104,6 +106,27 @@ function installRecorder({binding}) {
       visibility:document.visibilityState, generated_at:document.body?.dataset.generatedAt || null}));
     navigator.serviceWorker?.addEventListener('controllerchange', workers);
   }
+  function proveVisible(generation, frames) {
+    requestAnimationFrame(() => {
+      if (meaningfulScheduled !== generation) return;
+      const current = state();
+      if (current.generated_at !== generation || !current.meaningful_visible) {
+        meaningfulScheduled = null;
+        snapshot();
+        return;
+      }
+      if (frames > 1) {
+        proveVisible(generation, frames-1);
+        return;
+      }
+      meaningfulScheduled = null;
+      clearTimeout(visibilityRetry);
+      visibilityRetry = null;
+      shownGeneration = generation;
+      send({type:'meaningful-content', method:'visible_content_after_two_animation_frames', ...current});
+      navigation();
+    });
+  }
   function snapshot() {
     if (root !== document.documentElement) {
       root = document.documentElement;
@@ -123,17 +146,21 @@ function installRecorder({binding}) {
     const next = state();
     const key = JSON.stringify(next);
     if (key !== signature) { signature = key; send({type:'visible-state', ...next}); }
-    if (next.meaningful_visible && shownGeneration !== next.generated_at && meaningfulScheduled !== next.generated_at) {
+    const needsProof = next.generated_at && next.generated_at !== shownGeneration;
+    if (!needsProof || next.meaningful_visible) {
+      clearTimeout(visibilityRetry);
+      visibilityRetry = null;
+    }
+    if (!needsProof) return;
+    if (next.meaningful_visible && meaningfulScheduled !== next.generated_at) {
       meaningfulScheduled = next.generated_at;
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        const current = state();
-        meaningfulScheduled = null;
-        if (current.meaningful_visible && shownGeneration !== current.generated_at) {
-          shownGeneration = current.generated_at;
-          send({type:'meaningful-content', method:'visible_content_after_two_animation_frames', ...current});
-          navigation();
-        }
-      }));
+      proveVisible(next.generated_at, 2);
+    } else if (!next.meaningful_visible && visibilityRetry === null) {
+      // A stylesheet or viewport change need not produce a DOM mutation.
+      visibilityRetry = setTimeout(() => {
+        visibilityRetry = null;
+        snapshot();
+      }, 100);
     }
   }
   const observer = new MutationObserver(records => {
@@ -154,6 +181,8 @@ function installRecorder({binding}) {
       start_ms:item.startTime, duration_ms:item.duration}))).observe({type:'paint',buffered:true});
   } catch (_) { send({type:'paint-unavailable'}); }
   snapshot();
+  if (opening) setInterval(() => send({type:'coverage-sample',
+    generated_at:document.body?.dataset.generatedAt || null}),2000);
 }
 
 function assessCapture(report) {
@@ -288,7 +317,20 @@ async function startCapture(page, options) {
   function add(event) {
     if (closed) return;
     if (report.events.length>=maxEvents) { report.capture.event_overflow=true; mark('EVENT_OVERFLOW'); finishWaiting(); return; }
-    report.events.push({...event,node_ms:nodeTime()});
+    const observed={...event,node_ms:nodeTime()};
+    report.events.push(observed);
+    if (opening && options.outputDir) {
+      try {
+        fs.appendFileSync(path.join(options.outputDir,'opening-events.jsonl'),
+          JSON.stringify(observed)+'\n',{mode:0o600});
+        if (event.type==='coverage-sample') {
+          fs.writeFileSync(path.join(options.outputDir,'opening-heartbeat'),'sample\n',{mode:0o600});
+        }
+      } catch (_) {
+        mark('COVERAGE_WRITE_FAILED');
+        finishWaiting();
+      }
+    }
     if (event.type==='meaningful-content') takeScreenshot('content');
     if (event.type==='badge-transition' && event.headline_class==='state warn') takeScreenshot('amber');
     if (opening) {
@@ -319,7 +361,7 @@ async function startCapture(page, options) {
   }
   const binding = '__sentinelJourney'+crypto.randomBytes(8).toString('hex');
   await page.exposeBinding(binding, (source,event) => { if (source.frame===page.mainFrame()) add(event); });
-  await page.addInitScript(installRecorder,{binding});
+  await page.addInitScript(installRecorder,{binding,opening:!!opening});
   function listen(name, callback) { page.on(name,callback); listeners.push([name,callback]); }
   const rootRequest = request => {
     const url = new URL(request.url());
