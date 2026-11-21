@@ -1429,8 +1429,9 @@ def test_preparation_continuation_scope_guard_has_a_falsifier(monkeypatch):
     source = textwrap.dedent(inspect.getsource(automation_runtime.ProductionAutomation.recover))
     original = "if preflight and cycle.plan_id is None:"
     assert source.count(original) == 1
-    namespace = dict(vars(automation_runtime))
-    exec(compile(source.replace(original, "if True:", 1), "unscoped-preparation", "exec"), namespace)
+    namespace = {}
+    exec(compile(source.replace(original, "if True:", 1), "unscoped-preparation", "exec"),
+         vars(automation_runtime), namespace)
     monkeypatch.setattr(automation_runtime.ProductionAutomation, "recover", namespace["recover"])
     with pytest.raises(AssertionError):
         test_preparation_continuation_preserves_recovery_guards(

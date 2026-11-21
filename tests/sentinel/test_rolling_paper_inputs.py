@@ -101,11 +101,12 @@ def test_action_reader_requires_retained_predecessor_and_never_reads_legacy_rows
 
 
 def test_corrupt_receipt_cannot_trigger_a_permissive_reader_fallback(monkeypatch):
-    def refuse(*_):
+    def refuse(*_a, **_kw):
         raise publication.CorpusIncoherent("receipt authentication failed")
-    monkeypatch.setattr(publication, "require_current", refuse)
-    monkeypatch.setattr(publication, "current", refuse)
-    monkeypatch.setattr(snapshots, "_current", lambda *_: pytest.fail("integrity refusal bypassed"))
+    monkeypatch.setattr(publication._core, "current", lambda _: SimpleNamespace(
+        version=1, evidence={"rolling_snapshot": {}}))
+    monkeypatch.setattr(publication, "_verify_receipt_chain", refuse)
+    monkeypatch.setattr(snapshots, "_bound", lambda *_: pytest.fail("integrity refusal bypassed"))
     with pytest.raises(publication.CorpusIncoherent, match="authentication"):
         feed_inputs.require_current(object())
     with pytest.raises(publication.CorpusIncoherent, match="authentication"):

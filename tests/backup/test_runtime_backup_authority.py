@@ -270,7 +270,7 @@ def test_fresh_broker_mutation_gate_rechecks_media_after_preparation(
         world, monkeypatch, operation):
     monkeypatch.setattr(authority_gate, "load_rollout_state",
                         lambda _conn: SimpleNamespace(mode="CONTROLLER"))
-    monkeypatch.setattr(authority_gate.publication, "require_current",
+    monkeypatch.setattr(authority_gate.feed_inputs, "require_current",
                         lambda _conn: SimpleNamespace(version=1))
     guard = authority_gate.build_fresh_execution_guard(
         connection_factory=lambda: world,

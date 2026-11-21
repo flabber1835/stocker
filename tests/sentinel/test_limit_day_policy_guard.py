@@ -212,13 +212,17 @@ def grant_case(monkeypatch):
         {"SEC-AAA": D(1)}, deployment_id=binding.deployment_id, broker=binding.broker,
         broker_account_id=binding.broker_account_id, takeover_epoch=binding.takeover_epoch)
     current, rollout = object(), object()
-    calls = {"readiness": [], "window": [], "authorities": [], "allocation": []}
+    calls = {"readiness": [], "window": [], "authorities": [], "allocation": [], "frontier": []}
     projection = SimpleNamespace(opening_sizing={
         "shadow_equity": str(_shadow_equity(state)), "references": {}})
     monkeypatch.setattr("sentinel.handover.assert_no_legacy_path", lambda _conn: binding)
     monkeypatch.setattr(validation, "load_rollout_state", lambda _conn: rollout)
     monkeypatch.setattr(validation.feed_inputs, "require_current", lambda _conn: current)
-    monkeypatch.setattr(validation.feed_inputs, "frontier", lambda _conn: DECISION_SESSION)
+    def frontier(_conn, publication):
+        calls["frontier"].append(publication)
+        assert publication is current
+        return DECISION_SESSION
+    monkeypatch.setattr(validation.feed_inputs, "frontier", frontier)
     monkeypatch.setattr(validation, "_state_and_plan_or_refuse", lambda _conn: (state, plan, DECISION_SESSION))
     monkeypatch.setattr(validation, "_latest_plan_or_refuse", lambda _conn: plan)
     monkeypatch.setattr(validation, "_validate_automation_grant", lambda *_: (None,
@@ -270,6 +274,7 @@ def invoke_grant(case, kind, operation):
 def test_actual_execution_grant_branches_check_typed_operation(grant_case, kind, operation):
     invoke_grant(grant_case, kind, operation)
     assert len(grant_case.calls["readiness"]) == len(grant_case.calls["authorities"]) == 1
+    assert len(grant_case.calls["frontier"]) == 1
     assert len(grant_case.calls["allocation"]) == (operation is BrokerOperation.SUBMIT)
 
 

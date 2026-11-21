@@ -13,28 +13,16 @@ def is_rolling(pub):
 def current(conn):
     from sentinel.feed import readiness_scope
     readiness_scope.require(conn)
-    try:
-        return publication.current(conn)
-    except publication.CorpusIncoherent as exc:
-        if str(exc) != "ROLLING_SNAPSHOT_REQUIRES_VERSIONED_READER":
-            raise
     pub = snapshots._current(conn)
-    snapshots._bound(conn, pub)
+    if pub is not None and "rolling_snapshot" in pub.evidence:
+        snapshots._bound(conn, pub)
     return pub
 
 
 def require_current(conn):
-    from sentinel.feed import readiness_scope
-    readiness_scope.require(conn)
-    # Dispatch only the authenticated publication's explicit reader-version
-    # refusal. Integrity, receipt and all other legacy failures remain failures.
-    try:
-        return publication.require_current(conn)
-    except publication.CorpusIncoherent as exc:
-        if str(exc) != "ROLLING_SNAPSHOT_REQUIRES_VERSIONED_READER":
-            raise
-    pub = snapshots._current(conn)
-    snapshots._bound(conn, pub)
+    pub = current(conn)
+    if pub is None:
+        raise publication.NoPublishedVersion("no corpus generation has been published")
     return pub
 
 

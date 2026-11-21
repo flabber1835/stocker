@@ -21,6 +21,15 @@ standalone reference constructor still loads and verifies its own manifest.
 No manifest or schema result survives its operation or grants permission to
 submit an order.
 
+The operational current reader authenticates a rolling receipt chain before
+the legacy reader requests a redispatch, then authenticates that same chain
+again. Use the version-aware publication reader for the first read. Validate
+the receipt chain once after the existing read-ownership check and verify the
+operational binding whenever the rolling marker key is present. A malformed
+marker, broken receipt or missing required publication keeps its existing
+refusal. Legacy-only readers and the owned publication pin retain their
+existing contracts.
+
 Preserve the economic manifest's dependency graph and original contributions.
 Qualify the complete changed compiler bytes in its existing closed source
 cohort, with neighboring byte changes still producing a different economic

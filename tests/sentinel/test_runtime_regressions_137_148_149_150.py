@@ -95,7 +95,7 @@ def test_148_preparation_guard_rechecks_boundary_without_full_readiness(monkeypa
     monkeypatch.setattr("sentinel.handover.assert_no_legacy_path",
                         lambda _conn: fake_binding)
     monkeypatch.setattr(paper_validation, "load_rollout_state", lambda _conn: object())
-    monkeypatch.setattr(paper_validation.publication, "current",
+    monkeypatch.setattr(paper_validation.feed_inputs, "require_current",
                         lambda _conn: SimpleNamespace(version=7, evidence={}))
     monkeypatch.setattr(paper_validation.feed_store, "latest_visible_session",
                         lambda _conn: "2026-08-14")

@@ -55,6 +55,9 @@ post-chain certificate lifecycle and revocation read, the automation-specific
 configuration check, and the concrete permission check. Preserve the separate
 pre-read, post-read, and pre-mutation invocations and their fresh grant,
 account, backup, and timing checks. Nothing carries forward between them.
+Within the grant check, derive the source frontier from the publication just
+authenticated on that connection. Retain the exact publication and frontier
+checks and the legacy source's independent visible-session read.
 Historical certificates, the independently injected checker contract, LIVE
 and the separate observation-only recovery fallback retain their existing
 operation checks.
