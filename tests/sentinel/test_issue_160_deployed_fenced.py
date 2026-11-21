@@ -218,7 +218,7 @@ def test_reviewed_shadow_starts_only_dedicated_broker_free_service(tmp_path):
 def legacy_publication(monkeypatch):
     """These fenced-runtime cases exercise the legacy acquisition path."""
     monkeypatch.setattr(
-        automation_runtime.publication, "current", lambda _conn: None)
+        automation_runtime.publication._core, "current", lambda _conn: None)
 
 
 def test_fenced_runtime_uses_canonical_ingest_without_broker(

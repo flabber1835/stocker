@@ -14,7 +14,7 @@ from sentinel.execution import feed_inputs, journal, opening_sizing, preopen_aut
 from sentinel.execution import target_reprojection as projections
 from sentinel.execution.contract import BrokerCapabilities, BrokerInstrument, BrokerPosition
 from sentinel.execution.opening_prices import OpeningPriceUnavailability
-from sentinel.feed import calendar, publication, store as feed_store
+from sentinel.feed import calendar, store as feed_store
 from sentinel.paper import execution as paper_execution, recovery as paper_recovery, targets
 from tests.v5.test_opening import case, base, prices
 from tests.sentinel.test_production_decision import _observation
@@ -117,7 +117,7 @@ def test_filled_open_sized_entry_converges(monkeypatch, dual):
     runtime._dual_run_enabled = dual
     monkeypatch.setattr(runtime, '_require_dual_plan_shadow_match', lambda *a, **k: {
         'sizing_authority_sha256': 'sizing', 'shadow_record_sha256': 'shadow'})
-    monkeypatch.setattr(publication, 'require_current', lambda *a: SimpleNamespace(version=7))
+    monkeypatch.setattr(feed_inputs, 'require_current', lambda *a: SimpleNamespace(version=7))
     monkeypatch.setattr(feed_store, 'latest_visible_session', lambda *a: plan.decision_session.isoformat())
     monkeypatch.setattr(informational_paper_mirror, 'require_transport_permitted', lambda *a, **k: None)
     monkeypatch.setattr(informational_paper_mirror, 'require_pending_for_plan', lambda *a, **k: None)

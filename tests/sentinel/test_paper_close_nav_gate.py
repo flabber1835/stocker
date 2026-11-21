@@ -575,7 +575,7 @@ def test_manual_delayed_preparation_cannot_bypass_due_cycle_gate(monkeypatch):
     monkeypatch.setattr(
         paper_preparation.feed_inputs, "pinned", pinned)
     monkeypatch.setattr(
-        paper_preparation.publication, "current", lambda _conn: publication)
+        paper_preparation.feed_inputs, "frontier", lambda _conn: through.isoformat())
     monkeypatch.setattr(
         paper_preparation, "_readiness_or_refuse", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(

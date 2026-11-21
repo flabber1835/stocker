@@ -203,7 +203,7 @@ def require_publication_chain(
 
 def require_current_authority(
         conn, *, runtime_identity: Mapping, strategy_identity: Mapping,
-        required_mode: RolloutMode, required_operation: str,
+        required_mode: RolloutMode, required_operation: str | tuple[str, ...],
         paper_base_url: str, current_publication_version: int | None = None,
         automation_config_sha256: str | None = None,
         now: datetime | None = None):
@@ -216,10 +216,16 @@ def require_current_authority(
     each authority boundary.  Historical execution certificates retain their
     ordinary bounded lifetime.
     """
+    operations = ((required_operation,) if isinstance(required_operation, str)
+                  else required_operation)
+    if not operations:
+        raise AuthorityRefused("execution authority requires an exact operation")
     endpoint = TradingEndpoint.parse(paper_base_url)
     if endpoint.environment is TradingEnvironment.LIVE:
         from sentinel.authority.live_runtime import require_current_live_authority
 
+        if len(operations) != 1:
+            raise AuthorityRefused("LIVE authority requires one exact operation")
         current = feed_inputs.require_current(conn)
         feed_inputs.coherent(conn)
         if (current_publication_version is not None
@@ -228,7 +234,7 @@ def require_current_authority(
         return require_current_live_authority(
             conn, base_url=endpoint.base_url,
             runtime_identity=runtime_identity, strategy_identity=strategy_identity,
-            required_mode=required_mode, required_operation=required_operation,
+            required_mode=required_mode, required_operation=operations[0],
             automation_config_sha256=automation_config_sha256, now=now)
     assert_paper_url(paper_base_url)
     # This loader flag bypasses expiry only for PAPER_OBSERVATION_ONLY; ordinary
@@ -242,30 +248,32 @@ def require_current_authority(
     execution_config_sha = canonical_sha256(
         execution_config_identity(paper_base_url=paper_base_url))
     implementation_sha = publication_policy_implementation_sha256()
-    if preliminary.authorization_mode == PAPER_OBSERVATION_ONLY:
-        return require_standing_observation_authority(
-            conn,
-            runtime_identity=runtime_identity,
-            strategy_identity=strategy_identity,
-            required_mode=required_mode,
-            required_operation=required_operation,
-            execution_config_sha256=execution_config_sha,
-            publication_policy_implementation_sha256=implementation_sha,
-            publication_chain_root_sha256=root,
-            current_publication_version=current_publication_version,
-            automation_config_sha256=automation_config_sha256,
-            now=now,
-        )
-    return require_execution_authority(
-        conn, runtime_identity=runtime_identity,
-        strategy_identity=strategy_identity, required_mode=required_mode,
-        required_operation=required_operation,
+    bindings = dict(
+        runtime_identity=runtime_identity, strategy_identity=strategy_identity,
+        required_mode=required_mode,
         execution_config_sha256=execution_config_sha,
         publication_policy_implementation_sha256=implementation_sha,
         publication_chain_root_sha256=root,
         current_publication_version=current_publication_version,
         automation_config_sha256=automation_config_sha256,
         now=now)
+    if preliminary.authorization_mode == PAPER_OBSERVATION_ONLY:
+        certificate = require_standing_observation_authority(
+            conn, required_operation=required_operation, **bindings)
+    else:
+        certificate = preliminary
+        for operation in operations:
+            checked = require_execution_authority(
+                conn, required_operation=operation, **bindings)
+            if len(operations) > 1 and checked.certificate_sha256 != certificate.certificate_sha256:
+                raise AuthorityRefused("automation and operation authority differ")
+            certificate = checked
+    if len(operations) > 1 and certificate.certificate_sha256 != preliminary.certificate_sha256:
+        raise AuthorityRefused("automation and operation authority differ")
+    return certificate
+
+
+_BUILTIN_AUTHORITY_CHECK = require_current_authority
 
 
 def _authority_operation(
@@ -351,6 +359,16 @@ def build_fresh_execution_check(
     safety_authority_check = (
         safety_authority_check or require_observation_safety_authority)
 
+    def authorize_automation(conn, operation, **kwargs):
+        if not live and authority_check is _BUILTIN_AUTHORITY_CHECK:
+            return authority_check(
+                conn, required_operation=("AUTOMATION", operation), **kwargs)
+        automated = authority_check(conn, required_operation="AUTOMATION", **kwargs)
+        concrete = authority_check(conn, required_operation=operation, **kwargs)
+        if automated.certificate_sha256 != concrete.certificate_sha256:
+            raise AuthorityRefused("automation and operation authority differ")
+        return concrete
+
     def check(grant: ExecutionGrant, operation: BrokerOperation,
               result: object | None) -> None:
         if TradingEndpoint.parse(paper_base_url) != endpoint:
@@ -413,15 +431,8 @@ def build_fresh_execution_check(
                         "CANCEL" if concrete == "SAFETY_CANCEL"
                         else "EXECUTE_READ")
                     try:
-                        automated = authority_check(
-                            conn, required_operation="AUTOMATION", **kwargs)
-                        concrete_cert = authority_check(
-                            conn, required_operation=regular_operation,
-                            **kwargs)
-                        if (automated.certificate_sha256
-                                != concrete_cert.certificate_sha256):
-                            raise AuthorityRefused(
-                                "automation and recovery authority differ")
+                        concrete_cert = authorize_automation(
+                            conn, regular_operation, **kwargs)
                     except AuthorityRefused:
                         concrete_cert = safety_authority_check(
                             conn, required_operation=concrete,
@@ -434,14 +445,7 @@ def build_fresh_execution_check(
                 elif isinstance(grant, AutomationExecutionGrant):
                     if live:
                         concrete = "CANCEL" if concrete == "SAFETY_CANCEL" else "EXECUTE_READ" if concrete == "SAFETY_READ" else concrete
-                    automated = authority_check(
-                        conn, required_operation="AUTOMATION", **kwargs)
-                    concrete_cert = authority_check(
-                        conn, required_operation=concrete, **kwargs)
-                    if (automated.certificate_sha256
-                            != concrete_cert.certificate_sha256):
-                        raise AuthorityRefused(
-                            "automation and operation authority differ")
+                    concrete_cert = authorize_automation(conn, concrete, **kwargs)
                 else:
                     concrete_cert = authority_check(
                         conn, required_operation=concrete, **kwargs)

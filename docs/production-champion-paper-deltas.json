@@ -693,7 +693,13 @@
       "reason": "PR #537: Bind any carried automation configuration SHA to the durable control configuration before paper mutation; preserve existing generation, certificate, account, leader, phase and cycle checks."
     },
     "_validate_broker_grant": {
-      "generated_ast_sha256": "9da0a9d1ee1f79eaa62e33d461a521032dff8dfe2eb562a1746258c35d213155",
+      "frontier_reuse_acceptance": [
+        "tests/sentinel/test_paper_package_architecture.py::test_equivalence_manifest_covers_every_canonical_definition",
+        "tests/sentinel/test_paper_package_architecture.py::test_broker_grant_frontier_witness_rejects_unbound_subject"
+      ],
+      "frontier_reuse_design": "docs/opening-proof-work-ownership.md#november-21-catalog-and-manifest-proof-scope",
+      "frontier_reuse_predecessor_ast_sha256": "9da0a9d1ee1f79eaa62e33d461a521032dff8dfe2eb562a1746258c35d213155",
+      "generated_ast_sha256": "74d9eff8ff0fed36a909a6dc5382a26a1cb53f9dbd4c0f4fde3d6a6bad73a740",
       "historical_ast_sha256": "a10cb381c28e916db84d14fe6fbc617043ac4e1beaaf165a2287250fdc4ce282",
       "module": "validation",
       "persistent_share_acceptance": [

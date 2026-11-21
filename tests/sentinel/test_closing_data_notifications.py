@@ -299,7 +299,7 @@ def test_actual_rolling_refresh_binds_native_wait_to_already_read_publication(mo
     worker._dual_run_enabled = True
     worker._shadow_observation_id = 'test-observation'
     worker._shadow_starting_cash = 1
-    monkeypatch.setattr(runtime.feed_store, 'require_feed_schema', lambda _conn: None)
+    monkeypatch.setattr(runtime, 'require_execution_schemas', lambda _conn: None)
     monkeypatch.setattr(runtime.schema, 'require_runtime_schema', lambda _conn: None)
     monkeypatch.setattr(runtime, 'require_observation_integrity', lambda _conn: None)
     monkeypatch.setattr(runtime.feed_inputs, 'current', lambda _conn:
@@ -368,7 +368,7 @@ def test_actual_refresh_translates_only_confirmed_publication_pin_and_preserves_
     worker.sentinel_config = SimpleNamespace(database_url='private-test-db')
     worker.connect = lambda: conn
     worker._assert_cycle_authority = lambda *_args, **_kwargs: (cycle, None)
-    monkeypatch.setattr(runtime.feed_store, 'require_feed_schema', lambda _conn: None)
+    monkeypatch.setattr(runtime, 'require_execution_schemas', lambda _conn: None)
     monkeypatch.setattr(runtime.schema, 'require_runtime_schema', lambda _conn: None)
     monkeypatch.setattr(runtime, 'require_observation_integrity', lambda _conn: None)
 
@@ -394,7 +394,7 @@ def test_real_early_authority_wrapper_keeps_the_closing_cycle(monkeypatch, proof
     worker.automation_config = cfg
     worker.sentinel_config = SimpleNamespace(database_url='private-test-db')
     worker.connect = lambda: conn
-    monkeypatch.setattr(runtime.feed_store, 'require_feed_schema', lambda _c: None)
+    monkeypatch.setattr(runtime, 'require_execution_schemas', lambda _c: None)
     monkeypatch.setattr(runtime.schema, 'require_runtime_schema', lambda _c: None)
     monkeypatch.setattr(runtime, 'require_observation_integrity', lambda _c: None)
     monkeypatch.setattr(runtime.store, 'require_leader', lambda *_a: permit)

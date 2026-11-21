@@ -55,14 +55,28 @@ def test_readers_bind_snapshot_raw_marks_and_leave_legacy_readers_closed(conn, p
     conn.rollback()
 
 
-def test_next_open_resolver_is_bounded_and_historical_dates_do_not_borrow_extension(conn, published):
+def test_next_open_resolver_is_bounded_and_historical_dates_do_not_borrow_extension(conn, published, monkeypatch):
     pub = feed_inputs.require_current(conn)
-    resolve = paper.build_security_resolver(conn, "2026-09-15")
+    capture = rolling_store.manifest
+    seen = []
+
+    def counted(conn, candidate_id):
+        seen.append(candidate_id)
+        return capture(conn, candidate_id)
+
+    monkeypatch.setattr(rolling_store, 'manifest', counted)
+    resolve = feed_inputs.resolver(conn, pub, session="2026-09-15")
+    assert seen == [published['candidate_id']]
     assert resolve("AAA") == "1" and resolve("BIL") == "SENTINEL:BIL"
     assert resolve("AAA", DAY) == "1"
     assert resolve("AAA", "2026-09-16") is None
     assert resolve("missing") is None
+    conn.rollback()
+    assert paper.build_security_resolver(conn, "2026-09-15")("AAA") == "1"
+    assert seen == [published['candidate_id']] * 3
+    conn.rollback()
     opening = feed_inputs.opening_resolver(conn, session="2026-09-15")
+    assert seen == [published['candidate_id']] * 5
     assert opening.ticker_for_security("1", "2026-09-15") == "AAA"
     assert opening.resolve("AAA", "2026-09-15") == "1"
     with pytest.raises(feed_inputs.ExecutionInputsRefused, match="BEYOND_NEXT_SESSION"):
@@ -87,11 +101,12 @@ def test_action_reader_requires_retained_predecessor_and_never_reads_legacy_rows
 
 
 def test_corrupt_receipt_cannot_trigger_a_permissive_reader_fallback(monkeypatch):
-    def refuse(*_):
+    def refuse(*_a, **_kw):
         raise publication.CorpusIncoherent("receipt authentication failed")
-    monkeypatch.setattr(publication, "require_current", refuse)
-    monkeypatch.setattr(publication, "current", refuse)
-    monkeypatch.setattr(snapshots, "_current", lambda *_: pytest.fail("integrity refusal bypassed"))
+    monkeypatch.setattr(publication._core, "current", lambda _: SimpleNamespace(
+        version=1, evidence={"rolling_snapshot": {}}))
+    monkeypatch.setattr(publication, "_verify_receipt_chain", refuse)
+    monkeypatch.setattr(snapshots, "_bound", lambda *_: pytest.fail("integrity refusal bypassed"))
     with pytest.raises(publication.CorpusIncoherent, match="authentication"):
         feed_inputs.require_current(object())
     with pytest.raises(publication.CorpusIncoherent, match="authentication"):
@@ -874,19 +889,18 @@ def test_candidate_only_shadow_cannot_become_a_paper_plan(conn, gateway, monkeyp
 
 
 def test_automation_refresh_consumes_current_shadow_without_acquisition(conn, published, monkeypatch):
+    from sentinel.feed import store
+
     approve(conn)
-    class Borrowed:
-        def __getattr__(self, name):
-            return getattr(conn, name)
-        def close(self):
-            pass
+    conn.rollback()
+    dsn = conn.info.dsn
     runtime = object.__new__(automation_runtime.ProductionAutomation)
     runtime._dual_run_enabled = True
     # This shared fixture publishes retained historical market data.
     # Explicitly select its research mode instead of bypassing constructor state.
     runtime._operational_source_only = False
     runtime._shadow_observation_id, runtime._shadow_starting_cash = OBS, 100000
-    runtime.connect = lambda: Borrowed()
+    runtime.connect = lambda: store.connect(dsn)
     runtime._assert_cycle_authority = lambda *_a, **_k: (SimpleNamespace(decision_session=date.fromisoformat(DAY)), None)
     monkeypatch.setattr(automation_runtime.ingest, "daily", lambda *_a, **_k: pytest.fail("paper acquisition"))
     monkeypatch.setattr(rolling_runtime, "advance", lambda *_a, **_k: pytest.fail("paper advanced shadow"))

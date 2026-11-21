@@ -15,7 +15,7 @@ from pathlib import Path
 import re
 from functools import lru_cache
 
-MANIFEST_SHA256 = '1c12204e30baabec214edb53745bd74d062ac537bbed3deea4f6ec1ab44637d7'
+MANIFEST_SHA256 = '2ef14c1a9df7f4cfa6f60bc06495751ee78cee099df0e82de693b356946f0ba1'
 MANIFEST = Path(__file__).with_name('economic-implementation-v2.json')
 PREDECESSOR = 'b2e308bb664718da373175f1a7d988d07b159ae2'
 PREDECESSOR_DATA_SEMANTICS_SHA256 = '38c750bd9bb244bc71600aaeba8c4aad22d2095747f4199e9ac4e0bd433425cb'
@@ -24,8 +24,8 @@ COMPACT_WINDOW_MODULE = 'sentinel.core.window_material'
 COMPACT_WINDOW_SHA256 = 'ce7ef77041f9b4fd5f8517254a6e39053a202ef34740535e4570fddd65e57435'
 SNAPSHOT_ADMISSION_SHA256 = '8b7cba0d389fa93aa597c4cf95923b359ae414c01cf91e1457cd656e6329bc2a'
 CLOSE_READINESS_COMPILERS = {
-    'sentinel.core.rolling_inputs': '5a0c3426368e52c7f5a13e8fcba941a7afad2a7283f8b0476accfdfd087a07ac',
-    'sentinel.feed.operational_snapshot': '44868fb475332a825b75259d5af6588e87f54f8b200b649629e678d460fd15ab',
+    'sentinel.core.rolling_inputs': '1c8984cf51bb8b02e6861e5494b11d6a022a4e6f39e2670985710deab755ee3a',
+    'sentinel.feed.operational_snapshot': 'ff56fcc3ae0e98207bb2d0347afe74a8e09d5550a67bdd99ed207df9ddbc3d93',
     'sentinel.feed.rolling_store': 'bd5c1916d7f677454486299bdcc5835f9bda556fe203fa61e8b2e111b26b7a43',
 }
 

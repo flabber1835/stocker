@@ -44,6 +44,23 @@ estimate. Trace elapsed and publisher CPU separately from that sampled wait.
 The equity normalization counter excludes benchmark writes. The remaining
 candidate stage includes benchmarks, independent key checks and sealing.
 
+The November 21 private close rehearsal admitted and normalized 150,000 price
+rows for 500 securities across the configured 300-session window. Keep the
+complete daily input contract because overlap alone cannot establish that
+previous prices or adjustments remain current. Reuse only exact normalized
+session bytes under the existing immutable storage contract.
+
+Validate each bar once when assigning it to a session and each benchmark
+once when encoding its single-row block. Encode only validated rows. When a
+block is first inserted, use the database's checked returned identity and
+reference it within the same transaction. On conflict, lock the existing
+block and require byte equality to the already hashed input before reusing
+it, or restore a retired payload through the original guarded update. A
+second hash of identical bytes does not establish a new proof. Keep the
+independent source-key, candidate-content, layout and publication checks.
+The action-history compiler's retained source witness binds these exact
+reviewed writer bytes and still rejects edits to its physical read contract.
+
 ## Dashboard and scheduler
 
 Let each card use its own proven current subject and clock. Retain legitimately

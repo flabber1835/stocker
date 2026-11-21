@@ -82,6 +82,7 @@ from sentinel.feed import authority as feed_authority
 from sentinel.feed import (
     calendar, coherence, identity_refresh, ingest, publication, readiness, archive_tables)
 from sentinel.feed import store as feed_store
+from sentinel.feed.runtime_schema import require_execution_schemas
 from sentinel.feed.source_authority import SeedIdentityCollision
 from sentinel.feed.source_wait import SourceCoveragePending
 from sentinel.paper.model import (
@@ -1586,8 +1587,7 @@ class ProductionAutomation:
                          and not getattr(self, "_live_run_enabled", False))
         try:
             conn = self.connect()
-            feed_store.require_feed_schema(conn)
-            schema.require_runtime_schema(conn)
+            require_execution_schemas(conn)
             require_observation_integrity(conn)
             cycle, _control = self._assert_cycle_authority(
                 conn, context, operation_scope="REFRESH")
@@ -1694,8 +1694,7 @@ class ProductionAutomation:
         input_scope = ExitStack()
         try:
             conn = self.connect()
-            feed_store.require_feed_schema(conn)
-            schema.require_runtime_schema(conn)
+            require_execution_schemas(conn)
             require_observation_integrity(conn)
             cycle, control = self._assert_cycle_authority(
                 conn, context, operation_scope="PREPARE")
@@ -1821,8 +1820,7 @@ class ProductionAutomation:
         try:
             with opening_stage_log.preflight('recovery_connection_schema'):
                 conn = self.connect()
-                feed_store.require_feed_schema(conn)
-                schema.require_runtime_schema(conn)
+                require_execution_schemas(conn)
                 require_observation_integrity(conn)
             with opening_stage_log.preflight('recovery_cycle_authority'):
                 cycle, control = self._assert_cycle_authority(conn, context, operation_scope='RECOVER')
@@ -2167,8 +2165,7 @@ class ProductionAutomation:
         try:
             with opening_stage_log.preflight("connection_schema"):
                 conn = self.connect()
-                feed_store.require_feed_schema(conn)
-                schema.require_runtime_schema(conn)
+                require_execution_schemas(conn)
             with opening_stage_log.preflight("observation_integrity"):
                 require_observation_integrity(conn)
             with opening_stage_log.preflight("cycle_authority"):

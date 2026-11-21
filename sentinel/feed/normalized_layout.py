@@ -253,12 +253,12 @@ def install(conn: TransactionPort):
 
 
 def _block(kind, session, rows, normalization, calendar):
-    model = CanonicalBar if kind == 'BARS' else CanonicalBenchmark
-    material = [model.model_validate(row.model_dump() if isinstance(row, model) else row)
-                for row in rows]
-    if not material or len(material) > MAX_SESSION_ROWS or any(str(row.session) != session for row in material):
+    if kind == 'BENCHMARKS':
+        rows = [CanonicalBenchmark.model_validate(
+            row.model_dump() if isinstance(row, CanonicalBenchmark) else row) for row in rows]
+    if not rows or len(rows) > MAX_SESSION_ROWS or any(str(row.session) != session for row in rows):
         raise LayoutRefused('NORMALIZED_SESSION_BLOCK_AXIS_CHANGED')
-    material.sort(key=lambda row: row.security_id if kind == 'BARS' else str(row.session))
+    material = sorted(rows, key=lambda row: row.security_id if kind == 'BARS' else str(row.session))
     keys = [row.security_id if kind == 'BARS' else str(row.session) for row in material]
     if len(set(keys)) != len(keys):
         raise LayoutRefused('NORMALIZED_SESSION_BLOCK_DUPLICATE')
@@ -283,15 +283,22 @@ class SessionBlockWriter:
         value, encoded, sha = _block(kind, session, rows, self.normalization, self.calendar)
         inserted = self.conn.execute('INSERT INTO sentinel_normalized_blocks VALUES(%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING RETURNING block_sha256',
             (sha,kind,session,self.normalization,self.calendar,len(value['rows']),encoded)).fetchone()
-        row = self.conn.execute('SELECT canonical_payload FROM sentinel_normalized_blocks WHERE block_sha256=%s FOR UPDATE', (sha,)).fetchone()
-        if row is None:
-            raise LayoutRefused('NORMALIZED_SESSION_BLOCK_MISSING')
-        if row[0] is None:
-            self.conn.execute('UPDATE sentinel_normalized_blocks SET canonical_payload=%s WHERE block_sha256=%s', (encoded,sha))
-        elif row[0] != encoded or hashlib.sha256(row[0].encode('ascii')).hexdigest() != sha:
+        if inserted is None:
+            row = self.conn.execute(
+                'SELECT canonical_payload FROM sentinel_normalized_blocks WHERE block_sha256=%s FOR UPDATE',
+                (sha,)).fetchone()
+            if row is None:
+                raise LayoutRefused('NORMALIZED_SESSION_BLOCK_MISSING')
+            if row[0] is None:
+                self.conn.execute(
+                    'UPDATE sentinel_normalized_blocks SET canonical_payload=%s WHERE block_sha256=%s',
+                    (encoded,sha))
+            elif row[0] != encoded:
+                raise LayoutRefused('NORMALIZED_SESSION_BLOCK_CONTENT_CHANGED')
+            else:
+                self.reused_blocks += 1
+        elif inserted[0] != sha:
             raise LayoutRefused('NORMALIZED_SESSION_BLOCK_CONTENT_CHANGED')
-        elif not inserted:
-            self.reused_blocks += 1
         self.conn.execute('INSERT INTO sentinel_candidate_blocks VALUES(%s,%s,%s,%s)',
             (self.candidate_id,kind,session,sha))
         self.references.append(dict(kind=kind,session=session,block_sha256=sha))

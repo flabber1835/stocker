@@ -54,7 +54,7 @@ def require_standing_observation_authority(
     runtime_identity: Mapping,
     strategy_identity: Mapping,
     required_mode: RolloutMode,
-    required_operation: str,
+    required_operation: str | tuple[str, ...],
     execution_config_sha256: str,
     publication_policy_implementation_sha256: str,
     publication_chain_root_sha256: str,
@@ -64,7 +64,7 @@ def require_standing_observation_authority(
     trust_roots_path: Path = DEFAULT_TRUST_ROOTS_PATH,
     trust_roots: Mapping[str, TrustRoot] | None = None,
 ):
-    """Authorize one ordinary operation under standing paper-only authority.
+    """Authorize every requested permission under standing paper-only authority.
 
     ``allow_expired_observation_safety`` is intentionally reused only as the
     cryptographic loader primitive: inside ``authority.validation`` it bypasses
@@ -75,10 +75,11 @@ def require_standing_observation_authority(
     """
     if not isinstance(required_mode, RolloutMode):
         required_mode = RolloutMode(str(required_mode))
-    if required_operation not in _EXECUTION_OPERATIONS:
+    operations = ((required_operation,) if isinstance(required_operation, str)
+                  else required_operation)
+    if not operations or any(operation not in _EXECUTION_OPERATIONS for operation in operations):
         raise AuthorityRefused(
-            "standing paper authority requires one exact ordinary execution "
-            "operation")
+            "standing paper authority requires exact ordinary execution permissions")
 
     certificate = load_active_signed_certificate(
         conn,
@@ -93,9 +94,10 @@ def require_standing_observation_authority(
     if not certificate.allows(required_mode):
         raise AuthorityRefused(
             f"standing paper certificate does not allow {required_mode.value}")
-    if required_operation not in certificate.claims["permitted_operations"]:
-        raise AuthorityRefused(
-            f"standing paper certificate does not permit {required_operation}")
+    for operation in operations:
+        if operation not in certificate.claims["permitted_operations"]:
+            raise AuthorityRefused(
+                f"standing paper certificate does not permit {operation}")
 
     from sentinel import local_paper
     local_binding = local_paper.bound_account(conn)
@@ -182,7 +184,7 @@ def require_standing_observation_authority(
             "current metadata snapshot predates the standing-paper authority "
             "root")
 
-    if required_operation == "AUTOMATION":
+    if "AUTOMATION" in operations:
         if not certificate.unattended_automation:
             raise AuthorityRefused(
                 "standing paper certificate does not permit unattended "

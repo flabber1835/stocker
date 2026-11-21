@@ -140,7 +140,7 @@ def test_deployed_automation_refuses_legacy_publication_before_source_fallback(
     worker.connect = Connection
     worker._assert_cycle_authority = lambda *_a, **_k: (
         SimpleNamespace(decision_session=DECISION), None)
-    monkeypatch.setattr(automation_runtime.feed_store, "require_feed_schema",
+    monkeypatch.setattr(automation_runtime, "require_execution_schemas",
                         lambda *_a: None)
     monkeypatch.setattr(automation_runtime.schema, "require_runtime_schema",
                         lambda *_a: None)
@@ -171,7 +171,7 @@ def test_resumed_operational_cycle_rechecks_alpaca_source_before_broker(
     worker._assert_cycle_authority = lambda *_a, **_k: (
         SimpleNamespace(decision_session=DECISION), None)
     worker._broker = lambda *_a, **_k: pytest.fail("broker reached")
-    monkeypatch.setattr(automation_runtime.feed_store, "require_feed_schema",
+    monkeypatch.setattr(automation_runtime, "require_execution_schemas",
                         lambda *_a: None)
     monkeypatch.setattr(automation_runtime.schema, "require_runtime_schema",
                         lambda *_a: None)
@@ -201,7 +201,7 @@ def test_deployed_automation_refuses_wrong_rolling_provider_before_plan(
     worker.connect = Connection
     worker._assert_cycle_authority = lambda *_a, **_k: (
         SimpleNamespace(decision_session=DECISION), None)
-    monkeypatch.setattr(automation_runtime.feed_store, "require_feed_schema",
+    monkeypatch.setattr(automation_runtime, "require_execution_schemas",
                         lambda *_a: None)
     monkeypatch.setattr(automation_runtime.schema, "require_runtime_schema",
                         lambda *_a: None)
@@ -572,7 +572,7 @@ def install_runtime_seams(monkeypatch, runtime, conn, ctx, broker) -> None:
         lambda _conn, _context, *, operation_scope: (
             ctx.cycle, control(runtime.automation_config)))
     monkeypatch.setattr(
-        automation_runtime.feed_store, "require_feed_schema", lambda _conn: None)
+        automation_runtime, "require_execution_schemas", lambda _conn: None)
     monkeypatch.setattr(
         automation_runtime.schema, "ensure_schema", lambda _conn: None)
 
@@ -724,9 +724,12 @@ async def test_close_preflight_observes_monday_with_friday_identity_frontier(mon
     refs = SimpleNamespace(manifest=SimpleNamespace(window=SimpleNamespace(end='2026-10-09')),
                            tickers=[], actions=[], candidate_id='c')
     from sentinel.core import rolling_inputs
-    monkeypatch.setattr(rolling_inputs, 'SnapshotReferences', lambda *a, **kw: refs)
-    monkeypatch.setattr(automation_runtime.feed_inputs.snapshots, '_bound',
-                        lambda *a: {'candidate_id': 'c', 'snapshot_id': 's'})
+    def checked_refs(*_a, manifest, **_kw):
+        assert manifest is refs.manifest
+        return refs
+    monkeypatch.setattr(rolling_inputs.SnapshotReferences, '_from_bound_manifest', checked_refs)
+    monkeypatch.setattr(automation_runtime.feed_inputs.snapshots, '_bound_and_manifest',
+                        lambda *a: ({'candidate_id': 'c', 'snapshot_id': 's'}, refs.manifest))
     monkeypatch.setattr(automation_runtime.feed_inputs.snapshots, '_current', lambda *a: None)
     monkeypatch.setattr(automation_runtime.feed_inputs.rolling_store, 'require_payload', lambda *a: None)
     monkeypatch.setattr(automation_runtime.feed_inputs.rolling_store, 'load_evidence',
@@ -942,7 +945,7 @@ async def test_native_close_frontier_wait_reaches_source_retry_without_broker_or
     monkeypatch.setattr(runtime, '_assert_cycle_authority',
                         lambda *args, **kwargs: (ctx.cycle, control(cfg)))
     monkeypatch.setattr(automation_runtime.schema, 'require_runtime_schema', lambda _: None)
-    monkeypatch.setattr(automation_runtime.feed_store, 'require_feed_schema', lambda _: None)
+    monkeypatch.setattr(automation_runtime, 'require_execution_schemas', lambda _: None)
     monkeypatch.setattr(automation_runtime, 'require_observation_integrity', lambda _: None)
     monkeypatch.setattr(automation_runtime.feed_inputs, 'current', lambda _: SimpleNamespace(version=7))
     monkeypatch.setattr(automation_runtime.feed_inputs, 'is_rolling', lambda _: True)
@@ -975,7 +978,7 @@ async def test_dual_refresh_never_races_the_shadow_publication_writer(
         lambda _conn, _context, *, operation_scope: (
             ctx.cycle, control(cfg)))
     monkeypatch.setattr(
-        automation_runtime.feed_store, "require_feed_schema",
+        automation_runtime, "require_execution_schemas",
         lambda _conn: None)
     monkeypatch.setattr(
         automation_runtime.schema, "require_runtime_schema",
@@ -1012,7 +1015,7 @@ async def test_dual_prepare_bypasses_legacy_paper_catchup_lineage(
         lambda _conn, _context, *, operation_scope: (
             ctx.cycle, control(cfg)))
     monkeypatch.setattr(
-        automation_runtime.feed_store, "require_feed_schema",
+        automation_runtime, "require_execution_schemas",
         lambda _conn: None)
     monkeypatch.setattr(
         automation_runtime.schema, "require_runtime_schema",
@@ -1215,7 +1218,7 @@ async def test_dual_raw_buy_ack_fill_recovery_converges_without_projection(
         runtime, "_require_dual_plan_shadow_match",
         lambda *_args, **_kwargs: proof)
     monkeypatch.setattr(
-        automation_runtime.publication, "require_current",
+        automation_runtime.feed_inputs, "require_current",
         lambda _conn: SimpleNamespace(version=7, evidence={}))
     monkeypatch.setattr(
         automation_runtime.feed_store, "latest_visible_session",
@@ -1426,8 +1429,9 @@ def test_preparation_continuation_scope_guard_has_a_falsifier(monkeypatch):
     source = textwrap.dedent(inspect.getsource(automation_runtime.ProductionAutomation.recover))
     original = "if preflight and cycle.plan_id is None:"
     assert source.count(original) == 1
-    namespace = dict(vars(automation_runtime))
-    exec(compile(source.replace(original, "if True:", 1), "unscoped-preparation", "exec"), namespace)
+    namespace = {}
+    exec(compile(source.replace(original, "if True:", 1), "unscoped-preparation", "exec"),
+         vars(automation_runtime), namespace)
     monkeypatch.setattr(automation_runtime.ProductionAutomation, "recover", namespace["recover"])
     with pytest.raises(AssertionError):
         test_preparation_continuation_preserves_recovery_guards(
@@ -1449,7 +1453,7 @@ async def test_dual_run_propagates_gateway_shadow_refusal_without_repeat_verific
         lambda _conn, _context, *, operation_scope: (
             ctx.cycle, control(runtime.automation_config)))
     monkeypatch.setattr(
-        automation_runtime.feed_store, "require_feed_schema",
+        automation_runtime, "require_execution_schemas",
         lambda _conn: None)
     monkeypatch.setattr(
         automation_runtime.schema, "require_runtime_schema", lambda _conn: None)
@@ -2147,7 +2151,7 @@ def test_composition_requires_exact_signed_automation_authority(
         lambda _conn: authority.RolloutState(
             authority.RolloutMode.PINNED_1_00, 1, None))
     monkeypatch.setattr(
-        automation_runtime.publication, "require_current",
+        automation_runtime.feed_inputs, "require_current",
         lambda _conn: SimpleNamespace(version=81, evidence={}))
     monkeypatch.setattr(
         automation_runtime, "production_strategy",
@@ -3091,7 +3095,7 @@ async def test_idle_authority_failure_blocks_cycle_and_enqueues_alert(
         lambda _conn: authority.RolloutState(
             authority.RolloutMode.PINNED_1_00, 1, None))
     monkeypatch.setattr(
-        automation_runtime.publication, "require_current",
+        automation_runtime.feed_inputs, "require_current",
         lambda _conn: SimpleNamespace(version=1, evidence={}))
     monkeypatch.setattr(
         automation_runtime, "production_strategy", lambda: (object(), {}))
@@ -3170,7 +3174,7 @@ async def test_idle_no_live_cycle_authority_failure_engages_durable_kill(
         lambda _conn: authority.RolloutState(
             authority.RolloutMode.PINNED_1_00, 1, None))
     monkeypatch.setattr(
-        automation_runtime.publication, "require_current",
+        automation_runtime.feed_inputs, "require_current",
         lambda _conn: SimpleNamespace(version=1, evidence={}))
     monkeypatch.setattr(
         automation_runtime, "production_strategy", lambda: (object(), {}))

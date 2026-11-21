@@ -144,7 +144,7 @@ def test_store_api_separates_runtime_validation_from_explicit_migration():
 
 
 def test_runtime_validator_function_is_select_only():
-    source = inspect.getsource(runtime_schema.require_feed_schema)
+    source = inspect.getsource(runtime_schema._require_runtime_schemas)
     assert "for statement in DDL" not in source
     assert "migrate_feed_schema" not in source
     assert "conn.commit()" not in source
@@ -284,7 +284,7 @@ def test_all_production_automation_callbacks_use_runtime_validation_not_migratio
         automation_runtime.ProductionAutomation.execute,
     ):
         source = inspect.getsource(method)
-        assert "feed_store.require_feed_schema(conn)" in source
+        assert "require_execution_schemas(conn)" in source
         assert "migrate_schema" not in source
 
 

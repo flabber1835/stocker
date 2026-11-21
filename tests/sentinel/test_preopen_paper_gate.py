@@ -129,7 +129,7 @@ def _install_recovery_harness(
         paper_recovery, "load_rollout_state", lambda *_: SimpleNamespace(mode="PINNED"))
     monkeypatch.setattr(paper_recovery, "_default_paper_strategy", lambda: (object(), {}))
     monkeypatch.setattr(
-        publication, "require_current", lambda *_: SimpleNamespace(version=1, evidence={}))
+        paper_recovery.feed_inputs, "require_current", lambda *_: SimpleNamespace(version=1, evidence={}))
     monkeypatch.setattr(
         publication, "assert_operationally_coherent", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(

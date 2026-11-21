@@ -276,7 +276,7 @@ def _validate_broker_grant(
     if now_et.tzinfo is None:
         raise PaperActivationRefused("broker authority clock is timezone-naive")
     current = feed_inputs.require_current(conn)
-    frontier = feed_inputs.frontier(conn)
+    frontier = feed_inputs.frontier(conn, current)
     runtime_strategy = dict(strategy_provider())
 
     if isinstance(grant, AutomationExecutionGrant):

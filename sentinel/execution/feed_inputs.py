@@ -104,13 +104,13 @@ def _snapshot_identity_authorities(conn, pub, *, session):
     from sentinel.feed import symbol_identity, source_aliases
     # Broker identity depends on the authenticated reference and comparison
     # bundles. Price-domain integrity belongs to marks and readiness.
-    binding = snapshots._bound(conn, pub)
+    binding, manifest = snapshots._bound_and_manifest(conn, pub)
     rolling_store.require_payload(conn, binding["candidate_id"])
     # The payload check acquired the existing transaction-level corpus pin.
     if snapshots._current(conn) != pub:
         raise ExecutionInputsRefused("ROLLING_IDENTITY_PUBLICATION_CHANGED")
-    refs = SnapshotReferences(conn, candidate_id=binding["candidate_id"],
-                              snapshot_id=binding["snapshot_id"])
+    refs = SnapshotReferences._from_bound_manifest(conn, candidate_id=binding["candidate_id"],
+                                                  snapshot_id=binding["snapshot_id"], manifest=manifest)
     requested = str(session)
     end = str(refs.manifest.window.end)
     if requested > end and requested != calendar.next_session(end):

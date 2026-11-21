@@ -290,13 +290,67 @@ def test_stale_readiness_is_a_failure_not_a_provider_retry_permission(conn, publ
 
 def test_integrity_refusal_never_dispatches_to_a_different_reader(monkeypatch):
     from sentinel.feed import operational_snapshot
-    def corrupt(_conn):
-        raise publication.CorpusIncoherent("receipt mismatch")
-    monkeypatch.setattr(publication, "current", corrupt)
-    monkeypatch.setattr(operational_snapshot, "_current",
-                        lambda _: pytest.fail("integrity failure fell back"))
-    with pytest.raises(publication.CorpusIncoherent, match="receipt mismatch"):
+    error = publication.CorpusIncoherent("receipt mismatch")
+
+    def corrupt(_conn, **_kwargs):
+        raise error
+
+    monkeypatch.setattr(publication._core, "current", lambda _: SimpleNamespace(
+        version=1, evidence={"rolling_snapshot": {}}))
+    monkeypatch.setattr(publication, "_verify_receipt_chain", corrupt)
+    monkeypatch.setattr(operational_snapshot, "_bound",
+                        lambda *_: pytest.fail("integrity failure reached binding"))
+    with pytest.raises(publication.CorpusIncoherent, match="receipt mismatch") as caught:
         readers.current(object())
+    assert caught.value is error
+
+
+def test_current_read_authenticates_the_real_rolling_chain_once(conn, published, monkeypatch):
+    load, verify = publication._core.current, publication._verify_receipt_chain
+    calls = []
+
+    def counted_load(conn):
+        calls.append('publication')
+        return load(conn)
+
+    def counted_verify(conn, *, through_version):
+        calls.append(through_version)
+        return verify(conn, through_version=through_version)
+
+    monkeypatch.setattr(publication._core, 'current', counted_load)
+    monkeypatch.setattr(publication, '_verify_receipt_chain', counted_verify)
+    for read in (readers.current, readers.require_current):
+        assert read(conn).version == published['data_version']
+        assert calls == ['publication', published['data_version']]
+        calls.clear()
+        conn.rollback()
+
+    monkeypatch.setenv(publication.RECEIPT_KEY_ENV, 'different-private-receipt-key-' * 3)
+    with pytest.raises(publication.CorpusIncoherent, match='validation receipt changed'):
+        readers.require_current(conn)
+    assert calls == ['publication', published['data_version']]
+    conn.rollback()
+
+
+@pytest.mark.parametrize('marker', [None, 'legacy', {}, {'schema': 'unknown'}])
+def test_malformed_rolling_marker_is_never_returned_as_legacy(monkeypatch, marker):
+    pub = SimpleNamespace(version=1, evidence={'rolling_snapshot': marker})
+    monkeypatch.setattr(publication._core, 'current', lambda _: pub)
+    monkeypatch.setattr(publication, '_verify_receipt_chain', lambda *_a, **_kw: None)
+    with pytest.raises(readers.snapshots.OperationalSnapshotRefused, match='^NOT_AN_OPERATIONAL_SNAPSHOT$'):
+        readers.current(object())
+
+
+def test_current_read_retains_legacy_and_missing_publication_behavior(monkeypatch):
+    pub = SimpleNamespace(version=1, evidence={})
+    monkeypatch.setattr(publication._core, 'current', lambda _: pub)
+    monkeypatch.setattr(publication, '_verify_receipt_chain', lambda *_a, **_kw: None)
+    assert readers.current(object()) is readers.require_current(object()) is pub
+
+    monkeypatch.setattr(publication._core, 'current', lambda _: None)
+    assert readers.current(object()) is None
+    with pytest.raises(publication.NoPublishedVersion, match='^no corpus generation has been published$'):
+        readers.require_current(object())
 
 
 def test_generated_installer_programs_refuse_legacy_provider_then_read_rolling(

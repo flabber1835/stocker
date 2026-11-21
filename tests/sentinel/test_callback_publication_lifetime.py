@@ -50,7 +50,7 @@ def test_operational_callback_pins_factory_gateway_and_postcondition(monkeypatch
     owner._require_dual_plan_shadow_match = postcondition
     for name in ('require_observation_integrity',):
         monkeypatch.setattr(module,name,lambda *a,**k:None)
-    monkeypatch.setattr(module.feed_store,'require_feed_schema',lambda c:None)
+    monkeypatch.setattr(module,'require_execution_schemas',lambda c:None)
     monkeypatch.setattr(module.schema,'require_runtime_schema',lambda c:None)
     monkeypatch.setattr(module.feed_inputs,'pinned',pin)
     monkeypatch.setattr(module,'_grant',lambda *a,**k:object())

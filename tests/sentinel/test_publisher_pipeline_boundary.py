@@ -221,7 +221,23 @@ def test_snapshot_identity_changes_only_for_its_exact_prepublication_guard(monke
     current = path.read_bytes()
     staged = b'readiness_inputs(conn, candidate_id=candidate, snapshot_id=manifest.snapshot_id, staged=True)'
     assert current.count(staged) == 1
-    prior = current.replace(staged, staged.replace(b', staged=True', b''))
+    changes = (
+        (b'def _bound_and_manifest(conn, pub):', b'def _bound(conn, pub):'),
+        (b'    binding = {"data_version": pub.version, "scope": "DATA_ONLY", "operational_go": False,\n'
+         b'               "job_id": str(row[0]), "candidate_id": str(row[1]), "snapshot_id": manifest.snapshot_id}\n'
+         b'    return binding, manifest\n\n\n'
+         b'def _bound(conn, pub):\n    binding, _ = _bound_and_manifest(conn, pub)\n    return binding\n',
+         b'    return {"data_version": pub.version, "scope": "DATA_ONLY", "operational_go": False,\n'
+         b'            "job_id": str(row[0]), "candidate_id": str(row[1]), "snapshot_id": manifest.snapshot_id}\n'),
+        (b'    binding, manifest = _bound_and_manifest(conn, pub)\n    if manifest.provider != "ALPACA_OPENFIGI":',
+         b'    binding = _bound(conn, pub)\n'
+         b'    if rolling_store.manifest(conn, binding["candidate_id"]).provider != "ALPACA_OPENFIGI":'),
+    )
+    prior = current
+    for reviewed, predecessor in changes:
+        assert prior.count(reviewed) == 1
+        prior = prior.replace(reviewed, predecessor)
+    prior = prior.replace(staged, staged.replace(b', staged=True', b''))
     assert hashlib.sha256(prior).hexdigest() == basis.SNAPSHOT_ADMISSION_SHA256
     assert economic_manifest.SNAPSHOT_ADMISSION_SHA256 == basis.SNAPSHOT_ADMISSION_SHA256
     tag = (b'class PublicationAdmissionBusy(backup_runtime_authority.BackupIntegrityBusy):\n'

@@ -54,9 +54,20 @@ def fresh_anchors(bars, meta, known):
 
 class SnapshotReferences:
     def __init__(self, conn, *, candidate_id: str, snapshot_id: str):
+        manifest = rolling_store.manifest(conn, candidate_id)
+        self._load(conn, candidate_id, snapshot_id, manifest)
+
+    @classmethod
+    def _from_bound_manifest(cls, conn, *, candidate_id, snapshot_id, manifest):
+        """Load references within the caller's still-pinned operational binding."""
+        refs = cls.__new__(cls)
+        refs._load(conn, candidate_id, snapshot_id, manifest)
+        return refs
+
+    def _load(self, conn, candidate_id, snapshot_id, manifest):
         self.conn = conn
         self.candidate_id = candidate_id
-        self.manifest = rolling_store.manifest(conn, candidate_id)
+        self.manifest = manifest
         if self.manifest.snapshot_id != snapshot_id:
             raise RollingInputsRefused("SNAPSHOT_ID_MISMATCH")
         from sentinel.core import window_policy
