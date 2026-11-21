@@ -307,3 +307,86 @@ def test_standby_response_is_not_a_freshness_failure_and_does_not_renew_the_cloc
     coordinator.FreshnessReader(schedule)(100)
     assert renewal.parse(capsys.readouterr().out,refresh=True)['outcome']=='STANDBY'
     assert schedule.deadline==deadline and schedule.publication()==original and schedule.retries==1
+
+
+def delayed_backup_read(database,*,expired=False):
+    original,_=prepare(database)
+    before=database.execute('SELECT clock_timestamp()').fetchone()[0];database.rollback()
+    database.execute(base_transition_sql(original,physical())).fetchone();database.commit()
+    after=database.execute('SELECT clock_timestamp()').fetchone()[0];database.rollback()
+    if expired:
+        from datetime import datetime,timezone
+        after=datetime.fromtimestamp(original['deadline']+1,timezone.utc)
+    rows,_=sources._operator_evidence_rows(database.info.dsn,now=before,observation_clock=lambda:after)
+    value=next(r for r in rows if r.key=='backup_restore')
+    if expired:
+        assert value.status==model.FAIL
+    else:
+        assert value.status==model.WARN, value.detail
+        assert value.recovery.phase=='BACKUP_MAINTENANCE'
+        assert value.valid_until.timestamp()==original['deadline']
+
+
+def test_live_backup_clock_follows_the_records_read_and_keeps_original_expiry(database):
+    delayed_backup_read(database)
+
+
+def test_live_backup_clock_never_renews_an_expired_attempt(database):
+    delayed_backup_read(database,expired=True)
+
+
+def test_executed_collection_start_clock_falsifier(database,monkeypatch):
+    import inspect,textwrap
+    code=textwrap.dedent(inspect.getsource(sources._operator_evidence_rows))
+    guard='now=(observation_clock() if observation_clock is not None else now)'
+    assert code.count(guard)==1
+    namespace={}
+    exec(compile(code.replace(guard,'now=now'),'<old-collection-start-clock>','exec'),vars(sources),namespace)
+    monkeypatch.setattr(sources,'_operator_evidence_rows',namespace['_operator_evidence_rows'])
+    with pytest.raises(AssertionError):delayed_backup_read(database)
+
+
+def live_clock_routing(monkeypatch,*,fixed=False):
+    from datetime import datetime,timezone
+    from pathlib import Path
+    import itertools
+    from sentinel import local_paper
+    base=datetime(2026,11,21,tzinfo=timezone.utc);counter=itertools.count()
+    class Clock(datetime):
+        @classmethod
+        def now(cls,*args):return base+timedelta(seconds=next(counter))
+    monkeypatch.setattr(sources,'datetime',Clock)
+    monkeypatch.setattr(local_paper,'enabled',lambda:False)
+    monkeypatch.setattr(sources,'_trial_rows',lambda *a,**k:([],{},[],[]))
+    monkeypatch.setattr(sources,'_ownership',lambda *a,**k:model.Row('ownership','Ownership','OWNED'))
+    monkeypatch.setattr(sources,'_feed_rows',lambda *a,**k:([],[]))
+    monkeypatch.setattr(sources,'_runtime_rows',lambda *a,**k:([],[]))
+    monkeypatch.setattr(sources,'_automation_rows',lambda *a,**k:([model.Row('authority','Authority','PASS'),model.Row('automation','Automation','RUNNING')],[]))
+    captured={}
+    def operator(*args,now,observation_clock=None):
+        captured.update(start=now,clock=observation_clock,
+            sampled=observation_clock() if observation_clock else now)
+        return [],[]
+    monkeypatch.setattr(sources,'_operator_evidence_rows',operator)
+    page=sources.build_panel(state_dir=Path('/private-fixture'),database_url='postgresql://invalid',now=base if fixed else None)
+    if fixed:
+        assert captured['clock'] is None and captured['sampled']==page.now==base
+    else:
+        assert callable(captured['clock'])
+        assert captured['start']<captured['sampled']<=page.now
+
+
+@pytest.mark.parametrize('fixed',[False,True])
+def test_page_builder_routes_the_live_clock_without_changing_fixed_inspection(monkeypatch,fixed):
+    live_clock_routing(monkeypatch,fixed=fixed)
+
+
+def test_executed_live_clock_routing_falsifier(monkeypatch):
+    import inspect,textwrap
+    code=textwrap.dedent(inspect.getsource(sources.build_panel))
+    guard='if fixed_now is None else {}'
+    assert code.count(guard)==1
+    namespace={}
+    exec(compile(code.replace(guard,'if False else {}'),'<missing-live-operator-clock>','exec'),vars(sources),namespace)
+    monkeypatch.setattr(sources,'build_panel',namespace['build_panel'])
+    with pytest.raises(AssertionError):live_clock_routing(monkeypatch)

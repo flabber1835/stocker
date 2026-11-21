@@ -2072,7 +2072,7 @@ def _cash_posting_overview(conn, *, account_id, now):
 
 
 def _operator_evidence_rows(
-        database_url: str, *, now: datetime) -> tuple[list[model.Row], list[str]]:
+        database_url: str, *, now: datetime, observation_clock=None) -> tuple[list[model.Row], list[str]]:
     """Account, backup and runtime identity from append-only durable evidence."""
     if not database_url:
         detail = "SENTINEL_DATABASE_URL is unset"
@@ -2180,7 +2180,7 @@ def _operator_evidence_rows(
             # PostgreSQL archive catch-up may self-heal while the automation's
             # typed backup retry remains bounded. Phase or error prose alone
             # can never lend that recovery budget to backup evidence.
-            now=now, recovery=_cycle_recovery(
+            now=(observation_clock() if observation_clock is not None else now), recovery=_cycle_recovery(
                 cycle, failure_domains=("BACKUP",)),
             runtime_valid_until=_backup_valid_until(
                 (runtime_backup or {}).get("observed_at")),
@@ -4399,7 +4399,8 @@ def build_panel(*, state_dir: Path, database_url: str,
             detail='The installed PAPER runtime has withdrawn its financial verdict. '
                    'Automation is disabled with the kill switch engaged.')]
     operator_rows, operator_errs = _operator_evidence_rows(
-        database_url, now=now)
+        database_url, now=now, **({'observation_clock': lambda: datetime.now(timezone.utc)}
+                                if fixed_now is None else {}))
     errors.extend(operator_errs)
 
     rows = [

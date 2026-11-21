@@ -213,6 +213,14 @@ This avoids a redundant semantic restore or a runtime-chain publication ahead
 of its base. Retain the shared publication helper in native qualification even
 when unchanged in a subsequent release.
 
+Live backup evaluation must sample its observation clock after the database
+reads. Whole-page collection can begin before an atomic transition commits;
+evaluating its newly read progress against collection start falsely treats it
+as future and recreates the mismatch failure. Thread a live observation clock
+from the existing builder to this evaluation; retain explicitly fixed clocks
+for deterministic historical inspection. Do not alter producer timestamps or
+original expiry. Falsify the delayed-read interleaving and preserve expiry.
+
 The neutral API sample at 10:57:09 was different: transaction 10759088 really
 published updated SEC issuer source/anchors/current records and quarantine
 data. Invalidating the previous PAPER verification was correct. Its bounded
