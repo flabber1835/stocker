@@ -156,13 +156,17 @@ def observe(database_url, include_paper, expected_key):
         return result
 
 
-def diagnosed_observe(database_url, include_paper, expected_key, *, history_memo=None, readiness_memo=None):
-    if readiness_memo is not None and not include_paper:
+def diagnosed_observe(database_url, include_paper, expected_key, *, history_memo=None,
+                     readiness_memo=None, checkpoint_memo=None):
+    if not include_paper and (readiness_memo is not None or checkpoint_memo is not None):
         from sentinel.feed.shadow_readiness_memo import current_memo
+        from sentinel.shadow_status_material import current_memo as current_checkpoint
         token = current_memo.set(readiness_memo)
+        checkpoint_token = current_checkpoint.set(checkpoint_memo)
         try:
             return observer_failure.capture(observe, database_url, include_paper, expected_key)
         finally:
+            current_checkpoint.reset(checkpoint_token)
             current_memo.reset(token)
     if history_memo is None:
         return observer_failure.capture(observe, database_url, include_paper, expected_key)
@@ -668,7 +672,9 @@ def run(*, stopped=None):
         except (OSError, MemoryError):
             paper_observer = diagnosed_observe
         try:
-            shadow_observer = partial(diagnosed_observe, readiness_memo=ReadinessMemo())
+            from sentinel.shadow_status_material import StatusMaterialMemo
+            shadow_observer = partial(diagnosed_observe, readiness_memo=ReadinessMemo(),
+                                      checkpoint_memo=StatusMaterialMemo())
         except (OSError, MemoryError):
             shadow_observer = diagnosed_observe
         observer_slot = _ObserverSlot()

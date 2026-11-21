@@ -1,8 +1,9 @@
 """Actual PostgreSQL operational ownership, review/snapshot atomicity and ACK."""
 from dataclasses import replace
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 import inspect
-from threading import Event
+from threading import Event, current_thread
 import time
 from types import SimpleNamespace
 import uuid
@@ -236,11 +237,128 @@ def test_rendered_review_action_acknowledges_exact_published_view(operational, m
         assert response.status_code == 200
         accepted = response.json()
         assert accepted['status'] == 'CLEAN' and accepted['reviewed_head'] == accepted['head']
-        publish(operational)
+        # The operational publisher must not hide the ACK/read interleaving.
         assert current_button(client) is None
         page = client.get('/panel.json').json()
         assert page['operator_review']['status'] == 'CLEAN'
         assert page['dashboard_health']['color'] == 'green'
+
+
+def acknowledgement_gap_case(operational, monkeypatch, *, removed=False):
+    conn, _, _ = operational
+    publish(operational)
+    original = producer.read(conn.info.dsn)
+    before = conn.execute(f"SELECT envelope,signature,valid_until FROM {snapshots.schema.RECEIPTS} "
+                          "WHERE scope='DASHBOARD'").fetchone()
+    conn.rollback()
+    accepted = review.Recorder().acknowledge(original, conn.info.dsn,
+        original.operator_review.token, actor='private qualifier',
+        snapshot_guard=lambda c, p: producer.guard_acknowledgement(c, p, conn.info.dsn))
+    if removed:
+        monkeypatch.setattr(review, 'acknowledged_view_owned', lambda *_: None)
+    for display in (True, False):
+        observed = producer.read(conn.info.dsn, display=display)
+        assert observed.observation_current, 'pure ACK made current facts stale'
+        assert observed.operator_review.status == 'CLEAN'
+        assert observed.operator_review.head == accepted.head
+        assert observed.observation_valid_until == original.observation_valid_until
+    after = conn.execute(f"SELECT envelope,signature,valid_until FROM {snapshots.schema.RECEIPTS} "
+                         "WHERE scope='DASHBOARD'").fetchone()
+    conn.rollback()
+    assert before == after
+    assert state(conn)['head'] == accepted.head
+
+
+def test_acknowledgement_does_not_expire_unchanged_publication(operational, monkeypatch):
+    acknowledgement_gap_case(operational, monkeypatch)
+
+
+def test_removed_ack_composition_has_an_executed_falsifier(operational, monkeypatch):
+    with pytest.raises(AssertionError, match='pure ACK made current facts stale'):
+        acknowledgement_gap_case(operational, monkeypatch, removed=True)
+
+
+def test_readers_on_both_sides_of_ack_keep_coherent_current_views(operational, monkeypatch):
+    conn, _, _ = operational
+    publish(operational)
+    original = producer.read(conn.info.dsn)
+    captured, release = Event(), Event()
+    read_owned = snapshots.read_owned
+
+    def held_read(*args, **kwargs):
+        value = read_owned(*args, **kwargs)
+        if current_thread().name.startswith('held-panel-reader'):
+            captured.set()
+            assert release.wait(10), 'reader barrier was not released'
+        return value
+
+    monkeypatch.setattr(snapshots, 'read_owned', held_read)
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix='held-panel-reader') as pool:
+        pending = pool.submit(producer.read, conn.info.dsn, display=True)
+        try:
+            assert captured.wait(10), 'reader did not capture its PostgreSQL snapshot'
+            accepted = review.Recorder().acknowledge(original, conn.info.dsn,
+                original.operator_review.token, actor='private qualifier',
+                snapshot_guard=lambda c, p: producer.guard_acknowledgement(c, p, conn.info.dsn))
+            after = producer.read(conn.info.dsn, display=True)
+            assert after.observation_current and after.operator_review.head == accepted.head
+            assert after.operator_review.status == 'CLEAN'
+        finally:
+            release.set()
+        before = pending.result(timeout=10)
+    assert before.observation_current and before.operator_review.head == original.operator_review.head
+    assert before.operator_review.status == 'REVIEW'
+    assert before.observation_valid_until == after.observation_valid_until
+
+
+@pytest.mark.parametrize('fault', ['new_event', 'other_view', 'unreviewed', 'notification',
+                                  'active', 'warning', 'future', 'signature', 'event_signature'])
+def test_ack_composition_refuses_other_changes(operational, monkeypatch, fault):
+    conn, _, _ = operational
+    if fault == 'notification':
+        conn.execute("INSERT INTO sentinel_alert_outbox(alert_id,idempotency_key,schema_version,"
+            "event_type,severity,payload,state,max_attempts) VALUES (%s,'private',1,'TRIAL_NOT_VERIFIED',"
+            "'CRITICAL','{}','DELIVERED',3)", ('a'*64,))
+        conn.commit()
+    publish(operational)
+    original = producer.read(conn.info.dsn)
+    review.Recorder().acknowledge(original, conn.info.dsn, original.operator_review.token,
+        actor='private qualifier',
+        snapshot_guard=lambda c, p: producer.guard_acknowledgement(c, p, conn.info.dsn))
+    key, now = review_store.scope(conn), review_store.database_now(conn)
+    current = review_store._read_state(conn, key, now)
+    if fault == 'new_event':
+        review_store.append(conn, key, current, kind='STARTED', event_key='another-incarnation',
+                            details={'component': 'dashboard'}, now=now)
+    elif fault == 'other_view':
+        current['view_sha256'] = '0'*64
+    elif fault == 'unreviewed':
+        current['reviewed_head'] = original.operator_review.head
+    elif fault == 'active':
+        current['active'] = ['broker']
+    elif fault == 'warning':
+        current['warnings'] = ['broker']
+    review_store.save(conn, key, current, now + timedelta(hours=1) if fault == 'future' else now)
+    if fault == 'signature':
+        conn.execute(f'UPDATE {review_schema.STATE} SET signature=%s WHERE scope_sha256=%s', ('0'*64, key))
+    if fault == 'event_signature':
+        # The append-only event guard itself must reject this attempted tamper.
+        with pytest.raises(psycopg.Error):
+            conn.execute(f'UPDATE {review_schema.EVENTS} SET signature=%s '
+                         'WHERE scope_sha256=%s AND sequence=%s', ('0'*64, key, current['head']))
+        conn.rollback()
+        assert producer.read(conn.info.dsn, display=True).observation_current
+        return
+    conn.commit()
+    if fault in ('signature', 'future'):
+        with pytest.raises(review_store.ReviewRefused):
+            producer.read(conn.info.dsn, display=True)
+    else:
+        assert not producer.read(conn.info.dsn, display=True).observation_current
+        if fault == 'notification':
+            publish(operational)
+            refreshed = producer.read(conn.info.dsn, display=True)
+            assert refreshed.observation_current and refreshed.operator_review.status == 'CLEAN'
 
 
 def test_background_failure_and_recovery_record_once_without_any_http(operational):

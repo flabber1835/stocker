@@ -600,6 +600,7 @@ def read(database_url, *, display=False):
     """SELECT-only current snapshot; requests never discover or record incidents."""
     from sentinel.feed import store
     from sentinel.panel import model, operational_snapshot as snapshots, review, read_projection, display_dependencies, delivery
+    from sentinel.panel import postclose_feed_wait
     conn = store.connect(database_url, connect_timeout=3, statement_timeout_ms=3000)
     try:
         conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
@@ -623,10 +624,21 @@ def read(database_url, *, display=False):
         review.store.authenticate(dict(scope=value.panel.operator_review.scope, state=recorded[0]),
                                   recorded[1], purpose=review.store.SCHEMA)
         head_changed = recorded[0].get('head') != value.panel.operator_review.head
+        current_review = value.panel.operator_review
+        if head_changed and not changed and now < value.valid_until:
+            ack_view = postclose_feed_wait.project_panel(value.panel, now=now,
+                subject=current_basis.get('native', {}).get('SHADOW'))
+            ack_view = _with_activation_fee_wait(conn, ack_view, now=now)
+            if ack_view.activation_fee_wait is None:
+                acknowledged = review.acknowledged_view_owned(conn, ack_view, now)
+                if acknowledged is not None:
+                    current_review = acknowledged
+                    head_changed = False
         if head_changed and not changed and not display:
             raise snapshots.SnapshotUnavailable('operational review head changed')
         retained = display and (now >= value.valid_until or head_changed)
-        panel = replace(value.panel, now=now, observation_current=not changed and not retained,
+        panel = replace(value.panel, now=now, operator_review=current_review,
+            observation_current=not changed and not retained,
             observation_changed_scopes=changed, observation_valid_until=value.valid_until)
         if display:
             panel = replace(panel, observation_generated_at=value.generated_at)

@@ -23,17 +23,24 @@ def database():
         server.stop()
 
 
-def test_native_renewal_progress_uses_real_guard(database, boundary):
+def test_native_renewal_progress_uses_real_guard(database, boundary, monkeypatch):
+    import tests.backup.test_recurring_maintenance as harness
+    from sentinel_backup_publication import base_transition_sql
+    monkeypatch.setattr(harness,'NOW',int(time.time()))
     before = 'base-20260918T120000Z'
     after = boundary.name
     boundary.name, boundary.old = before, True
     def runner(argv, **kwargs):
         if argv[:2] == ['bash','scripts/sentinel-base-backup.sh']:
             boundary.name = after
-        if 'psql' in argv and "SELECT 'MAINTENANCE_PROGRESS'" in argv[-1]:
+            original=json.loads(argv[argv.index('--maintenance-progress')+1])
+            from tests.backup.test_atomic_base_publication import physical
+            database.execute(base_transition_sql(original,physical(after))).fetchone()
+            database.commit()
+        if 'psql' in argv and ("SELECT 'MAINTENANCE_PROGRESS'" in argv[-1] or "WHERE kind='MAINTENANCE_PROGRESS'" in argv[-1]):
             proof = database.execute(argv[-1]).fetchone()[0]
             database.commit()
-            return proof
+            return json.dumps(proof) if isinstance(proof,dict) else proof
         return boundary(argv, **kwargs)
     assert coordinator.tick('/media',runner)['retention_ready'] is True
     rows = database.execute("SELECT proof FROM sentinel_backup_evidence WHERE kind='MAINTENANCE_PROGRESS' ORDER BY seq").fetchall()
@@ -49,12 +56,11 @@ def test_failed_progress_publication_keeps_last_committed_base(database, boundar
     def runner(argv, **kwargs):
         if argv[:2] == ['bash','scripts/sentinel-base-backup.sh']:
             boundary.name = after
-        if 'psql' in argv and "SELECT 'MAINTENANCE_PROGRESS'" in argv[-1]:
-            if '"phase":"VERIFY_CHAIN"' in argv[-1]:
-                raise coordinator.Refused('injected progress publication refused')
+            raise coordinator.Refused('injected progress publication refused')
+        if 'psql' in argv and ("SELECT 'MAINTENANCE_PROGRESS'" in argv[-1] or "WHERE kind='MAINTENANCE_PROGRESS'" in argv[-1]):
             proof=database.execute(argv[-1]).fetchone()[0]
             database.commit()
-            return proof
+            return json.dumps(proof) if isinstance(proof,dict) else proof
         return boundary(argv, **kwargs)
     with pytest.raises(coordinator.Refused,match='injected progress publication'):
         coordinator.tick('/media',runner)

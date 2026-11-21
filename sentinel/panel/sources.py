@@ -2017,6 +2017,21 @@ def _latest_backup_evidence(conn, kind: str) -> dict | None:
     }
 
 
+def _backup_evidence_snapshot(conn) -> dict:
+    """Consume all durability generations in one bounded MVCC snapshot."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT kinds.kind,e.proof,e.observed_at FROM (VALUES "
+            "('BASE_BACKUP'),('RESTORE_DRILL'),('RUNTIME_CHAIN'),"
+            "('MAINTENANCE_PROGRESS')) AS kinds(kind) LEFT JOIN LATERAL "
+            "(SELECT proof,observed_at FROM sentinel_backup_evidence "
+            "WHERE kind=kinds.kind ORDER BY observed_at DESC,seq DESC LIMIT 1) e ON TRUE")
+        rows = cur.fetchall()
+    return {kind: (None if at is None else {
+        'proof': _json_mapping(proof, label=f'{kind} backup proof'),
+        'observed_at': _utc(at)}) for kind, proof, at in rows}
+
+
 def _runtime_verdict(conn) -> dict | None:
     with conn.cursor() as cur:
         cur.execute(
@@ -2089,18 +2104,11 @@ def _operator_evidence_rows(
         base = restore = runtime_backup = maintenance = None
         base_error = restore_error = runtime_backup_error = maintenance_error = None
         if not backups_suspended:
-            base, base_error = _read(
-                conn, lambda c: _latest_backup_evidence(c, "BASE_BACKUP"),
-                STATEMENT_TIMEOUT_MS, default=None)
-            restore, restore_error = _read(
-                conn, lambda c: _latest_backup_evidence(c, "RESTORE_DRILL"),
-                STATEMENT_TIMEOUT_MS, default=None)
-            runtime_backup, runtime_backup_error = _read(
-                conn, lambda c: _latest_backup_evidence(c, "RUNTIME_CHAIN"),
-                STATEMENT_TIMEOUT_MS, default=None)
-            maintenance, maintenance_error = _read(
-                conn, lambda c: _latest_backup_evidence(c, 'MAINTENANCE_PROGRESS'),
-                STATEMENT_TIMEOUT_MS, default=None)
+            evidence, base_error = _read(
+                conn, _backup_evidence_snapshot, STATEMENT_TIMEOUT_MS, default={})
+            base, restore, runtime_backup, maintenance = (
+                evidence.get(kind) for kind in ('BASE_BACKUP', 'RESTORE_DRILL',
+                    'RUNTIME_CHAIN', 'MAINTENANCE_PROGRESS'))
         lifecycle, lifecycle_error = _read(
             conn, _authority_lifecycle, STATEMENT_TIMEOUT_MS, default=None)
         verdict, verdict_error = _read(
@@ -2176,7 +2184,7 @@ def _operator_evidence_rows(
             # PostgreSQL archive catch-up may self-heal while the automation's
             # typed backup retry remains bounded. Phase or error prose alone
             # can never lend that recovery budget to backup evidence.
-            now=now, recovery=_cycle_recovery(
+            now=(observation_clock() if observation_clock is not None else now), recovery=_cycle_recovery(
                 cycle, failure_domains=("BACKUP",)),
             runtime_valid_until=_backup_valid_until(
                 (runtime_backup or {}).get("observed_at")),
@@ -4401,9 +4409,9 @@ def build_panel(*, state_dir: Path, database_url: str,
         financial_rows = [replace(financial_rows[0], value='DISABLED · KILL ENGAGED',
             detail='The installed PAPER runtime has withdrawn its financial verdict. '
                    'Automation is disabled with the kill switch engaged.')]
-    observation_clock = (lambda: datetime.now(timezone.utc)) if fixed_now is None else None
     operator_rows, operator_errs = _operator_evidence_rows(
-        database_url, now=now, observation_clock=observation_clock)
+        database_url, now=now, **({'observation_clock': lambda: datetime.now(timezone.utc)}
+                                if fixed_now is None else {}))
     errors.extend(operator_errs)
 
     rows = [

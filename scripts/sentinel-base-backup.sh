@@ -17,7 +17,17 @@ sentinel_load_environment --profile maintenance
 BACKUP_ROOT="$(sentinel_backup_root)"
 export SENTINEL_BASE_BACKUP_LOCK_ROOT="$BACKUP_ROOT"
 LOCK_WAIT=0
-if [ "$#" -ne 0 ]; then
+MAINTENANCE_PROGRESS=""
+if [ "${1:-}" = --maintenance-progress ] && [ "$#" -eq 2 ]; then
+  MAINTENANCE_PROGRESS="$2"
+  [ -n "$MAINTENANCE_PROGRESS" ] && [ "${#MAINTENANCE_PROGRESS}" -le 8192 ] || exit 2
+  "$PYTHON" - "$MAINTENANCE_PROGRESS" <<'PY'
+import json, sys
+sys.path.insert(0, 'scripts')
+from sentinel_backup_publication import validate_progress
+validate_progress(json.loads(sys.argv[1]))
+PY
+elif [ "$#" -ne 0 ]; then
   if [ "$#" -ne 2 ] || [ "$1" != --wait-seconds ]; then
     echo "REFUSED: usage: sentinel-base-backup.sh [--wait-seconds 0..3660]" >&2
     exit 2
@@ -234,6 +244,19 @@ METADATA_SHA256="$(${COMPOSE[@]} exec -T -u postgres sentinel-postgres bash -ceu
 METADATA_SHA256="${METADATA_SHA256%% *}"
 [[ "$METADATA_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
   echo 'REFUSED: verified base metadata digest is malformed' >&2; exit 4; }
+if [ -n "$MAINTENANCE_PROGRESS" ]; then
+  PUBLICATION_SQL="$("$PYTHON" scripts/sentinel_backup_publication.py \
+    "$METADATA_SHA256" "$NAME" "$MARKER" "$MARKER_LSN" "$MARKER_WAL" \
+    "$SYSTEM_ID" "$PITR_XID8_BEFORE" "$PITR_XID8_AFTER" "$MAINTENANCE_PROGRESS")"
+  if ! PUBLICATION_RESULT="$(${COMPOSE[@]} exec -T sentinel-postgres psql -U sentinel -d sentinel \
+    -v ON_ERROR_STOP=1 -Atc "$PUBLICATION_SQL")"; then
+    echo "SENTINEL_BASE_BACKUP_REASON=BASE_BACKUP_EVIDENCE_WRITE_FAILED" >&2
+    exit 4
+  fi
+  [ -n "$PUBLICATION_RESULT" ] || {
+    echo "REFUSED: original maintenance publication deadline expired" >&2; exit 4; }
+  echo "SENTINEL_BASE_BACKUP_EVIDENCE=RECORDED_WITH_SUCCESSOR_PROGRESS"
+else
 if ! EVIDENCE_TABLE="$(${COMPOSE[@]} exec -T sentinel-postgres psql -U sentinel -d sentinel \
   -v ON_ERROR_STOP=1 -Atc "SELECT to_regclass('public.sentinel_backup_evidence') IS NOT NULL")"; then
   echo "SENTINEL_BASE_BACKUP_REASON=BASE_BACKUP_EVIDENCE_SCHEMA_UNAVAILABLE" >&2
@@ -270,6 +293,7 @@ t)
   exit 4
   ;;
 esac
+fi
 
 echo "SENTINEL_BASE_BACKUP_DB_MUTATION=RECOVERY_MARKER_SCHEMA_AND_ROW"
 echo "verified_base_backup:$BACKUP_ROOT/base/$NAME"
