@@ -2116,10 +2116,10 @@ def _operator_evidence_rows(
         cycle, _cycle_error = _read(
             conn, _latest_automation_cycle,
             STATEMENT_TIMEOUT_MS, default=None)
-        if observation_clock is not None:
-            now = observation_clock()
+        account_observed_at = observation_clock() if observation_clock is not None else now
         reservation, reservation_error = _read(
-            conn, lambda c: _matched_resting_reservation(c, account=account, cycle=cycle, now=now),
+            conn, lambda c: _matched_resting_reservation(
+                c, account=account, cycle=cycle, now=account_observed_at),
             STATEMENT_TIMEOUT_MS, default=None)
 
         operator_reservation = market_working = None
@@ -2128,17 +2128,19 @@ def _operator_evidence_rows(
             proof = ((account or {}).get("flags") or {}).get(account_status.RESERVATION_FLAG)
             if isinstance(proof, Mapping) and proof.get("schema") == account_status.MARKET_WORKING_SCHEMA:
                 market_working, reservation_error = _read(
-                    conn, lambda c: _matched_market_order_wait(c, account=account, cycle=cycle, now=now),
+                    conn, lambda c: _matched_market_order_wait(
+                        c, account=account, cycle=cycle, now=account_observed_at),
                     STATEMENT_TIMEOUT_MS, default=None)
             else:
                 operator_reservation, reservation_error = _read(
-                    conn, lambda c: account_status.recorded_reservation(c, account=account, now=now),
+                    conn, lambda c: account_status.recorded_reservation(
+                        c, account=account, now=account_observed_at),
                     STATEMENT_TIMEOUT_MS, default=None)
 
         cash_posting = posting_error = None
         if local and account is not None and bound and account.get('account_id') == bound:
             cash_posting, posting_error = _read(
-                conn, lambda c: _cash_posting_overview(c, account_id=bound, now=now),
+                conn, lambda c: _cash_posting_overview(c, account_id=bound, now=account_observed_at),
                 STATEMENT_TIMEOUT_MS)
         account_detail = account_error or binding_error or reservation_error or posting_error
         account_recovery = _observation_recovery(cycle)

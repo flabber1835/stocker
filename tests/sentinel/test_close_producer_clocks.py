@@ -123,10 +123,11 @@ def test_working_order_uses_the_account_observation_clock(db, monkeypatch, case)
 
 def test_removed_account_observation_clock_reproduces_the_opening_failure(db, monkeypatch):
     body = textwrap.dedent(inspect.getsource(sources._operator_evidence_rows))
-    guard = '        if observation_clock is not None:\n            now = observation_clock()\n'
+    guard = 'account_observed_at = observation_clock() if observation_clock is not None else now'
     assert body.count(guard) == 1
     namespace = {}
-    exec(compile(body.replace(guard, ''), '<old-account-clock>', 'exec'), vars(sources), namespace)
+    exec(compile(body.replace(guard, 'account_observed_at = now'), '<old-account-clock>', 'exec'),
+         vars(sources), namespace)
     monkeypatch.setattr(sources, '_operator_evidence_rows', namespace['_operator_evidence_rows'])
     with pytest.raises(AssertionError, match='buying power differs from cash'):
         test_working_order_uses_the_account_observation_clock(db, monkeypatch, 'delayed_read')

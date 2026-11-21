@@ -343,7 +343,8 @@ def test_executed_collection_start_clock_falsifier(database,monkeypatch):
     namespace={}
     exec(compile(code.replace(guard,'now=now'),'<old-collection-start-clock>','exec'),vars(sources),namespace)
     monkeypatch.setattr(sources,'_operator_evidence_rows',namespace['_operator_evidence_rows'])
-    with pytest.raises(AssertionError):delayed_backup_read(database)
+    with pytest.raises(AssertionError,match='runtime chain disagrees with base backup'):
+        delayed_backup_read(database)
 
 
 def live_clock_routing(monkeypatch,*,fixed=False):
