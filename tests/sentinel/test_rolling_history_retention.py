@@ -137,21 +137,28 @@ def test_old_reference_does_not_block_initial_or_repeated_publication(conn, oper
     assert conn.execute("SELECT count(*) FROM sentinel_action_history WHERE session<'1997-01-01'").fetchone()[0] == 0
 
 
-def test_alpaca_action_rolloff_keeps_retained_entitlement_without_false_restriction(conn, operational_source, monkeypatch):
-    from types import SimpleNamespace
-    from sentinel.core import rolling_inputs
+@pytest.fixture
+def alpaca_action_coverage(monkeypatch):
+    from copy import copy
+
+    covered = action_history._source_covered
+
+    def alpaca_covered(refs, symbol, day):
+        action_refs = copy(refs)
+        action_refs.manifest = refs.manifest.model_copy(update={'provider': 'ALPACA_OPENFIGI'})
+        return covered(action_refs, symbol, day)
+
+    monkeypatch.setattr(action_history, '_source_covered', alpaca_covered)
+
+
+def test_alpaca_action_rolloff_keeps_retained_entitlement_without_false_restriction(
+        conn, operational_source, monkeypatch, alpaca_action_coverage):
     from sentinel.execution import share_units
     aged_source(operational_source, monkeypatch, '2025-01-02', actions=False)
     dividend = dict(ticker='AAA', date='2024-12-16', action='dividend', name='fixture',
         value='0.5', contraticker=None, contraname=None)
     operational_source['ACTIONS'].append(dividend)
     first = publish(conn)
-    original = rolling_inputs.SnapshotReferences
-    def alpaca_references(*args, **kwargs):
-        refs = original(*args, **kwargs)
-        refs.manifest = refs.manifest.model_copy(update={'provider': 'ALPACA_OPENFIGI'})
-        return refs
-    monkeypatch.setattr(rolling_inputs, 'SnapshotReferences', alpaca_references)
     for end in ('2025-12-01', '2026-09-14'):
         aged_source(operational_source, monkeypatch, end, actions=False)
         if dividend['date'] > str(PriceWindow.through(end).start):
@@ -203,18 +210,12 @@ def test_bulk_snapshot_delete_checks_ownership_once_and_rolls_back_mixed_batch(c
         conn.commit()
 
 
-def test_observed_alpaca_action_correction_survives_later_loss_of_source_coverage(conn, operational_source, monkeypatch):
-    from sentinel.core import rolling_inputs
+def test_observed_alpaca_action_correction_survives_later_loss_of_source_coverage(
+        conn, operational_source, monkeypatch, alpaca_action_coverage):
     aged_source(operational_source, monkeypatch, '2025-01-02', actions=False)
     operational_source['ACTIONS'].append(dict(ticker='AAA', date='2024-12-16',
         action='dividend', name='fixture', value='0.5', contraticker=None, contraname=None))
     publish(conn)
-    original = rolling_inputs.SnapshotReferences
-    def alpaca_references(*args, **kwargs):
-        refs = original(*args, **kwargs)
-        refs.manifest = refs.manifest.model_copy(update={'provider': 'ALPACA_OPENFIGI'})
-        return refs
-    monkeypatch.setattr(rolling_inputs, 'SnapshotReferences', alpaca_references)
     for end in ('2025-01-02', '2025-12-01', '2026-09-14'):
         aged_source(operational_source, monkeypatch, end, actions=False)
         publish(conn)
