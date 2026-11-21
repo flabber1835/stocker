@@ -651,7 +651,7 @@ def test_owned_base_publishes_progress_in_the_same_insert_statement(tmp_path):
     lab.env['BACKUP_LAB_EVIDENCE_TABLE'] = 'present'
     now = int(time.time())
     progress = dict(schema='sentinel.backup-maintenance-progress/1', attempt='a'*32,
-        started_at=now-20, deadline=now+3580, system_identifier=SYSTEM_ID,
+        started_at=now-20, deadline=now+3580, system_identifier=str(SYSTEM_ID),
         image='sha256:'+'d'*64, predecessor_base='base-20260901T000000Z',
         base_backup='base-20260901T000000Z', phase='BASE_BACKUP')
     result = lab.run('sentinel-base-backup.sh','--maintenance-progress',json.dumps(progress))

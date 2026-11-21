@@ -27,6 +27,7 @@ def validate_progress(original):
               'image', 'predecessor_base', 'base_backup', 'phase'}
     base = r'base-[0-9]{8}T[0-9]{6}Z'
     if (not isinstance(original, dict) or set(original) != fields
+            or any(type(original[k]) is not str for k in fields-{'started_at','deadline'})
             or original['schema'] != 'sentinel.backup-maintenance-progress/1'
             or original['phase'] != 'BASE_BACKUP'
             or not re.fullmatch('[a-f0-9]{32}', str(original['attempt']))
@@ -37,7 +38,7 @@ def validate_progress(original):
             or type(original['started_at']) is not int or type(original['deadline']) is not int
             or original['started_at'] < 0
             or not 0 < original['deadline'] - original['started_at'] <= 3600
-):
+            ):
         raise ValueError('verified base transition identity is invalid')
     return original
 

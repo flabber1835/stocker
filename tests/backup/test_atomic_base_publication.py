@@ -228,7 +228,82 @@ def test_executed_lost_reply_falsifier_cannot_report_the_old_generation(database
 
 
 @pytest.mark.parametrize('field,value',[('attempt','bad'),('phase','COMPLETE'),('deadline',True),
-    ('image','mutable'),('system_identifier','123'),('predecessor_base','foreign')])
+    ('image','mutable'),('system_identifier','123'),('system_identifier',int(SYSTEM)),('predecessor_base','foreign')])
 def test_invalid_transition_identity_is_refused_before_publication(database,field,value):
     original,_=prepare(database);original[field]=value
     with pytest.raises(ValueError):base_transition_sql(original,physical())
+
+
+def freshness_wait(database,monkeypatch,tmp_path,capsys):
+    from tests.backup.test_renewal_deadlines import FreshBoundary,prepare_tick,renewal
+    prepare_tick(monkeypatch,tmp_path)
+    original,runtime=prepare(database)
+    boundary=FreshBoundary();boundary.name=NEW
+    publication=database.execute("SELECT observed_at FROM sentinel_backup_evidence WHERE kind='RUNTIME_CHAIN'").fetchone()[0].isoformat()
+    database.rollback()
+    def runner(argv,**kwargs):
+        if "'publication_frontier'" in argv[-1]:
+            result=database.execute(argv[-1]).fetchone()[0];database.rollback()
+            return json.dumps(result)
+        result=boundary(argv,**kwargs)
+        if argv[:2]==['bash','scripts/sentinel-backup-status.sh']:
+            result=result.replace('base-20260919T120000Z',NEW)
+        if 'json_build_object' in argv[-1] and 'INSERT INTO sentinel_backup_evidence' not in argv[-1] and "WHERE kind='BASE_BACKUP'" not in argv[-1]:
+            value=json.loads(result);value['publication_at']=publication;return json.dumps(value)
+        return result
+    value=coordinator.tick('/media',runner,freshness=True,budget=120)
+    record=renewal.parse(capsys.readouterr().out,refresh=True)
+    assert value==dict(runtime_chain_current=False,maintenance_standby=True)
+    assert record['outcome']=='STANDBY' and record['code']=='TARGET_BUSY'
+    assert record['publication_at']==publication
+    assert not any('scripts/sentinel-backup-status.sh' in c or 'scripts/sentinel-restore-drill.sh' in c for c in boundary.calls)
+    assert database.execute("SELECT count(*) FROM sentinel_backup_evidence WHERE kind='RUNTIME_CHAIN'").fetchone()==(1,)
+
+
+def test_freshness_cannot_restore_or_publish_a_successor_ahead_of_its_producer(database,monkeypatch,tmp_path,capsys):
+    freshness_wait(database,monkeypatch,tmp_path,capsys)
+
+
+def test_executed_freshness_ordering_falsifier(database,monkeypatch,tmp_path,capsys):
+    monkeypatch.setattr(coordinator,'_require_base_publication',lambda *a:None)
+    with pytest.raises(AssertionError):freshness_wait(database,monkeypatch,tmp_path,capsys)
+
+
+@pytest.mark.parametrize('fault',['missing','failed','expired','future','foreign','unauthenticated','older_selection'])
+def test_only_the_exact_live_producer_can_explain_unpublished_selection(database,fault):
+    original,_=prepare(database)
+    if fault=='missing':
+        database.execute('TRUNCATE sentinel_backup_evidence');append(database,'BASE_BACKUP',physical(OLD))
+    elif fault!='older_selection':
+        value=dict(original,attempt='b'*32)
+        at=None
+        if fault=='failed':
+            append(database,'MAINTENANCE_PROGRESS',value);value['phase']='FAILED'
+        elif fault=='expired':
+            value['started_at']-=3600;value['deadline']-=3600
+        elif fault=='future':
+            at=database.execute("SELECT clock_timestamp()+interval '1 hour'").fetchone()[0]
+        elif fault=='foreign':value['system_identifier']='123'
+        if fault=='unauthenticated':
+            database.execute("INSERT INTO sentinel_backup_evidence(kind,evidence_sha256,proof) VALUES ('MAINTENANCE_PROGRESS',%s,%s)",('0'*64,Jsonb(value)))
+        else:append(database,'MAINTENANCE_PROGRESS',value,at)
+    database.commit()
+    def runner(argv,**kwargs):
+        result=database.execute(argv[-1]).fetchone()[0];database.rollback();return json.dumps(result)
+    with pytest.raises(coordinator.Refused) as caught:
+        coordinator._require_base_publication(dict(name='base-20261119T000000Z' if fault=='older_selection' else NEW),dict(system_id=SYSTEM),runner)
+    assert not isinstance(caught.value,coordinator.BasePublicationPending)
+
+
+def test_standby_response_is_not_a_freshness_failure_and_does_not_renew_the_clock(monkeypatch,capsys):
+    from datetime import datetime,timezone
+    from types import SimpleNamespace
+    import sentinel_backup_renewal as renewal
+    original=(datetime.now(timezone.utc)-timedelta(seconds=20)).isoformat()
+    schedule=renewal.Schedule(original);deadline=schedule.deadline
+    value=renewal.result(outcome='STANDBY',phase='OBSERVE',code='TARGET_BUSY',publication_at=original)
+    monkeypatch.setattr(coordinator,'run_bounded',lambda *a,**k:SimpleNamespace(returncode=0,
+        stdout=renewal.REFRESH_PREFIX+json.dumps(value)))
+    coordinator.FreshnessReader(schedule)(100)
+    assert renewal.parse(capsys.readouterr().out,refresh=True)['outcome']=='STANDBY'
+    assert schedule.deadline==deadline and schedule.publication()==original and schedule.retries==1

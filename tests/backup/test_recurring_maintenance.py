@@ -285,6 +285,8 @@ class Boundary:
             return ""
         if command[:3] in (["docker", "volume", "ls"], ["docker", "network", "ls"]):
             return ""
+        if "'publication_frontier'" in joined:
+            return json.dumps(dict(base=dict(base_backup=self.name,system_identifier=SYSTEM),base_current=True))
         if "WHERE kind='BASE_BACKUP'" in joined:
             if not self.base_verified:return ''
             item=self.selected()

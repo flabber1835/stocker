@@ -203,6 +203,16 @@ admission. Qualify actual PostgreSQL commit visibility, rollback, lost-response
 reconciliation, cross-read interleavings and executed falsifiers, plus unchanged
 standalone production, activation checkpoint, progress guards and delivery.
 
+The adjacent freshness child must not adopt a physically selected successor
+before its base/progress publication. Check the bounded latest base and authenticated
+producer progress before chain work. Only the exact live BASE_BACKUP predecessor
+attempt explains this gap: report existing STANDBY/TARGET_BUSY, without a new
+proof or clock, until its atomic publication. Missing, failed, expired or foreign
+progress refuses normally. Keep the original scheduler deadline and budget.
+This avoids a redundant semantic restore or a runtime-chain publication ahead
+of its base. Retain the shared publication helper in native qualification even
+when unchanged in a subsequent release.
+
 The neutral API sample at 10:57:09 was different: transaction 10759088 really
 published updated SEC issuer source/anchors/current records and quarantine
 data. Invalidating the previous PAPER verification was correct. Its bounded

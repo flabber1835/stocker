@@ -16,7 +16,7 @@ import uuid
 
 from sentinel_backup_lock import lock_is_held, _lock_path
 from sentinel_backup_deadlines import BASE_COMMAND_SECONDS, INVOCATION_SECONDS
-from sentinel_backup_publication import progress_sql
+from sentinel_backup_publication import progress_sql, validate_progress
 from sentinel_maintenance_process import run_bounded
 from sentinel_backup_integrity_report import validate as validate_shared_integrity
 from sentinel_backup_integrity_report import parse_failure, failure as failure_record
@@ -39,6 +39,10 @@ class Refused(RuntimeError):
     def __init__(self,message,*,failure=None):
         super().__init__(message)
         self.failure = failure
+
+
+class BasePublicationPending(Refused):
+    """The exact original producer still owns an unpublished successor."""
 
 
 def run(command, *, timeout=120, stdin=None, on_wait=None):
@@ -523,7 +527,7 @@ class FreshnessReader:
                 child = run_bounded([sys.executable,'-B','scripts/sentinel_backup_maintenance.py',
                     '--freshness-only','--timeout-seconds',str(budget)],timeout=budget+5,private_group=False)
                 value = renewal.parse(child.stdout,refresh=True)
-                expected = 0 if value['outcome']=='SUCCESS' else 75 if value['outcome']=='RETRYABLE' else 4
+                expected = 0 if value['outcome'] in {'SUCCESS','STANDBY'} else 75 if value['outcome']=='RETRYABLE' else 4
                 if child.returncode != expected: raise ValueError('freshness child result mismatch')
             except Exception:
                 value = renewal.result(outcome='BLOCKED',phase='VERIFY_CHAIN',code='INVALID_RESULT',
@@ -560,6 +564,14 @@ def tick(root, runner=run, *, freshness=False, budget=None):
             elapsed_seconds=time.monotonic()-started, started_at=started_at,
             finished_at=datetime.now(timezone.utc).isoformat(), **state['schedule'].timing()),refresh=freshness)
         return value
+    except BasePublicationPending:
+        if not freshness:
+            raise
+        renewal.emit(renewal.result(outcome='STANDBY', phase='OBSERVE', code='TARGET_BUSY',
+            elapsed_seconds=time.monotonic()-started, started_at=started_at,
+            finished_at=datetime.now(timezone.utc).isoformat(),
+            publication_at=state['schedule'].publication()), refresh=True)
+        return dict(runtime_chain_current=False, maintenance_standby=True)
     except Exception as primary:
         if progress:
             try:
@@ -612,8 +624,43 @@ def _fresh_tick(root,runner,state):
     observation = observe_primary(runner)
     if observation.get('publication_at') is not None: state['schedule'].accept(observation['publication_at'])
     selected = worker('observe-current',image,root,observation,runner)
+    _require_base_publication(selected, observation, runner)
     _chain(root,image,selected,observation,runner,state,shared_mode=True)
     return dict(runtime_chain_current=True,base=selected['name'])
+
+
+def _require_base_publication(selected, observation, runner):
+    """An owned physical rollover is not yet a published restore-chain input."""
+    frontier = json.loads(sql("SELECT json_build_object('publication_frontier',true,"
+        "'base',b.proof,'base_current',b.observed_at<=clock_timestamp(),"
+        "'progress',m.proof,'progress_authentic',m.authentic,"
+        "'progress_at',floor(extract(epoch FROM m.observed_at))::bigint,"
+        "'progress_current',m.observed_at<=clock_timestamp(),"
+        "'now',floor(extract(epoch FROM clock_timestamp()))::bigint) "
+        "FROM (SELECT 1) seed LEFT JOIN LATERAL "
+        "(SELECT proof,observed_at FROM sentinel_backup_evidence WHERE kind='BASE_BACKUP' "
+        "ORDER BY observed_at DESC,seq DESC LIMIT 1) b ON TRUE LEFT JOIN LATERAL "
+        "(SELECT proof,observed_at,evidence_sha256=encode(sha256(convert_to(proof::text,'UTF8')),'hex') AS authentic "
+        "FROM sentinel_backup_evidence WHERE kind='MAINTENANCE_PROGRESS' "
+        "ORDER BY observed_at DESC,seq DESC LIMIT 1) m ON TRUE", runner))
+    base, progress = frontier.get('base'), frontier.get('progress')
+    if (isinstance(base,dict) and base.get('base_backup') == selected['name']
+            and base.get('system_identifier') == observation['system_id']
+            and frontier.get('base_current') is True):
+        return
+    try:
+        validate_progress(progress)
+    except (ValueError,TypeError,KeyError):
+        raise Refused('selected base has no current producer publication') from None
+    if (isinstance(base,dict) and base.get('system_identifier') == observation['system_id']
+            == progress['system_identifier'] and base.get('base_backup') == progress['predecessor_base']
+            and selected['name'] > progress['predecessor_base']
+            and frontier.get('base_current') is True
+            and frontier.get('progress_authentic') is True and frontier.get('progress_current') is True
+            and type(frontier.get('now')) is int and type(frontier.get('progress_at')) is int
+            and progress['started_at'] <= frontier['progress_at'] <= frontier['now'] < progress['deadline']):
+        raise BasePublicationPending('original base producer publication is still pending')
+    raise Refused('selected base has no current producer publication')
 
 
 def _tick(root, runner, progress, started,state):
