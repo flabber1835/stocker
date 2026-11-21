@@ -34,10 +34,23 @@ def canonical(value):
                       ensure_ascii=True, allow_nan=False).encode('ascii')
 
 
-def signature(value, *, purpose):
+def _signing_key():
     key = os.environ.get('SENTINEL_PUBLICATION_RECEIPT_KEY', '').encode('utf-8')
     require(len(key) >= 32, 'operator review signing key unavailable')
-    return hmac.new(key, purpose.encode('ascii') + b'\0' + canonical(value), hashlib.sha256).hexdigest()
+    return key
+
+
+def _signature(key, purpose, encoded):
+    return hmac.new(key, purpose.encode('ascii') + b'\0' + encoded, hashlib.sha256).hexdigest()
+
+
+def signature_canonical(encoded: bytes, *, purpose):
+    """Sign bytes already produced by canonical for the caller's wire checks."""
+    return _signature(_signing_key(), purpose, encoded)
+
+
+def signature(value, *, purpose):
+    return _signature(_signing_key(), purpose, canonical(value))
 
 
 def authenticate(value, signed, *, purpose):

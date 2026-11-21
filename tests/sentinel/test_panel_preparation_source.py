@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import uuid
 
 import psycopg
+from psycopg import sql
 import pytest
 
 from sentinel.feed import calendar, operational_snapshot, rolling_go_inputs
@@ -52,11 +53,9 @@ class Connection:
         self.queries.append((sql, params))
         return self
 
-    def fetchone(self):
-        return self.latest
-
     def fetchall(self):
-        return self.candidates
+        return [self.latest + tuple(candidate)
+                for candidate in (self.candidates or [(None,) * 10])]
 
 
 def test_current_registered_request_exports_dated_progress_without_changing_run_status():
@@ -70,8 +69,9 @@ def test_current_registered_request_exports_dated_progress_without_changing_run_
     assert work.effective_session == date(2026, 11, 2)
     assert work.active_at(NOW) and work.rows_done == 1720712 and work.components_done == 31
     assert work.last_progress_at == NOW-timedelta(minutes=2)
-    assert len(connection.queries) == 2
-    assert connection.queries[1] == (sources._PREPARATION_SQL, (TARGET,))
+    [(query, params)] = connection.queries
+    assert sources._LATEST_OPERATIONAL_JOB_SQL in query and sources._PREPARATION_SQL in query
+    assert params == (TARGET,)
 
 
 @pytest.mark.parametrize('fault', [None, 'foreign', 'unowned', 'expired', 'non_atomic', 'wrong_count_unit'])
@@ -131,10 +131,10 @@ def test_another_latest_jobs_status_cannot_receive_the_current_candidates_progre
     assert result['status'] == 'running' and result['rows_written'] == 777
 
 
-def test_job_published_between_reads_uses_one_stage_and_original_progress_clock():
+def test_published_job_keeps_its_publication_and_original_progress_clock():
     current = record(state='PUBLISHED', rows_done=0, publication_version=8)
     current[2:5] = [8, 7, True]
-    latest = ('READY', None, NOW-timedelta(seconds=4), 0, None, current[0]['job_id'])
+    latest = ('PUBLISHED', None, NOW, 0, 8, current[0]['job_id'])
     run = sources._operational_acquisition(Connection([current], latest=latest), now=NOW)[0]
     assert run['current_chunk'] == 'PUBLISHED · publication 8' and run['status'] == 'success'
     assert run['updated_at'] == NOW and run['preparation']['source_rows_done'] == 1720712
@@ -146,7 +146,7 @@ def test_job_published_between_reads_uses_one_stage_and_original_progress_clock(
 
 def test_latest_job_identity_guard_has_an_executed_removal_falsifier(monkeypatch):
     source = inspect.getsource(sources._operational_acquisition)
-    guard = "if str(candidates[0][0]['job_id']) == str(latest_job_id):"
+    guard = "if str(candidate[0]['job_id']) == str(latest_job_id):"
     assert source.count(guard) == 1
     namespace = dict(vars(sources))
     exec(compile(source.replace(guard, 'if True:'), '<missing-latest-job-binding>', 'exec'), namespace)
@@ -293,18 +293,22 @@ def test_live_phase_sql_requires_the_exact_writer_xid_and_corpus_lock(private_pg
 
 
 def metadata_database(private_pg, *, registered=True, cursor=None, cas=7,
-                      published=False, correct_candidate=True):
+                      published=False, correct_candidate=True, namespace=None):
     conn = psycopg.connect(private_pg.sync_dsn)
-    conn.execute('CREATE TEMP TABLE sentinel_snapshot_jobs(job_id uuid PRIMARY KEY, '
+    create = 'CREATE TEMP TABLE ' if namespace is None else 'CREATE TABLE '
+    if namespace is not None:
+        conn.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(namespace)))
+        conn.execute(sql.SQL('SET search_path TO {}').format(sql.Identifier(namespace)))
+    conn.execute(create + 'sentinel_snapshot_jobs(job_id uuid PRIMARY KEY, '
         'request jsonb,request_sha256 text,state text,created_at timestamptz,updated_at timestamptz,'
         'last_progress_at timestamptz,deadline timestamptz,lease_until timestamptz,'
         'owner uuid,fence bigint,next_retry timestamptz,rows_done bigint,'
         'publication_version bigint,candidate_id uuid,reason text)')
-    conn.execute('CREATE TEMP TABLE sentinel_operational_snapshot_jobs(job_id uuid PRIMARY KEY)')
-    conn.execute('CREATE TEMP TABLE sentinel_snapshot_workers(owner uuid PRIMARY KEY,job_id uuid)')
-    conn.execute('CREATE TEMP TABLE sentinel_snapshot_job_components(job_id uuid,component text,rows_done bigint,PRIMARY KEY(job_id,component))')
-    conn.execute('CREATE TEMP TABLE sentinel_corpus_publications(version bigint PRIMARY KEY,previous_version bigint)')
-    conn.execute('CREATE TEMP TABLE sentinel_operational_snapshots(publication_version bigint PRIMARY KEY,job_id uuid,candidate_id uuid)')
+    conn.execute(create + 'sentinel_operational_snapshot_jobs(job_id uuid PRIMARY KEY)')
+    conn.execute(create + 'sentinel_snapshot_workers(owner uuid PRIMARY KEY,job_id uuid)')
+    conn.execute(create + 'sentinel_snapshot_job_components(job_id uuid,component text,rows_done bigint,PRIMARY KEY(job_id,component))')
+    conn.execute(create + 'sentinel_corpus_publications(version bigint PRIMARY KEY,previous_version bigint)')
+    conn.execute(create + 'sentinel_operational_snapshots(publication_version bigint PRIMARY KEY,job_id uuid,candidate_id uuid)')
     observed = conn.execute('SELECT clock_timestamp()').fetchone()[0]
     target = calendar.latest_closed_session(observed)
     raw = request(target, expected_publication_version=cas, cursor=cursor)
@@ -326,6 +330,60 @@ def metadata_database(private_pg, *, registered=True, cursor=None, cas=7,
         conn.execute('INSERT INTO sentinel_operational_snapshots VALUES(8,%s,%s)',
             (job,candidate if correct_candidate else str(uuid.uuid4())))
     return conn, target
+
+
+@pytest.mark.parametrize('split_snapshot', [False, True], ids=['coherent', 'split-falsifier'])
+def test_current_job_handoff_uses_one_database_snapshot(private_pg, split_snapshot):
+    namespace = 'close_handoff_' + uuid.uuid4().hex
+    writer, target = metadata_database(private_pg, namespace=namespace)
+    with writer, psycopg.connect(private_pg.sync_dsn, autocommit=True) as reader:
+        (old_job,) = writer.execute('SELECT job_id FROM sentinel_snapshot_jobs').fetchone()
+        writer.commit()
+        reader.execute(sql.SQL('SET search_path TO {}').format(sql.Identifier(namespace)))
+
+        new_job = uuid.uuid4()
+        writer.execute("UPDATE sentinel_snapshot_jobs SET state='ABORTED' WHERE job_id=%s", (old_job,))
+        writer.execute("INSERT INTO sentinel_snapshot_jobs "
+            "SELECT %s,request,request_sha256,'ACQUIRING',created_at+interval '1 microsecond',"
+            "updated_at,last_progress_at,deadline,lease_until,owner,fence,next_retry,456,"
+            "publication_version,candidate_id,reason FROM sentinel_snapshot_jobs WHERE job_id=%s",
+            (new_job, old_job))
+        writer.execute('INSERT INTO sentinel_operational_snapshot_jobs VALUES(%s)', (new_job,))
+        writer.execute('UPDATE sentinel_snapshot_workers SET job_id=%s WHERE job_id=%s', (new_job, old_job))
+        writer.execute('INSERT INTO sentinel_snapshot_job_components VALUES(%s,%s,456)', (new_job, 'TICKERS'))
+
+        class CommitDuringRead:
+            def execute(self, query, params):
+                assert params == (target,)
+                if split_snapshot:
+                    latest = reader.execute(sources._LATEST_OPERATIONAL_JOB_SQL).fetchone()
+                    writer.commit()
+                    candidates = reader.execute(sources._PREPARATION_SQL, params).fetchall()
+                    return SimpleNamespace(fetchall=lambda: [latest + candidate for candidate in candidates])
+                result = reader.execute(query, params)
+                writer.commit()
+                return result
+
+        before = sources._operational_acquisition(CommitDuringRead())[0]
+
+        def assert_original_progress():
+            assert 'preparation' in before, 'current preparation evidence lost at the commit boundary'
+            work = before['preparation']
+            assert work['job_id'] == str(old_job) and work['owner_registered']
+            assert work['rows_done'] == before['rows_written'] == 123
+            assert work['source_rows_done'] == 123 and work['components_done'] == 2
+
+        if split_snapshot:
+            with pytest.raises(AssertionError, match='lost at the commit boundary'):
+                assert_original_progress()
+        else:
+            assert_original_progress()
+
+        after = sources._operational_acquisition(reader)[0]
+        assert before['status'] == after['status'] == 'running'
+        assert after['preparation']['job_id'] == str(new_job)
+        assert after['preparation']['rows_done'] == after['rows_written'] == 456
+        assert after['preparation']['source_rows_done'] == 456
 
 
 @pytest.mark.parametrize('case,expected', [('current', True), ('unregistered', False),

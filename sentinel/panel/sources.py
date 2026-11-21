@@ -19,7 +19,7 @@ import json
 import os
 import time
 from dataclasses import dataclass, replace
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -638,7 +638,7 @@ def _trading_run_row(conn, row, *, completed_history=False):
                     if c.security_id == sid and c.side.value == 'BUY'), Decimal(0)),
                 remaining_budget=None if blocked else remaining,
                 status=blocked or ('CASH_RESIDUAL' if 0 < remaining < 2 else 'PENDING' if remaining else 'COMPLETE')))
-    skipped = (_completed_opening_skips(conn, plan, stored, commands)
+    skipped = (_completed_opening_skips(conn, plan, stored, commands, projection=projection)
                if plan['state'] == 'SUCCEEDED' and stored.opening_intents else {})
     run = project_run(plan, authority, commands, purchase_allocations=allocations, below_whole_share=skipped)
     failed = run.state in {'FAILED','ABANDONED','SUPERSEDED'} or any(
@@ -793,13 +793,12 @@ def _pending_next_plan(trading_row, *, now):
     return model.Row('paper_plan', 'Next paper plan', value, model.PENDING, detail=detail)
 
 
-def _completed_opening_skips(conn, run_plan, plan, commands):
+def _completed_opening_skips(conn, run_plan, plan, commands, *, projection):
     """Match a zero-share outcome to its retained protected plan and broker proof."""
-    from sentinel.execution import journal, protected_limits, target_reprojection
+    from sentinel.execution import journal, protected_limits
     from sentinel.execution.states import CommandState, TERMINAL
     from sentinel.paper_plan_preview import protected_estimate, quantity
 
-    projection = target_reprojection.load_projection(conn, plan_id=plan.plan_id)
     sizing = projection.opening_sizing if projection is not None else None
     if not sizing or sizing.get('mode') != protected_limits.PROTECTED_MODE:
         return {}
@@ -1921,6 +1920,7 @@ def _matched_market_order_wait(conn, *, account, cycle, now, trading_row=None, p
     """A finite display wait for the current plan's positively matched native order."""
     from sentinel import dual_plan_authority
     from sentinel.execution import account_status, journal
+    from sentinel.panel.intent_memo import require_current_display_policy
 
     if not account or not cycle:
         return None
@@ -1995,7 +1995,7 @@ def _matched_market_order_wait(conn, *, account, cycle, now, trading_row=None, p
             or plan.fingerprint() != cycle.get("plan_fingerprint")):
         return None
     try:
-        dual_plan_authority.require_current_buy_policy(conn, plan=plan)
+        require_current_display_policy(conn, plan=plan)
     except dual_plan_authority.DualPlanAuthorityRefused:
         return None
     return model.RecoveryEvidence(phase=model.MARKET_BUY_OBSERVATION, automatic=True,
@@ -2057,7 +2057,9 @@ def _cash_posting_overview(conn, *, account_id, now):
 
 
 def _operator_evidence_rows(
-        database_url: str, *, now: datetime) -> tuple[list[model.Row], list[str]]:
+        database_url: str, *, now: datetime,
+        observation_clock: Callable[[], datetime] | None = None,
+        ) -> tuple[list[model.Row], list[str]]:
     """Account, backup and runtime identity from append-only durable evidence."""
     if not database_url:
         detail = "SENTINEL_DATABASE_URL is unset"
@@ -2106,6 +2108,8 @@ def _operator_evidence_rows(
         cycle, _cycle_error = _read(
             conn, _latest_automation_cycle,
             STATEMENT_TIMEOUT_MS, default=None)
+        if observation_clock is not None:
+            now = observation_clock()
         reservation, reservation_error = _read(
             conn, lambda c: _matched_resting_reservation(c, account=account, cycle=cycle, now=now),
             STATEMENT_TIMEOUT_MS, default=None)
@@ -2597,6 +2601,13 @@ def _latest_verified_chain(history: list[dict]) -> list[dict]:
             if row.get("verdict") == "VERIFIED"]
 
 
+_LATEST_OPERATIONAL_JOB_SQL = """
+    SELECT j.state,j.reason,j.updated_at,j.rows_done,j.publication_version,j.job_id
+    FROM sentinel_snapshot_jobs j JOIN sentinel_operational_snapshot_jobs o USING(job_id)
+    ORDER BY j.created_at DESC,j.job_id DESC LIMIT 1
+"""
+
+
 _PREPARATION_SQL = """WITH current_publication AS (
     SELECT version,previous_version FROM sentinel_corpus_publications
     ORDER BY version DESC LIMIT 1)
@@ -2684,25 +2695,25 @@ def _preparation_work(record, *, target):
 
 def _operational_acquisition(conn, *, now=None):
     """Current source jobs, never the empty legacy ingest ledger."""
-    record = conn.execute(
-        "SELECT j.state,j.reason,j.updated_at,j.rows_done,j.publication_version,j.job_id "
-        "FROM sentinel_snapshot_jobs j JOIN sentinel_operational_snapshot_jobs o USING(job_id) "
-        "ORDER BY j.created_at DESC,j.job_id DESC LIMIT 1").fetchone()
-    if record is None:
+    from sentinel.feed import calendar
+
+    target = calendar.latest_closed_session(now or datetime.now(timezone.utc))
+    records = conn.execute(f"""
+        WITH latest AS MATERIALIZED ({_LATEST_OPERATIONAL_JOB_SQL})
+        SELECT latest.*,candidate.* FROM latest
+        LEFT JOIN LATERAL ({_PREPARATION_SQL}) candidate ON TRUE
+        """, (target,)).fetchall()
+    if not records:
         return []
-    state, reason, updated, count, version, latest_job_id = record
+    state, reason, updated, count, version, latest_job_id = records[0][:6]
     if state == 'PUBLISHED' and version is None:
         raise ValueError('published acquisition lacks publication identity')
-    from sentinel.feed import calendar
-    target = calendar.latest_closed_session(now or datetime.now(timezone.utc))
-    candidates = conn.execute(_PREPARATION_SQL, (target,)).fetchall()
+    candidate = records[0][6:]
     work = None
-    if len(candidates) == 1 and state not in {'REFUSED', 'ABORTED'}:
+    if len(records) == 1 and candidate[0] is not None and state not in {'REFUSED', 'ABORTED'}:
         try:
-            if str(candidates[0][0]['job_id']) == str(latest_job_id):
-                work = _preparation_work(candidates[0], target=target)
-                state, count, updated, version = (work['state'], work['rows_done'], work['updated_at'],
-                                                  candidates[0][0]['publication_version'])
+            if str(candidate[0]['job_id']) == str(latest_job_id):
+                work = _preparation_work(candidate, target=target)
         except (AttributeError, KeyError, TypeError, ValueError):
             work = None
     status = ('success' if state == 'PUBLISHED' else 'failed' if state in {
@@ -4390,8 +4401,9 @@ def build_panel(*, state_dir: Path, database_url: str,
         financial_rows = [replace(financial_rows[0], value='DISABLED · KILL ENGAGED',
             detail='The installed PAPER runtime has withdrawn its financial verdict. '
                    'Automation is disabled with the kill switch engaged.')]
+    observation_clock = (lambda: datetime.now(timezone.utc)) if fixed_now is None else None
     operator_rows, operator_errs = _operator_evidence_rows(
-        database_url, now=now)
+        database_url, now=now, observation_clock=observation_clock)
     errors.extend(operator_errs)
 
     rows = [
