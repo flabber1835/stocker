@@ -81,6 +81,13 @@ close supplies field traces for performance and rendered continuity.
 
 ## Coherent progress and bounded session display work
 
+The protected release that delivers these changes includes the backed PAPER
+idle improvements already installed at `187b05442f3e3ca4eddc5b489678d8392109c7b4`.
+Seal the combined source against that exact installed predecessor and qualify
+the combined tree. Sample opening account evidence after the account and cycle
+reads, and sample backup evidence at its own later read boundary. Fixed-clock
+inspection retains its caller-supplied time for both checks.
+
 The preparation display currently reads the latest job and the current target's
 candidate in two statements. A new job can commit between them. The old status
 then remains visible without the valid producer progress from the same read.
