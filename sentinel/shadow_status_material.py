@@ -50,17 +50,26 @@ def _witness(conn, key):
         "pg_relation_filenode(c.reltoastrelid) FROM pg_class c "
         "WHERE c.oid='public.sentinel_processed_sessions'::regclass"
     ).fetchone()
-    rows = conn.execute(
-        "SELECT cursor_name,session,tableoid,xmin::text,ctid::text "
-        "FROM public.sentinel_processed_sessions ORDER BY cursor_name LIMIT 1025"
-    ).fetchall()
     low_xmax = int(db[-1]) % 4294967296
-    if (relation is None or not relation[1] or len(rows) > 1024
-            or any(int(row[3]) >= low_xmax for row in rows)):
+    if relation is None or not relation[1]:
         return None
+    rows, count = hashlib.sha256(), 0
+    with conn.cursor(name='shadow_status_'+uuid4().hex) as cursor:
+        cursor.itersize = 256
+        cursor.execute(
+            "SELECT cursor_name,session,tableoid,xmin::text,ctid::text "
+            "FROM public.sentinel_processed_sessions ORDER BY cursor_name")
+        for row in cursor:
+            if int(row[3]) >= low_xmax:
+                return None
+            raw = pickle.dumps(row, protocol=5)
+            rows.update(len(raw).to_bytes(8, 'big'))
+            rows.update(raw)
+            count += 1
     readiness_scope.require_token(conn, pin)
     # Private equality witness only; it is never published or used as authority.
-    facts = (db[:-1], int(db[-1])//4294967296, ddl, relation, rows, pin.publication, key)
+    facts = (db[:-1], int(db[-1])//4294967296, ddl, relation,
+             count, rows.digest(), pin.publication, key)
     return hashlib.sha256(pickle.dumps(facts, protocol=5)).hexdigest()
 
 

@@ -51,6 +51,22 @@ def test_separate_transactions_reuse_only_detached_canonical_material(conn, chec
     assert len(calls) == 1
 
 
+def test_production_size_metadata_reuses_and_checks_the_last_row(conn, checkpoint):
+    conn.execute("INSERT INTO sentinel_processed_sessions(cursor_name,session,state) "
+                 "SELECT 'zz-private-'||lpad(n::text,5,'0'),'2031-04-21','{}' "
+                 "FROM generate_series(1,1500) n")
+    conn.commit()
+    calls = []
+    assert check(conn.info.dsn, checkpoint, calls) == {'value': 1}
+    assert check(conn.info.dsn, checkpoint, calls) == {'value': 1}
+    assert len(calls) == 1
+    conn.execute("UPDATE sentinel_processed_sessions SET state='{\"changed\":true}' "
+                 "WHERE cursor_name='zz-private-01500'")
+    conn.commit()
+    assert check(conn.info.dsn, checkpoint, calls) == {'value': 1}
+    assert len(calls) == 2
+
+
 def changed_row_case(conn, checkpoint, monkeypatch, *, removed=False):
     calls = []
     if removed:
@@ -170,7 +186,15 @@ def prior_epoch_case(monkeypatch):
                 return SimpleNamespace(fetchone=lambda: row)
             if 'pg_class' in sql:
                 return SimpleNamespace(fetchone=lambda: (1,2,3,4))
-            return SimpleNamespace(fetchall=lambda: [('rolling-checkpoint','2031-04-21',1,'100','(0,1)')])
+            raise AssertionError(sql)
+        @contextmanager
+        def cursor(self, *, name):
+            class Rows:
+                def execute(self, sql):
+                    assert 'ORDER BY cursor_name' in sql and 'LIMIT' not in sql
+                def __iter__(self):
+                    return iter([('rolling-checkpoint','2031-04-21',1,'100','(0,1)')])
+            yield Rows()
     port = Port()
     pin = SimpleNamespace(owner=port, backend_pid=7, publication='original')
     monkeypatch.setattr(readiness_scope, 'capture', lambda _: pin)
@@ -187,7 +211,7 @@ def test_prior_epoch_frozen_tuple_cannot_seed_reusable_material(monkeypatch):
 
 def test_removed_epoch_guard_has_an_executed_falsifier(monkeypatch):
     source = inspect.getsource(material._witness)
-    mutated = source.replace('or any(int(row[3]) >= low_xmax for row in rows)', 'or False')
+    mutated = source.replace('if int(row[3]) >= low_xmax:', 'if False:')
     assert mutated != source
     namespace = dict(vars(material))
     exec(compile(mutated, '<private-epoch-falsifier>', 'exec'), namespace)

@@ -55,7 +55,10 @@ the publisher and standalone callers continue through their original verifier.
 Each hit requires an owned current publication pin, repeatable-read read-only
 origin session, unassigned reader transaction, exact current runtime/configuration
 context, cluster/database/postmaster incarnation, independent guarded DDL epoch,
-relation identity and all current processed-row versions. No cursor namespace
+relation identity and all current processed-row versions. Stream their ordered
+identities in batches of 256 into a fixed-size digest, with no row-count cutoff;
+the installed database already has 1,113 processed rows. Keep the existing
+read-only snapshot and statement deadlines during the complete scan. No cursor namespace
 can conceal a changed foreign-lineage predicate. Reject prior-XID-epoch ambiguity. Record only after
 the canonical load succeeds and the complete witness still agrees. Authenticate
 owner, subject, original scan clocks and exact payload digest before decoding
