@@ -1,8 +1,9 @@
 """Actual PostgreSQL operational ownership, review/snapshot atomicity and ACK."""
 from dataclasses import replace
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 import inspect
-from threading import Event
+from threading import Event, current_thread
 import time
 from types import SimpleNamespace
 import uuid
@@ -277,6 +278,39 @@ def test_removed_ack_composition_has_an_executed_falsifier(operational, monkeypa
         acknowledgement_gap_case(operational, monkeypatch, removed=True)
 
 
+def test_readers_on_both_sides_of_ack_keep_coherent_current_views(operational, monkeypatch):
+    conn, _, _ = operational
+    publish(operational)
+    original = producer.read(conn.info.dsn)
+    captured, release = Event(), Event()
+    read_owned = snapshots.read_owned
+
+    def held_read(*args, **kwargs):
+        value = read_owned(*args, **kwargs)
+        if current_thread().name.startswith('held-panel-reader'):
+            captured.set()
+            assert release.wait(10), 'reader barrier was not released'
+        return value
+
+    monkeypatch.setattr(snapshots, 'read_owned', held_read)
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix='held-panel-reader') as pool:
+        pending = pool.submit(producer.read, conn.info.dsn, display=True)
+        try:
+            assert captured.wait(10), 'reader did not capture its PostgreSQL snapshot'
+            accepted = review.Recorder().acknowledge(original, conn.info.dsn,
+                original.operator_review.token, actor='private qualifier',
+                snapshot_guard=lambda c, p: producer.guard_acknowledgement(c, p, conn.info.dsn))
+            after = producer.read(conn.info.dsn, display=True)
+            assert after.observation_current and after.operator_review.head == accepted.head
+            assert after.operator_review.status == 'CLEAN'
+        finally:
+            release.set()
+        before = pending.result(timeout=10)
+    assert before.observation_current and before.operator_review.head == original.operator_review.head
+    assert before.operator_review.status == 'REVIEW'
+    assert before.observation_valid_until == after.observation_valid_until
+
+
 @pytest.mark.parametrize('fault', ['new_event', 'other_view', 'unreviewed', 'notification',
                                   'active', 'warning', 'future', 'signature', 'event_signature'])
 def test_ack_composition_refuses_other_changes(operational, monkeypatch, fault):
@@ -321,6 +355,10 @@ def test_ack_composition_refuses_other_changes(operational, monkeypatch, fault):
             producer.read(conn.info.dsn, display=True)
     else:
         assert not producer.read(conn.info.dsn, display=True).observation_current
+        if fault == 'notification':
+            publish(operational)
+            refreshed = producer.read(conn.info.dsn, display=True)
+            assert refreshed.observation_current and refreshed.operator_review.status == 'CLEAN'
 
 
 def test_background_failure_and_recovery_record_once_without_any_http(operational):
