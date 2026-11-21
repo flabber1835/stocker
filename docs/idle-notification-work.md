@@ -85,3 +85,41 @@ deployed module entry point. Execute falsifiers for the reuse and supervision
 guards. Verify actual HTTP serialization and unchanged HTML history rendering.
 Use the backed local installer with exact qualification/source and predecessor
 receipts, then repeat the complete thirty-minute resource/health trace.
+
+
+## Cycle two: acknowledgment-only review composition
+
+The complete first post-install window (November 21, 08:55:59–09:26:01 UTC)
+reduced application CPU from 5.13 to 3.27 percent of 16 logical CPUs, alert CPU
+by 91 percent and its internal traffic by 96 percent. Warm SHADOW work fell
+from 24–25 seconds to about eight seconds; the full scan remained 73.5 seconds.
+There were no restarts, OOM kills, source errors, new commands or unresolved
+outcomes. Retention deleted 56,320 acquisition rows. All browser states were
+healthy. The first API sample alone was neutral, immediately after operator
+acknowledgment; the next 180 samples were green.
+
+The reader invalidates the whole operational publication whenever its signed
+review head differs. An acknowledgment with no notification side effects
+changes only review metadata, so this dependency is too broad. The existing
+HTTP test republishes after ACK before reading again and therefore skips the
+actual interleaving. Preserve the independently owned operational publication;
+GET requests must not become publishers or recorders.
+
+Compose the newer signed review only when the financial/native subjects are
+unchanged and the original snapshot remains current. Authenticate the complete
+current review state and its terminal ACK event, require exactly the preceding
+published head, a clean fully reviewed state, no acknowledged alert IDs, and
+exact equality with the existing canonical composed-view subject. This proves
+that only operator-review metadata changed. Reuse the existing view projection,
+state validation and review result builder. Preserve every original financial,
+snapshot, owner and lease deadline. This grants no financial authority.
+
+A change involving notification acknowledgments or another incident, different
+view/native material, malformed or altered state/event, an expired publication,
+changed runtime/account or a negative condition retains the existing refusal
+and refresh behavior. Do not generically bless an arbitrary later review head.
+Qualify the real PostgreSQL ACK/read gap without any intervening publication,
+read-only behavior and unchanged proof bytes/deadlines, an executed falsifier,
+and the adjacent negative and HTTP paths. Deploy from the verified cycle-one
+receipt and a new immutable source checkout, then trace another full thirty
+minutes, including the actual acknowledgment transition.

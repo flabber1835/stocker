@@ -179,6 +179,30 @@ def _result(conn, key, state, now, *, subject):
         events=store.recent(conn, key), token=token)
 
 
+def acknowledged_view_owned(conn, panel, now):
+    """Read a pure metadata ACK of this exact previously published view."""
+    previous = panel.operator_review
+    if previous is None or previous.scope != store.scope(conn):
+        return None
+    state = store._read_state(conn, previous.scope, now)
+    if (state['head'] != previous.head + 1
+            or state['reviewed_head'] != state['head']
+            or state['active'] or state['warnings'] or state['incidents']
+            or state['view_sha256'] != view_subject(panel)):
+        return None
+    tail = store.recent(conn, previous.scope, limit=1)
+    if len(tail) != 1:
+        return None
+    event, = tail
+    details = event['details']
+    if (event['sequence'] != state['head'] or event['kind'] != 'ACKNOWLEDGED'
+            or not isinstance(details, dict)
+            or set(details) != {'actor', 'reviewed_head', 'alert_ids'}
+            or details['reviewed_head'] != previous.head or details['alert_ids'] != []):
+        return None
+    return _result(conn, previous.scope, state, now, subject=state['view_sha256'])
+
+
 def record_verification_failure_owned(conn, *, scope, attempt, episode):
     """Record a native historical incident; current active facts stay separate."""
     from sentinel.panel import observer_failure, review_schema

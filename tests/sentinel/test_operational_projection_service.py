@@ -236,11 +236,82 @@ def test_rendered_review_action_acknowledges_exact_published_view(operational, m
         assert response.status_code == 200
         accepted = response.json()
         assert accepted['status'] == 'CLEAN' and accepted['reviewed_head'] == accepted['head']
-        publish(operational)
+        # The operational publisher must not hide the ACK/read interleaving.
         assert current_button(client) is None
         page = client.get('/panel.json').json()
         assert page['operator_review']['status'] == 'CLEAN'
         assert page['dashboard_health']['color'] == 'green'
+
+
+def acknowledgement_gap_case(operational, monkeypatch, *, removed=False):
+    conn, _, _ = operational
+    publish(operational)
+    original = producer.read(conn.info.dsn)
+    before = conn.execute(f"SELECT envelope,signature,valid_until FROM {snapshots.schema.RECEIPTS} "
+                          "WHERE scope='DASHBOARD'").fetchone()
+    conn.rollback()
+    accepted = review.Recorder().acknowledge(original, conn.info.dsn,
+        original.operator_review.token, actor='private qualifier',
+        snapshot_guard=lambda c, p: producer.guard_acknowledgement(c, p, conn.info.dsn))
+    if removed:
+        monkeypatch.setattr(review, 'acknowledged_view_owned', lambda *_: None)
+    for display in (True, False):
+        observed = producer.read(conn.info.dsn, display=display)
+        assert observed.observation_current, 'pure ACK made current facts stale'
+        assert observed.operator_review.status == 'CLEAN'
+        assert observed.operator_review.head == accepted.head
+        assert observed.observation_valid_until == original.observation_valid_until
+    after = conn.execute(f"SELECT envelope,signature,valid_until FROM {snapshots.schema.RECEIPTS} "
+                         "WHERE scope='DASHBOARD'").fetchone()
+    conn.rollback()
+    assert before == after
+    assert state(conn)['head'] == accepted.head
+
+
+def test_acknowledgement_does_not_expire_unchanged_publication(operational, monkeypatch):
+    acknowledgement_gap_case(operational, monkeypatch)
+
+
+def test_removed_ack_composition_has_an_executed_falsifier(operational, monkeypatch):
+    with pytest.raises(AssertionError, match='pure ACK made current facts stale'):
+        acknowledgement_gap_case(operational, monkeypatch, removed=True)
+
+
+@pytest.mark.parametrize('fault', ['new_event', 'other_view', 'unreviewed', 'notification', 'signature'])
+def test_ack_composition_refuses_other_changes(operational, monkeypatch, fault):
+    conn, _, _ = operational
+    publish(operational)
+    original = producer.read(conn.info.dsn)
+    review.Recorder().acknowledge(original, conn.info.dsn, original.operator_review.token,
+        actor='private qualifier',
+        snapshot_guard=lambda c, p: producer.guard_acknowledgement(c, p, conn.info.dsn))
+    key, now = review_store.scope(conn), review_store.database_now(conn)
+    current = review_store._read_state(conn, key, now)
+    if fault == 'new_event':
+        review_store.append(conn, key, current, kind='STARTED', event_key='another-incarnation',
+                            details={'component': 'dashboard'}, now=now)
+    elif fault == 'other_view':
+        current['view_sha256'] = '0'*64
+    elif fault == 'unreviewed':
+        current['reviewed_head'] = original.operator_review.head
+    elif fault == 'notification':
+        row = conn.execute(f'SELECT payload FROM {review_schema.EVENTS} '
+                           'WHERE scope_sha256=%s AND sequence=%s', (key, current['head'])).fetchone()[0]
+        row['details']['alert_ids'] = ['private-alert']
+        signed = review_store.signature(row, purpose=review_store.EVENT_SCHEMA)
+        conn.execute(f'UPDATE {review_schema.EVENTS} SET payload=%s,signature=%s '
+                     'WHERE scope_sha256=%s AND sequence=%s',
+                     (psycopg.types.json.Jsonb(row), signed, key, current['head']))
+        current['head_signature'] = signed
+    review_store.save(conn, key, current, now)
+    if fault == 'signature':
+        conn.execute(f'UPDATE {review_schema.STATE} SET signature=%s WHERE scope_sha256=%s', ('0'*64, key))
+    conn.commit()
+    if fault == 'signature':
+        with pytest.raises(review_store.ReviewRefused):
+            producer.read(conn.info.dsn, display=True)
+    else:
+        assert not producer.read(conn.info.dsn, display=True).observation_current
 
 
 def test_background_failure_and_recovery_record_once_without_any_http(operational):
