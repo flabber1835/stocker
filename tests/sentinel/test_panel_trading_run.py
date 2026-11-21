@@ -285,6 +285,62 @@ def test_fractional_run_reader_uses_the_saved_plan_valuation(monkeypatch, comple
         'BUY', Decimal('368.82'), Decimal('367.82'))
 
 
+@pytest.mark.parametrize('completed_history', [False, True])
+def test_completed_protected_skip_reuses_the_read_projection(monkeypatch, completed_history):
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from sentinel.execution import journal, protected_limits, target_reprojection
+    from sentinel.panel import intent_memo
+    from tests.sentinel.test_paper_plan_preview import original_authority
+
+    plan, authority = original_authority()
+    completed = plan['execute_at'] + timedelta(seconds=8)
+    openings = [dict(security_id='new', slot_id=0, intended_dollars='200')]
+    plan.update(state='SUCCEEDED', updated_at=completed, completed_at=completed,
+        valid_until=completed + timedelta(hours=1), target_basket={'new': '0'})
+    authority['tickers'] = {'new': 'NEW'}
+    authority['broker_observation']['positions'] = []
+    stored = SimpleNamespace(plan_id=plan['plan_id'], broker=plan['broker'],
+        broker_account_id=plan['broker_account_id'], effective_session=plan['effective_session'],
+        fingerprint=lambda: plan['plan_fingerprint'], target_basket={'new': Decimal(0)},
+        account_nav=Decimal('10000'), target_exposure=Decimal(1), opening_intents=openings)
+    projection = SimpleNamespace(plan_fingerprint=plan['plan_fingerprint'],
+        through_session=plan['effective_session'], target_basket=stored.target_basket,
+        opening_sizing=dict(mode=protected_limits.PROTECTED_MODE, limits={'new': '150'},
+            entries=[dict(security_id='new', budget='100', account_shares='0', status='BELOW_WHOLE_SHARE')]))
+    load = MagicMock(side_effect=[projection, None])
+    validate = MagicMock()
+    monkeypatch.setattr(journal, 'load_plan', lambda *_: stored)
+    monkeypatch.setattr(journal, 'load_observation_payload', lambda *_: dict(
+        completeness='COMPLETE', broker=plan['broker'], account_id=plan['broker_account_id'],
+        orders=[], positions=[]))
+    monkeypatch.setattr(intent_memo, 'read', lambda *_args, **_kwargs: authority)
+    monkeypatch.setattr(target_reprojection, 'load_projection', load)
+    monkeypatch.setattr(protected_limits, 'validate_projection', validate)
+    conn = MagicMock()
+    cursor = conn.cursor.return_value.__enter__.return_value
+    cursor.fetchall.return_value = []
+    cursor.fetchone.return_value = (plan['effective_session'], dict(kind='plan-opening-intents/v1',
+        plan_id=plan['plan_id'], plan_fingerprint=plan['plan_fingerprint'], intents=openings))
+    reconciliation = dict(runtime_state='RUNNING', clean=True, observation_id=1,
+        unresolved=[], foreign_orders=[], foreign_positions=[], restricted_securities={},
+        expected={}, observed={})
+    conn.execute.return_value.fetchone.return_value = ('1',
+        dict(reconciliation=reconciliation, refused={}, deferred=[]), completed, 'RUNNING')
+    row = tuple(plan[key] for key in ('cycle_id', 'state', 'execute_at', 'updated_at',
+        'completed_at', 'plan_id', 'plan_fingerprint', 'created_at', 'decision_session',
+        'effective_session', 'target_basket', 'broker', 'broker_account_id', 'valid_until'))
+
+    result = sources._trading_run_row(conn, row, completed_history=completed_history)
+
+    load.assert_called_once_with(conn, plan_id=plan['plan_id'])
+    validate.assert_called_once_with(projection, plan=stored)
+    assert result.status == model.OK and result.value == 'SUCCEEDED · NO ORDERS PLACED'
+    assert result.trading_run.below_whole_share['new'].account_budget == Decimal('100')
+    assert result.trading_run.orders == []
+
+
 def test_actual_source_composition_recovers_the_screenshot_then_cleans_up(monkeypatch):
     from sentinel import paper_plan_preview
     from test_panel import TestRuntimeRowsAreDurableFacts

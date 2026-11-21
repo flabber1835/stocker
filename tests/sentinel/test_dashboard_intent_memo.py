@@ -44,6 +44,62 @@ def test_repeated_display_reuses_only_small_validated_projection(conn,monkeypatc
     assert memo.read(conn,plan_id=raw['plan_id'])['tickers']['one']=='ONE'
 
 
+def test_opening_display_policy_reuses_verified_row_and_rechecks_live_inputs(conn, monkeypatch):
+    from sentinel import local_paper
+    from sentinel.execution.market_buy_policy import MARKET_MODE, MarketBuyPolicy
+
+    raw = value()
+    raw.update(schema=authority.MARKET_SCHEMA, held_share_targets={},
+               market_buy_policy_sha256=MarketBuyPolicy().fingerprint())
+    del raw['authority_sha256']
+    raw['authority_sha256'] = authority._sha256(raw)
+    insert(conn, raw)
+    plan = SimpleNamespace(plan_id=raw['plan_id'], fingerprint=lambda:raw['plan_fingerprint'])
+    monkeypatch.setenv(local_paper.MODE_ENV, local_paper.MODE)
+    monkeypatch.setenv(local_paper.ACCOUNT_ENV, 'PAfixture')
+    monkeypatch.setenv(local_paper.BACKUP_POLICY_ENV, local_paper.BACKUP_POLICY)
+    monkeypatch.setenv('ALPACA_BASE_URL', 'https://paper-api.alpaca.markets')
+    monkeypatch.setenv('SENTINEL_PAPER_BUY_POLICY', MARKET_MODE)
+    monkeypatch.delenv('SENTINEL_PAPER_BUY_CAP_BPS', raising=False)
+    monkeypatch.delenv('SENTINEL_PAPER_DEBUG_WINDOW', raising=False)
+    monkeypatch.setattr(display, 'read', display.IntentMemo().read)
+    calls = []
+    original = authority.load_authority
+
+    def counted(*args, **kwargs):
+        calls.append(kwargs['plan_id'])
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(authority, 'load_authority', counted)
+    for _ in range(3):
+        display.require_current_display_policy(conn, plan=plan)
+    assert calls == [plan.plan_id]
+
+    for _ in range(2):
+        authority.require_current_buy_policy(conn, plan=plan)
+    assert calls == [plan.plan_id] * 3
+
+    monkeypatch.delenv('SENTINEL_PAPER_BUY_POLICY')
+    with pytest.raises(authority.DualPlanAuthorityRefused, match='current BUY policy differs'):
+        display.require_current_display_policy(conn, plan=plan)
+    assert calls == [plan.plan_id] * 3
+    monkeypatch.setenv('SENTINEL_PAPER_BUY_POLICY', MARKET_MODE)
+
+    plan.fingerprint = lambda: 'f' * 64
+    with pytest.raises(authority.DualPlanAuthorityRefused, match='current BUY policy differs'):
+        display.require_current_display_policy(conn, plan=plan)
+    assert calls == [plan.plan_id] * 3
+    plan.fingerprint = lambda: raw['plan_fingerprint']
+
+    conn.execute("UPDATE sentinel_processed_sessions SET state=jsonb_set(state,"
+                 "'{shadow_state,large_private_fixture}','\"changed\"') WHERE cursor_name=%s",
+                 (authority._cursor(plan.plan_id),))
+    conn.commit()
+    with pytest.raises(authority.DualPlanAuthorityRefused, match='digest'):
+        display.require_current_display_policy(conn, plan=plan)
+    assert calls == [plan.plan_id] * 4
+
+
 def test_opening_preview_reuses_compact_exact_authority(conn, monkeypatch):
     from sentinel import paper_plan_preview
     from sentinel.execution import journal, protected_limits

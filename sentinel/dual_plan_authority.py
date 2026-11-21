@@ -498,24 +498,38 @@ def load_authority(conn, *, plan_id: str) -> dict | None:
 
 def require_current_buy_policy(conn, *, plan) -> None:
     """Authorize new transport under the policy saved with the original plan."""
+    authority = load_authority(conn, plan_id=plan.plan_id)
+    stored, retry = saved_buy_policy(authority)
+    check_buy_policy(plan=plan, stored=stored, retry=retry,
+                     fingerprint=authority["plan_fingerprint"] if authority is not None else None)
+
+
+def saved_buy_policy(authority):
+    """Extract the policy and retry flag from a canonically validated sizing record."""
     from sentinel.execution import held_targets
+
+    if authority is None:
+        return None, False
+    basis = authority.get("held_share_targets")
+    return authority.get("market_buy_policy_sha256"), (
+        isinstance(basis, dict) and basis.get("schema") == held_targets.RETRY_SCHEMA)
+
+
+def check_buy_policy(*, plan, stored, retry, fingerprint) -> None:
+    """Compare saved policy facts with the current execution configuration."""
     from sentinel.execution.market_buy_policy import MarketBuyPolicy
     from sentinel.execution.protected_limits import ProtectedLimitPolicy
     from sentinel.execution.target_reprojection import TargetProjectionRefused
 
-    authority = load_authority(conn, plan_id=plan.plan_id)
-    basis = authority.get("held_share_targets") if authority is not None else None
-    is_retry_plan = isinstance(basis, dict) and basis.get("schema") == held_targets.RETRY_SCHEMA
-    stored = authority.get("market_buy_policy_sha256") if authority is not None else None
     try:
         market_policy = MarketBuyPolicy.from_env()
-        if is_retry_plan and stored is None and ProtectedLimitPolicy.from_env() is None:
+        if retry and stored is None and ProtectedLimitPolicy.from_env() is None:
             raise DualPlanAuthorityRefused("opening retries require the protected PAPER BUY policy")
     except TargetProjectionRefused as exc:
         raise DualPlanAuthorityRefused(str(exc)) from exc
     expected = market_policy.fingerprint() if market_policy is not None else None
     if (expected != stored
-            or ((stored is not None or is_retry_plan) and authority["plan_fingerprint"] != plan.fingerprint())):
+            or ((stored is not None or retry) and fingerprint != plan.fingerprint())):
         raise DualPlanAuthorityRefused(
             "current BUY policy differs from the original plan; prepare a new decision")
 

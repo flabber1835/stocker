@@ -6,8 +6,8 @@ from decimal import Decimal
 import inspect,textwrap
 from types import SimpleNamespace
 import pytest
-from sentinel.panel import sources,model,observer_codec,observer_failure
-from sentinel import dual_plan_authority, local_paper
+from sentinel.panel import sources,model,observer_codec,observer_failure,intent_memo
+from sentinel import local_paper
 from sentinel import informational_paper_mirror as mirror
 from sentinel.paper_plan_preview import PlannedLeg
 from sentinel.execution import account_status
@@ -342,10 +342,9 @@ def test_market_buy_retry_stays_pending_only_with_exact_current_native_evidence(
     monkeypatch.delenv("SENTINEL_PAPER_DEBUG_WINDOW", raising=False)
     monkeypatch.setenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
     v["plan"].plan_id = c["plan_id"]
-    authority = {"plan_fingerprint": v["plan"].fingerprint()}
-    if fault != "old_policy":
-        authority["market_buy_policy_sha256"] = MarketBuyPolicy().fingerprint()
-    monkeypatch.setattr(dual_plan_authority, "load_authority", lambda *args, **kw: authority)
+    authority = {"plan_fingerprint": v["plan"].fingerprint(), "opening_retry": False,
+        "market_buy_policy_sha256": None if fault == "old_policy" else MarketBuyPolicy().fingerprint()}
+    monkeypatch.setattr(intent_memo, "read", lambda *args, **kw: authority)
     monkeypatch.setattr(account_status, "recorded_market_working", lambda *args, **kw: proof)
     monkeypatch.setattr(sources, "_latest_account_evidence", lambda _: account)
     monkeypatch.setattr(model, "alpaca_account_row", _ALPACA_ACCOUNT_ROW)
@@ -362,7 +361,7 @@ def test_market_buy_retry_stays_pending_only_with_exact_current_native_evidence(
 
 def test_market_buy_pending_policy_guard_falsifier(ongoing, monkeypatch):
     code = textwrap.dedent(inspect.getsource(sources._matched_market_order_wait))
-    guard = "dual_plan_authority.require_current_buy_policy(conn, plan=plan)"
+    guard = "require_current_display_policy(conn, plan=plan)"
     assert code.count(guard) == 1
     scope = dict(vars(sources))
     exec(code.replace(guard, "pass"), scope)

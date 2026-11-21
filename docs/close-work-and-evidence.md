@@ -78,3 +78,39 @@ Qualify HTTP and browser-visible handoffs with recorded review evidence, bounded
 progress, and negative controls. Verify that the installed PAPER plan and
 activation survive the backed pre-open application handover. The next actual
 close supplies field traces for performance and rendered continuity.
+
+## Coherent progress and bounded session display work
+
+The preparation display currently reads the latest job and the current target's
+candidate in two statements. A new job can commit between them. The old status
+then remains visible without the valid producer progress from the same read.
+Read both sets in one PostgreSQL statement. Keep the latest-job identity check,
+the two-candidate ambiguity bound, and the independent feed readiness read.
+Use a second database connection to commit a job across the observation
+boundary in qualification. Removing the common snapshot must reproduce the
+lost handoff.
+
+When a native opening BUY is working, the display verifies its saved policy
+by decoding the full immutable sizing record, even though the trading card
+already has a physically witnessed dated-intent projection. Add the saved
+policy fingerprint and retry-basis flag to that projection. Compare them and
+the existing plan fingerprint with the current configuration through the same
+policy comparison used by the transport gate. Only the display reads the
+projection. Transport obtains its facts through the canonical authority loader.
+The native observation, callback, clock and exact order matches remain required.
+Qualify repeated reads, version replacement, configuration change, and refusal
+of malformed evidence. The completed-run display also uses the projection
+already read for that same card when verifying a protected zero-share outcome.
+
+Live operator collection evaluates account and order evidence at a clock
+sampled after it reads the recorded account and cycle. The full panel can start
+collecting before this evidence commits. A clock fixed at the start incorrectly
+rejects the new observation as future and hides the valid bounded order wait.
+Keep explicit inspection clocks and the original account, order and callback
+expiries. A delayed-read test must distinguish a commit during collection from
+an observation dated after the actual read.
+
+For both sessions, sign or authenticate the same bounded canonical snapshot
+bytes already encoded for wire validation. The signing purpose, key, format,
+size limit, and original expiry stay the same. Establish signature parity and
+verify that one encode or decode no longer serializes the whole envelope twice.
