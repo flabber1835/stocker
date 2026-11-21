@@ -1,11 +1,9 @@
 """Canonical rolling state remains exact across verifier-only material reuse."""
-from datetime import datetime, timedelta
-
 import pytest
 
 from sentinel import backup_runtime_authority, operational_schema, rolling_runtime, rolling_checkpoint
 from sentinel.shadow_status_material import StatusMaterialMemo, current_memo
-from sentinel.feed import rolling_go_inputs, store
+from sentinel.feed import calendar, operational_snapshot, rolling_go_inputs, store
 from tests.sentinel.test_rolling_paper_inputs import (
     conn, pg, source, issuer_source, ready, operational_source, published, approve,
 )
@@ -41,9 +39,11 @@ def test_actual_canonical_status_reuses_material_and_keeps_current_failures(conn
         assert first['status'] == second['status'] == independent['status'] == 'VERIFIED'
         assert first['result'].state.to_dict() == second['result'].state.to_dict() == independent['result'].state.to_dict()
         assert first['result'].record_sha256 == independent['result'].record_sha256
-        after_next_close = datetime.fromisoformat(independent['result'].session+'T23:00:00+00:00')+timedelta(days=1)
-        with pytest.raises(rolling_go_inputs.RollingSourceFrontierPending):
-            read(after_next_close)
+        with monkeypatch.context() as next_close:
+            target = calendar.next_session(independent['result'].session)
+            next_close.setattr(operational_snapshot, 'source_final_session', lambda instant=None: target)
+            with pytest.raises(rolling_go_inputs.RollingSourceFrontierPending):
+                read()
         assert len(calls) == 2, 'fresh readiness required decoding the unchanged checkpoint again'
         conn.execute("UPDATE sentinel_processed_sessions SET state='{}' WHERE cursor_name=%s",
                      (rolling_checkpoint.CURSOR,))
