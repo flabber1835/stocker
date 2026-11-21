@@ -26,8 +26,27 @@ def predecessor_sources():
     return record['modules']
 
 
+def physical_predecessor(module, raw):
+    if (module == 'sentinel.feed.rolling_store'
+            and hashlib.sha256(raw).hexdigest() == economic_manifest.CLOSE_READINESS_COMPILERS[module]):
+        changes = (
+            (b'def staged_readiness_facts(conn, candidate_id: str) -> SnapshotReadiness | None:\n'
+             b'    """Collect facts during the owning READY validator\'s complete content check."""\n'
+             b'    return _verify_content_uncached(conn, candidate_id, collect_readiness=True).readiness\n\n\n', b''),
+            (b'def _verify_content_uncached(conn, candidate_id: str, *, collect_readiness=False)',
+             b'def _verify_content_uncached(conn, candidate_id: str)'),
+            (b'    if collect_readiness and readiness is None:\n'
+             b'        readiness = _ReadinessAccumulator(value)\n', b''),
+        )
+        for current, previous in changes:
+            assert raw.count(current) == 1
+            raw = raw.replace(current, previous)
+        assert hashlib.sha256(raw).hexdigest() == '068299577befcc49ed3ce8a8a203b46c8c26ec76bb9657779f2e25dd17324fc6'
+    return economic_manifest.previous_source(module, raw)
+
+
 def unchanged_compiler_body(module, raw):
-    raw = economic_manifest.previous_source(module, raw)
+    raw = physical_predecessor(module, raw)
     if module == close_basis.MODULE:
         replacements = (
             (b'import predecessor_prices, query_router', b'import query_router'),
@@ -141,7 +160,7 @@ def test_compiler_arithmetic_and_sql_edits_fail_mechanical_proof(module,old,new)
 def test_exact_current_compiler_preserves_original_contribution_and_unknown_bytes_do_not(module):
     raw=Path(importlib.import_module(module).__file__).read_bytes()
     mapper = close_basis.contribution if module == close_basis.MODULE else lambda value: basis.contribution(module, value)
-    assert mapper(economic_manifest.previous_source(module, raw))==basis.BASELINES[module]
+    assert mapper(physical_predecessor(module, raw))==basis.BASELINES[module]
     changed=raw+b'\n# unknown compiler bytes\n'
     assert mapper(changed)==hashlib.sha256(changed).hexdigest()
 

@@ -10,11 +10,17 @@ from tests.sentinel.test_panel_completed_history_health import completed_panel
 from tests.sentinel.test_panel_closing_preparation_health import verified_calculation_panel
 
 
-@pytest.mark.parametrize('factory', [healthy_history_panel, completed_panel, verified_calculation_panel])
-def test_all_typed_workflow_copy_can_change_without_changing_health(factory):
+@pytest.mark.parametrize('factory,color,label', [
+    (healthy_history_panel, 'green', None),
+    (completed_panel, 'green', None),
+    (verified_calculation_panel, 'amber', 'Preparing plan for the next open'),
+])
+def test_all_typed_workflow_copy_can_change_without_changing_health(factory, color, label):
     page = factory()
     before = presentation.dashboard_health(page)
-    assert before['color'] == 'green'
+    assert before['color'] == color
+    if label is not None:
+        assert before['label'] == label
     changed = replace(page, rows=[replace(row, value='Compatible renderer wording',
         detail='Original typed facts and clocks retained.') if row.operational_fact else row
         for row in page.rows])
