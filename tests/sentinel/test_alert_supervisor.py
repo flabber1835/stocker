@@ -70,5 +70,29 @@ def test_dispatcher_restarts_after_stall_and_bounds_independent_report(monkeypat
 def test_public_alert_service_entry_uses_supervisor(monkeypatch):
     from sentinel import alert_service
     monkeypatch.setattr(sys, 'argv', ['sentinel.alert_service'])
-    monkeypatch.setattr(supervisor, 'main', lambda: 73)
+    def supervise(*, serve_health):
+        assert serve_health is True
+        return 73
+    monkeypatch.setattr(supervisor, 'main', supervise)
     assert alert_service.main() == 73
+
+
+def test_health_activity_cannot_renew_a_stalled_worker_deadline():
+    ticks = []
+    class Health:
+        def tick(self): ticks.append(True)
+    started = time.monotonic()
+    with pytest.raises(supervisor.DispatcherStalled):
+        supervisor.run_worker([sys.executable, '-c', 'import time; time.sleep(30)'],
+                              deadline_seconds=.3, grace_seconds=.05, health_reader=Health())
+    assert ticks and time.monotonic()-started < 1.5
+
+
+def test_health_reader_failure_does_not_interrupt_worker_progress(monkeypatch):
+    class Health:
+        def tick(self): raise OSError('private diagnostic resource unavailable')
+    reports = []
+    monkeypatch.setattr(supervisor.supervisor_io, 'report', reports.append)
+    assert supervisor.run_worker([sys.executable, '-c', 'import time; time.sleep(.1)'],
+                                 deadline_seconds=1, health_reader=Health()) == 0
+    assert reports and all('OSError' in value for value in reports)

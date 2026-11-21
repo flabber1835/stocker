@@ -2,6 +2,8 @@
 from datetime import datetime, timezone
 from pathlib import Path
 import runpy
+import subprocess
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -13,6 +15,22 @@ AGE = "SENTINEL_AUTOMATION_ALERT_HEALTH_MAX_AGE_SECONDS"
 GRACE = "SENTINEL_AUTOMATION_ALERT_STARTUP_GRACE_SECONDS"
 IDENTITY = "SENTINEL_AUTOMATION_ALERT_DISPATCHER_ID"
 NONFINITE = ["NaN", "inf", "-inf", "1e999"]
+
+
+def test_deployed_probe_does_not_import_application_or_database():
+    script = """
+import importlib.abc,runpy,sys
+class RefuseApplication(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, *args):
+        if fullname in {'pydantic','psycopg','sentinel.schema','sentinel.alert_health',
+                         'sentinel.alert_service','sentinel.config'}:
+            raise AssertionError('cold application import: '+fullname)
+sys.meta_path.insert(0,RefuseApplication())
+sys.argv[:]=['sentinel.alert_liveness']
+runpy.run_module('sentinel.alert_liveness',run_name='__main__')
+"""
+    result = subprocess.run([sys.executable,'-c',script],capture_output=True,text=True,timeout=7)
+    assert result.returncode == 1 and 'FileNotFoundError' in result.stdout and not result.stderr
 
 
 def health_row(*, state="HEALTHY", heartbeat_age=1, startup_age=1,
@@ -63,7 +81,7 @@ def entry(monkeypatch):
     schemas = []
     monkeypatch.setattr(alert_liveness.SentinelConfig, "from_env", lambda: config)
     monkeypatch.setattr(alert_liveness.feed_store, "connect",
-                        lambda url: contacts.append(url) or connection)
+                        lambda url, **kwargs: contacts.append(url) or connection)
     monkeypatch.setattr(alert_liveness.schema, "require_runtime_schema",
                         lambda conn: schemas.append(conn))
     return config, connection, contacts, schemas
@@ -156,7 +174,7 @@ def test_dependency_failure_reports_error_and_closes_only_owned_connection(
         entry, monkeypatch, capsys, stage):
     _, connection, _, _ = entry
 
-    def fail(*args):
+    def fail(*args, **kwargs):
         raise OSError("private health dependency unavailable")
 
     if stage == "connect":
@@ -193,7 +211,8 @@ def test_direct_health_reader_rejects_invalid_budget_before_read(field, value):
 
 
 @pytest.mark.parametrize("configured", [True, False])
-def test_module_entry_reports_actual_exit_code(entry, capsys, configured):
+def test_module_entry_reports_actual_exit_code(entry, capsys, configured, monkeypatch):
+    monkeypatch.setattr('sys.argv', ['sentinel.alert_liveness', '--direct'])
     config, connection, contacts, _ = entry
     if not configured:
         config.database_url = ""

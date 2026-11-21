@@ -63,9 +63,15 @@ def _closure(conn, context, *, status_only=False, cached_only=False):
     if status_only:
         from sentinel import runtime_admission, structural_verification
         process_context = dict(context)
-        result = structural_verification.material(conn, slot='rolling-checkpoint',
-            key={**context, 'controller': context['controller'].to_dict()},
-            load=lambda: _status_closure(conn, context), cached_only=cached_only)
+        key = {**context, 'controller': context['controller'].to_dict()}
+        def load():
+            return structural_verification.material(conn, slot='rolling-checkpoint',
+                key=key, load=lambda: _status_closure(conn, context), cached_only=cached_only)
+        from sentinel.shadow_status_material import current_memo
+        memo = current_memo.get()
+        result = (memo.measure(conn, key, load)
+                  if memo is not None and not cached_only and not structural_verification.active()
+                  else load())
         runtime_admission._require_backed_owner_scope(
             conn, result[0].runtime_identity, process_context)
         return result

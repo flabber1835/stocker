@@ -654,7 +654,7 @@ def main() -> int:
             raise ValueError('alert worker requires its supervisor progress pipe')
         return asyncio.run(run())
     from sentinel.alert_supervisor import main as supervise
-    return supervise()
+    return supervise(serve_health=True)
 
 
 if __name__ == "__main__":  # pragma: no cover

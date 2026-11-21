@@ -616,9 +616,11 @@ def _reconstruct_missing_transition_alerts(conn, *, completion=False) -> None:
             _insert_recovered_alert(cur, _fill_alert(fill))
 
         from sentinel import paper_plan_preview
+        from sentinel.dual_plan_authority import DualPlanAuthorityRefused
+        from sentinel.panel.intent_memo import read as dated_intent
         try:
-            preview = paper_plan_preview.read(conn, unnotified=True)
-        except (ValueError, TypeError, ArithmeticError):
+            preview = paper_plan_preview.read(conn, unnotified=True, authority_loader=dated_intent)
+        except (ValueError, TypeError, ArithmeticError, DualPlanAuthorityRefused):
             # Optional presentation corruption cannot strand critical delivery.
             # SQL/schema failures still fail the dispatcher through its owner.
             preview = None

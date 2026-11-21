@@ -1,0 +1,84 @@
+# Idle notification work and fresh health observations
+
+Decision, November 20, 2026, after the complete read-only PR617 idle trace and
+before implementation. The owner authorized qualified local PAPER delivery and
+up to five measured improvement cycles. Develop from protected main
+`18e833b7d325645479095f2081f46bae99da74a4`; preserve the installed book,
+account, saved plan, journals, backup policy and separate financial authority.
+
+The thirty-minute baseline kept all 181 dashboard samples current and green.
+The alert container nevertheless averaged 22.85 percent of one CPU core and
+received approximately 13 GB of internal database traffic without a new alert
+or delivery attempt. Its recovery loop repeatedly read the same 23.9 MB sizing
+authority for a HOLD-only plan. A warm preview profile consumed 0.73 CPU seconds.
+The dispatcher used the executable full-authority loader while the dashboard
+already used the bounded, canonically admitted dated-intent projection.
+
+Use that same dated-intent reader for notification presentation. Continue
+querying current plan eligibility, account/control binding, observation and
+opening intent on each pass. Its existing physical-row witness, database and
+postmaster identity, XID wrap protection, source/configuration binding and
+assigned-writer exclusions remain unchanged. A changed row, missing row,
+unreusable transaction or changed configuration takes the canonical path.
+The projection supplies no execution sizing or broker authority. Quiet plans
+remain quiet; no invented delivery or new durable notification schema is needed.
+Actual plan alerts keep their idempotency and final current-plan fanout check.
+
+The alert Docker health command also repeatedly bootstraps application imports
+and schema metadata. A cold read-only profile used 0.62 CPU seconds, including
+0.49 seconds of source compilation. Share the existing warm, independently
+bounded supervisor health transport between automation and alerts. Each role
+retains a private owner-only socket and reader process, supervisor pulse,
+parent-death ownership, finite request/reap budgets and fresh canonical health
+predicate. Every alert request opens a separate read-only database connection
+and checks the complete runtime schema and current database-clock dispatcher
+heartbeat, transport state, startup interval and dead letters. No healthy result
+is cached. Failure, missing socket, stale supervisor, malformed response or late
+read remains unhealthy. Health traffic cannot renew the worker-progress deadline.
+Keep the direct diagnostic entry point and automation's existing behavior.
+
+The public JSON mapping currently emits verification attempt history both at
+`verification_attempts` and inside `trial_details`. Keep the established
+top-level public field as its sole serialized location. Preserve the full
+internal model and renderer, original attempt clocks, all other trial details,
+history disclosure under System Details, and rejection of nonfinite metadata.
+
+The independent SHADOW profile also confirms repeated checkpoint decoding:
+the same canonical status closure took 16.4 seconds without profiling and its
+detached pickle was 14.8 MB. Preserve that authenticated material in one bounded
+16 MiB shared-memory slot owned by this verifier incarnation, alongside its
+existing readiness-material slot. This is a detached copy of the canonical
+checkpoint, with no second book, transitions or persisted state. It is available
+only to the read-only SHADOW display observer. Execution, preparation, recovery,
+the publisher and standalone callers continue through their original verifier.
+
+Each hit requires an owned current publication pin, repeatable-read read-only
+origin session, unassigned reader transaction, exact current runtime/configuration
+context, cluster/database/postmaster incarnation, independent guarded DDL epoch,
+relation identity and all current processed-row versions. No cursor namespace
+can conceal a changed foreign-lineage predicate. Reject prior-XID-epoch ambiguity. Record only after
+the canonical load succeeds and the complete witness still agrees. Authenticate
+owner, subject, original scan clocks and exact payload digest before decoding
+private pickle bytes. Missing, altered, oversized or expired material falls back
+to the full canonical reader. No untrusted pickle can be decoded.
+
+Keep the existing twenty-minute wall and monotonic byte-scrub ceiling from the
+original load start. Reuse never renews that clock. The existing fresh current
+source, calendar, publication/snapshot, account boundary and backed owner-scope
+checks still execute around the detached material. A material hit grants no
+financial authority and cannot conceal a negative current check. Qualify actual
+canonical closure equality, independent attempts, detached results, state/row/
+publication/database/DDL changes, lost pins, unsafe transactions, expiry,
+interruption, signature/payload corruption and standalone exclusion. The long
+periodic price scan remains intentional integrity work and keeps its current
+cadence and deadlines.
+
+Qualify the production-shaped quiet-plan loop with real PostgreSQL and a large
+valid authority, including canonical-load counts across ordinary recovery
+transactions. Exercise changed/corrupt rows, new or expired plans, assignments,
+critical alert delivery and final fanout checks. Qualify both health consumers
+for fresh reads, failures, pulse loss, reader replacement, shutdown, and a cheap
+deployed module entry point. Execute falsifiers for the reuse and supervision
+guards. Verify actual HTTP serialization and unchanged HTML history rendering.
+Use the backed local installer with exact qualification/source and predecessor
+receipts, then repeat the complete thirty-minute resource/health trace.
