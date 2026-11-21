@@ -7,10 +7,34 @@ import psycopg
 import pytest
 from psycopg.types.json import Jsonb
 
+from sentinel import schema
 from sentinel.panel import model, presentation, sources
+from tests.support.postgres import _EphemeralPostgres
 from scripts.sentinel_backup_publication import base_transition_sql
-from tests.backup.test_progress_phase_contract import database  # noqa: F401
 from tests.backup.test_recurring_maintenance import boundary, coordinator, SYSTEM
+
+@pytest.fixture(scope='module')
+def postgres():
+    server = _EphemeralPostgres()
+    try:
+        server.start()
+        with psycopg.connect(server.sync_dsn) as conn:
+            schema.ensure_schema(conn)
+        yield server
+    finally:
+        server.stop()
+
+
+@pytest.fixture
+def database(postgres):
+    with psycopg.connect(postgres.sync_dsn) as conn:
+        try:
+            yield conn
+        finally:
+            conn.rollback()
+            conn.execute('TRUNCATE sentinel_backup_evidence RESTART IDENTITY')
+            conn.commit()
+
 
 OLD = 'base-20261120T223403Z'
 NEW = 'base-20261121T103626Z'
@@ -187,6 +211,7 @@ def run_lost_reply(database,boundary,monkeypatch,*,legacy=False):
             coordinator.publish_progress(dict(progress,phase='FAILED'),runner))
     with pytest.raises(coordinator.Refused,match='response lost after commit'):
         coordinator.tick('/media',runner)
+    database.rollback()
     records=database.execute("SELECT proof FROM sentinel_backup_evidence WHERE kind='MAINTENANCE_PROGRESS' ORDER BY seq").fetchall()
     assert [r[0]['phase'] for r in records] == ['BASE_BACKUP','VERIFY_CHAIN','FAILED']
     assert [r[0]['base_backup'] for r in records] == [before,after,after]
