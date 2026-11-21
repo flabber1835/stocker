@@ -123,3 +123,45 @@ read-only behavior and unchanged proof bytes/deadlines, an executed falsifier,
 and the adjacent negative and HTTP paths. Deploy from the verified cycle-one
 receipt and a new immutable source checkout, then trace another full thirty
 minutes, including the actual acknowledgment transition.
+
+
+## Cycle three: an atomic styled document
+
+The second complete observation passed 181/181 steady-window API samples and
+184/184 samples after ACK, with all 31 rows present and no browser errors or
+stale states. Its real ACK probe also saw the original publication remain
+current and green. The full scan passed in 70.4 seconds. Application CPU was
+3.26 percent of the 16-logical-CPU host during the exact thirty-minute steady
+window; source, command and notification histories remained unchanged.
+
+A separate post-window compositor probe established a different startup bug.
+Holding the first CSS response for 1.2 seconds produced a painted unstyled
+healthy document, including a notice that CSS normally hides. This was an
+actual compositor frame, not just an early computed-style sample. The launcher
+writes the fetched HTML into its already painted page before the external CSS
+has arrived. Updating a controller/document or stylesheet is the adjacent path.
+
+Make the status document self-contained: render the canonical CSS inline before
+its body. The single CSS source is 16,118 bytes, 4,194 bytes compressed in the
+measured candidate. This modest per-document transfer is preferable to another
+asset loader, cache, retry or readiness/deadline protocol. It removes the
+asynchronous dependency rather than hiding unstyled content or waiting on a
+second request. Keep the lightweight neutral Connecting document independent of
+operational reads and keep every original document, retry and proof clock.
+
+Retain the content-derived stylesheet identity for in-place reconciliation.
+Replace the style element atomically when its identity or element kind changes,
+including a link-to-inline handover, and recover a missing local style element.
+Unchanged styles retain their existing node. Keep the immutable CSS endpoint
+for history pages and older client documents. There is still one canonical CSS
+implementation, and no financial behavior or authority changes.
+
+Qualify cold navigation with unavailable external CSS, initial/current-document
+and controller handovers, changed/unchanged style identities, missing local
+styles, existing mobile disclosure and freshness/expiry/offline/retry behavior.
+Improve the browser recorder so a missing declared stylesheet cannot be counted
+as a healthy meaningful frame merely because unstyled text and border colors
+both happen to be black. Execute a falsifier restoring the external dependency.
+Verify actual compositor frames, qualify the adjacent Python and real browser
+paths, use a fresh immutable source checkout for local delivery and repeat the
+complete monitoring window after installation.

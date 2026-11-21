@@ -1,9 +1,10 @@
 'use strict';
 const {test,expect}=require('@playwright/test');
 const http=require('node:http');
+const assert=require('node:assert/strict');
 const {panelAssets,servePanelAsset}=require('./panel-assets.cjs');
 
-async function fixture(request,{workerOnly=false,legacyWorker=false,partial=false}={}) {
+async function fixture(request,{workerOnly=false,legacyWorker=false,partial=false,externalStyle=false}={}) {
   let source=await (await request.get('/service-worker.js')).text();
   const match=source.match(/^const LAUNCH_DOCUMENT = (.+);$/m);
   expect(match,'shipped worker must expose only its static launch document').not.toBeNull();
@@ -13,7 +14,12 @@ async function fixture(request,{workerOnly=false,legacyWorker=false,partial=fals
     source=source.replace(/  var url = new URL\(event.request.url\);[\s\S]*?\n    return;\n  }\n/,'');
     expect(source).not.toBe(current);
   }
-  const template=await (await request.get('/?document=1')).text();
+  let template=await (await request.get('/?document=1')).text();
+  if(externalStyle) {
+    const inline=/<style id="dashboard-stylesheet" data-source-href="([^"]+)">[\s\S]*?<\/style>/;
+    expect(template).toMatch(inline);
+    template=template.replace(inline,'<link id="dashboard-stylesheet" rel="stylesheet" href="$1">');
+  }
   const assets=await panelAssets(request,template);
   const pending=new Set(),sockets=new Set(),requests=[];
   let held=true;
@@ -64,6 +70,42 @@ async function fixture(request,{workerOnly=false,legacyWorker=false,partial=fals
 
 test.describe('First document before current evidence',()=>{
   test.use({serviceWorkers:'block'});
+  async function firstStyledDocument(page,request,{externalStyle=false,failed=false}={}) {
+    const f=await fixture(request,{externalStyle});
+    let cssRequests=0,releaseCSS;
+    const held=new Promise(resolve=>{releaseCSS=resolve;});
+    await page.route('**/*.css',async route=>{
+      cssRequests++;
+      if(failed)return route.abort('failed');
+      await held;return route.continue();
+    });
+    try {
+      await page.goto(f.url,{waitUntil:'domcontentloaded'});
+      await expect(page.locator('#launch-status')).toBeVisible();
+      f.release();await expect(page.locator('#operational-state')).toBeAttached();
+      const state=await page.evaluate(()=>{
+        const sheet=document.getElementById('dashboard-stylesheet');
+        return {inline:sheet.tagName==='STYLE',ready:!!sheet.sheet&&sheet.sheet.cssRules.length>0,
+          border:getComputedStyle(document.querySelector('.brand')).borderTopWidth};
+      });
+      return {...state,cssRequests};
+    } finally {releaseCSS();f.release();await page.goto('about:blank',{waitUntil:'commit'});await f.close();}
+  }
+  function atomicStyle(state) {
+    assert.equal(state.inline,true,'essential styles depended on another request');
+    assert.equal(state.ready,true,'meaningful dashboard appeared before its styles');
+    assert.equal(state.border,'4px','meaningful dashboard was unstyled');
+    assert.equal(state.cssRequests,0,'essential styles started another request');
+  }
+  for(const failed of [false,true]) {
+    test(`cold launch is styled when external CSS is ${failed?'unavailable':'held'}`,async({page,request})=>{
+      atomicStyle(await firstStyledDocument(page,request,{failed}));
+    });
+  }
+  test('restoring an external stylesheet reproduces the cold-launch failure',async({page,request})=>{
+    const state=await firstStyledDocument(page,request,{externalStyle:true});
+    expect(()=>atomicStyle(state)).toThrow(/essential styles depended on another request/);
+  });
   test('a visible cold launch recovers from a lost first status request',async({page,request})=>{
     const f=await fixture(request);
     let interrupted=false;

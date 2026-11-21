@@ -589,7 +589,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" sizes="180x180" href="/static/caesars-palace-180.png">
 <title>{_esc(page_name)}</title>
-<link id="dashboard-stylesheet" rel="stylesheet" href="/static/{STYLE_ASSET}">
+<style id="dashboard-stylesheet" data-source-href="/static/{STYLE_ASSET}">{CSS}</style>
 </head><body data-generated-at="{_esc(generated)}"
              data-health="{_esc(health['color'])}"
              data-refresh-pending="{'true' if refresh_pending else 'false'}"
