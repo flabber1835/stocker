@@ -45,6 +45,7 @@ def test_actual_canonical_status_reuses_material_and_keeps_current_failures(conn
             with pytest.raises(rolling_go_inputs.RollingSourceFrontierPending):
                 read()
         assert len(calls) == 2, 'fresh readiness required decoding the unchanged checkpoint again'
+        conn.execute("SET LOCAL session_replication_role='replica'")
         conn.execute("UPDATE sentinel_processed_sessions SET state='{}' WHERE cursor_name=%s",
                      (rolling_checkpoint.CURSOR,))
         conn.commit()
