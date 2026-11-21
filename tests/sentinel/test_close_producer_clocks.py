@@ -112,7 +112,7 @@ def test_working_order_uses_the_account_observation_clock(db, monkeypatch, case)
     assert row.as_of == observed
     assert row.valid_until == observed + timedelta(minutes=10)
     if case == 'delayed_read':
-        assert row.effective_status(evaluated) == model.OK
+        assert row.effective_status(evaluated) == model.OK, row.detail
         assert 'freshly matched native LIMIT/DAY buys' in row.detail
     elif case == 'expired':
         assert row.effective_status(evaluated) == model.FAIL
@@ -128,7 +128,7 @@ def test_removed_account_observation_clock_reproduces_the_opening_failure(db, mo
     namespace = {}
     exec(compile(body.replace(guard, ''), '<old-account-clock>', 'exec'), vars(sources), namespace)
     monkeypatch.setattr(sources, '_operator_evidence_rows', namespace['_operator_evidence_rows'])
-    with pytest.raises(AssertionError):
+    with pytest.raises(AssertionError, match='buying power differs from cash'):
         test_working_order_uses_the_account_observation_clock(db, monkeypatch, 'delayed_read')
 
 
