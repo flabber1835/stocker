@@ -291,6 +291,9 @@ class Boundary:
             return json.dumps(dict(authentic=True,proof=dict(schema='sentinel.verified-base/1',
                 physical_verified=True,metadata_sha256=item['metadata_sha256'],base_backup=item['name'],
                 marker=item['marker'],marker_lsn=item['target_lsn'],system_identifier=SYSTEM)))
+        if "WHERE kind='MAINTENANCE_PROGRESS'" in joined:
+            return json.dumps(dict(authentic=True,
+                proof=next(value for value in reversed(self.published) if 'attempt' in value)))
         if "json_build_object" in joined and 'INSERT INTO sentinel_backup_evidence' not in joined:
             return json.dumps({"system_id": SYSTEM, "now": NOW, "timeline": "00000001",
                                "lsn": "0/D000000", "segment_size": SEGMENT,
@@ -316,6 +319,9 @@ class Boundary:
             return '{"retention_ready":true}'
         if command[:2] == ["bash", "scripts/sentinel-base-backup.sh"]:
             self.old = False
+            if '--maintenance-progress' in command:
+                value = json.loads(command[command.index('--maintenance-progress') + 1])
+                self.published.append(dict(value, base_backup=self.name, phase='VERIFY_CHAIN'))
             return "verified_base_backup:/media/base/" + self.name
         if command[:2] == ["bash", "scripts/sentinel-restore-drill.sh"]:
             assert command == ["bash", "scripts/sentinel-restore-drill.sh", "--backup", "/media/base/" + self.name]
@@ -373,6 +379,9 @@ class RuntimeTransition:
             self.boundary.calls.append(command)
             self.boundary.name = "base-20260919T120100Z"
             self.boundary.restored = False
+            if '--maintenance-progress' in command:
+                value = json.loads(command[command.index('--maintenance-progress') + 1])
+                self.boundary.published.append(dict(value, base_backup=self.boundary.name, phase='VERIFY_CHAIN'))
             return "verified_base_backup:/media/base/" + self.boundary.name
         if command[:2] == ["bash", "scripts/sentinel-restore-drill.sh"]:
             if self.boundary.name == self.predecessor or self.fail_successor_restore:

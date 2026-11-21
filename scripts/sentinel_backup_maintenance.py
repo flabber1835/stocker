@@ -16,6 +16,7 @@ import uuid
 
 from sentinel_backup_lock import lock_is_held, _lock_path
 from sentinel_backup_deadlines import BASE_COMMAND_SECONDS, INVOCATION_SECONDS
+from sentinel_backup_publication import progress_sql
 from sentinel_maintenance_process import run_bounded
 from sentinel_backup_integrity_report import validate as validate_shared_integrity
 from sentinel_backup_integrity_report import parse_failure, failure as failure_record
@@ -150,11 +151,14 @@ def renewal_due(selected, observation):
     return renewal_reason(selected, observation) is not None
 
 
-def renew_base(root, image, runner=run, *, on_wait=None):
+def renew_base(root, image, runner=run, *, on_wait=None, progress=None):
     """Produce and select one exact successor; callers retain their lock/budget."""
     options = dict(timeout=BASE_COMMAND_SECONDS)
     if on_wait is not None: options['on_wait'] = on_wait
-    output = runner(['bash', 'scripts/sentinel-base-backup.sh'], **options)
+    command = ['bash', 'scripts/sentinel-base-backup.sh']
+    if progress is not None:
+        command.extend(['--maintenance-progress', json.dumps(progress, sort_keys=True, separators=(',', ':'))])
+    output = runner(command, **options)
     paths = [line[len('verified_base_backup:'):].strip() for line in output.splitlines()
              if line.startswith('verified_base_backup:')]
     if len(paths) != 1:
@@ -165,6 +169,13 @@ def renew_base(root, image, runner=run, *, on_wait=None):
         raise Refused('producer successor differs from selected generation')
     if renewal_due(selected, observation):
         raise Refused('successor already exhausts maintenance headroom')
+    if progress is not None:
+        expected = dict(progress, base_backup=selected['name'], phase='VERIFY_CHAIN')
+        committed = _committed_progress(progress, runner)
+        if committed != expected:
+            raise Refused('producer did not publish the exact successor transition')
+        progress.clear()
+        progress.update(committed)
     return selected, observation
 
 
@@ -447,15 +458,7 @@ def reap_restore_resources(now, runner=run):
 
 def publish_progress(progress, runner=run):
     """Presentation evidence only; never lends authority to a recovery gate."""
-    payload = json.dumps(progress, sort_keys=True, separators=(',', ':'))
-    # Machine identities are validated before interpolation; JSON strings can
-    # still contain apostrophes (e.g. an image tag), so escape the SQL literal.
-    payload = payload.replace("'", "''")
-    query = ("WITH evidence AS (SELECT '" + payload + "'::jsonb AS proof), recorded AS ("
-        "INSERT INTO sentinel_backup_evidence(kind,evidence_sha256,proof) "
-        "SELECT 'MAINTENANCE_PROGRESS',encode(sha256(convert_to(proof::text,'UTF8')),'hex'),proof "
-        "FROM evidence RETURNING proof) SELECT proof::text FROM recorded")
-    if json.loads(sql(query, runner)) != progress:
+    if json.loads(sql(progress_sql(progress), runner)) != progress:
         raise Refused('maintenance progress was not persisted exactly')
 
 
@@ -465,6 +468,36 @@ def _progress(progress, runner, **changes):
     publish_progress(successor, runner)
     progress.clear()
     progress.update(successor)
+
+
+def _committed_progress(progress, runner):
+    """Authenticate the exact attempt without guessing a lost reply's generation."""
+    attempt = progress.get('attempt', '')
+    if not isinstance(attempt, str) or not re.fullmatch('[a-f0-9]{32}', attempt):
+        raise Refused('failed progress attempt identity is invalid')
+    raw = sql("SELECT json_build_object('proof',proof,'authentic',"
+        "evidence_sha256=encode(sha256(convert_to(proof::text,'UTF8')),'hex')) "
+        "FROM sentinel_backup_evidence WHERE kind='MAINTENANCE_PROGRESS' "
+        "AND proof->>'attempt'='" + attempt + "' ORDER BY observed_at DESC,seq DESC LIMIT 1", runner)
+    record = json.loads(raw)
+    committed = record.get('proof') if isinstance(record, dict) else None
+    immutable = lambda p: {k: v for k, v in p.items() if k not in {'phase', 'base_backup'}}
+    if (not isinstance(committed, dict) or record.get('authentic') is not True
+            or immutable(committed) != immutable(progress)
+            or not BASE_RE.fullmatch(str(committed.get('base_backup', '')))):
+        raise Refused('failed progress committed identity is unauthenticated')
+    return committed
+
+
+def _failed_progress(progress, runner):
+    committed = _committed_progress(progress, runner)
+    if committed.get('phase') in {'COMPLETE', 'FAILED'}:
+        return
+    if committed.get('phase') not in {'BASE_BACKUP', 'VERIFY_RESTORE', 'VERIFY_CHAIN'}:
+        raise Refused('failed progress committed phase is invalid')
+    progress.clear()
+    progress.update(committed)
+    _progress(progress, runner, phase='FAILED')
 
 
 class FreshnessReader:
@@ -529,9 +562,8 @@ def tick(root, runner=run, *, freshness=False, budget=None):
         return value
     except Exception as primary:
         if progress:
-            progress['phase'] = 'FAILED'
             try:
-                publish_progress(progress, runner)
+                _failed_progress(progress, runner)
             except Exception as progress_error:
                 print('maintenance failure progress unreadable: ' + type(progress_error).__name__, file=sys.stderr)
         failure = primary.failure if isinstance(primary,Refused) else None
@@ -611,8 +643,7 @@ def _tick(root, runner, progress, started,state):
             deadline=first_second + INVOCATION_SECONDS,
             system_identifier=observation['system_id'], image=image,
             predecessor_base=selected['name'], base_backup=selected['name'],phase='BASE_BACKUP')
-        selected, observation = renew_base(root, image, runner,on_wait=on_wait)
-        _progress(progress, runner, base_backup=selected['name'], phase='VERIFY_CHAIN')
+        selected, observation = renew_base(root, image, runner, on_wait=on_wait, progress=progress)
     chain,receipt,observation = _chain(root,image,selected,observation,runner,state,shared_mode=bool(shared_mode))
     state['phase'] = 'CHECKPOINT'
     from sentinel_backup_capacity import checkpoint

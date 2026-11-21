@@ -165,3 +165,47 @@ both happen to be black. Execute a falsifier restoring the external dependency.
 Verify actual compositor frames, qualify the adjacent Python and real browser
 paths, use a fresh immutable source checkout for local delivery and repeat the
 complete monitoring window after installation.
+
+## Cycle four: publish the backup transition as one fact
+
+Cycle three completed 1,862 seconds at 3.26 percent application CPU on the
+16-logical-CPU host, with all 31 rows present and no browser faults. A routine
+backup rollover during qualification exposed an independent defect. The base
+record committed at 10:39:31.319323 UTC, successor progress at 10:39:32.393385,
+and its runtime chain at 10:39:38.017349. Replaying these stored records
+reproduces FAIL, bounded maintenance WARN, then OK. The valid predecessor chain
+remained retained. The producer exposed a new generation before its existing
+typed transition; the consumer also read the four kinds in separate SQL
+snapshots. Tests inspected completed fake producer passes, not these commits.
+
+Keep physical promotion, atomic filesystem selection and genuine verification
+unchanged. During owned recurring renewal, pass the original typed maintenance
+attempt to the existing physical producer. Its existing verified-base publication
+commits BASE_BACKUP and successor VERIFY_CHAIN progress in one data-dependent
+SQL statement. Keep publication inside the producer, so there is no additional
+handoff after its exit. Preserve original attempt, predecessor, start, deadline
+and provenance; a progress-guard failure rolls both appends back. The coordinator
+reads back the authenticated exact successor before continuing. Standalone/GO
+producers retain their existing publication contract. Missing or contradictory
+publication refuses the pass.
+
+Reconcile a publication transport failure against the authenticated last
+committed progress for that exact attempt before appending FAILED. Do not retry
+an unknown publication, guess its generation, reset its deadline or replace
+the initiating failure with a reporting failure. Cover both a commit whose
+response was lost and an actual rollback.
+
+Read the latest base, runtime chain, restore drill and maintenance progress
+with four bounded indexed lookups in one SQL snapshot. There is no fallback to
+older passing evidence, cache or new grace period. Preserve the typed maintenance
+model, proof clocks, negative checks and independent financial filesystem/WAL
+admission. Qualify actual PostgreSQL commit visibility, rollback, lost-response
+reconciliation, cross-read interleavings and executed falsifiers, plus unchanged
+standalone production, activation checkpoint, progress guards and delivery.
+
+The neutral API sample at 10:57:09 was different: transaction 10759088 really
+published updated SEC issuer source/anchors/current records and quarantine
+data. Invalidating the previous PAPER verification was correct. Its bounded
+check recovered; browser samples stayed styled and complete. Preserve that
+safety transition. This closed-market trace does not certify market-open
+execution.

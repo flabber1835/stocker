@@ -201,8 +201,10 @@ def operator_fixture(monkeypatch):
     monkeypatch.setattr(sources, '_matched_resting_reservation', lambda *a, **kw: None)
     monkeypatch.setattr(account_status, 'recorded_reservation', lambda *a, **kw: None)
     monkeypatch.setattr(local_paper, 'require_runtime', lambda *a, **kw: None)
-    monkeypatch.setattr(sources, '_latest_backup_evidence',
-        lambda conn, kind: reads.append(kind) or None)
+    def backup_snapshot(conn):
+        reads.extend(['BASE_BACKUP', 'RESTORE_DRILL', 'RUNTIME_CHAIN', 'MAINTENANCE_PROGRESS'])
+        return dict.fromkeys(reads)
+    monkeypatch.setattr(sources, '_backup_evidence_snapshot', backup_snapshot)
     monkeypatch.setenv('SENTINEL_GIT_COMMIT', 'a' * 40)
     monkeypatch.setenv('SENTINEL_IMAGE_SOURCE_REVISION', 'a' * 40)
     monkeypatch.setenv('SENTINEL_RUNTIME_IMAGE_DIGEST', 'sha256:' + 'b' * 64)

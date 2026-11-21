@@ -76,7 +76,11 @@ def sql():
         if os.environ.get("BACKUP_LAB_EVIDENCE_TABLE") != "present":
             print('ERROR: relation "sentinel_backup_evidence" does not exist', file=sys.stderr)
             return 1
-        return event("evidence-insert", lambda: 0)
+        def inserted():
+            if "SELECT 'MAINTENANCE_PROGRESS'" in query:
+                print(query.split("WITH evidence AS (SELECT '",1)[1].split("'::jsonb AS proof)",1)[0])
+            return 0
+        return event("evidence-insert", inserted)
     elif "pg_current_wal_lsn()::text" in query:
         marker = re.search(r"SELECT '([^|]+)\|'", query).group(1)
         print(f"{marker}|{CHECKPOINT_LSN}|{WAL}")
