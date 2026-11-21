@@ -889,19 +889,18 @@ def test_candidate_only_shadow_cannot_become_a_paper_plan(conn, gateway, monkeyp
 
 
 def test_automation_refresh_consumes_current_shadow_without_acquisition(conn, published, monkeypatch):
+    from sentinel.feed import store
+
     approve(conn)
-    class Borrowed:
-        def __getattr__(self, name):
-            return getattr(conn, name)
-        def close(self):
-            pass
+    conn.rollback()
+    dsn = conn.info.dsn
     runtime = object.__new__(automation_runtime.ProductionAutomation)
     runtime._dual_run_enabled = True
     # This shared fixture publishes retained historical market data.
     # Explicitly select its research mode instead of bypassing constructor state.
     runtime._operational_source_only = False
     runtime._shadow_observation_id, runtime._shadow_starting_cash = OBS, 100000
-    runtime.connect = lambda: Borrowed()
+    runtime.connect = lambda: store.connect(dsn)
     runtime._assert_cycle_authority = lambda *_a, **_k: (SimpleNamespace(decision_session=date.fromisoformat(DAY)), None)
     monkeypatch.setattr(automation_runtime.ingest, "daily", lambda *_a, **_k: pytest.fail("paper acquisition"))
     monkeypatch.setattr(rolling_runtime, "advance", lambda *_a, **_k: pytest.fail("paper advanced shadow"))

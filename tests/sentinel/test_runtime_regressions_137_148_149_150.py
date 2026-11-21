@@ -258,7 +258,9 @@ def test_150_explicit_schema_ddl_has_bounded_lock_wait(behavioral, pg):
 def test_150_automation_composition_uses_read_only_runtime_schema_gate():
     source = inspect.getsource(automation_runtime.ProductionAutomation)
     assert "schema.ensure_schema(conn)" not in source
-    assert source.count("schema.require_runtime_schema(conn)") >= 4
+    for name in ("recover", "refresh", "prepare", "execute"):
+        callback = getattr(automation_runtime.ProductionAutomation, name)
+        assert "require_execution_schemas(conn)" in inspect.getsource(callback)
     cli_source = inspect.getsource(automation_cli._automation_run)
     assert "schema.require_runtime_schema(conn)" in cli_source
     assert "schema.ensure_schema(conn)" not in cli_source

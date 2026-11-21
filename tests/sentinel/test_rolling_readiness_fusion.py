@@ -68,19 +68,19 @@ def test_actual_resolver_first_path_defers_one_complete_price_stream_to_readines
         conn, published, monkeypatch):
     events = []
     read = rolling_store._bar_rows
-    references = adapter.SnapshotReferences
+    load = adapter.SnapshotReferences._load
 
     def observed(*args, **kwargs):
         events.append('bars-start')
         yield from read(*args, **kwargs)
         events.append('bars-complete')
 
-    def refs(*args, **kwargs):
+    def load_references(*args, **kwargs):
         events.append('references')
-        return references(*args, **kwargs)
+        return load(*args, **kwargs)
 
     monkeypatch.setattr(rolling_store, '_bar_rows', observed)
-    monkeypatch.setattr(adapter, 'SnapshotReferences', refs)
+    monkeypatch.setattr(adapter.SnapshotReferences, '_load', load_references)
     with feed_inputs.pinned(conn, commit=False) as pub:
         paper.build_security_resolver(conn, calendar.next_session(pub.window_end))
         assert events == ['references']

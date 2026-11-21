@@ -9,6 +9,7 @@ import json
 import os
 import subprocess
 import sys
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -226,6 +227,8 @@ def test_equivalence_manifest_covers_every_canonical_definition():
                         'broker_cash.share_membership_observation'
                     ], f"unreviewed cash membership observer: {node.name}"
                     node.decorator_list.clear()
+                if node.name == '_validate_broker_grant':
+                    _check_broker_grant_frontier_delta(node, record)
                 _check_and_remove_backup_gate_delta(node)
                 normalized = ast.dump(
                     node, annotate_fields=True, include_attributes=False)
@@ -235,6 +238,36 @@ def test_equivalence_manifest_covers_every_canonical_definition():
                         f"unreviewed canonical paper definition: {module_name}.{node.name}")
     assert actual == expected
     assert not unreviewed, "\n".join(unreviewed)
+
+
+def _check_broker_grant_frontier_delta(node, record):
+    """Restore the former call only when its freshly authenticated subject is exact."""
+    predecessor = deepcopy(node)
+    current, frontier = ast.parse(
+        'current = feed_inputs.require_current(conn)\n'
+        'frontier = feed_inputs.frontier(conn, current)').body
+    positions = [index for index, statement in enumerate(predecessor.body)
+                 if ast.dump(statement) == ast.dump(current)]
+    assert len(positions) == 1, "broker grant must authenticate its publication"
+    index = positions[0] + 1
+    assert index < len(predecessor.body) and ast.dump(predecessor.body[index]) == ast.dump(frontier), (
+        "broker grant frontier must reuse its current publication")
+    predecessor.body[index] = ast.parse('frontier = feed_inputs.frontier(conn)').body[0]
+    fingerprint = hashlib.sha256(ast.dump(predecessor).encode()).hexdigest()
+    assert fingerprint == record["frontier_reuse_predecessor_ast_sha256"]
+
+
+@pytest.mark.parametrize('call', ['feed_inputs.frontier(conn)', 'feed_inputs.frontier(conn, prior)'])
+def test_broker_grant_frontier_witness_rejects_unbound_subject(call):
+    source = (PACKAGE / 'validation.py').read_text(encoding='utf-8')
+    original = 'feed_inputs.frontier(conn, current)'
+    assert source.count(original) == 1
+    node = next(item for item in ast.parse(source.replace(original, call, 1)).body
+                if isinstance(item, ast.FunctionDef) and item.name == '_validate_broker_grant')
+    record = json.loads((ROOT / 'docs' / 'production-champion-paper-deltas.json').read_bytes())[
+        'definitions']['_validate_broker_grant']
+    with pytest.raises(AssertionError, match="frontier must reuse its current publication"):
+        _check_broker_grant_frontier_delta(node, record)
 
 
 @pytest.mark.parametrize('definition,owner', [
@@ -281,7 +314,6 @@ def test_paper_delta_registry_rejects_an_unreviewed_canonical_fingerprint(
     ('_finalize_due_succeeded_cycle_or_refuse', 'value'),
 ])
 def test_baseline_reuse_witness_refuses_any_other_delta(definition, defect):
-    from copy import deepcopy
     tree = ast.parse((PACKAGE / 'finalization.py').read_text())
     node = next(item for item in tree.body if isinstance(item, ast.AsyncFunctionDef)
         and item.name == definition)

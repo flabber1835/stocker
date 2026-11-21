@@ -1218,7 +1218,7 @@ async def test_dual_raw_buy_ack_fill_recovery_converges_without_projection(
         runtime, "_require_dual_plan_shadow_match",
         lambda *_args, **_kwargs: proof)
     monkeypatch.setattr(
-        automation_runtime.publication, "require_current",
+        automation_runtime.feed_inputs, "require_current",
         lambda _conn: SimpleNamespace(version=7, evidence={}))
     monkeypatch.setattr(
         automation_runtime.feed_store, "latest_visible_session",
@@ -2151,7 +2151,7 @@ def test_composition_requires_exact_signed_automation_authority(
         lambda _conn: authority.RolloutState(
             authority.RolloutMode.PINNED_1_00, 1, None))
     monkeypatch.setattr(
-        automation_runtime.publication, "require_current",
+        automation_runtime.feed_inputs, "require_current",
         lambda _conn: SimpleNamespace(version=81, evidence={}))
     monkeypatch.setattr(
         automation_runtime, "production_strategy",
@@ -3095,7 +3095,7 @@ async def test_idle_authority_failure_blocks_cycle_and_enqueues_alert(
         lambda _conn: authority.RolloutState(
             authority.RolloutMode.PINNED_1_00, 1, None))
     monkeypatch.setattr(
-        automation_runtime.publication, "require_current",
+        automation_runtime.feed_inputs, "require_current",
         lambda _conn: SimpleNamespace(version=1, evidence={}))
     monkeypatch.setattr(
         automation_runtime, "production_strategy", lambda: (object(), {}))
@@ -3174,7 +3174,7 @@ async def test_idle_no_live_cycle_authority_failure_engages_durable_kill(
         lambda _conn: authority.RolloutState(
             authority.RolloutMode.PINNED_1_00, 1, None))
     monkeypatch.setattr(
-        automation_runtime.publication, "require_current",
+        automation_runtime.feed_inputs, "require_current",
         lambda _conn: SimpleNamespace(version=1, evidence={}))
     monkeypatch.setattr(
         automation_runtime, "production_strategy", lambda: (object(), {}))

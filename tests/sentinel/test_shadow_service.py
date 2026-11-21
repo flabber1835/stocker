@@ -120,16 +120,14 @@ def test_deployed_shadow_refuses_legacy_preflight_before_source_call(monkeypatch
 
 
 def test_operational_source_gate_rejects_historical_rolling_candidate(monkeypatch):
-    from sentinel.feed import operational_snapshot, rolling_store
-    monkeypatch.setattr(operational_snapshot, "_bound", lambda *_a: {
-        "candidate_id": "candidate"})
-    monkeypatch.setattr(rolling_store, "manifest", lambda *_a: SimpleNamespace(
-        provider=archive_ids.PROVIDER))
+    from sentinel.feed import operational_snapshot
+    manifest = SimpleNamespace(provider=archive_ids.PROVIDER)
+    monkeypatch.setattr(operational_snapshot, "_bound_and_manifest", lambda *_a: (
+        {"candidate_id": "candidate"}, manifest))
     with pytest.raises(operational_snapshot.OperationalSnapshotRefused,
                        match="ALPACA_OPENFIGI_SOURCE_REQUIRED"):
         operational_snapshot.require_alpaca_openfigi(object(), object())
-    monkeypatch.setattr(rolling_store, "manifest", lambda *_a: SimpleNamespace(
-        provider="ALPACA_OPENFIGI"))
+    manifest.provider = "ALPACA_OPENFIGI"
     assert operational_snapshot.require_alpaca_openfigi(
         object(), object())["candidate_id"] == "candidate"
 

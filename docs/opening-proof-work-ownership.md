@@ -30,6 +30,13 @@ marker, broken receipt or missing required publication keeps its existing
 refusal. Legacy-only readers and the owned publication pin retain their
 existing contracts.
 
+Within each fresh broker grant check, derive the rolling frontier from the
+publication just authenticated by that check. Use the existing visible
+session lookup for a legacy publication. Keep the fresh pre- and post-broker
+checks and all account, plan, execution window, and grant requirements. The
+PAPER definition witness verifies this exact adjacent publication/frontier
+change by restoring the old call and checking the prior canonical fingerprint.
+
 Preserve the economic manifest's dependency graph and original contributions.
 Qualify the complete changed compiler bytes in its existing closed source
 cohort, with neighboring byte changes still producing a different economic
