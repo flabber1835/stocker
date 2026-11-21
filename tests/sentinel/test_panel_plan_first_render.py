@@ -234,6 +234,19 @@ def test_final_price_checkpoint_survives_stalled_build_and_ready_phase_reset():
     assert 'source records checkpointed' not in overview.overview_html(old_ready)
 
 
+def test_live_sealing_phase_describes_the_work_without_relabeling_the_durable_stage():
+    from sentinel.panel.presentation import preparation_stage
+
+    panel = preparing_panel(final_price_batch_recorded=True,
+        producer_phase={'phase': 'SEALING', 'rows': 1_600_000, 'wait': 'DATABASE_IO'})
+    assert panel.row('ingest').preparation.state == 'ACQUIRING'
+    assert preparation_stage(panel) == 'Sealing the closing candidate'
+    rendered = overview.overview_html(panel)
+    assert 'Sealing the closing candidate' in rendered
+    assert '1,600,000 equity prices normalized' in rendered
+    assert 'database I/O wait observed' in rendered
+
+
 @pytest.mark.parametrize('state,stage',[
     ('ACQUIRING','Preparing closing snapshot'), ('STAGING','Preparing downloaded data'),
     ('VALIDATING','Validating market data'), ('READY','Candidate sealed · preparing publication')])

@@ -17,6 +17,8 @@ _TEMPLATES = frozenset({
     "automation_execution_stage stage=paper_gateway elapsed_ms=%d",
     "automation_execution_stage stage=completion_proof elapsed_ms=%d",
     "automation_preflight_stage stage=%s elapsed_ms=%d",
+    "automation_close_preflight event=dispatch retry_due_ms=%d",
+    "automation_close_preflight event=return elapsed_ms=%d",
     "automation_execution_stage stage=terminal_transition_and_commit "
     "path=%s returned=%s elapsed_ms=%d",
     "automation_idle_authority_stage outcome=%s stage=%s "
@@ -68,10 +70,25 @@ def preflight(stage: str):
 
 
 @contextmanager
+def close_preflight(dispatched_at, due_at):
+    started = perf_counter_ns()
+    retry_due_ms = (-1 if due_at is None else
+                    min(86_400_000, max(0, round((dispatched_at - due_at).total_seconds() * 1000))))
+    info('automation_close_preflight event=dispatch retry_due_ms=%d', retry_due_ms)
+    try:
+        yield
+    finally:
+        elapsed = min(86_400_000, max(0, (perf_counter_ns() - started) // 1_000_000))
+        info('automation_close_preflight event=return elapsed_ms=%d', elapsed)
+
+
+@contextmanager
 def callback_startup(phase: str, stage: str):
-    if phase != "EXECUTE":
+    if phase not in {'EXECUTE', 'PREFLIGHT_RECOVER'}:
         yield
         return
+    if phase == 'PREFLIGHT_RECOVER':
+        stage = 'close_preflight_' + stage
     start = perf_counter_ns()
     info("automation_callback_startup stage=%s event=begin", stage)
     try:

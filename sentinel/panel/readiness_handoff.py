@@ -99,8 +99,9 @@ def _current_diagnostic(diagnostic):
 
 def close_check_deadline(panel, *, now):
     """Attribute placeholder rows to the current close's independent check."""
-    if (not checking(panel, now=now) or 'SHADOW' in panel.observation_changed_scopes
-            or panel.observation_retained):
+    from sentinel.panel.delivery import complete_receipt_handoff
+    if (not checking(panel, now=now) or panel.observation_retained
+            or 'SHADOW' in panel.observation_changed_scopes and not complete_receipt_handoff(panel)):
         return None
     subject = panel.display_basis.get('native', {}).get('SHADOW')
     if not subject:
@@ -109,7 +110,8 @@ def close_check_deadline(panel, *, now):
     if feed is None:
         return None
     if feed.feed_readiness == 'AWAITING_VERDICT':
-        return deadline(panel, subject=subject, now=now)
+        until = deadline(panel, subject=subject, now=now)
+        return min(until, panel.row('shadow_verification').valid_until) if until is not None else None
     fact = feed.operational_fact
     session = calendar.latest_closed_session(now)
     if (feed.effective_status(now) != model.OK or fact is None or fact.kind != 'MARKET_DATA'
@@ -367,6 +369,73 @@ def capture(conn, panel, *, subject, owner_expiry, now, candidate_memo=None, pre
             observed_at=now, deadline=boundary.astimezone(timezone.utc)).model_dump(mode='json', by_alias=True)
     except (KeyError, TypeError, ValueError, OverflowError, RuntimeError):
         return None
+
+
+def publication_refresh(conn, panel, *, subject, owner_expiry, now):
+    """Advance only closing-source display rows before the next composition."""
+    from psycopg import Error
+    from psycopg.errors import SerializationFailure
+    from sentinel.feed import readers, readiness
+    from sentinel.panel import attempt_store, display_dependencies
+
+    generated = panel.observation_generated_at
+    feed, ingest = panel.row('feed'), panel.row('ingest')
+    work = ingest.preparation if ingest is not None else None
+    review = panel.operator_review
+    if (not panel.local_paper_mode or panel.source_errors or generated is None
+            or review is None or review.status not in {'CLEAN', 'REVIEW'}
+            or panel.observation_changed_scopes != ('SHADOW', 'PAPER')
+            or not checking(panel, now=now) or feed is None or feed.is_stale(now) or feed.is_future(now)
+            or feed.status in {model.FAIL, model.UNKNOWN}
+            or work is None or work.state != 'READY' or not work.active_at(now)
+            or ingest.status != model.WARN or ingest.is_future(now)):
+        return panel
+    session = str(work.decision_session)
+    closed = calendar.session_window(session)[1]
+    opened = calendar.session_window(str(work.effective_session))[0]
+    if (session != calendar.latest_closed_session(now)
+            or str(work.effective_session) != calendar.next_session(session)
+            or not closed <= generated <= now < opened):
+        return panel
+    # Use the same coherent receipt and verifier proof as the background
+    # handoff. This branch neither reads price history nor performs verification.
+    try:
+        with conn.transaction():
+            row = conn.execute(
+                'SELECT publication_version,updated_at FROM sentinel_snapshot_jobs WHERE job_id=%s '
+                "AND state='PUBLISHED' AND fence=%s", (work.job_id, work.fence)).fetchone()
+            if row is None or not generated < row[1] <= now:
+                return panel
+            version, published = row
+            pub = operational_snapshot._current(conn)
+            if (pub is None or not readers.is_rolling(pub) or pub.version != version
+                    or pub.window_end != session):
+                return panel
+            binding = pub.evidence['rolling_snapshot']
+            if not isinstance(binding, dict) or binding.get('job_id') != work.job_id:
+                return panel
+            # A measured current verdict belongs to the ordinary current view.
+            if readers.snapshot_matches(pub, readiness.latest_snapshot(conn)):
+                return panel
+            feed = model.feed_row(frontier=session, sessions_behind=0, ready=None,
+                checks_passed=0, checks_total=0, as_of=published, publication_version=version)
+            ingest = model.Row('ingest', ingest.label, f'OPERATIONAL SNAPSHOT · PUBLISHED · publication {version}',
+                model.OK, 'Closing data publication committed. Strategy attestation is pending.', as_of=published)
+            diagnostic = attempt_store.read_owned(conn, scope='SHADOW', now=now)
+            details = {**panel.trial_details, 'verification_attempts': {
+                **panel.trial_details.get('verification_attempts', {}), 'SHADOW': diagnostic}}
+            view = replace(display_dependencies.overlay(panel, {'feed': feed, 'ingest': ingest}),
+                           trial_details=details)
+            proof = capture(conn, view, subject=subject, owner_expiry=min(owner_expiry, work.active_until),
+                            now=now)
+            if proof is None:
+                return panel
+    except SerializationFailure:
+        raise
+    except (Error, KeyError, TypeError, ValueError, OverflowError, RuntimeError):
+        return panel
+    return replace(view, trial_details={**details, 'readiness_handoff': proof},
+                   observation_display_keys=(*view.observation_display_keys, 'feed', 'ingest'))
 
 
 def deadline(panel, *, subject, now):

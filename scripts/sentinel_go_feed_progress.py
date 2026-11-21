@@ -9,6 +9,10 @@ ALPACA_COUNTERS = (
     "requests", "retries", "response_bytes", "rate_limits", "pacing_ms",
     "http_ms", "decode_ms", "retry_backoff_ms",
 )
+COST_STAGES = frozenset({"rolling_identity", "rolling_normalization", "rolling_seal", "rolling_candidate_seal",
+    "rolling_operational_validation", "rolling_source_corroboration",
+    "rolling_operational_publication"})
+VISIBILITY_STAGE = "rolling_operational_visibility"
 STAGES = frozenset({
     "actions_export", "actions_refresh", "identity_preflight", "identity_rebuild",
     "seed_membership_preflight",
@@ -18,9 +22,9 @@ STAGES = frozenset({
     "source_replay", "source_classification", "bounded_recovery", "corpus_publication", "database_connect", "readiness_check",
     "backup_durability", "schema_migration", "daily_catchup", "publication_check",
     "readiness_history", "readiness_domains", "readiness_splits", "readiness_maintenance",
-    "rolling_identity", "rolling_normalization", "rolling_seal",
+    "rolling_identity", "rolling_normalization", "rolling_seal", "rolling_candidate_seal",
     "rolling_operational_validation", "rolling_operational_publication",
-    "rolling_source_corroboration",
+    "rolling_source_corroboration", "rolling_writer_admission", VISIBILITY_STAGE,
     "rolling_comparison_publication", "historical_formation",
 } | ALPACA_STAGES | {kind + "_" + table for kind in ("capture", "download")
      for table in ("sep", "sfp", "tickers", "actions")})
@@ -37,10 +41,33 @@ def parse(line):
     optional = {"refreshed_at", "snapshot_at", "table", "date_from", "date_to",
                 "updated_from", "updated_to", "part", "parts", "reason",
                 "ready", "retry_seconds", "remaining_seconds", "bytes", "job_id", "subphase",
-                "sessions", "required_sessions", "session", "component", "selected"}
+                "sessions", "required_sessions", "session", "component", "selected",
+                "cpu_ms", "commit_observed_at"}
     if isinstance(value, dict) and value.get("stage") == "alpaca_part_acquire":
         required.update(ALPACA_COUNTERS)
+    elif (isinstance(value, dict) and value.get("stage") == "rolling_source_corroboration"
+            and set(ALPACA_COUNTERS) & set(value)):
+        if value.get("status") not in ("completed", "failed"):
+            return None
+        required.update(ALPACA_COUNTERS)
     if not isinstance(value, dict) or not required.issubset(value) or set(value) - required - optional:
+        return None
+    if not isinstance(value["stage"], str) or value["stage"] not in STAGES:
+        return None
+    if "cpu_ms" in value and (value["stage"] not in COST_STAGES
+            or value["status"] not in ("completed", "failed")
+            or type(value["cpu_ms"]) is not int or not 0 <= value["cpu_ms"] <= 10**12):
+        return None
+    if value["stage"] == VISIBILITY_STAGE:
+        if (set(value) != required | {"job_id", "commit_observed_at"}
+                or value["status"] != "completed" or value["rows"] != 0 or value["elapsed_ms"] != 0):
+            return None
+    elif "commit_observed_at" in value:
+        return None
+    if value["stage"] == "rolling_writer_admission" and (
+            set(value) != required | {"job_id", "reason"}
+            or value["status"] != "completed" or value["rows"] != 0
+            or value["reason"] not in ("ACQUISITION", "PUBLICATION")):
         return None
     if value.get("stage") == "historical_formation":
         if (type(value.get("sessions")) is not int or not 0 <= value["sessions"] <= 126
@@ -87,7 +114,7 @@ def parse(line):
     for field in ("ready", "retry_seconds", "remaining_seconds", "bytes"):
         if field in value and (type(value[field]) is not int or not 0 <= value[field] <= 10**12):
             return None
-    for field in ("refreshed_at", "snapshot_at"):
+    for field in ("refreshed_at", "snapshot_at", "commit_observed_at"):
         if field in value:
             stamp = value[field]
             if not isinstance(stamp, str) or not re.fullmatch(
@@ -97,8 +124,6 @@ def parse(line):
                 datetime.fromisoformat(stamp.replace("Z", "+00:00"))
             except ValueError:
                 return None
-    if not isinstance(value["stage"], str) or value["stage"] not in STAGES:
-        return None
     if not isinstance(value["status"], str) or value["status"] not in {
             "started", "working", "completed", "failed", "selected", "observed",
             "fresh", "creating", "regenerating"}:
@@ -110,6 +135,11 @@ def parse(line):
 
 
 def describe(value):
+    if value["stage"] == VISIBILITY_STAGE:
+        return "closing publication commit observed at " + value["commit_observed_at"]
+    if value["stage"] == "rolling_writer_admission":
+        return "%s writer admission in %s ms" % (
+            value["reason"].lower(), format(value["elapsed_ms"], ","))
     text = value["stage"].replace("_", " ")
     if value.get("subphase"):
         text += " " + value["subphase"].replace("_", " ")
@@ -126,6 +156,8 @@ def describe(value):
         text += "; %s/%s sessions" % (value["sessions"], value["required_sessions"])
         if value.get("session"):
             text += "; through " + value["session"]
+    elif value["stage"] in {"rolling_normalization", "rolling_candidate_seal"} and value.get("rows"):
+        text += "; %s equity price rows" % format(value["rows"], ",")
     elif value["stage"] not in {"schema_migration", "database_connect", "source_preflight", "export_preflight"}:
         text += "; %s rows" % format(value["rows"], ",")
     if "ready" in value:
@@ -138,12 +170,15 @@ def describe(value):
         text += "; %s bytes received" % format(value["bytes"], ",")
     if value["stage"] in ALPACA_STAGES and value["status"] in {"completed", "failed"}:
         text += "; elapsed %s ms" % format(value["elapsed_ms"], ",")
-    if value["stage"] == "alpaca_part_acquire":
+    if set(ALPACA_COUNTERS).issubset(value):
         text += (
             "; %(requests)s requests, %(retries)s retries, %(rate_limits)s rate limits,"
             " %(response_bytes)s bytes received, %(pacing_ms)s ms pacing, %(http_ms)s ms HTTP,"
             " %(decode_ms)s ms decoding, %(retry_backoff_ms)s ms retry backoff"
         ) % value
+    if "cpu_ms" in value:
+        text += "; %s ms elapsed, %s ms publisher CPU" % (
+            format(value["elapsed_ms"], ","), format(value["cpu_ms"], ","))
     if value.get("reason"):
         text += "; reason " + value["reason"]
     if value.get("refreshed_at"):

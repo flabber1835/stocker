@@ -5,6 +5,32 @@ const {panelAssets,servePanelAsset}=require('./panel-assets.cjs');
 const {startCapture,finishCapture}=require('./support/dashboard-journey-capture.cjs');
 
 test.use({serviceWorkers:'block'});
+test('close refresh retains an independent card and names the pending next-open check',async({page,request})=>{
+  const fixture=JSON.parse(fs.readFileSync(process.env.SENTINEL_DOM_FIXTURE,'utf8')).close_documents;
+  const assets=await panelAssets(request,fixture.partial,fixture.verifying);
+  const time=Date.parse(fixture.now);
+  await page.clock.install({time:new Date(time-60000)});
+  await page.clock.pauseAt(new Date(time));
+  await page.route('**/*',async route=>{
+    const path=new URL(route.request().url()).pathname;
+    if (assets.has(path)) return route.fulfill({status:200,...assets.get(path)});
+    if (path!=='/') return route.fulfill({status:404,body:''});
+    const initial=route.request().isNavigationRequest();
+    return route.fulfill({status:200,contentType:'text/html',headers:{
+      'X-Sentinel-Panel-Status':initial?'PARTIAL':'CURRENT'},body:initial?fixture.partial:fixture.verifying});
+  });
+  await page.goto('http://127.0.0.1:18947/');
+  await expect(page.locator('#operational-state')).toHaveText('Refreshing closing evidence');
+  await expect(page.locator('#status-broker')).toHaveAttribute('data-current','true');
+  await expect(page.locator('#status-paper_plan')).toHaveAttribute('data-current','false');
+  await page.clock.runFor(5000);
+  await expect(page.locator('#operational-state')).toHaveText('Checking strategy for the next open');
+  await expect(page.locator('#operational-state')).toHaveAttribute('title', /NEXT-OPEN PREPARATION IN PROGRESS/);
+  await expect(page.locator('body')).toHaveAttribute('data-health','amber');
+  await expect(page.locator('#status-broker')).toHaveAttribute('data-current','true');
+  await expect(page.locator('#status-paper_plan')).toHaveAttribute('data-status','pending');
+});
+
 test('recorder observes rendering that changes without a DOM mutation',async({page})=>{
   const url='http://127.0.0.1:18947/';
   const generated=new Date().toISOString();

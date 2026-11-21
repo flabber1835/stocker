@@ -105,7 +105,27 @@ history_documents = dict(dashboard=publication(replace(review_page, operator_rev
                                                             first=22, stylesheet=STYLE_ASSET),
                          last=review_controls.history_page(events[20:], **history_args,
                                                            first=2, stylesheet=STYLE_ASSET))
+close_at = datetime(2026, 11, 20, 21, 15, tzinfo=timezone.utc)
+close_until = close_at + timedelta(seconds=20)
+close_feed = model.feed_row(frontier='2026-11-20', sessions_behind=0, ready=None,
+    checks_passed=0, checks_total=0, as_of=close_at, publication_version=26)
+close_feed = replace(close_feed, valid_until=close_until, recovery=model.RecoveryEvidence(
+    phase='SHADOW_ATTESTATION', automatic=True, deadline=close_until))
+close_page = model.Panel(now=close_at, local_paper_mode=True, rows=[close_feed,
+    model.Row('shadow_worker', 'Strategy worker', 'Running', model.OK, as_of=close_at,
+        required_current=True, valid_until=close_until),
+    model.Row('broker', 'Broker', 'Independent broker observation', model.OK, as_of=close_at,
+        required_current=True, valid_until=close_until),
+    model.Row('paper_plan', 'Next plan', 'Not prepared', model.PENDING)],
+    operator_review=OperatorReview(scope='a'*64, head=1, reviewed_head=1, status='CLEAN',
+        observed_at=close_at, reviewed_at=close_at))
+close_partial = replace(close_page, observation_current=False,
+    observation_changed_scopes=('PAPER',), observation_display_keys=('broker',))
+close_documents = dict(now=close_at.isoformat(),
+    partial=publication(close_partial, close_at, close_until),
+    verifying=publication(close_page, close_at+timedelta(seconds=5), close_until))
 print(json.dumps(dict(now=now.isoformat(),
     green=render(page, refresh_seconds=5), red=render(negative, refresh_seconds=5),
     short_receipts=short_receipts, short_partial=short_partial,
-    review_documents=review_documents, history_documents=history_documents)))
+    review_documents=review_documents, history_documents=history_documents,
+    close_documents=close_documents)))

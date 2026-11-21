@@ -215,6 +215,56 @@ def same_automation_term(before, after):
             (before['automation_lease'] or [])[:3] == (after['automation_lease'] or [])[:3])
 
 
+def close_cycle_advance(conn, database_url, before, after, panel, *, facts, now):
+    """Account for both PAPER revisions of one planless close-cycle transition."""
+    from sentinel.feed import calendar
+
+    prior, current = before['paper_revision'], after['paper_revision']
+    term = after.get('automation_lease')
+    if (not panel.local_paper_mode or not term or not same_automation_term(before, after)
+            or before['native']['SHADOW'] != after['native']['SHADOW']
+            or before['account_table'] != after['account_table']
+            or before['account_anchor'] != after['account_anchor']
+            or before['observation_anchor'] != after['observation_anchor']
+            or prior[0] != current[0] or current[1] != prior[1] + 2
+            or read_projection._subject_for_revision(conn, database_url, 'PAPER', prior, facts=facts)
+                != before['native']['PAPER']):
+        return False
+    cycle, plan = panel.row('automation_cycle'), panel.row('paper_plan')
+    stage = cycle.operational_fact if cycle is not None else None
+    stages = ('DISCOVERED', 'REFRESHING_DATA', 'RETRY_WAIT', 'PREPARING')
+    generated = panel.observation_generated_at
+    if (stage is None or stage.kind != 'AUTOMATION_CYCLE' or stage.state not in stages
+            or cycle.status != model.WARN or cycle.as_of is None or generated is None
+            or plan is None or plan.status != model.PENDING or plan.paper_plan is not None):
+        return False
+    session = calendar.latest_closed_session(now)
+    closed = calendar.session_window(session)[1]
+    opened = calendar.session_window(calendar.next_session(session))[0]
+    if not closed <= cycle.as_of <= generated < now < opened:
+        return False
+    # The projected cycle update and its event insert necessarily bump once
+    # each. Their common transaction must exhaust the whole guarded advance.
+    row = conn.execute("""
+        WITH event AS (
+            SELECT cycle_id,from_state,to_state,control_generation,fence_token,at,xmin
+            FROM sentinel_automation_cycle_events ORDER BY seq DESC LIMIT 1
+        )
+        SELECT 1 FROM event e JOIN sentinel_automation_cycles c USING(cycle_id)
+        WHERE c.xmin::text=%s AND e.xmin=c.xmin AND e.from_state=%s
+          AND e.to_state=c.state AND e.to_state<>e.from_state AND e.to_state=ANY(%s)
+          AND c.control_generation=e.control_generation AND e.control_generation=%s
+          AND c.last_fence_token=e.fence_token AND e.fence_token=%s
+          AND c.decision_session=%s AND c.execution_open_at=%s
+          AND c.plan_id IS NULL AND NOT c.historical_state_only
+          AND %s<c.updated_at AND c.updated_at<=e.at AND e.at<=%s
+          AND (c.state<>'RETRY_WAIT' OR c.failure_code IN (
+              'PreflightPublicationPinUnavailable','ClosingDataPending'))
+        """, (current[2], stage.state, list(stages), term[2], term[1], session, opened,
+              generated, now)).fetchone()
+    return row == (1,)
+
+
 def clean_observation_advance(conn, database_url, before, after, *, facts, now):
     """A clean broker observation accounts for the entire native revision advance."""
     from sentinel.panel.sources import _ACTIVE_COMMAND_STATES

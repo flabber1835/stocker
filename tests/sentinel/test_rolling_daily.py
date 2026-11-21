@@ -21,7 +21,7 @@ from tests.sentinel.test_operational_snapshot import operational_source  # noqa:
 from tests.sentinel.test_rolling_snapshot_publisher import conn, pg, source  # noqa: F401
 
 
-def refresh(conn, data, monkeypatch, *, days=1, rebase=False):
+def refresh(conn, data, monkeypatch, *, days=1, rebase=False, publish=True):
     session = max(row["date"] for row in data["SEP"])
     for _ in range(days):
         previous = max(row["date"] for row in data["SEP"])
@@ -50,6 +50,8 @@ def refresh(conn, data, monkeypatch, *, days=1, rebase=False):
     monkeypatch.setattr(op, "_now", lambda: now)
     monkeypatch.setattr(init, "_now", lambda conn: now)
     monkeypatch.setattr(calendar, "latest_closed_session", lambda now=None: session)
+    if not publish:
+        return session
     strategy = init._context(OBS, 100_000)["strategy"]
     job = op.enqueue(conn, strategy_sha256=digest(strategy), dependencies_sha256=digest("daily fixture"))
     conn.commit()

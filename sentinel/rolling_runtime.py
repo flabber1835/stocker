@@ -291,15 +291,19 @@ def observe_status(conn, *, observation_id, starting_cash, observe_handoff=None)
     return _verified_result(classified)
 
 
-def advance(conn, *, through, observation_id, starting_cash):
+def advance(conn, *, through, observation_id, starting_cash, prepared_binding=None):
     """Pin publication and behavioral ownership through both durable commits."""
     try:
         inputs.require_schemas(conn)
         context = initial._context(observation_id, starting_cash)
         with journal.writer_lock(conn):
-            with snapshots.pinned(conn, commit=False) as (pub, binding):
+            with inputs.pinned(conn) as pub:
+                binding = snapshots._bound(conn, pub)
                 if through != pub.window_end:
                     raise Refused("ROLLING_RUNTIME_TARGET_CHANGED")
+                if prepared_binding is not None and any(
+                        prepared_binding.get(key) != value for key, value in binding.items()):
+                    raise Refused("ROLLING_PREPARATION_PUBLICATION_CHANGED")
                 inputs.validate_status(conn, pub)
                 if origin.read(conn) is None:
                     candidate = initial.initialize(conn, observation_id=observation_id, starting_cash=starting_cash)
@@ -387,7 +391,7 @@ def _refresh_unchanged_health(conn, result, verified_inventory):
         conn.rollback()
 
 
-def prepare_adjacent(conn, *, previous, through, acquisition_deadline):
+def prepare_adjacent(conn, *, previous, through, acquisition_deadline, continuation=False):
     """The common data-only advance after classifying the durable predecessor."""
     from sentinel import shadow_budget
     if calendar.next_session(previous) != through:
@@ -395,7 +399,8 @@ def prepare_adjacent(conn, *, previous, through, acquisition_deadline):
     initial._timing(conn, through)
     conn.rollback()
     shadow_budget.require_remaining(acquisition_deadline)
-    return inputs._prepare(conn, target_session=through, absolute_deadline=acquisition_deadline)
+    return inputs._prepare(conn, target_session=through, absolute_deadline=acquisition_deadline,
+                           continuation=continuation)
 
 
 def service_advance(conn, *, through, observation_id, starting_cash, acquisition_deadline=None):
@@ -424,6 +429,7 @@ def service_advance(conn, *, through, observation_id, starting_cash, acquisition
             from sentinel import rolling_recovery
             return rolling_recovery.advance_one(conn, through=through,
                 observation_id=observation_id, starting_cash=starting_cash)
+    prepared = None
     if classified["status"] in {"ATTESTED_STRUCTURAL", "RECONSTRUCTED_STRUCTURAL", "RECONSTRUCTION_REQUIRED"}:
         previous = classified["latest_session"]
         next_step = previous if classified["status"] == "RECONSTRUCTION_REQUIRED" else calendar.next_session(previous)
@@ -440,13 +446,14 @@ def service_advance(conn, *, through, observation_id, starting_cash, acquisition
         if previous != through:
             if classified["status"] == "RECONSTRUCTION_REQUIRED":
                 raise Refused("ROLLING_RUNTIME_SESSION_GAP")
-            prepare_adjacent(conn, previous=previous, through=through,
-                             acquisition_deadline=acquisition_deadline)
+            prepared = prepare_adjacent(conn, previous=previous, through=through,
+                acquisition_deadline=acquisition_deadline, continuation=True)
     # Fresh genesis and crash recovery must consume the reviewed/current exact
     # publication; neither is permitted to replace it with newly acquired data.
     # Keep canonical ownership through the small validated health projection.
     with journal.writer_lock(conn):
-        result = advance(conn, through=through, observation_id=observation_id, starting_cash=starting_cash)
+        result = advance(conn, through=through, observation_id=observation_id, starting_cash=starting_cash,
+                         prepared_binding=prepared)
         import os, sys
         if os.environ.get('SENTINEL_FEED_SERVICE_MODE') == 'SHADOW':
             try:

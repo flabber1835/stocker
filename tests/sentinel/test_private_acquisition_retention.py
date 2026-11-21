@@ -3,11 +3,12 @@ from types import SimpleNamespace
 import psycopg
 import pytest
 
-from sentinel import backup_runtime_authority
+from sentinel import backup_runtime_authority, rolling_daily_checkpoint
 from sentinel.feed import retention
 from sentinel.feed.publication import CORPUS_LOCK_KEY
 from sentinel.feed.retention_schema import ACQUISITION_PIN_TABLES
 from sentinel.execution import journal
+from tests.sentinel.test_opening_checkpoint_read_work import checkpoints  # noqa: F401
 from tests.sentinel.test_rolling_snapshot_publisher import conn, enqueue, pg  # noqa: F401
 
 
@@ -70,6 +71,90 @@ def test_private_pass_amortizes_authentication_across_bounded_deletes(
     assert second['deleted_acquisition_rows'] == 1
     assert len(set(proofs)) == 2
     assert conn.execute('SELECT count(*) FROM sentinel_acquisition_prices').fetchone() == (1100 - deleted - 1,)
+
+
+@pytest.fixture
+def idle_checkpoint_proof(conn, checkpoints):
+    stage(conn, rows=8)
+    return retention.IdleCheckpointProof()
+
+
+@pytest.fixture
+def checkpoint_authentications(monkeypatch):
+    authenticate = retention._authenticate_checkpoints
+    transactions = []
+
+    def counted(port):
+        transactions.append(port.execute('SELECT pg_current_xact_id()::text').fetchone()[0])
+        return authenticate(port)
+
+    monkeypatch.setattr(retention, '_authenticate_checkpoints', counted)
+    return transactions
+
+
+def corrupt_idle_archive(conn, checkpoint):
+    cursor = rolling_daily_checkpoint.input_name(checkpoint.observation_id, checkpoint.session)
+    updated = conn.execute("UPDATE sentinel_processed_sessions SET state=jsonb_set(state,"
+                           "'{content}',to_jsonb(%s::text)) WHERE cursor_name=%s",
+                           ('invalid compressed archive', cursor))
+    assert updated.rowcount == 1
+    conn.commit()
+
+
+def test_idle_checkpoint_proof_reuses_exact_rows_across_committed_passes(
+        conn, idle_checkpoint_proof, checkpoint_authentications, monkeypatch):
+    admissions = []
+
+    def admit(connection, *, operation, allow_continuity):
+        assert operation == 'private acquisition retirement' and allow_continuity
+        admissions.append(connection.execute('SELECT pg_current_xact_id()::text').fetchone()[0])
+
+    monkeypatch.setattr(backup_runtime_authority, 'require', admit)
+    first = retention.maintain(conn, batch_rows=1, checkpoint_proof=idle_checkpoint_proof)
+    assert first['deleted_acquisition_rows'] == 1, first
+    assert idle_checkpoint_proof.witness is not None
+    conn.execute("INSERT INTO sentinel_processed_sessions(cursor_name,session,state) "
+                 "VALUES ('unrelated-retention-fixture','2026-09-14','{}')")
+    conn.commit()
+
+    second = retention.maintain(conn, batch_rows=1, checkpoint_proof=idle_checkpoint_proof)
+    assert second['deleted_acquisition_rows'] == 1, second
+    assert len(set(admissions)) == 2
+    assert checkpoint_authentications == admissions[:1]
+    assert conn.execute('SELECT count(*) FROM sentinel_acquisition_prices').fetchone() == (6,)
+
+
+@pytest.mark.parametrize('changed', ['archive', 'signing-key'])
+def test_idle_checkpoint_proof_refuses_changed_authenticated_input(
+        conn, checkpoints, idle_checkpoint_proof, checkpoint_authentications, monkeypatch, changed):
+    first = retention.maintain(conn, batch_rows=1, checkpoint_proof=idle_checkpoint_proof)
+    assert first['deleted_acquisition_rows'] == 1, first
+    assert idle_checkpoint_proof.witness is not None
+    if changed == 'archive':
+        corrupt_idle_archive(conn, checkpoints[1])
+    else:
+        monkeypatch.setenv('SENTINEL_PUBLICATION_RECEIPT_KEY', 'replacement-retention-key-' * 3)
+
+    result = retention.maintain(conn, batch_rows=1, checkpoint_proof=idle_checkpoint_proof)
+    assert len(set(checkpoint_authentications)) == 2
+    assert result['status'] == 'RETRY', result
+    assert conn.execute('SELECT count(*) FROM sentinel_acquisition_prices').fetchone() == (7,)
+
+
+def test_idle_checkpoint_proof_refuses_archive_replaced_after_authentication(
+        conn, checkpoints, idle_checkpoint_proof, monkeypatch):
+    authenticate = retention._authenticate_checkpoints
+
+    def racing_authentication(port):
+        authenticate(port)
+        with psycopg.connect(conn.info.dsn) as other:
+            corrupt_idle_archive(other, checkpoints[1])
+
+    monkeypatch.setattr(retention, '_authenticate_checkpoints', racing_authentication)
+    result = retention.maintain(conn, batch_rows=1, checkpoint_proof=idle_checkpoint_proof)
+    assert result['status'] == 'RETRY', result
+    assert idle_checkpoint_proof.witness is None
+    assert conn.execute('SELECT count(*) FROM sentinel_acquisition_prices').fetchone() == (8,)
 
 
 def test_private_pass_rolls_back_late_step_and_retains_committed_progress(conn, monkeypatch):

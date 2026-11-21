@@ -1,7 +1,7 @@
 """Routine next-plan work does not manufacture a PAPER incident."""
 from copy import deepcopy
 from dataclasses import replace
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 import inspect
 import pytest
 
@@ -97,7 +97,10 @@ def test_normal_cycle_transitions_do_not_reintroduce_review(state,checking):
             required_current=True,valid_until=deadline,recovery=model.RecoveryEvidence(
                 phase='FINANCIAL_VERIFICATION',automatic=True,deadline=deadline))
     assert presentation.health_facts(page)=={'active':[],'warnings':[]}
-    assert presentation.dashboard_health(page)['color']=='green'
+    health = presentation.dashboard_health(page)
+    assert health['color'] == ('amber' if state == 'PREPARING' else 'green')
+    if state == 'PREPARING':
+        assert (health['label'], health['plan_readiness']) == ('Preparing plan for the next open', 'pending')
 
 
 @pytest.mark.parametrize('key',presentation._HISTORY_CURRENT_FACTS)
@@ -198,7 +201,9 @@ def test_native_unadopted_decision_is_expected_only_during_verified_calculation(
     page=verified_calculation_panel();before=deepcopy(page)
     assert page.row('exposure').effective_status(NOW)==model.FAIL
     assert presentation.health_facts(page)=={'active':[],'warnings':[]}
-    assert presentation.dashboard_health(page)['color']=='green'
+    health = presentation.dashboard_health(page)
+    assert (health['color'], health['label'], health['plan_readiness']) == (
+        'amber', 'Preparing plan for the next open', 'pending')
     assert page==before and page.row('exposure').value=='0.55 NOT ADOPTED'
 
 
@@ -282,6 +287,58 @@ def test_authenticated_bounded_shadow_work_preserves_unknown_readiness(monkeypat
     else:
         assert facts['warnings'] or facts['active']
         assert health['color'] != 'green'
+
+
+@pytest.mark.parametrize('changed', [('SHADOW',), ('SHADOW', 'PAPER')])
+def test_only_a_complete_current_receipt_rollover_keeps_the_matching_strategy_check(monkeypatch, changed):
+    from sentinel.panel import delivery, serialization
+    from sentinel.panel.render import render
+
+    panel = checking_close_panel(monkeypatch)
+    keys = {'shadow_verification', 'shadow_nav', 'shadow_return', 'book', 'exposure', 'terminals'}
+    if 'PAPER' in changed:
+        keys.add('paper_reconciliation')
+    rolled = replace(panel, observation_current=False, observation_display_current=True,
+        observation_changed_scopes=changed, observation_revalidated_keys=tuple(sorted(keys)),
+        observation_display_keys=delivery.display_keys(panel), observation_valid_until=NOW+timedelta(seconds=15))
+    assert presentation.health_facts(rolled) == {'active': [], 'warnings': []}
+    payload = serialization.public_payload(rolled)
+    assert payload['dashboard_health']['label'] == 'Checking strategy for the next open'
+    assert payload['dashboard_health']['plan_readiness'] == 'pending'
+    assert payload['observation']['display_current'] and not payload['observation']['strict_current']
+    assert payload['operator_review']['status'] == 'CLEAN' and payload['operator_review']['token'] is None
+    assert 'data-strict-observation-current="false"' in render(rolled)
+    incomplete = replace(rolled, observation_revalidated_keys=tuple(sorted(keys-{'book'})))
+    assert presentation.dashboard_health(incomplete)['label'] != 'Checking strategy for the next open'
+    failed = changed_history_panel(rolled, 'book', status=model.FAIL)
+    assert presentation.dashboard_health(failed)['color'] == 'red'
+
+
+def test_friday_published_market_data_cannot_make_pending_monday_plan_green():
+    from sentinel.panel.review_model import OperatorReview
+
+    now = datetime(2026, 11, 20, 21, 15, tzinfo=timezone.utc)
+    until = now + timedelta(seconds=20)
+    feed = model.feed_row(frontier='2026-11-20', sessions_behind=0, ready=None,
+                         checks_passed=0, checks_total=0, as_of=now, publication_version=26)
+    feed = replace(feed, valid_until=until, recovery=model.RecoveryEvidence(
+        phase='SHADOW_ATTESTATION', automatic=True, deadline=until))
+    worker = model.Row('shadow_worker', 'Worker', 'Running', model.OK, as_of=now,
+                      valid_until=until, required_current=True)
+    plan = model.Row('paper_plan', 'Plan', 'Not prepared', model.PENDING)
+    review = OperatorReview(scope='1'*64, head=1, reviewed_head=1, status='CLEAN',
+                            observed_at=now, reviewed_at=now)
+    panel = model.Panel(rows=[feed, worker, plan], now=now, local_paper_mode=True, operator_review=review)
+    health = presentation.dashboard_health(panel)
+    assert (health['color'], health['label'], health['plan_readiness'], health['valid_until']) == (
+        'amber', 'Checking strategy for the next open', 'pending', until.isoformat())
+    assert not health['active_conditions'] and not health['review_conditions']
+    failed = changed_history_panel(panel, 'shadow_worker', status=model.FAIL)
+    assert presentation.dashboard_health(failed)['color'] == 'red'
+    unreviewed = replace(panel, operator_review=review.model_copy(update={'status': 'REVIEW', 'reviewed_head': 0}))
+    assert presentation.dashboard_health(unreviewed)['label'] == 'Acknowledgement required'
+    assert presentation.dashboard_health(replace(panel, now=until))['label'] != 'Checking strategy for the next open'
+    assert presentation.dashboard_health(replace(panel, now=until+timedelta(microseconds=1)))['color'] == 'red'
 
 
 def test_bypassing_current_attempt_eligibility_exposes_a_latched_failure(monkeypatch):
@@ -409,6 +466,7 @@ def test_unadopted_exposure_cannot_borrow_unproved_preparation(defect):
     else:
         phase='AUTOMATION_PREPARE_AVAILABILITY' if defect=='generic_retry' else 'AUTOMATION_REFRESHING_DATA'
         page=changed_history_panel(page,'automation_cycle',recovery=model.RecoveryEvidence(phase=phase,automatic=True,deadline=OPEN))
+    assert not presentation._unadopted_preparation_fact(page)
     assert presentation.dashboard_health(page)['color']!='green'
 
 

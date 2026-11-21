@@ -1,16 +1,19 @@
 """Typed provider inputs through canonical formation and durable continuation."""
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 import os
 from pathlib import Path
 
+import psycopg
 import pytest
 
-from sentinel import schema, shadow_runtime
+from sentinel import rolling_daily_checkpoint, schema, shadow_runtime
 from sentinel import rolling_initialization as init, rolling_daily as daily
 from sentinel.core import formation_preview, window_features
-from sentinel.feed import calendar, operational_snapshot as op, publisher_pipeline, rolling_builder
+from sentinel.feed import calendar, operational_snapshot as op, publisher_pipeline, rolling_builder, rolling_store
 from sentinel.feed.alpaca_source import AlpacaSource, _bounds
 from sentinel.feed.alpaca_transport import ASSETS, ACTION_URL, BAR_URL
+from sentinel.feed.normalized_layout import candidate_query
 from sentinel.feed.rolling_contract import CurrentFormationWindow, PriceWindow, digest
 from sentinel.strategy import production_strategy
 from tests.sentinel.test_alpaca_operational_snapshot import FakeClassifier
@@ -231,3 +234,175 @@ def test_operational_shadow_worker_publishes_next_day_recovers_and_never_replays
     assert conn.execute("SELECT count(*) FROM sentinel_corpus_publications").fetchone()[0] == before
     for table in ("sentinel_execution_plans", "sentinel_commands", "sentinel_fills"):
         assert conn.execute("SELECT count(*) FROM " + table).fetchone()[0] == 0
+
+
+# In role order: prior controller witness ASO, witness EVER, shadow holding PANW.
+CORRECTIONS = ((70.441, 70.48), (28.68, 28.67), (361.812, 361.73))
+
+
+def _provider_correction(monkeypatch, prices):
+    """Put the recorded prices on fake symbols with ordinary price histories."""
+    previous = str(prices.window.end)
+    index = {day: i for i, day in enumerate(calendar.sessions_in_range(
+        prices.origin, calendar.next_session(previous)))}
+    anchor_index = index[previous]
+    original_get, original_pages = prices.get, prices.pages
+    revisions = {}
+
+    def get(endpoint, params):
+        assets, proof = original_get(endpoint, params)
+        # The witness selects 25 names. Extra recent leaders leave some held
+        # names outside the witness while preserving their older entry scores.
+        extras = [dict(asset, id=f'uuid-{number:02}', symbol=f'T{number:02}')
+                  for number, asset in enumerate(assets, 25)]
+        return assets + extras, proof
+
+    def pages(endpoint, params, *, key):
+        for values, proof in original_pages(endpoint, params, key=key):
+            if endpoint == BAR_URL:
+                for ticker, rows in values.items():
+                    if not ticker.startswith('T'):
+                        continue
+                    number = int(ticker[1:])
+                    old, _ = CORRECTIONS[number % len(CORRECTIONS)]
+                    scale = old / (100 + anchor_index * .2 + number * .03)
+                    for row in rows:
+                        day = row['t'][:10]
+                        recent_scale = (1 - min(21, max(0, anchor_index - index[day])) * .001
+                                        if number >= 25 else 1.)
+                        row['o'] *= scale * recent_scale
+                        row['c'] *= scale * recent_scale
+                        if day == previous:
+                            row['c'] = revisions.get(ticker, old)
+                            if ticker in revisions:
+                                row['v'] += 193
+            yield values, proof
+
+    monkeypatch.setattr(prices, 'get', get)
+    monkeypatch.setattr(prices, 'pages', pages)
+    return revisions
+
+
+def _bars(conn, binding, session, security_ids):
+    rows = conn.execute(candidate_query(conn, 'SELECT security_id,close_unadjusted,close_signal '
+        'FROM sentinel_snapshot_bars WHERE candidate_id=%s AND session=%s AND security_id=ANY(%s)'),
+        (binding['candidate_id'], session, sorted(security_ids))).fetchall()
+    return {sid: (raw, signal) for sid, raw, signal in rows}
+
+
+def _session_record(conn, session):
+    return conn.execute('SELECT state FROM sentinel_processed_sessions WHERE cursor_name=%s',
+        (f'shadow-observation:v1:{OBS}:session:{session}',)).fetchone()
+
+
+def test_paired_protected_price_corrections_advance_once_and_preserve_economic_state(
+        conn, provider, monkeypatch):
+    from sentinel import rolling_anchor_observations
+    from sentinel.core.rolling_continuity import RollingContinuityRefused
+    from sentinel.shadow_observation import ShadowObservationRefused
+
+    prices, publish = provider
+    revisions = _provider_correction(monkeypatch, prices)
+    predecessor = publish()
+    before = init.initialize(conn, observation_id=OBS, starting_cash=50_000)
+    prior_session = before.state.last_processed_session
+    prior_record = _session_record(conn, prior_session)
+    assert prior_record is not None
+    episodes = {episode['security_id']: episode for episode in before.state.wealth_core['episodes'].values()}
+    witness_closes = before.state.median5['selected_closes']
+    pending = {order['security_id'] for order in before.state.pending}
+    witness_only = set(witness_closes) - episodes.keys() - pending
+    held_only = episodes.keys() - witness_closes.keys() - pending
+    sids = []
+    for cohort, candidates in enumerate((witness_only, witness_only, held_only)):
+        sid = next(sid for sid in sorted(candidates) if int(sid.removeprefix('uuid-')) % len(CORRECTIONS) == cohort)
+        ticker = before.state.feed['series'][sid]['ticker']
+        revisions[ticker] = CORRECTIONS[cohort][1]
+        sids.append(sid)
+
+    assert _bars(conn, predecessor, prior_session, sids) == {
+        sid: (old, old) for sid, (old, _) in zip(sids, CORRECTIONS, strict=True)}
+    before_hash = before.state.state_hash
+    target = calendar.next_session(prior_session)
+    prices.window = PriceWindow.through(target)
+    successor = publish()
+    assert _bars(conn, successor, prior_session, sids) == {
+        sid: (new, new) for sid, (_, new) in zip(sids, CORRECTIONS, strict=True)}
+    live_bars = _bars(conn, successor, target, {*witness_closes, *sids})
+    # Independently recompute the witness return using the committed prior marks.
+    witness_return = sum(Decimal(str(live_bars[sid][1])) / Decimal(str(close)) - 1
+                         for sid, close in witness_closes.items()) / len(witness_closes)
+    expected_nav = before.state.median5['witness_nav'][-1] * float(1 + witness_return)
+
+    # Disabling the evidence-producing bridge reproduces the original refusal.
+    with monkeypatch.context() as without_bridge:
+        without_bridge.setattr(rolling_anchor_observations, 'bridge',
+                               lambda _conn, *, anchors, proof, **_: (anchors, proof))
+        with pytest.raises(ShadowObservationRefused, match='incomplete or revised publication signal anchor'):
+            daily.advance(conn, observation_id=OBS, starting_cash=50_000)
+    assert _session_record(conn, target) is None
+
+    observations = rolling_anchor_observations._observations
+
+    def damaged_predecessor(connection, binding, changed):
+        rows = observations(connection, binding, changed)
+        if binding['snapshot_id'] == predecessor['snapshot_id']:
+            old = rows[sids[0]]
+            # Preserve the price scale while substituting an uncommitted mark.
+            close = old.close_unadjusted + 1
+            rows[sids[0]] = old.model_copy(update={'close_unadjusted': close, 'close_signal': close})
+        return rows
+
+    with monkeypatch.context() as damage:
+        damage.setattr(rolling_anchor_observations, '_observations', damaged_predecessor)
+        with pytest.raises(RollingContinuityRefused, match='RETAINED_SIGNAL_OBSERVATION_CHANGED'):
+            daily.advance(conn, observation_id=OBS, starting_cash=50_000)
+    assert _session_record(conn, target) is None
+    assert _session_record(conn, prior_session) == prior_record
+
+    result = daily.advance(conn, observation_id=OBS, starting_cash=50_000)
+    assert result.appended and result.session == target
+    assert result.state.median5['witness_nav'][:-1] == before.state.median5['witness_nav'][1:]
+    assert result.state.median5['witness_nav'][-1] == pytest.approx(expected_nav, abs=1e-12)
+    for sid in sids:
+        old_input, updated = before.state.feed['series'][sid], result.state.feed['series'][sid]
+        assert updated.get('signal_basis_multiplier', 1.) == old_input.get('signal_basis_multiplier', 1.) == 1
+        assert updated['signal_basis_anchor'] == [target, *live_bars[sid]]
+    held_sid = sids[-1]
+    held_history = result.state.feed['series'][held_sid]
+    prior_index = held_history['sessions'].index(prior_session)
+    assert held_history['signal_closes'][prior_index] == held_history['raw_closes'][prior_index] == CORRECTIONS[-1][1]
+    prior_episode = episodes[held_sid]
+    episode = result.state.wealth_core['episodes'][str(prior_episode['slot_id'])]
+    for key in ('security_id', 'current_shares', 'entry_date', 'entry_raw_open', 'entry_split_adjusted_price'):
+        assert episode[key] == prior_episode[key]
+    assert episode['episode_peak_split_adjusted_close'] == max(
+        prior_episode['episode_peak_split_adjusted_close'], live_bars[held_sid][1])
+    assert before.state.state_hash == before_hash
+    assert _session_record(conn, prior_session) == prior_record
+    checkpoint = rolling_daily_checkpoint.read(conn)
+    continuity = checkpoint.input_value['current_window_continuity']
+    proof = rolling_store.load_evidence(conn, continuity['protected_economics_sha256'])
+    assert proof['schema'] == 'sentinel.protected-price-observations/1'
+    assert proof['prior_state_sha256'] == before_hash
+    assert proof['previous_snapshot_sha256'] == predecessor['snapshot_id']
+    assert proof['snapshot_sha256'] == successor['snapshot_id']
+    recorded = {old['security_id']: (old, new) for old, new in proof['revisions']}
+    assert set(recorded) == set(sids)
+    for sid, (old, new) in zip(sids, CORRECTIONS, strict=True):
+        for observation, close in zip(recorded[sid], (old, new), strict=True):
+            assert observation['security_id'] == sid
+            assert observation['session'] == prior_session
+            assert observation['close_unadjusted'] == observation['close_signal'] == close
+        retained_anchor = checkpoint.input_value['signal_basis_anchors'][sid]
+        assert retained_anchor['raw_close'] == retained_anchor['signal_close'] == old
+
+    conn.commit()
+    with psycopg.connect(conn.info.dsn) as restarted:
+        restored = daily.resume(restarted, observation_id=OBS, starting_cash=50_000)
+        assert restored.state.state_hash == result.state.state_hash
+        assert restored.record_sha256 == result.record_sha256
+        first_write = _session_record(restarted, target)
+        restarted.commit()
+        assert not daily.advance(restarted, observation_id=OBS, starting_cash=50_000).appended
+        assert _session_record(restarted, target) == first_write

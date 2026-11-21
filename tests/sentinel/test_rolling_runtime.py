@@ -208,6 +208,43 @@ def test_same_session_service_renews_measured_feed_evidence(conn, published, mon
         assert conn.execute('SELECT COUNT(*) FROM ' + table).fetchone()[0] == 0
 
 
+def test_adjacent_service_uses_one_verified_advance_pin_and_refuses_stale_preparation(
+        conn, published, operational_source, monkeypatch):
+    from sentinel.feed import rolling_store
+
+    previous = advance(conn)
+    target = refresh(conn, operational_source, monkeypatch, publish=False)
+    full_scan = rolling_store._verify_content_uncached
+    scans = []
+
+    def counted(connection, candidate, **kwargs):
+        scans.append((candidate, kwargs.get('collect_readiness', False)))
+        return full_scan(connection, candidate, **kwargs)
+
+    monkeypatch.setattr(rolling_store, '_verify_content_uncached', counted)
+    prepare = runtime.prepare_adjacent
+
+    def stale_preparation(*args, **kwargs):
+        prepared = prepare(*args, **kwargs)
+        return {**prepared, 'snapshot_id': published['snapshot_id']}
+
+    args = dict(through=target, observation_id=OBS, starting_cash=100_000)
+    with monkeypatch.context() as stale:
+        stale.setattr(runtime, 'prepare_adjacent', stale_preparation)
+        with pytest.raises(runtime.Refused, match='ROLLING_PREPARATION_PUBLICATION_CHANGED'):
+            runtime.service_advance(conn, **args)
+    assert daily_cp.read(conn) is None
+    with op.pinned(conn) as (_, current):
+        candidate = current['candidate_id']
+    assert [staged for cid, staged in scans if cid == candidate] == [True]
+
+    result = runtime.service_advance(conn, **args)
+    assert result.appended and result.verification == shadow.VERIFIED
+    assert result.session == target and result.state.state_hash != previous.state.state_hash
+    assert [staged for cid, staged in scans if cid == candidate] == [True, False]
+    assert status(conn).record_sha256 == result.record_sha256
+
+
 @pytest.mark.parametrize('defect', ['missing_source_session', 'corrupt_content'])
 def test_failed_same_session_verification_cannot_renew_feed_pass(conn, published, monkeypatch, defect):
     from sentinel.feed import readers, readiness, rolling_store

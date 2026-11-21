@@ -27,6 +27,7 @@ from typing import Optional
 
 from psycopg.errors import LockNotAvailable, QueryCanceled
 
+from sentinel.feed import publication_progress
 from sentinel.panel import model
 
 #: Wealth Core's slot count. Read from the engine config rather than hardcoded
@@ -2603,7 +2604,7 @@ _PREPARATION_SQL = """WITH current_publication AS (
         (b.job_id IS NOT NULL),
         EXISTS (SELECT 1 FROM sentinel_snapshot_workers w
             WHERE w.owner=j.owner AND w.job_id=j.job_id),
-        components.count,components.source_rows,components.final_price
+        components.count,components.source_rows,components.final_price, live_phase.proof
     FROM sentinel_snapshot_jobs j
     JOIN sentinel_operational_snapshot_jobs o USING(job_id)
     CROSS JOIN LATERAL (
@@ -2611,6 +2612,7 @@ _PREPARATION_SQL = """WITH current_publication AS (
             coalesce(bool_or(left(c.component,4)='SEP.' AND
                 right(c.component,11)='.' || (j.request #>> '{window,sessions,-1}')),false) AS final_price
         FROM sentinel_snapshot_job_components c WHERE c.job_id=j.job_id) components
+    LEFT JOIN LATERAL (""" + publication_progress.OBSERVATION_SQL + """) live_phase ON TRUE
     LEFT JOIN current_publication p ON TRUE
     LEFT JOIN sentinel_operational_snapshots b ON b.publication_version=p.version
         AND b.job_id=j.job_id AND b.candidate_id=j.candidate_id
@@ -2631,7 +2633,7 @@ def _preparation_work(record, *, target):
     from sentinel.feed.rolling_contract import digest
 
     (job, sampled, current_version, prior_version, published_binding, registered,
-     components, source_rows, final_price) = record
+     components, source_rows, final_price, phase_proof) = record
     def clock(value):
         if value is None:
             return None
@@ -2660,7 +2662,7 @@ def _preparation_work(record, *, target):
         raise ValueError('operational preparation publication CAS changed')
     # No strategy-source/dependency hashing here: this is a progress fact, not
     # the independent feed readiness or signed financial subject proof.
-    return model.PreparationWork(job_id=str(job['job_id']),
+    work = model.PreparationWork(job_id=str(job['job_id']),
         decision_session=date.fromisoformat(target),
         effective_session=date.fromisoformat(calendar.next_session(target)),
         state=job['state'], rows_done=job['rows_done'], components_done=components,
@@ -2669,7 +2671,15 @@ def _preparation_work(record, *, target):
         last_progress_at=clock(job['last_progress_at']), observed_at=sampled,
         deadline=clock(job['deadline']), lease_until=clock(job.get('lease_until')),
         owner_registered=registered, fence=job['fence'],
-        next_retry=clock(job.get('next_retry'))).model_dump()
+        next_retry=clock(job.get('next_retry')))
+    if work.active_at(sampled):
+        phase = publication_progress.read_phase(phase_proof, job.get('owner'))
+        if phase is not None:
+            try:
+                work = model.PreparationWork.model_validate({**work.model_dump(), 'producer_phase': phase})
+            except ValueError:
+                pass  # Optional live metadata never discards committed progress.
+    return work.model_dump()
 
 
 def _operational_acquisition(conn, *, now=None):

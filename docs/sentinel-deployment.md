@@ -1,5 +1,11 @@
 # Sentinel current operating contract
 
+[Close work and evidence handoffs](close-work-and-evidence.md) describes the
+verified validation, progress, dashboard, and scheduler paths at market close.
+
+[Closing observation continuity](close-price-observation-continuity.md) records
+the forward-only transition and recovery through corrected historical SIP closes.
+
 [PAPER installation progress](paper-install-observation.md) describes the
 live host phase visible during a dashboard handoff and the checks that bind
 runtime selection to the signed image and the fenced database.
@@ -258,6 +264,8 @@ observers](idle-automation-observer-cost.md) avoid repeated process bootstrap.
 full price validation and defines bounded reuse for SHADOW verification.
 [Retention proof amortization](retention-proof-amortization.md) lets bounded
 disposal batches share proof work in one owned transaction.
+[Idle retention CPU](idle-retention-cpu.md) bounds background cleanup cadence
+and reuses authentication only after a new exact byte comparison.
 [Shadow arming recovery](shadow-arm-recovery.md) covers one bounded fresh
 admission attempt after an arming helper times out.
 

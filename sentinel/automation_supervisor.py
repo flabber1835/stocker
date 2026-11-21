@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import math
 import errno
+import json
+import multiprocessing
 import os
 import signal
 import socket
@@ -29,14 +31,16 @@ from sentinel import supervisor_io
 
 HOLDER_FILE = Path("/tmp/sentinel-automation-holder-id")
 SNAPSHOT_SECONDS = 1.0
+_SNAPSHOT_PACKET = 2048
+_SNAPSHOT_STAGES = ('ADMISSION', 'CONNECT', 'QUERY', 'ROLLBACK', 'RESULT')
 _DIAGNOSTIC_INCARNATION = uuid.uuid4().hex
 
 
 def _diagnostic(stage, outcome, *, child, started, completed, worker_started,
-                error=None, snapshot=None, lease_seconds=None, immediate=True):
+                error=None, snapshot=None, lease_seconds=None, dependency_step=None, immediate=True):
     context = {'incarnation': _DIAGNOSTIC_INCARNATION, 'supervisor_pid': os.getpid(),
                'started': started, 'completed': completed, 'decision_at': completed,
-               'worker_started': worker_started}
+               'worker_started': worker_started, 'elapsed_seconds': completed - started}
     child_pid = getattr(child, 'pid', None)
     if child_pid is not None:
         context['child_pid'] = child_pid
@@ -44,6 +48,8 @@ def _diagnostic(stage, outcome, *, child, started, completed, worker_started,
         context.update(state=snapshot.state, heartbeat_age_seconds=snapshot.heartbeat_age_seconds)
     if lease_seconds is not None:
         context['lease_seconds'] = lease_seconds
+    if dependency_step is not None:
+        context['dependency_step'] = dependency_step
     return supervisor_io.report_event('automation', stage, outcome, error=error,
                                       context=context, immediate=True)
 
@@ -157,28 +163,136 @@ def _snapshot(database_url: str, holder_id: str):
 def _read_snapshot(database_url: str, holder_id: str):
     conn = feed_store.connect(database_url, connect_timeout=1, statement_timeout_ms=750)
     try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT state,heartbeat_at,clock_timestamp(),"
-                " callback_started_at,callback_deadline_at "
-                "FROM sentinel_automation_service_instances "
-                "WHERE instance_id=%s", (holder_id,))
-            row = cur.fetchone()
-        conn.rollback()
-        if row is None:
-            return InstanceSnapshot()
-        state, heartbeat_at, database_now, callback_start, callback_end = row
-        age = ((database_now - heartbeat_at).total_seconds()
-               if heartbeat_at is not None else None)
-        callback = state.endswith("_CALLBACK")
-        return InstanceSnapshot(
-            state, age, callback_start if callback else heartbeat_at,
-            (database_now - callback_start).total_seconds()
-            if callback_start is not None else None,
-            (callback_end - database_now).total_seconds()
-            if callback_end is not None else None)
+        conn.read_only = True
+        return _query_snapshot(conn, holder_id)
     finally:
         conn.close()
+
+
+def _query_snapshot(conn, holder_id, stage=None):
+    if stage is not None:
+        stage.value = 2
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT state,heartbeat_at,clock_timestamp(),"
+            " callback_started_at,callback_deadline_at "
+            "FROM sentinel_automation_service_instances "
+            "WHERE instance_id=%s", (holder_id,))
+        row = cur.fetchone()
+    if stage is not None:
+        stage.value = 3
+    conn.rollback()
+    if row is None:
+        return InstanceSnapshot()
+    state, heartbeat_at, database_now, callback_start, callback_end = row
+    age = ((database_now - heartbeat_at).total_seconds() if heartbeat_at is not None else None)
+    callback = state.endswith('_CALLBACK')
+    return InstanceSnapshot(
+        state, age, callback_start if callback else heartbeat_at,
+        (database_now - callback_start).total_seconds() if callback_start is not None else None,
+        (callback_end - database_now).total_seconds() if callback_end is not None else None)
+
+
+def _serve_snapshots(channel, peer, parent_pid, database_url, stage):
+    peer.close()
+    supervisor_io._parent_death(parent_pid)
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    conn = None
+    with channel:
+        try:
+            while request := channel.recv(_SNAPSHOT_PACKET):
+                if conn is None:
+                    stage.value = 1
+                    conn = feed_store.connect(database_url, connect_timeout=1, statement_timeout_ms=750)
+                    conn.read_only = True
+                result = _query_snapshot(conn, request.decode('utf-8'), stage)
+                stage.value = 4
+                channel.send(json.dumps(['ok', list(result)], default=datetime.isoformat,
+                                        allow_nan=False).encode('ascii'))
+        except Exception as exc:  # noqa: BLE001
+            channel.send(json.dumps(['error', supervisor_io.error_diagnostic(exc)]).encode('ascii'))
+        finally:
+            if conn is not None:
+                conn.close()
+
+
+class SnapshotReader:
+    """Own one disposable backend for fresh watchdog reads across worker ticks."""
+
+    def __init__(self, database_url):
+        self.database_url = database_url
+        self.context = multiprocessing.get_context('fork')
+        self.stage = self.context.RawValue('i', 0)
+        self.process = None
+        self.channel = None
+
+    def _start(self):
+        parent, child = socket.socketpair(type=socket.SOCK_SEQPACKET)
+        try:
+            process = self.context.Process(target=_serve_snapshots, name='sentinel-watchdog-reader',
+                args=(child, parent, os.getpid(), self.database_url, self.stage))
+            process.start()
+        except BaseException:
+            parent.close()
+            raise
+        finally:
+            child.close()
+        self.channel, self.process = parent, process
+
+    def close(self):
+        if self.channel is not None:
+            self.channel.close()
+            self.channel = None
+        if self.process is not None:
+            if self.process.is_alive():
+                self.process.kill()
+            self.process.join(timeout=.05)
+            if self.process.is_alive():
+                return False
+            self.process.close()
+            self.process = None
+        return True
+
+    def read(self, database_url, holder_id):
+        if database_url != self.database_url:
+            raise RuntimeError('watchdog reader database binding changed')
+        started = time.monotonic()
+        deadline = started + SNAPSHOT_SECONDS
+        self.stage.value = 0
+        try:
+            if self.channel is None or not self.process.is_alive():
+                if not self.close():
+                    raise TimeoutError('prior watchdog reader is not reaped')
+                self._start()
+            raw = holder_id.encode('utf-8')
+            if not raw or len(raw) >= _SNAPSHOT_PACKET:
+                raise ValueError('watchdog holder identity exceeds packet bound')
+            self.channel.settimeout(self._remaining(deadline))
+            if self.channel.send(raw) != len(raw):
+                raise RuntimeError('watchdog observation request was incomplete')
+            self.channel.settimeout(self._remaining(deadline))
+            response = self.channel.recv(_SNAPSHOT_PACKET)
+            if not response or len(response) >= _SNAPSHOT_PACKET:
+                raise RuntimeError('watchdog observation response unavailable')
+            status, value = json.loads(response)
+            if status != 'ok':
+                raise supervisor_io.DependencyError(value)
+            if value[2] is not None:
+                value[2] = datetime.fromisoformat(value[2])
+            if not 0 <= time.monotonic() - started <= SNAPSHOT_SECONDS:
+                raise TimeoutError('automation dependency observation is no longer current')
+            return InstanceSnapshot(*value)
+        except Exception:
+            self.close()
+            raise
+
+    @staticmethod
+    def _remaining(deadline):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError('watchdog observation exceeded its wall-clock budget')
+        return remaining
 
 
 def _holder_id() -> str:
@@ -228,16 +342,21 @@ def main(*, serve_health=False) -> int:
         reader = WarmHealthReader(
             sentinel_config.database_url, automation_config.lease_seconds,
             max_pulse_age=poll_seconds + 2*SNAPSHOT_SECONDS + 1)
+    snapshots = SnapshotReader(sentinel_config.database_url) if serve_health else None
     try:
-        return _watch(sentinel_config, automation_config, poll_seconds, startup_grace_seconds, reader)
+        return _watch(sentinel_config, automation_config, poll_seconds, startup_grace_seconds,
+                      reader, snapshots)
     finally:
+        if snapshots is not None:
+            snapshots.close()
         if reader is not None:
             reader.close()
 
 
-def _watch(sentinel_config, automation_config, poll_seconds, startup_grace_seconds, reader):
+def _watch(sentinel_config, automation_config, poll_seconds, startup_grace_seconds, reader, snapshots=None):
     stopping = False
     child: subprocess.Popen | None = None
+    observe = _snapshot if snapshots is None else snapshots.read
 
     def stop(_signum, _frame):
         nonlocal stopping
@@ -250,6 +369,8 @@ def _watch(sentinel_config, automation_config, poll_seconds, startup_grace_secon
 
     while not stopping:
         holder_id = _holder_id()
+        if snapshots is not None:
+            snapshots.close()
         try:
             child = _spawn(holder_id)
         except (TimeoutError, OSError) as exc:
@@ -280,7 +401,7 @@ def _watch(sentinel_config, automation_config, poll_seconds, startup_grace_secon
             observation_started = now_mono
             observation_stage = 'SNAPSHOT'
             try:
-                snapshot = _snapshot(
+                snapshot = observe(
                     sentinel_config.database_url, holder_id)
                 now_mono = time.monotonic()
                 if _instance_stalled(
@@ -291,7 +412,9 @@ def _watch(sentinel_config, automation_config, poll_seconds, startup_grace_secon
                         state=snapshot.state):
                     observation_stage = 'CONFIRMATION'
                     observation_started = now_mono
-                    snapshot = _snapshot(sentinel_config.database_url, holder_id)
+                    if snapshots is not None and not snapshots.close():
+                        raise TimeoutError('prior watchdog reader is not reaped for confirmation')
+                    snapshot = observe(sentinel_config.database_url, holder_id)
                     now_mono = time.monotonic()
                 # A failed confirmation remains one unobservable interval;
                 # the successful first probe cannot reset its hard deadline.
@@ -300,7 +423,9 @@ def _watch(sentinel_config, automation_config, poll_seconds, startup_grace_secon
                 now_mono = time.monotonic()
                 _diagnostic(observation_stage, 'FAILED', child=child,
                             started=observation_started, completed=now_mono,
-                            worker_started=started, error=exc)
+                            worker_started=started, error=exc,
+                            dependency_step=_SNAPSHOT_STAGES[snapshots.stage.value]
+                            if snapshots is not None else None)
                 if database_unreadable_since is None:
                     database_unreadable_since = now_mono
                 supervisor_io.report(f"automation supervisor health read failed: {exc}",

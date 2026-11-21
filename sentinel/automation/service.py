@@ -1695,10 +1695,11 @@ class AutomationService:
                 diagnostic=cycle.diagnostic)
         try:
             permit = store.require_leader(conn, permit)
-            raw = await self._invoke_phase(
-                "PREFLIGHT_RECOVER",
-                CycleContext(cycle=cycle, permit=permit), permit=permit,
-                heartbeat_conn_factory=heartbeat_conn_factory)
+            with opening_stage_log.close_preflight(self._completed_at(now, clock), cycle.next_wake_at):
+                raw = await self._invoke_phase(
+                    "PREFLIGHT_RECOVER",
+                    CycleContext(cycle=cycle, permit=permit), permit=permit,
+                    heartbeat_conn_factory=heartbeat_conn_factory)
             now = self._completed_at(now, clock)
             result = (raw if isinstance(raw, ExecuteResult)
                       else ExecuteResult.model_validate(raw))

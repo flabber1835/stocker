@@ -109,8 +109,9 @@ def test_idle_retention_holds_drain_admission_and_yields_to_a_drain(tmp_path, mo
     monkeypatch.setattr(shadow_supervisor, 'LATCH_FILE', tmp_path/'latch.json')
     calls = []
 
-    def retain(url):
+    def retain(url, *, checkpoint_proof):
         calls.append(url)
+        assert checkpoint_proof.witness == ('verified-by-prior-pass',)
         fd = os.open(tmp_path/shadow_drain.LOCK_NAME, os.O_RDONLY)
         try:
             with pytest.raises(BlockingIOError):
@@ -120,9 +121,10 @@ def test_idle_retention_holds_drain_admission_and_yields_to_a_drain(tmp_path, mo
         return True
 
     monkeypatch.setattr(retention, 'idle_pass', retain)
-    assert shadow_supervisor._idle_retention('private') is True
+    prior = ('verified-by-prior-pass',)
+    assert shadow_supervisor._idle_retention('private', prior) == (True, prior)
     monkeypatch.setattr(shadow_drain, '_acknowledge_idle', lambda *_, **__: True)
-    assert shadow_supervisor._idle_retention('private') is False
+    assert shadow_supervisor._idle_retention('private', prior) == (False, None)
     assert calls == ['private']
 
 
@@ -133,8 +135,12 @@ def test_idle_retention_cannot_consume_the_next_close_wake(monkeypatch):
     monkeypatch.setattr(shadow_supervisor.time, 'sleep', lambda n: clock.__setitem__(0, clock[0] + n))
     monkeypatch.setattr(shadow_supervisor.shadow_budget, 'now', lambda: close + timedelta(seconds=clock[0]))
     calls = []
+    def idle_work():
+        calls.append(clock[0])
+        return False
+    idle_work.ready_at = 0
     args = dict(deadline=300, close_at=close + timedelta(seconds=8), stopping=lambda: False,
-                heartbeat=lambda: None, idle_work=lambda: calls.append(clock[0]) or False)
+                heartbeat=lambda: None, idle_work=idle_work)
     shadow_supervisor._poll_after_worker(**args)
     assert clock[0] == 8 and calls == []
 

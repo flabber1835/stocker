@@ -151,6 +151,8 @@ def test_valid_full_hash_does_not_hide_wrong_middle_date_identity(conn):
     # Both endpoint rows are valid; a first/last interval check is insufficient.
     with pytest.raises(adapter.RollingInputsRefused, match='BAR_REFERENCE_MISMATCH'):
         projected(context)
+    with pytest.raises(adapter.RollingInputsRefused, match='BAR_REFERENCE_MISMATCH'):
+        adapter.readiness_inputs(conn, candidate_id=key[0], snapshot_id=key[1], staged=True)
 
 
 def test_absent_middle_row_is_not_invented_by_reference_mask(conn):
@@ -189,6 +191,23 @@ def test_unscoped_verification_does_not_allocate_summary(conn, monkeypatch):
     assert rolling_store._verify_content_uncached(conn, key[0]).readiness is None
     assert rolling_store.readiness_facts(conn, key[0]) is None
     assert adapter.readiness_inputs(conn, candidate_id=key[0], snapshot_id=key[1]).counts
+
+
+def test_staged_readiness_fuses_content_and_reference_checks(conn, monkeypatch):
+    key = fixture_inputs.candidate(conn)
+    expected = adapter.readiness_inputs(conn, candidate_id=key[0], snapshot_id=key[1])
+    scan = rolling_store._bar_rows
+    read_candidates = []
+
+    def count_rows(connection, candidate):
+        read_candidates.append(candidate)
+        yield from scan(connection, candidate)
+
+    monkeypatch.setattr(rolling_store, '_bar_rows', count_rows)
+    monkeypatch.setattr(rolling_store, 'read_bars', lambda *a, **kw: pytest.fail('duplicate staged stream'))
+    assert adapter.readiness_inputs(conn, candidate_id=key[0], snapshot_id=key[1], staged=True) == expected
+    assert read_candidates == [key[0]]
+    assert rolling_store.readiness_facts(conn, key[0]) is None
 
 
 def test_removed_live_pin_guard_is_detected(conn, monkeypatch):

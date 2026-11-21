@@ -42,6 +42,9 @@ def commit_next(conn, *, checkpoint, observer, prior, pub, binding, context,
         raise checkpoints.Refused("ACQUISITION_STRATEGY_CHANGED")
     material, anchors, proof = rolling_continuity.prepare(
         conn, prior=prior.state, previous_binding=checkpoint.snapshot, publication=pub, binding=binding)
+    from sentinel.rolling_anchor_observations import bridge
+    anchors, proof = bridge(conn, prior=prior.state, previous=checkpoint.snapshot,
+                            current=binding, anchors=anchors, proof=proof)
     published = replace(initial._published(material, pub), signal_basis_anchors=anchors, history_proof=proof)
     if prior.state.strategy_identity != target_strategy:
         from sentinel.economic_migration import transition

@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+import hashlib
 import logging
+import os
 import time
 from typing import Literal
 
@@ -173,12 +176,50 @@ def _authenticate_checkpoints(conn):
         rolling_daily_checkpoint.read(conn)
 
 
+@dataclass
+class IdleCheckpointProof:
+    """One SHADOW owner's exact byte witness, without checkpoint contents."""
+
+    witness: tuple | None = None
+
+
+def _checkpoint_witness(conn):
+    from sentinel.receipt_authentication import KEY_ENV
+
+    if not conn.execute("SELECT to_regclass('sentinel_processed_sessions')").fetchone()[0]:
+        return None
+    rows = conn.execute("""
+        WITH checkpoints AS MATERIALIZED (
+            SELECT cursor_name, session, state, tableoid, xmin, ctid
+            FROM sentinel_processed_sessions
+            WHERE cursor_name IN ('rolling-cold-start:v1', 'rolling-daily-checkpoint:v1')
+        ), exact_rows AS (
+            SELECT * FROM checkpoints
+            UNION ALL
+            SELECT a.cursor_name, a.session, a.state, a.tableoid, a.xmin, a.ctid
+            FROM checkpoints d
+            JOIN sentinel_processed_sessions a ON a.cursor_name =
+                'rolling-daily-input:v1:' || (d.state#>>'{checkpoint,observation_id}') || ':' || d.session::text
+            WHERE d.cursor_name='rolling-daily-checkpoint:v1' AND d.state ? 'input_archive_sha256'
+        )
+        SELECT s.system_identifier::text, current_database(), pg_postmaster_start_time(),
+            cursor_name, session::text, tableoid, pg_relation_filenode(tableoid), xmin::text, ctid::text,
+            encode(sha256(convert_to(state::text, 'UTF8')), 'hex')
+        FROM exact_rows CROSS JOIN pg_control_system() s ORDER BY cursor_name
+    """).fetchall()
+    if len(rows) != 3:
+        return None  # Legacy or absent input still uses the canonical readers.
+    key = hashlib.sha256(os.environ.get(KEY_ENV, '').strip().encode()).digest()
+    return key, tuple(rows)
+
+
 class _Authorization:
     """Only this owned transaction may reuse its original full checkpoint read."""
-    def __init__(self, conn, deadline):
+    def __init__(self, conn, deadline, checkpoint_proof=None):
         self.conn, self.deadline = conn, deadline
         self.complete = False
         self.error = None
+        self.checkpoint_proof = checkpoint_proof
 
     def require(self):
         if self.error is not None:
@@ -187,8 +228,15 @@ class _Authorization:
             return False
         port = _Budget(self.conn,self.deadline)
         try:
-            _authenticate_checkpoints(port)
+            proof = self.checkpoint_proof
+            witness = _checkpoint_witness(port) if proof is not None else None
+            if witness is None or proof.witness != witness:
+                _authenticate_checkpoints(port)
+                if witness is not None and _checkpoint_witness(port) != witness:
+                    raise RetentionProgressRefused('checkpoint bytes changed during retention authorization')
             port.check()
+            if proof is not None:
+                proof.witness = witness
         except Exception as exc:
             self.error = exc
             raise
@@ -804,12 +852,12 @@ def _smaller_payload(progress):
     return progress
 
 
-def _pass(conn, *, batch_rows, deadline=None, private=None):
+def _pass(conn, *, batch_rows, deadline=None, private=None, checkpoint_proof=None):
     """Caller owns the applicable locks until disposal and progress commit."""
     deadline = deadline if deadline is not None else time.monotonic()+PASS_SECONDS
     admission_end = deadline-CHECKPOINT_RESERVE
     port = _Budget(conn,admission_end)
-    authorization = _Authorization(conn,admission_end)
+    authorization = _Authorization(conn,admission_end,checkpoint_proof)
     progress = _read_progress(port)
     total = _stats()
     if progress is None:
@@ -904,7 +952,7 @@ def _record_retry(conn, result):
     conn.commit()
 
 
-def maintain(conn, *, batch_rows=BATCH_ROWS):
+def maintain(conn, *, batch_rows=BATCH_ROWS, checkpoint_proof=None):
     """One bounded pass; disposal and durable progress have a single commit."""
     from sentinel.execution.journal import writer_lock
     if conn.info.transaction_status.value != 0:
@@ -929,7 +977,8 @@ def maintain(conn, *, batch_rows=BATCH_ROWS):
             conn.execute('LOCK TABLE sentinel_snapshot_maintenance, sentinel_acquisition_parts '
                          'IN SHARE ROW EXCLUSIVE MODE NOWAIT')
             conn.execute('LOCK TABLE ' + ', '.join(ACQUISITION_PIN_TABLES) + ' IN SHARE MODE NOWAIT')
-            result = _pass(conn,batch_rows=batch_rows,deadline=deadline,private=True)
+            result = _pass(conn,batch_rows=batch_rows,deadline=deadline,private=True,
+                           checkpoint_proof=checkpoint_proof)
             conn.commit()
             return result
         with writer_lock(conn),store.corpus_write_lock(conn):
@@ -971,7 +1020,7 @@ def _closing_plan_pending(conn):
         """).fetchone()[0] is True
 
 
-def idle_pass(database_url):
+def idle_pass(database_url, *, checkpoint_proof=None):
     """Continue only committed useful work, never a loop of unknown retries."""
     conn = None
     try:
@@ -982,7 +1031,8 @@ def idle_pass(database_url):
         if _closing_plan_pending(conn):
             return False
         conn.rollback()
-        result = maintain(conn)
+        result = (maintain(conn, checkpoint_proof=checkpoint_proof)
+                  if checkpoint_proof is not None else maintain(conn))
         return bool(result.get('progress_made') and result.get('more_work'))
     except Exception as exc:
         log.warning('rolling idle maintenance deferred: %s',type(exc).__name__)

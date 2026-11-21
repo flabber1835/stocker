@@ -290,6 +290,84 @@ def test_committed_close_can_bridge_only_the_original_verifier_admission_gap(met
     assert waiting.project_panel(signed, now=NOW, subject=SUBJECT).row('feed').effective_status(NOW) == model.FAIL
 
 
+@pytest.mark.parametrize('fault', [None, 'wrong_fence', 'prior_commit', 'new_verdict',
+                                   'wrong_job', 'worker_fenced', 'verifier_failed'])
+def test_partial_close_reads_only_matching_committed_source_progress(metadata, monkeypatch, fault):
+    from sentinel.feed import readers, readiness
+    from sentinel.feed.publication import Publication
+    from sentinel.panel import attempt_store, delivery, presentation, serialization
+    from sentinel.panel.review_model import OperatorReview
+
+    conn, original = metadata
+    job, created = conn.execute('SELECT job_id,created_at FROM sentinel_snapshot_jobs').fetchone()
+    start, evidence = conn.execute('SELECT window_start,evidence FROM sentinel_corpus_publications').fetchone()
+    pub = Publication(17, 16, None, str(start), '2026-11-09', evidence)
+    generated, published = NOW-timedelta(seconds=3), NOW-timedelta(seconds=2)
+    mon = original.trial_details['verification_attempts']['SHADOW']
+    mon['latest'].update(admitted_at=published.isoformat(),
+                         work_started_at=(published+timedelta(seconds=1)).isoformat())
+    conn.execute('ALTER TABLE sentinel_snapshot_jobs ADD COLUMN fence bigint DEFAULT 7')
+    conn.execute('UPDATE sentinel_snapshot_jobs SET updated_at=%s',
+                 (generated if fault == 'prior_commit' else published,))
+    monkeypatch.setattr(operational_snapshot, '_current', lambda _conn: pub)
+    monkeypatch.setattr(readiness, 'latest_snapshot', lambda _conn: None)
+    monkeypatch.setattr(readers, 'snapshot_matches', lambda _pub, _readiness: fault == 'new_verdict')
+    monkeypatch.setattr(attempt_store, 'read_owned', lambda *_args, **_kwargs: mon)
+    if fault == 'verifier_failed':
+        mon['latest']['outcome'] = 'FAILED'
+
+    until = NOW+timedelta(seconds=7)
+    work = model.PreparationWork(job_id=str(uuid.uuid4() if fault == 'wrong_job' else job),
+        decision_session='2026-11-09', effective_session='2026-11-10', state='READY',
+        rows_done=0, components_done=2, created_at=created, updated_at=generated,
+        last_progress_at=generated, observed_at=generated, deadline=NOW+timedelta(hours=1),
+        lease_until=until, owner_registered=True, fence=6 if fault == 'wrong_fence' else 7)
+    ingest = model.Row('ingest', 'Ingest', 'Candidate sealed', model.WARN, as_of=generated,
+                       preparation=work)
+    plan = model.Row('paper_plan', 'Next PAPER plan', 'Not prepared', model.PENDING)
+    worker = replace(original.row('shadow_worker'), as_of=generated,
+                     status=model.FAIL if fault == 'worker_fenced' else model.OK)
+    old_feed = replace(original.row('feed'), source_publication_version=None, source_session=None,
+                        feed_readiness=None, as_of=generated)
+    review = OperatorReview(scope='1'*64, head=1, reviewed_head=1, status='CLEAN',
+                            observed_at=generated, reviewed_at=generated)
+    view = replace(original, rows=[old_feed, ingest, original.row('shadow_verification'), worker, plan],
+                   local_paper_mode=True, operator_review=review, observation_current=False,
+                   observation_generated_at=generated, observation_valid_until=until,
+                   observation_changed_scopes=('SHADOW', 'PAPER'),
+                   observation_revalidated_keys=('shadow_verification',))
+    refreshed = handoff.publication_refresh(conn, view, subject=SUBJECT,
+                                            owner_expiry=NOW+timedelta(minutes=1), now=NOW)
+    if fault is not None:
+        assert refreshed == view, 'unproved publication progress appeared current'
+        return
+    refreshed = waiting.project_panel(refreshed, now=NOW, subject=SUBJECT)
+    assert refreshed.row('feed').as_of == published
+    assert refreshed.row('feed').source_publication_version == 17
+    assert refreshed.row('feed').feed_readiness == 'AWAITING_VERDICT'
+    assert refreshed.row('feed').valid_until == until
+    assert delivery.row_status(refreshed, refreshed.row('feed')) == model.WARN
+    assert delivery.row_status(refreshed, refreshed.row('ingest')) == model.OK
+    assert not delivery.row_current(refreshed, plan)
+    assert not delivery.display_current(refreshed) and not refreshed.observation_current
+    health = presentation.dashboard_health(refreshed)
+    assert (health['color'], health['label'], health['plan_readiness']) == (
+        'amber', 'Refreshing closing evidence', 'unavailable')
+    assert serialization.public_payload(refreshed)['operator_review'] is None
+    assert delivery.closing_refresh_deadline(replace(refreshed, now=until)) is None
+
+
+def test_removed_publication_fence_guard_is_detected(metadata, monkeypatch):
+    code = inspect.getsource(handoff.publication_refresh)
+    guard = 'AND fence=%s'
+    assert code.count(guard) == 1
+    namespace = dict(vars(handoff))
+    exec(compile(code.replace(guard, 'AND %s>0'), '<unbound-publication-fence>', 'exec'), namespace)
+    monkeypatch.setattr(handoff, 'publication_refresh', namespace['publication_refresh'])
+    with pytest.raises(AssertionError, match='unproved publication progress appeared current'):
+        test_partial_close_reads_only_matching_committed_source_progress(metadata, monkeypatch, 'wrong_fence')
+
+
 @pytest.mark.parametrize('fault', [None, 'job_precedes_header', 'job_after_observation',
                                    'predecessor_after_job', 'admission_expired'])
 def test_prior_verifier_finishing_while_publication_transaction_is_open(metadata, fault):

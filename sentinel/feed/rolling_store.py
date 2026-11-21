@@ -450,7 +450,12 @@ def readiness_facts(conn, candidate_id: str) -> SnapshotReadiness | None:
     return readiness_scope.verified_snapshot(conn, candidate_id, None, summary_only=True)
 
 
-def _verify_content_uncached(conn, candidate_id: str) -> VerifiedSnapshot:
+def staged_readiness_facts(conn, candidate_id: str) -> SnapshotReadiness | None:
+    """Collect facts during the owning READY validator's complete content check."""
+    return _verify_content_uncached(conn, candidate_id, collect_readiness=True).readiness
+
+
+def _verify_content_uncached(conn, candidate_id: str, *, collect_readiness=False) -> VerifiedSnapshot:
     """Full read-only integrity check for restore/comparison, not daily status.
 
     Recompute persisted payload hashes rather than accepting a self-consistent
@@ -471,6 +476,8 @@ def _verify_content_uncached(conn, candidate_id: str) -> VerifiedSnapshot:
     readiness = (_ReadinessAccumulator(value) if isinstance(binding, dict)
                  and binding.get('candidate_id') == candidate_id
                  and binding.get('snapshot_id') == value.snapshot_id else None)
+    if collect_readiness and readiness is None:
+        readiness = _ReadinessAccumulator(value)
     benchmarks = []
     for row in _bar_rows(conn, candidate_id):
         count += 1

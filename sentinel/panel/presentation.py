@@ -964,6 +964,8 @@ def preparation_stage(panel) -> str | None:
     work = visible_preparation(panel)
     if work is not None:
         if work.active_at(panel.now):
+            if work.producer_phase is not None:
+                return work.producer_phase.label
             return {'ACQUIRING': ('Preparing closing snapshot · final price batch recorded'
                                   if work.final_price_batch_recorded else 'Preparing closing snapshot'),
                     'STAGING': 'Preparing downloaded data',
@@ -1087,6 +1089,30 @@ def _close_check_work(panel):
                _row_boundary(panel.row('automation_leader')), cycle.recovery.deadline), keys
 
 
+def _pending_close_display(panel, plan, *, preparing):
+    """Name the exact preparation still owed before the next PAPER plan."""
+    from sentinel.feed import calendar
+    from sentinel.panel.delivery import row_current
+
+    if (not panel.local_paper_mode or plan is None or plan.status != 'pending'
+            or plan.paper_plan is not None or not row_current(panel, plan)):
+        return None, None
+    if plan.awaiting_plan_adoption(panel.now):
+        return 'Plan saved · awaiting verification for scheduled execution', plan.valid_until
+    feed = panel.row('feed')
+    if (feed is not None and row_current(panel, feed) and _fresh_worker(panel, 'shadow_worker')
+            and is_closing_data_preparation(feed, feed.effective_status(panel.now))
+            and feed.recovery.phase in {'SHADOW_ATTESTATION', 'READINESS_HANDOFF'}
+            and feed.recovery.active(panel.now) and not feed.is_future(panel.now)
+            and not feed.is_stale(panel.now)
+            and feed.source_session == calendar.latest_closed_session(panel.now)):
+        return 'Checking strategy for the next open', min(feed.valid_until, _row_boundary(panel.row('shadow_worker')))
+    cycle = panel.row('automation_cycle')
+    if preparing and row_current(panel, cycle) and cycle.recovery.phase == 'AUTOMATION_PREPARING':
+        return 'Preparing plan for the next open', cycle.recovery.deadline
+    return None, None
+
+
 def _classify_health_rows(panel, *, include_inactive_warnings=False, checking=()):
     from sentinel.panel.delivery import row_current
 
@@ -1194,8 +1220,11 @@ def dashboard_health(panel) -> dict:
                       else 'unavailable' if plan is not None
                       and plan.effective_status(panel.now) in {'fail', 'unknown'} else 'pending')
     checking_until, checking = _close_check_work(panel)
+    preparing = _preparing_work_normal(panel)
+    pending_label, pending_until = _pending_close_display(panel, plan, preparing=preparing)
+    close_work_label = 'Checking strategy for the next open' if checking_until is not None else pending_label
     classifications = list(_classify_health_rows(panel, include_inactive_warnings=True, checking=checking))
-    boundaries = [checking_until]
+    boundaries = [checking_until, pending_until]
     # A fresh page can change its clock label even before any durable row
     # changes. Expire that rendering at each original future boundary.
     for row in panel.rows:
@@ -1211,7 +1240,8 @@ def dashboard_health(panel) -> dict:
             boundaries.extend(t for t in clocks if _aware(t) and panel.now < t)
     facts = _health_facts(panel, classifications, boundaries=boundaries)
     negative = bool(facts['active'])
-    normal = (activation_wait is None and checking_until is None and not negative and not facts['warnings']
+    normal = (activation_wait is None and close_work_label is None
+              and not negative and not facts['warnings']
               and _green_eligible(panel) and any(
         status == 'ok' or status == 'warn' and normal_warning
         for _, status, _, normal_warning in classifications))
@@ -1232,8 +1262,8 @@ def dashboard_health(panel) -> dict:
             label = 'Review history unavailable'
         elif review.status == 'REVIEW' and not facts['warnings']:
             label = 'Acknowledgement required'
-        elif checking_until is not None and not facts['warnings']:
-            label = 'Checking strategy for the next open'
+        elif close_work_label is not None and not facts['warnings']:
+            label = close_work_label
         elif not facts['warnings'] and _execution_work_normal(panel):
             label = 'Refreshing recorded broker evidence'
     broker = panel.row('broker')
@@ -1245,7 +1275,6 @@ def dashboard_health(panel) -> dict:
                 if status == 'warn' and normal_warning
                 and row.key not in OPERATIONAL_INFORMATIONAL_ROW_KEYS]
     execution_normal = _execution_work_normal(panel)
-    preparing = _preparing_work_normal(panel)
     cycle = panel.row('automation_cycle')
     preflight = preparing and cycle.recovery.phase in _PREFLIGHT_STEPS
     def work_boundary(row):
@@ -1328,7 +1357,8 @@ def dashboard_health(panel) -> dict:
     return dict(status=status, color={'ok': 'green', 'warn': 'amber', 'fail': 'red'}[status],
                 label=label, valid_until=boundary.isoformat() if boundary is not None else None,
                 plan_readiness=plan_readiness, active_conditions=facts['active'],
-                review_conditions=facts['warnings'])
+                review_conditions=facts['warnings'],
+                **({'close_preparation_pending': True} if close_work_label == label else {}))
 
 
 def describe(row: Row, status: str, *, now: datetime | None = None) -> tuple[str, str, str]:
