@@ -1,5 +1,32 @@
 # Opening proof work ownership
 
+## November 21 catalog and manifest proof scope
+
+The isolated opening sampled repeated catalog and candidate evidence reads
+after schema installation and formation completed. Each automation callback
+currently captures the same installed catalog once for feed and again for core
+validation. Acquire the feed migration read lock, capture the catalog once and
+run both existing validators inside the same disposable proof transaction.
+Retain the core lock timeout and search path. Standalone feed and core readers
+continue to own their proofs. The independently callable PAPER gateways still
+require their own current proof after the outer callback can commit authority
+evidence.
+
+A sealed publication binding already authenticates its manifest, normalized
+layout and source evidence. Use that exact manifest to admit its provider and
+initialize the broker symbol references under the original corpus pin. Retain
+the exact publication recheck, payload retirement guard, comparison proof,
+provider and normalization checks, and reference and source validation. The
+standalone reference constructor still loads and verifies its own manifest.
+No manifest or schema result survives its operation or grants permission to
+submit an order.
+
+Preserve the economic manifest's dependency graph and original contributions.
+Qualify the complete changed compiler bytes in its existing closed source
+cohort, with neighboring byte changes still producing a different economic
+identity. Count actual catalog and manifest captures on private PostgreSQL and
+check that changed catalog, source and snapshot evidence still refuse.
+
 Decision, 2026-11-10, before implementation. The owner authorizes a qualified
 local PAPER correction of opening delay and repeated work. Preserve the
 canonical Wealth Core algorithm/book, immutable intent, command identity,

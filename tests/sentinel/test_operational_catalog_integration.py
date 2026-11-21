@@ -10,6 +10,7 @@ from psycopg import sql
 
 from sentinel import operational_catalog as catalog, operational_schema as extension, schema
 from sentinel.feed import store
+from sentinel.feed.runtime_schema import require_execution_schemas
 from tests.support.postgres import _EphemeralPostgres
 
 
@@ -128,7 +129,8 @@ def test_catalog_pin_tamper_has_a_falsifier(conn, monkeypatch, tmp_path):
         catalog.require_extension(conn, extension.COMPONENTS[0])
 
 
-@pytest.mark.parametrize('validator', [schema.require_runtime_schema, store.require_feed_schema])
+@pytest.mark.parametrize('validator', [schema.require_runtime_schema, store.require_feed_schema,
+                                      require_execution_schemas])
 def test_schema_proof_preserves_borrowed_transaction_and_ends_owned_proof(conn, validator):
     from psycopg.pq import TransactionStatus
     validator(conn)
@@ -140,6 +142,35 @@ def test_schema_proof_preserves_borrowed_transaction_and_ends_owned_proof(conn, 
     assert conn.execute('SELECT value FROM caller_work').fetchone() == ('preserve',)
     assert conn.execute('SHOW lock_timeout').fetchone() == ('8311ms',)
     conn.rollback()
+
+
+def test_execution_schemas_share_one_catalog_read_per_call(conn, monkeypatch):
+    extension.install_quiescent(conn)
+    capture = schema._read_runtime_catalog
+    seen = []
+
+    def counted(cur):
+        seen.append(cur.connection)
+        return capture(cur)
+
+    monkeypatch.setattr(schema, '_read_runtime_catalog', counted)
+    require_execution_schemas(conn)
+    assert seen == [conn]
+    require_execution_schemas(conn)
+    assert seen == [conn, conn]
+
+
+@pytest.mark.parametrize('ddl,refusal', [
+    ('ALTER TABLE sentinel_bars ADD COLUMN unexpected boolean', 'feed-schema'),
+    ('DROP INDEX idx_sentinel_commands_inflight', 'behavioral-schema'),
+])
+def test_execution_schemas_refuse_changed_feed_or_behavioral_catalog(conn, ddl, refusal):
+    require_execution_schemas(conn)
+    conn.execute(ddl)
+    with pytest.raises(schema.SchemaMigrationRefused, match=refusal):
+        require_execution_schemas(conn)
+    conn.rollback()
+    require_execution_schemas(conn)
 
 
 def test_refused_schema_proof_preserves_borrowed_caller_work(conn):

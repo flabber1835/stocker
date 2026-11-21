@@ -222,7 +222,17 @@ def test_operational_shadow_worker_publishes_next_day_recovers_and_never_replays
     second = rolling_runtime.status(conn, observation_id=OBS, starting_cash=50000)
     assert second.session == str(prices.window.end) and second.verification == "VERIFIED"
     assert second.state.state_hash != first.state.state_hash
-    binding = op.require_alpaca_openfigi(conn, op._current(conn))
+    capture = rolling_store.manifest
+    seen = []
+
+    def read_manifest(conn, candidate_id):
+        seen.append(candidate_id)
+        return capture(conn, candidate_id)
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(rolling_store, 'manifest', read_manifest)
+        binding = op.require_alpaca_openfigi(conn, op._current(conn))
+        assert seen == [binding['candidate_id']]
     assert len(rolling_store.manifest(conn, binding["candidate_id"]).window.sessions) == 300
     conn.rollback()
     before = conn.execute("SELECT count(*) FROM sentinel_corpus_publications").fetchone()[0]

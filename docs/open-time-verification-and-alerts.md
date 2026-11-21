@@ -44,6 +44,21 @@ Any ownership/pin loss or changed input during verification refuses. Retained
 private results are detached for each caller, stay within one live callback,
 and grant no independent freshness or transport permission.
 
+## Check both PAPER permissions in one authorization step
+
+The November 21 rehearsal found that a single guarded broker check authenticated
+the same PAPER publication chain, runtime bindings, and signed certificate once
+for unattended automation and again for the concrete broker operation. Check
+both permissions against one freshly authenticated standing certificate and
+one publication-chain verification within each guard invocation. Keep the
+post-chain certificate lifecycle and revocation read, the automation-specific
+configuration check, and the concrete permission check. Preserve the separate
+pre-read, post-read, and pre-mutation invocations and their fresh grant,
+account, backup, and timing checks. Nothing carries forward between them.
+Historical certificates, the independently injected checker contract, LIVE
+and the separate observation-only recovery fallback retain their existing
+operation checks.
+
 ## Typed availability outcomes
 
 Add a distinct worker exit for local/database/backup dependency availability and

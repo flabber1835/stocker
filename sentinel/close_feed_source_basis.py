@@ -9,7 +9,7 @@ from sentinel import physical_read_source_basis as predecessor
 MODULE = 'sentinel.feed.action_history'
 PREDECESSOR_SHA256 = '3e5301af6bb46fee50c7e687364ce9fe418234acda548e638142af2ec9ce7f45'
 COMPILER_SHA256 = '694052870c917c2a0d253834ecf683d84fa4a5094c415c7454fb3949dcdc77bf'
-LAYOUT_SHA256 = '7005074c8e79295c6b175fa8b78f555e3e4a00af34865867891a789bba0cc076'
+LAYOUT_SHA256 = '589e8a87edfb31ca29f47b58e73cdf22c2f517bb9ff674d4983bd28681dd6927'
 FEED = Path(__file__).with_name('feed')
 
 

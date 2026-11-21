@@ -2347,6 +2347,22 @@ def _apply_v1(cur, bootstrap_kind: str) -> None:
          bootstrap_kind, source_oid))
 
 
+def _runtime_catalog_settings(cur) -> None:
+    cur.execute(f"SET LOCAL lock_timeout TO '{_SCHEMA_LOCK_TIMEOUT_MS}ms'")
+    cur.execute("SET LOCAL search_path TO public, pg_temp")
+
+
+def _validate_runtime_catalog(cur, catalog) -> None:
+    relations, columns, constraints, indexes, triggers = catalog
+    _validate_backup_infrastructure(relations, columns, constraints, indexes, triggers)
+    if _LEDGER_TABLE not in relations:
+        raise _operator_refusal(
+            "behavioral schema migration is not installed; runtime "
+            "validation cannot bootstrap or migrate it")
+    _validate_ledgered(cur, catalog)
+    _validate_stage4_runtime(cur, catalog)
+
+
 def require_runtime_schema(conn) -> None:
     """Validate the established behavioral/Stage-4 schema without DDL.
 
@@ -2359,19 +2375,8 @@ def require_runtime_schema(conn) -> None:
     # transaction), never the caller's existing work, settings or locks.
     with conn.transaction(force_rollback=True):
         with conn.cursor() as cur:
-            cur.execute(
-                f"SET LOCAL lock_timeout TO '{_SCHEMA_LOCK_TIMEOUT_MS}ms'")
-            cur.execute("SET LOCAL search_path TO public, pg_temp")
-            catalog = _read_runtime_catalog(cur)
-            relations, columns, constraints, indexes, triggers = catalog
-            _validate_backup_infrastructure(
-                relations, columns, constraints, indexes, triggers)
-            if _LEDGER_TABLE not in relations:
-                raise _operator_refusal(
-                    "behavioral schema migration is not installed; runtime "
-                    "validation cannot bootstrap or migrate it")
-            _validate_ledgered(cur, catalog)
-            _validate_stage4_runtime(cur, catalog)
+            _runtime_catalog_settings(cur)
+            _validate_runtime_catalog(cur, _read_runtime_catalog(cur))
 
 
 def ensure_schema(conn) -> None:

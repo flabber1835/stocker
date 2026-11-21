@@ -627,12 +627,13 @@ def _validate_views(cur) -> None:
             raise _refuse(f"view {view!r} has changed semantics")
 
 
-def require_feed_schema(conn) -> None:
-    """Validate installed feed structure with catalog SELECTs only."""
+def _require_runtime_schemas(conn, *, execution: bool) -> None:
     # Roll back only this proof (a nested savepoint when borrowing a caller's
     # transaction), never the caller's existing work, settings or locks.
     with conn.transaction(force_rollback=True):
         with conn.cursor() as cur:
+            if execution:
+                behavioral_schema._runtime_catalog_settings(cur)
             cur.execute("SELECT pg_try_advisory_xact_lock_shared(%s,%s)",
                         _SCHEMA_LOCK)
             row = cur.fetchone()
@@ -643,6 +644,18 @@ def require_feed_schema(conn) -> None:
             catalog = behavioral_schema._read_runtime_catalog(cur)
             _validate_catalog(catalog)
             _validate_views(cur)
+            if execution:
+                behavioral_schema._validate_runtime_catalog(cur, catalog)
+
+
+def require_feed_schema(conn) -> None:
+    """Validate installed feed structure with catalog SELECTs only."""
+    _require_runtime_schemas(conn, execution=False)
+
+
+def require_execution_schemas(conn) -> None:
+    """Validate feed and behavioral runtime schemas against one catalog read."""
+    _require_runtime_schemas(conn, execution=True)
 
 
 def migrate_feed_schema(conn) -> None:
@@ -682,4 +695,4 @@ def migrate_feed_schema(conn) -> None:
         raise
 
 
-__all__ = ["FeedSchemaRefused", "migrate_feed_schema", "require_feed_schema"]
+__all__ = ["FeedSchemaRefused", "migrate_feed_schema", "require_execution_schemas", "require_feed_schema"]

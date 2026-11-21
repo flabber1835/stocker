@@ -55,14 +55,28 @@ def test_readers_bind_snapshot_raw_marks_and_leave_legacy_readers_closed(conn, p
     conn.rollback()
 
 
-def test_next_open_resolver_is_bounded_and_historical_dates_do_not_borrow_extension(conn, published):
+def test_next_open_resolver_is_bounded_and_historical_dates_do_not_borrow_extension(conn, published, monkeypatch):
     pub = feed_inputs.require_current(conn)
-    resolve = paper.build_security_resolver(conn, "2026-09-15")
+    capture = rolling_store.manifest
+    seen = []
+
+    def counted(conn, candidate_id):
+        seen.append(candidate_id)
+        return capture(conn, candidate_id)
+
+    monkeypatch.setattr(rolling_store, 'manifest', counted)
+    resolve = feed_inputs.resolver(conn, pub, session="2026-09-15")
+    assert seen == [published['candidate_id']]
     assert resolve("AAA") == "1" and resolve("BIL") == "SENTINEL:BIL"
     assert resolve("AAA", DAY) == "1"
     assert resolve("AAA", "2026-09-16") is None
     assert resolve("missing") is None
+    conn.rollback()
+    assert paper.build_security_resolver(conn, "2026-09-15")("AAA") == "1"
+    assert seen == [published['candidate_id']] * 3
+    conn.rollback()
     opening = feed_inputs.opening_resolver(conn, session="2026-09-15")
+    assert seen == [published['candidate_id']] * 5
     assert opening.ticker_for_security("1", "2026-09-15") == "AAA"
     assert opening.resolve("AAA", "2026-09-15") == "1"
     with pytest.raises(feed_inputs.ExecutionInputsRefused, match="BEYOND_NEXT_SESSION"):

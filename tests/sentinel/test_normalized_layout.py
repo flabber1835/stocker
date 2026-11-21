@@ -93,6 +93,86 @@ def test_single_session_limit_and_order_are_enforced_without_full_window_buffer(
         writer.write_bars([values[0],values[0].model_copy(update={'security_id':'asset-B'})])
 
 
+@pytest.mark.parametrize('kind', ['bars', 'benchmarks'])
+def test_block_writer_rejects_a_model_with_unvalidated_price(conn, kind):
+    window = PriceWindow.through('2026-09-14')
+    ref = storage.put_evidence(conn, {'test': 'strict-writer-ingress'})
+    identity = storage.begin(conn, window=window, reference_sha256=ref, source_evidence_sha256=ref,
+        expected_publication_version=None, dependencies_sha256=digest({}))
+    writer = layout.SessionBlockWriter(conn, identity, normalization_version=NORMALIZATION,
+        calendar_version=calendar.calendar_version())
+    if kind == 'bars':
+        row = rows(window)[0].model_copy(update={'close_unadjusted': -1})
+    else:
+        row = benchmarks(window)[0].model_copy(update={'bil_close_unadjusted': -1})
+    with pytest.raises(ValueError, match='greater than 0'):
+        getattr(writer, f'write_{kind}')([row])
+    assert conn.execute('SELECT count(*) FROM sentinel_candidate_blocks WHERE candidate_id=%s',
+        (identity,)).fetchone()[0] == 0
+
+
+def test_normalized_writer_reads_payload_only_on_conflict_and_checks_exact_bytes(conn, monkeypatch):
+    window = PriceWindow.through('2026-09-14')
+    ref = storage.put_evidence(conn, {'test': 'block-payload-readback'})
+    bar = rows(window)[0]
+    benchmark = benchmarks(window)[0]
+
+    class ObservedConnection:
+        def __init__(self, connection):
+            self.connection = connection
+            self.payload_reads = 0
+            self.changed = False
+
+        def execute(self, sql, params):
+            if sql.startswith('SELECT canonical_payload FROM sentinel_normalized_blocks'):
+                self.payload_reads += 1
+                assert sql.endswith('FOR UPDATE')
+                if self.changed:
+                    result = self.connection.execute(sql, params)
+                    self.original = result.fetchone()[0]
+                    # The exact lookup succeeded but its returned bytes changed.
+                    assert self.original is not None
+                    return self
+            return self.connection.execute(sql, params)
+
+        def fetchone(self):
+            return (self.original + ' ',)
+
+    def start():
+        identity = storage.begin(conn, window=window, reference_sha256=ref, source_evidence_sha256=ref,
+            expected_publication_version=None, dependencies_sha256=digest({}))
+        writer = layout.SessionBlockWriter(conn, identity, normalization_version=NORMALIZATION,
+            calendar_version=calendar.calendar_version())
+        writer.conn = ObservedConnection(writer.conn)
+        return writer
+
+    validations = []
+    original_validate = CanonicalBar.model_validate
+
+    def validate(raw):
+        validations.append(raw)
+        return original_validate(raw)
+
+    monkeypatch.setattr(CanonicalBar, 'model_validate', validate)
+    fresh = start()
+    fresh.write_bars([bar])
+    fresh.write_benchmarks([benchmark])
+    assert len(validations) == 1
+    assert fresh.conn.payload_reads == 0 and fresh.reused_blocks == 0
+    reused = start()
+    reused.write_bars([bar])
+    reused.write_benchmarks([benchmark])
+    assert len(validations) == 2
+    assert reused.conn.payload_reads == 2 and reused.reused_blocks == 2
+    changed = start()
+    changed.conn.changed = True
+    with pytest.raises(layout.LayoutRefused, match='CONTENT_CHANGED'):
+        changed.write_bars([bar])
+    assert changed.conn.payload_reads == 1 and changed.references == []
+    assert conn.execute('SELECT count(*) FROM sentinel_candidate_blocks WHERE candidate_id=%s',
+        (changed.candidate_id,)).fetchone()[0] == 0
+
+
 @pytest.mark.parametrize('direction',['legacy-first','shared-first'])
 def test_storage_guard_forbids_mixed_physical_ownership(conn,direction):
     window = PriceWindow.through('2026-09-14')

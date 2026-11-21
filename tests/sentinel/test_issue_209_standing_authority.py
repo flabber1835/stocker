@@ -88,6 +88,72 @@ def test_explicit_revocation_still_stops_standing_authority(conn):
         )
 
 
+def test_automated_broker_checks_share_chain_work_and_recheck_revocation(conn, monkeypatch):
+    from sentinel import standing_observation_authority as standing
+    from sentinel.execution import authority_gate as gateway
+    from sentinel.execution.contract import BrokerAccountIdentity
+    from sentinel.execution.guarded import AutomationExecutionGrant, BrokerOperation
+    from sentinel.feed import store
+
+    document = claims(conn)
+    bindings = document['bindings']
+    bindings['execution_config_sha256'] = authority.canonical_sha256(
+        authority.execution_config_identity(paper_base_url=authority.PAPER_BASE_URL))
+    bindings['publication_policy']['implementation_sha256'] = (
+        gateway.publication_policy_implementation_sha256())
+    digest = activate(conn, document)
+    expired = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    certificates = []
+    chains = []
+
+    def load(fresh, *, now, allow_expired_observation_safety, **_trust):
+        certificates.append(fresh)
+        return authority.load_active_signed_certificate(
+            fresh, now=expired, trust_roots=ROOTS,
+            allow_expired_observation_safety=allow_expired_observation_safety)
+
+    original_chain = gateway.require_publication_chain
+
+    def verify_chain(fresh, **kwargs):
+        chains.append(fresh)
+        root = original_chain(fresh, **kwargs)
+        if len(chains) == 2:
+            authority.revoke_signed_certificate(
+                conn, certificate_sha256=digest, reason='revoked during second guard invocation')
+        return root
+
+    monkeypatch.setattr(gateway, 'load_active_signed_certificate', load)
+    monkeypatch.setattr(standing, 'load_active_signed_certificate', load)
+    monkeypatch.setattr(gateway, 'require_publication_chain', verify_chain)
+    check = gateway.build_fresh_execution_check(
+        connection_factory=lambda: store.connect(conn.info.dsn),
+        paper_base_url=authority.PAPER_BASE_URL, runtime_identity=runtime_identity,
+        strategy_identity=lambda: {'strategy': 'current'},
+        validate_grant=lambda *args: None, automation_config_sha256=sha('4'),
+        publish_operational_evidence=False)
+    grant = AutomationExecutionGrant(operation_scope='EXECUTE', cycle_id='private-cycle',
+        control_generation=1, holder_id='holder', fence_token=1,
+        broker_account_id='paper-123', takeover_epoch=1, rollout_mode='CONTROLLER',
+        rollout_version=2, certificate_sha256=digest)
+    check(grant, BrokerOperation.IDENTIFY_ACCOUNT, None)
+    assert len(chains) == 1 and certificates == chains * 2
+
+    with pytest.raises(authority.AuthorityRefused, match='revoked'):
+        check(grant, BrokerOperation.IDENTIFY_ACCOUNT, BrokerAccountIdentity('alpaca', 'paper-123'))
+    before, after = chains
+    assert before is not after and certificates == [before, before, after, after]
+
+
+def test_standing_combined_permission_keeps_automation_config_check(conn):
+    document = claims(conn)
+    activate(conn, document)
+    kwargs = _kwargs(document, now=datetime(2026, 10, 1, tzinfo=timezone.utc))
+    kwargs['required_operation'] = ('AUTOMATION', 'EXECUTE_READ')
+    kwargs['automation_config_sha256'] = sha('0')
+    with pytest.raises(authority.AuthorityRefused, match='automation configuration'):
+        require_standing_observation_authority(conn, **kwargs)
+
+
 def test_runtime_drift_still_stops_standing_authority(conn):
     document = claims(conn)
     activate(conn, document)

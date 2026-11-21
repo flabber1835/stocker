@@ -168,7 +168,7 @@ def validate(conn, lease, request):
             raise OperationalSnapshotRefused("OPERATIONAL_VALIDATION_CHANGED")
 
 
-def _bound(conn, pub):
+def _bound_and_manifest(conn, pub):
     binding = pub.evidence.get("rolling_snapshot")
     if not isinstance(binding, dict) or binding.get("schema") != SCHEMA:
         raise OperationalSnapshotRefused("NOT_AN_OPERATIONAL_SNAPSHOT")
@@ -192,14 +192,20 @@ def _bound(conn, pub):
             or proof.get("source_evidence_sha256") != manifest.source_evidence_sha256
             or proof.get("request_sha256") != request.request_sha256):
         raise OperationalSnapshotRefused("OPERATIONAL_PROOF_MISMATCH")
-    return {"data_version": pub.version, "scope": "DATA_ONLY", "operational_go": False,
-            "job_id": str(row[0]), "candidate_id": str(row[1]), "snapshot_id": manifest.snapshot_id}
+    binding = {"data_version": pub.version, "scope": "DATA_ONLY", "operational_go": False,
+               "job_id": str(row[0]), "candidate_id": str(row[1]), "snapshot_id": manifest.snapshot_id}
+    return binding, manifest
+
+
+def _bound(conn, pub):
+    binding, _ = _bound_and_manifest(conn, pub)
+    return binding
 
 
 def require_alpaca_openfigi(conn, pub):
     """Reject a legacy rolling candidate at a deployed operational boundary."""
-    binding = _bound(conn, pub)
-    if rolling_store.manifest(conn, binding["candidate_id"]).provider != "ALPACA_OPENFIGI":
+    binding, manifest = _bound_and_manifest(conn, pub)
+    if manifest.provider != "ALPACA_OPENFIGI":
         raise OperationalSnapshotRefused("OPERATIONAL_ALPACA_OPENFIGI_SOURCE_REQUIRED")
     return binding
 

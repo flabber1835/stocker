@@ -36,7 +36,7 @@ def refresh_runtime(monkeypatch, *, cfg, now, connection):
     worker._shadow_starting_cash = 50000
     worker.connect = connection
     worker._assert_cycle_authority = lambda _conn, context, **_kw: (context.cycle, None)
-    monkeypatch.setattr(runtime.feed_store, 'require_feed_schema', lambda _conn: None)
+    monkeypatch.setattr(runtime, 'require_execution_schemas', lambda _conn: None)
     monkeypatch.setattr(runtime.schema, 'require_runtime_schema', lambda _conn: None)
     monkeypatch.setattr(runtime, 'require_observation_integrity', lambda _conn: None)
     monkeypatch.setattr(runtime, '_now_utc', now)

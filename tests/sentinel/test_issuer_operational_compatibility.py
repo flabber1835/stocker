@@ -123,12 +123,62 @@ def predecessor_prices(conn, candidate_id, coordinates, *, query):
 
 '''
 
+_ENCODE_VALIDATED_BLOCK = (
+    '''    if kind == 'BENCHMARKS':
+        rows = [CanonicalBenchmark.model_validate(
+            row.model_dump() if isinstance(row, CanonicalBenchmark) else row) for row in rows]
+    if not rows or len(rows) > MAX_SESSION_ROWS or any(str(row.session) != session for row in rows):
+        raise LayoutRefused('NORMALIZED_SESSION_BLOCK_AXIS_CHANGED')
+    material = sorted(rows, key=lambda row: row.security_id if kind == 'BARS' else str(row.session))
+''',
+    '''    model = CanonicalBar if kind == 'BARS' else CanonicalBenchmark
+    material = [model.model_validate(row.model_dump() if isinstance(row, model) else row)
+                for row in rows]
+    if not material or len(material) > MAX_SESSION_ROWS or any(str(row.session) != session for row in material):
+        raise LayoutRefused('NORMALIZED_SESSION_BLOCK_AXIS_CHANGED')
+    material.sort(key=lambda row: row.security_id if kind == 'BARS' else str(row.session))
+''',
+)
+_READ_REUSED_BLOCK = (
+    '''        if inserted is None:
+            row = self.conn.execute(
+                'SELECT canonical_payload FROM sentinel_normalized_blocks WHERE block_sha256=%s FOR UPDATE',
+                (sha,)).fetchone()
+            if row is None:
+                raise LayoutRefused('NORMALIZED_SESSION_BLOCK_MISSING')
+            if row[0] is None:
+                self.conn.execute(
+                    'UPDATE sentinel_normalized_blocks SET canonical_payload=%s WHERE block_sha256=%s',
+                    (encoded,sha))
+            elif row[0] != encoded:
+                raise LayoutRefused('NORMALIZED_SESSION_BLOCK_CONTENT_CHANGED')
+            else:
+                self.reused_blocks += 1
+        elif inserted[0] != sha:
+            raise LayoutRefused('NORMALIZED_SESSION_BLOCK_CONTENT_CHANGED')
+''',
+    '''        row = self.conn.execute('SELECT canonical_payload FROM sentinel_normalized_blocks WHERE block_sha256=%s FOR UPDATE', (sha,)).fetchone()
+        if row is None:
+            raise LayoutRefused('NORMALIZED_SESSION_BLOCK_MISSING')
+        if row[0] is None:
+            self.conn.execute('UPDATE sentinel_normalized_blocks SET canonical_payload=%s WHERE block_sha256=%s', (encoded,sha))
+        elif row[0] != encoded or hashlib.sha256(row[0].encode('ascii')).hexdigest() != sha:
+            raise LayoutRefused('NORMALIZED_SESSION_BLOCK_CONTENT_CHANGED')
+        elif not inserted:
+            self.reused_blocks += 1
+''',
+)
+
+
 _ACCESS_PATH_OVERLAY = {
-    # The close reliability patch added a read path while retaining the DDL.
+    # Reverse only exact reviewed read and writer-path changes to reconstruct
+    # the original installed source and unchanged DDL.
     'feed/normalized_layout.py': (
         ('import json\nfrom datetime import date\nfrom typing import Literal\n',
          'import json\nfrom typing import Literal\n'),
         (_NORMALIZED_PREDECESSOR_BATCH, ''),
+        _ENCODE_VALIDATED_BLOCK,
+        _READ_REUSED_BLOCK,
     ),
     "operational_catalog.py": (
         ("\n\ndef _index_pairs(module):\n    values = getattr(module, 'extension_index_pairs', ())\n    _require(isinstance(values, (tuple, list, set, frozenset))\n             and all(isinstance(item, tuple) and len(item) == 2\n                     and all(isinstance(name, str) and name for name in item)\n                     for item in values), 'OPERATIONAL_INDEX_DECLARATION_INVALID')\n    pairs = set(values)\n    _require(len({name for _, name in pairs}) == len(pairs),\n             'OPERATIONAL_INDEX_DECLARATION_INVALID')\n    return pairs\n\n\ndef capture_extension(conn, module):\n    \"\"\"Read a deterministic exact structural witness; no data or DDL writes.\"\"\"\n    tables = set(module.extension_tables) | set(getattr(module, 'extension_views', ()))\n    pairs = _pairs(module)\n    index_pairs = _index_pairs(module)\n    functions = sorted(module.extension_functions)\n    names = sorted(tables)\n",
@@ -253,6 +303,7 @@ def test_presentation_overlay_cannot_hide_predecessor_contract_edits(name, old, 
     ('operational_schema.py', b"'state': ('jsonb', False)", b"'state': ('text', False)"),
     ('operational_schema.py', b'if marker_possible:', b'if False:'),
     ('feed/normalized_layout.py', b'price[0] < day:', b'price[0] <= day:'),
+    ('feed/normalized_layout.py', b'elif row[0] != encoded:', b'elif False:'),
 ])
 def test_access_path_overlay_cannot_hide_changed_ownership_or_install_guards(name, old, new):
     root = Path(operational_schema.__file__).resolve().parent

@@ -446,7 +446,7 @@ def test_actual_refresh_waits_with_separate_clocks_or_keeps_original_refusal(mon
     worker._operational_source_only, worker._dual_run_enabled = False, True
     worker._shadow_observation_id, worker._shadow_starting_cash = 'primary', 50000
     worker.sentinel_config = SimpleNamespace(state_dir='/private-state', database_url=DSN)
-    monkeypatch.setattr(automation_runtime.feed_store, 'require_feed_schema', lambda *_args: None)
+    monkeypatch.setattr(automation_runtime, 'require_execution_schemas', lambda *_args: None)
     monkeypatch.setattr(automation_runtime.schema, 'require_runtime_schema', lambda *_args: None)
     monkeypatch.setattr(automation_runtime, 'require_observation_integrity', lambda *_args: None)
     monkeypatch.setattr(automation_runtime.feed_inputs, 'current', lambda *_args:
