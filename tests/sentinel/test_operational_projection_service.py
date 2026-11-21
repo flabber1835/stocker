@@ -277,9 +277,15 @@ def test_removed_ack_composition_has_an_executed_falsifier(operational, monkeypa
         acknowledgement_gap_case(operational, monkeypatch, removed=True)
 
 
-@pytest.mark.parametrize('fault', ['new_event', 'other_view', 'unreviewed', 'notification', 'signature'])
+@pytest.mark.parametrize('fault', ['new_event', 'other_view', 'unreviewed', 'notification',
+                                  'active', 'warning', 'future', 'signature', 'event_signature'])
 def test_ack_composition_refuses_other_changes(operational, monkeypatch, fault):
     conn, _, _ = operational
+    if fault == 'notification':
+        conn.execute("INSERT INTO sentinel_alert_outbox(alert_id,idempotency_key,schema_version,"
+            "event_type,severity,payload,state,max_attempts) VALUES (%s,'private',1,'TRIAL_NOT_VERIFIED',"
+            "'CRITICAL','{}','DELIVERED',3)", ('a'*64,))
+        conn.commit()
     publish(operational)
     original = producer.read(conn.info.dsn)
     review.Recorder().acknowledge(original, conn.info.dsn, original.operator_review.token,
@@ -294,20 +300,23 @@ def test_ack_composition_refuses_other_changes(operational, monkeypatch, fault):
         current['view_sha256'] = '0'*64
     elif fault == 'unreviewed':
         current['reviewed_head'] = original.operator_review.head
-    elif fault == 'notification':
-        row = conn.execute(f'SELECT payload FROM {review_schema.EVENTS} '
-                           'WHERE scope_sha256=%s AND sequence=%s', (key, current['head'])).fetchone()[0]
-        row['details']['alert_ids'] = ['private-alert']
-        signed = review_store.signature(row, purpose=review_store.EVENT_SCHEMA)
-        conn.execute(f'UPDATE {review_schema.EVENTS} SET payload=%s,signature=%s '
-                     'WHERE scope_sha256=%s AND sequence=%s',
-                     (psycopg.types.json.Jsonb(row), signed, key, current['head']))
-        current['head_signature'] = signed
-    review_store.save(conn, key, current, now)
+    elif fault == 'active':
+        current['active'] = ['broker']
+    elif fault == 'warning':
+        current['warnings'] = ['broker']
+    review_store.save(conn, key, current, now + timedelta(hours=1) if fault == 'future' else now)
     if fault == 'signature':
         conn.execute(f'UPDATE {review_schema.STATE} SET signature=%s WHERE scope_sha256=%s', ('0'*64, key))
+    if fault == 'event_signature':
+        # The append-only event guard itself must reject this attempted tamper.
+        with pytest.raises(psycopg.Error):
+            conn.execute(f'UPDATE {review_schema.EVENTS} SET signature=%s '
+                         'WHERE scope_sha256=%s AND sequence=%s', ('0'*64, key, current['head']))
+        conn.rollback()
+        assert producer.read(conn.info.dsn, display=True).observation_current
+        return
     conn.commit()
-    if fault == 'signature':
+    if fault in ('signature', 'future'):
         with pytest.raises(review_store.ReviewRefused):
             producer.read(conn.info.dsn, display=True)
     else:
