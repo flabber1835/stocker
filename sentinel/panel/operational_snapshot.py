@@ -242,18 +242,18 @@ def encode(panel, *, context_sha256, subjects, valid_until=None):
     value = dict(schema=SCHEMA, scope=SCOPE, context_sha256=context_sha256,
                  subjects=dict(subjects), generated_at=panel.now.isoformat(),
                  valid_until=expiry.isoformat(), panel=raw)
-    _canonical(value)
-    return value, review_store.signature(value, purpose=PURPOSE)
+    encoded = _canonical(value)
+    return value, review_store.signature_canonical(encoded, purpose=PURPOSE)
 
 
 def decode(value, signature, *, context_sha256, now):
-    _canonical(value)
+    encoded = _canonical(value)
     _require(isinstance(value, dict) and set(value) == _FIELDS
              and value['schema'] == SCHEMA and value['scope'] == SCOPE
              and _digest(context_sha256) and value['context_sha256'] == context_sha256
              and _subjects(value['subjects']), 'SNAPSHOT_SCOPE_INVALID')
     _require(_digest(signature) and hmac.compare_digest(signature,
-        review_store.signature(value, purpose=PURPOSE)), 'SNAPSHOT_AUTHENTICATION_FAILED')
+        review_store.signature_canonical(encoded, purpose=PURPOSE)), 'SNAPSHOT_AUTHENTICATION_FAILED')
     try:
         generated = datetime.fromisoformat(value['generated_at'])
         expiry = datetime.fromisoformat(value['valid_until'])

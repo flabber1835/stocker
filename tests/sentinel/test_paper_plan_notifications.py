@@ -58,6 +58,60 @@ def test_current_ready_plan_is_read_only_and_notification_survives_restart_once(
     assert conn.execute('SELECT count(*) FROM sentinel_commands').fetchone()[0]==0
 
 
+def idle_hold_case(conn, monkeypatch, *, completion=False, removed=False):
+    from sentinel import dual_plan_authority as authority
+    from sentinel.panel import intent_memo
+    from tests.sentinel.test_dashboard_intent_memo import value, insert
+    now, _ = saved_plan(conn)
+    conn.execute("UPDATE sentinel_automation_cycles SET plan_fingerprint=%s", ('b'*64,))
+    conn.commit()
+    raw = value('saved-plan')
+    raw['decision_session'] = now.date().isoformat()
+    raw['broker_observation']['account_identity']['account_id'] = 'PAPER'
+    raw['broker_observation']['observed_at'] = now.isoformat()
+    raw['broker_observation']['positions'][0]['quantity'] = '12'
+    raw.pop('authority_sha256')
+    raw['authority_sha256'] = authority._sha256(raw)
+    insert(conn, raw)
+    if completion:
+        from sentinel.automation import notification_completion
+        notification_completion.install(conn)
+        conn.commit()
+    memo = intent_memo.IntentMemo()
+    calls = []
+    original = authority.load_authority
+    def counted(*args, **kwargs):
+        calls.append(True)
+        return original(*args, **kwargs)
+    monkeypatch.setattr(authority, 'load_authority', counted)
+    monkeypatch.setattr(intent_memo, 'read', counted if removed else memo.read)
+    for _ in range(3):
+        outbox._reconstruct_missing_transition_alerts(conn, completion=completion)
+        conn.commit()
+    assert len(calls) == 1, 'unchanged HOLD authority decoded again'
+    assert conn.execute('SELECT count(*) FROM sentinel_alert_outbox').fetchone()[0] == 0
+    assert conn.execute('SELECT count(*) FROM sentinel_commands').fetchone()[0] == 0
+    conn.rollback()
+    conn.execute("UPDATE sentinel_processed_sessions SET state=jsonb_set(state,'{tickers,one}','\"FORGED\"') "
+                 "WHERE cursor_name=%s", (authority._cursor('saved-plan'),))
+    conn.commit()
+    # Optional preview corruption cannot withhold an already committed critical alert.
+    alert = outbox.enqueue(conn, idempotency_key='preserved-critical',event_type='CRITICAL_INCIDENT',
+                           severity='CRITICAL',payload={'reason':'preserved'})
+    assert outbox.claim_next(conn, holder_id='private').alert_id == alert.alert_id
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize('completion', [False, True])
+def test_idle_hold_recovery_reuses_small_intent_and_detects_changed_authority(conn, monkeypatch, completion):
+    idle_hold_case(conn, monkeypatch, completion=completion)
+
+
+def test_removed_intent_reuse_has_an_executed_idle_work_falsifier(conn, monkeypatch):
+    with pytest.raises(AssertionError, match='unchanged HOLD authority decoded again'):
+        idle_hold_case(conn, monkeypatch, removed=True)
+
+
 @pytest.mark.parametrize('quantity', ['NaN','not-a-number'])
 def test_unreadable_optional_plan_cannot_block_critical_alert_delivery(conn, quantity):
     saved_plan(conn, shares=quantity)

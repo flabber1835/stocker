@@ -62,7 +62,8 @@ def public_payload(panel):
              'recovery': row.recovery.to_dict(panel.now) if row.recovery else None,
              'color': delivery.row_color(panel, row)}
             for row in panel.rows],
-        'trial_details': panel.trial_details,
+        'trial_details': {key: value for key, value in panel.trial_details.items()
+                          if key != 'verification_attempts'},
         'trial_history': panel.trial_history,
     }
 

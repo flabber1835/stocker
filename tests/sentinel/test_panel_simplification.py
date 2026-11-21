@@ -219,15 +219,16 @@ def test_shared_observer_codec_round_trip_preserves_bounds_and_dated_book():
         observer_codec.validate_envelope({**raw, 'rows': raw['rows']*2}, {'book'})
 
 
-def test_one_stylesheet_keeps_push_controller_and_removes_unused_animation():
+def test_atomic_styles_keep_push_controller_and_remove_unused_animation():
     from sentinel.panel.render import DEVICE_ASSET, STYLE_ASSET, STATIC_ASSETS
 
     html = render(example_panel())
     css, _ = STATIC_ASSETS[STYLE_ASSET]
     script, _ = STATIC_ASSETS[DEVICE_ASSET]
-    assert html.count('rel="stylesheet"') == 1
-    assert f'href="/static/{STYLE_ASSET}"' in html and css.count('--bg:') == 2
-    assert css not in html and script not in html
+    assert html.count('<style id="dashboard-stylesheet"') == 1
+    assert 'rel="stylesheet"' not in html
+    assert f'data-source-href="/static/{STYLE_ASSET}"' in html and css.count('--bg:') == 2
+    assert html.count(css) == 1 and script not in html
     assert 'casino-stage' not in html and 'casino-accent' not in html
     assert '@keyframes' not in css
     assert 'id="push-enable"' in html and 'id="push-remove"' in html

@@ -45,7 +45,7 @@ MUTANTS={
     'obsolete_plan_delivery':('sentinel/web_push.py','if not current:', 'if False:',
         'tests/sentinel/test_paper_plan_notifications.py::test_queued_plan_is_revalidated_before_push_fanout[generation]'),
     'independent_critical_delivery':('sentinel/automation/outbox.py',
-        'except (ValueError, TypeError, ArithmeticError):', 'except (RuntimeError,):',
+        'except (ValueError, TypeError, ArithmeticError, DualPlanAuthorityRefused):', 'except (RuntimeError,):',
         'tests/sentinel/test_paper_plan_notifications.py::test_unreadable_optional_plan_cannot_block_critical_alert_delivery[NaN]'),
     'poll_gap_after_slow_work':('sentinel/automation/service.py',
         '                now = _utc(clock())\n                wake_candidates = [',

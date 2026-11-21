@@ -2,6 +2,7 @@
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import inspect
+import json
 import textwrap
 
 import pytest
@@ -63,6 +64,73 @@ def test_fresh_account_does_not_borrow_trading_wake(db, monkeypatch, cycle):
     assert row.as_of == observed
     assert row.valid_until == observed+timedelta(minutes=10)
     assert row.effective_status(row.valid_until+timedelta(microseconds=1)) == model.FAIL
+
+
+@pytest.mark.parametrize('case', ['delayed_read', 'explicit_clock', 'future', 'expired'])
+def test_working_order_uses_the_account_observation_clock(db, monkeypatch, case):
+    from sentinel.execution import account_status
+    from tests.sentinel.test_paper_account_status import fixture, resting
+
+    provider = fixture(db, monkeypatch)
+    command = resting(db, provider)
+    started = NOW.replace(hour=14, minute=31, second=0)
+    sampled = None
+    observed = started + timedelta(seconds=2 if case != 'future' else 4)
+    evaluated = started + timedelta(minutes=11) if case == 'expired' else started + timedelta(seconds=3)
+    deployment = command.identity.deployment
+    proof = dict(schema=account_status.RESERVATION_SCHEMA,
+        binding=[deployment.deployment_id, deployment.broker, deployment.broker_account_id,
+                 deployment.takeover_epoch],
+        native_orders=[account_status._fact(command)])
+    account_reader = sources._latest_account_evidence
+
+    def read_account(reader):
+        # Commit on the other connection after collection has already started.
+        db.execute("INSERT INTO sentinel_broker_account_evidence "
+            "(broker,broker_account_id,status,flags,equity,cash,buying_power,multiplier,observed_at) "
+            "VALUES ('alpaca','PAfixture','ACTIVE',%s::jsonb,50000,10000,8959.27,1,%s)",
+            (json.dumps({account_status.RESERVATION_FLAG: proof}), observed))
+        db.commit()
+        return account_reader(reader)
+
+    def read_cycle(_reader):
+        nonlocal sampled
+        sampled = evaluated
+        return None
+
+    monkeypatch.setattr(sources, '_latest_account_evidence', read_account)
+    monkeypatch.setattr(sources, '_latest_automation_cycle', read_cycle)
+    monkeypatch.setattr(local_paper, 'require_runtime', lambda *_: None)
+    monkeypatch.delenv(local_paper.BACKUP_POLICY_ENV, raising=False)
+    monkeypatch.setenv('ALPACA_BASE_URL', 'https://paper-api.alpaca.markets')
+    monkeypatch.setenv('SENTINEL_GIT_COMMIT', 'a'*40)
+    monkeypatch.setenv('SENTINEL_RUNTIME_IMAGE_DIGEST', 'sha256:'+'b'*64)
+    options = {} if case == 'explicit_clock' else {'observation_clock': lambda: sampled}
+    rows, errors = sources._operator_evidence_rows(db.info.dsn, now=started, **options)
+    row = next(item for item in rows if item.key == 'alpaca_account')
+    assert not any(error.startswith('operator account:') for error in errors), errors
+    assert row.as_of == observed
+    assert row.valid_until == observed + timedelta(minutes=10)
+    if case == 'delayed_read':
+        assert row.effective_status(evaluated) == model.OK, row.detail
+        assert 'freshly matched native LIMIT/DAY buys' in row.detail
+    elif case == 'expired':
+        assert row.effective_status(evaluated) == model.FAIL
+    else:
+        assert row.status == model.FAIL
+        assert 'buying power differs from cash' in row.detail
+
+
+def test_removed_account_observation_clock_reproduces_the_opening_failure(db, monkeypatch):
+    body = textwrap.dedent(inspect.getsource(sources._operator_evidence_rows))
+    guard = 'account_observed_at = observation_clock() if observation_clock is not None else now'
+    assert body.count(guard) == 1
+    namespace = {}
+    exec(compile(body.replace(guard, 'account_observed_at = now'), '<old-account-clock>', 'exec'),
+         vars(sources), namespace)
+    monkeypatch.setattr(sources, '_operator_evidence_rows', namespace['_operator_evidence_rows'])
+    with pytest.raises(AssertionError, match='buying power differs from cash'):
+        test_working_order_uses_the_account_observation_clock(db, monkeypatch, 'delayed_read')
 
 
 def test_future_wake_cannot_keep_stopped_account_producer_current(db, monkeypatch):

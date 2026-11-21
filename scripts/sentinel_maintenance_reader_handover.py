@@ -527,6 +527,7 @@ class Native:
                 commit, report.get('predecessor_commit'))
             required = {'scripts/sentinel_maintenance_reader_handover.py',
                 'scripts/sentinel_backup_maintenance.py', 'scripts/sentinel_backup_shared_integrity.py',
+                'scripts/sentinel_backup_publication.py',
                 'scripts/sentinel_backup_integrity_report.py', 'sentinel/backup_maintenance_integrity.py'}
             require(required <= report['source_files'].keys(), 'READER_QUALIFICATION_INPUTS_MISSING')
             if host_tool['commit'] == commit:

@@ -54,6 +54,12 @@ function installRecorder({binding, opening}) {
     const brand = document.querySelector('.brand');
     const card = document.querySelector('.next-plan') || document.querySelector('#portfolio-overview .overview-card');
     const image=document.querySelector('.brand img[data-banner-src]') || document.querySelector('.brand img');
+    const stylesheet=document.getElementById('dashboard-stylesheet');
+    let stylesheetReady=null;
+    if(stylesheet) {
+      try { stylesheetReady=!!stylesheet.sheet && stylesheet.sheet.cssRules.length>0; }
+      catch (_) { stylesheetReady=false; }
+    }
     let bannerPath=null;
     if (image) {
       try {
@@ -67,9 +73,10 @@ function installRecorder({binding, opening}) {
       headline_class:badge?.className || null, headline_label:badge?.textContent.trim().slice(0, 300) || null,
       preparation_label:document.getElementById('preparation-stage')?.textContent.trim().slice(0, 200) || null,
       plan_readiness_label:document.getElementById('plan-readiness')?.textContent.trim().slice(0, 200) || null,
-      meaningful_visible:visible(brand || badge) && visible(card), root_number:rootNumber,
+      meaningful_visible:visible(brand || badge) && visible(card) && stylesheetReady!==false,
+      stylesheet_ready:stylesheetReady, root_number:rootNumber,
       healthy_border:brand && badge?.classList.contains('ok')
-        ? getComputedStyle(brand).borderTopColor===getComputedStyle(badge).color : null,
+        ? stylesheetReady!==false && getComputedStyle(brand).borderTopColor===getComputedStyle(badge).color : null,
       visibility:document.visibilityState, online:navigator.onLine,
       refreshing:document.documentElement?.classList.contains('refreshing-status') || false,
       not_current:document.documentElement?.classList.contains('not-current') || false,

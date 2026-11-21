@@ -63,9 +63,14 @@ function reconcileDocument(next) {
   });
   var oldStyle = document.getElementById('dashboard-stylesheet');
   var newStyle = next.getElementById('dashboard-stylesheet');
-  var stylesheet = newStyle && newStyle.getAttribute('href');
-  if (oldStyle && stylesheet && oldStyle.getAttribute('href') !== stylesheet) {
-    oldStyle.setAttribute('href', stylesheet);
+  function styleSource(node) {
+    return node && (node.getAttribute('data-source-href') || node.getAttribute('href'));
+  }
+  if (newStyle && (!oldStyle || oldStyle.nodeName !== newStyle.nodeName ||
+      styleSource(oldStyle) !== styleSource(newStyle))) {
+    var preparedStyle = newStyle.cloneNode(true);
+    if (oldStyle) { oldStyle.replaceWith(preparedStyle); }
+    else { document.head.appendChild(preparedStyle); }
   }
   if (document.title !== next.title) { document.title = next.title; }
 }

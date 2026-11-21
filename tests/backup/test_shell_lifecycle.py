@@ -44,7 +44,8 @@ class ShellLab:
                      "sentinel-backup-media-lock.sh", "sentinel-restore-worker.sh",
                      "sentinel-backup-archive-identity.sh", "sentinel-archive-wal.sh",
                      "sentinel-env.sh", "sentinel_env.py", "go-archive-format-v1.json", "sentinel_storage_capacity.py", "sentinel_restore_storage.py",
-                     "sentinel_maintenance_process.py", "sentinel_backup_deadlines.py"):
+                     "sentinel_maintenance_process.py", "sentinel_backup_deadlines.py",
+                     "sentinel_backup_publication.py"):
             shutil.copy2(ROOT / "scripts" / name, self.scripts / name)
         package = self.repo / "sentinel"
         package.mkdir()
@@ -642,3 +643,32 @@ def test_host_invalid_archive_metadata_is_not_retryable(tmp_path, name):
     assert result.returncode == 4
     assert "SENTINEL_BACKUP_STATUS_REASON=WAL_OBJECT_INVALID" in result.stderr
     assert (lab.root / "archive-reads").read_text() == "1"
+
+
+def test_owned_base_publishes_progress_in_the_same_insert_statement(tmp_path):
+    import time
+    lab = ShellLab(tmp_path)
+    lab.env['BACKUP_LAB_EVIDENCE_TABLE'] = 'present'
+    now = int(time.time())
+    progress = dict(schema='sentinel.backup-maintenance-progress/1', attempt='a'*32,
+        started_at=now-20, deadline=now+3580, system_identifier=str(SYSTEM_ID),
+        image='sha256:'+'d'*64, predecessor_base='base-20260901T000000Z',
+        base_backup='base-20260901T000000Z', phase='BASE_BACKUP')
+    result = lab.run('sentinel-base-backup.sh','--maintenance-progress',json.dumps(progress))
+    assert result.returncode == 0, (result.stdout,result.stderr)
+    assert 'RECORDED_WITH_SUCCESSOR_PROGRESS' in result.stdout
+    events = [json.loads(s) for s in (lab.root/'events.jsonl').read_text().splitlines()]
+    writes = [e for e in events if e['stage']=='evidence-insert']
+    assert len(writes)==1
+    sql = writes[0]['argv'][-1]
+    assert "SELECT 'BASE_BACKUP'" in sql and "SELECT 'MAINTENANCE_PROGRESS'" in sql
+    assert 'CROSS JOIN base_recorded' in sql
+    assert '"deadline":'+str(progress['deadline']) in sql
+
+
+@pytest.mark.parametrize('value',['','{}','null','[]','x'*8193])
+def test_invalid_owned_progress_cannot_start_a_physical_copy(tmp_path,value):
+    lab = ShellLab(tmp_path)
+    result = lab.run('sentinel-base-backup.sh','--maintenance-progress',value)
+    assert result.returncode != 0
+    assert not (lab.root/'events.jsonl').exists()

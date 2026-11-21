@@ -1,10 +1,58 @@
 const {test,expect}=require('@playwright/test');
 const fs=require('node:fs');
 const http=require('node:http');
+const {createHash}=require('node:crypto');
 const {panelAssets,servePanelAsset}=require('./panel-assets.cjs');
 const {startCapture,finishCapture}=require('./support/dashboard-journey-capture.cjs');
 
 test.use({serviceWorkers:'block'});
+
+for(const variant of ['unchanged','changed','legacy-link','missing']) {
+  test(`refresh installs atomic styles across ${variant} stylesheet state`,async({page,request})=>{
+    const fixture=JSON.parse(fs.readFileSync(process.env.SENTINEL_DOM_FIXTURE,'utf8'));
+    const pattern=/<style id="dashboard-stylesheet" data-source-href="([^"]+)">([\s\S]*?)<\/style>/;
+    const original=fixture.green.match(pattern);
+    expect(original).not.toBeNull();
+    const css=original[2]+(variant==='unchanged'?'':'\n.brand{outline:3px solid rgb(180,190,200)}');
+    const fingerprint=createHash('sha256').update(css).digest('hex');
+    const path=original[1].replace(/[a-f0-9]{64}(?=\.css$)/,fingerprint);
+    let html=variant==='legacy-link' ? fixture.green.replace(pattern,
+      '<link id="dashboard-stylesheet" rel="stylesheet" href="$1">') : fixture.green;
+    const next=fixture.green.replace(pattern,
+      `<style id="dashboard-stylesheet" data-source-href="${path}">${css}</style>`);
+    const assets=await panelAssets(request,html,next);
+    let requests=0,cssRequests=0,serverNow=fixture.now;
+    await page.clock.install({time:new Date(fixture.now)});
+    await page.route('**/*',async route=>{
+      const pathname=new URL(route.request().url()).pathname;
+      if(assets.has(pathname)) {
+        if(pathname.endsWith('.css'))cssRequests++;
+        return route.fulfill({status:200,...assets.get(pathname)});
+      }
+      if(pathname!=='/')return route.fulfill({status:404,body:''});
+      requests++;
+      return route.fulfill({status:200,contentType:'text/html',headers:{'X-Sentinel-Panel-Status':'CURRENT'},
+        body:html.replace(/data-generated-at="[^"]+"/,`data-generated-at="${serverNow}"`)});
+    });
+    await page.goto('http://127.0.0.1:18947/');
+    await expect(page.locator('.brand')).toHaveCSS('border-top-width','4px');
+    const initialCssRequests=cssRequests;
+    await page.evaluate(missing=>{
+      window.savedWrap=document.querySelector('.wrap');
+      window.savedStyle=document.getElementById('dashboard-stylesheet');
+      if(missing)window.savedStyle.remove();
+    },variant==='missing');
+    html=next;serverNow=new Date(Date.parse(fixture.now)+5000).toISOString();
+    await page.clock.runFor(5000);
+    await expect.poll(()=>requests).toBe(2);
+    await expect(page.locator('#dashboard-stylesheet')).toHaveAttribute('data-source-href',path);
+    await expect(page.locator('.brand')).toHaveCSS('border-top-width','4px');
+    if(variant!=='unchanged')await expect(page.locator('.brand')).toHaveCSS('outline-width','3px');
+    expect(await page.evaluate(()=>document.querySelector('.wrap')===savedWrap)).toBe(true);
+    expect(await page.evaluate(()=>document.getElementById('dashboard-stylesheet')===savedStyle)).toBe(variant==='unchanged');
+    expect(cssRequests).toBe(initialCssRequests);
+  });
+}
 test('close refresh retains an independent card and names the pending next-open check',async({page,request})=>{
   const fixture=JSON.parse(fs.readFileSync(process.env.SENTINEL_DOM_FIXTURE,'utf8')).close_documents;
   const assets=await panelAssets(request,fixture.partial,fixture.verifying);

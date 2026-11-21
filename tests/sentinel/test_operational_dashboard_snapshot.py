@@ -3,8 +3,10 @@ from copy import deepcopy
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+import hmac
 import inspect
 import json
+import os
 import uuid
 
 import psycopg
@@ -96,6 +98,37 @@ def test_roundtrip_preserves_every_nested_schema_and_original_clocks():
     fact = restored.panel.row('exposure').operational_fact
     assert isinstance(fact, model.OperationalFact) and fact.session == date(2031, 4, 21)
     assert fact.exposure == Decimal('.55')
+
+
+def test_snapshot_signs_the_single_bounded_encoding(monkeypatch):
+    canonical = review_store.canonical
+    encoded = []
+
+    def count(value):
+        result = canonical(value)
+        encoded.append(result)
+        return result
+
+    monkeypatch.setattr(review_store, 'canonical', count)
+    original = panel()
+    value, signed = encode(original)
+    wire = json.dumps(value, sort_keys=True, separators=(',', ':'),
+                      ensure_ascii=True, allow_nan=False).encode('ascii')
+    legacy_signature = hmac.digest(os.environ['SENTINEL_PUBLICATION_RECEIPT_KEY'].encode('utf-8'),
+        snapshot.PURPOSE.encode('ascii') + b'\0' + wire, 'sha256').hex()
+    assert signed == legacy_signature
+    assert encoded == [wire]
+
+    encoded.clear()
+    assert decode(value, legacy_signature).panel == original
+    assert encoded == [wire]
+
+    encoded.clear()
+    retained_at = NOW + timedelta(seconds=21)
+    restored = snapshot.decode_display(value, legacy_signature, context_sha256=CONTEXT, now=retained_at)
+    assert restored.panel == original
+    assert restored.valid_until < retained_at
+    assert encoded == [wire]
 
 
 def test_signed_financial_error_ownership_must_match_the_aggregate():

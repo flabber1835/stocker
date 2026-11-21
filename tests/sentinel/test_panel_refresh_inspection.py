@@ -135,10 +135,8 @@ def test_operational_acquisition_reads_current_jobs_without_legacy_fallback():
         def execute(self, query, params=None):
             assert 'sentinel_operational_snapshot_jobs' in query and 'feed_ingest_runs' not in query
             return self
-        def fetchone(self):
-            return ('PUBLISHED', 'PUBLISHED', NOW, 345, 7, 'published-job')
         def fetchall(self):
-            return []
+            return [('PUBLISHED', 'PUBLISHED', NOW, 345, 7, 'published-job', *([None] * 10))]
     result = sources._operational_acquisition(Connection())[0]
     assert result['status'] == 'success' and 'publication 7' in result['current_chunk']
     assert result['rows_written'] == 345

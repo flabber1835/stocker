@@ -42,11 +42,14 @@ def _reusable(version):
 
 
 def projection(value):
+    from sentinel.dual_plan_authority import saved_buy_policy
     from sentinel.paper_plan_preview import opening_sizing_basis, sizing_display_inputs
+    stored_policy, opening_retry = saved_buy_policy(value)
 
     observation = value['broker_observation']
     return dict(plan_id=value['plan_id'], plan_fingerprint=value['plan_fingerprint'],
         decision_session=value['decision_session'], tickers=dict(value['tickers']),
+        market_buy_policy_sha256=stored_policy, opening_retry=opening_retry,
         opening_sizing_basis=opening_sizing_basis(value),
         sizing_display=sizing_display_inputs(value),
         broker_observation=dict(completeness=observation['completeness'],
@@ -100,3 +103,14 @@ class IntentMemo:
 
 memo = IntentMemo()
 read = memo.read
+
+
+def require_current_display_policy(conn, *, plan):
+    """Check the saved policy for presentation using the exact-row memo."""
+    from sentinel.dual_plan_authority import DualPlanAuthorityRefused, check_buy_policy
+
+    value = read(conn, plan_id=plan.plan_id)
+    if value is None:
+        raise DualPlanAuthorityRefused('no saved sizing record for the current display plan')
+    check_buy_policy(plan=plan, stored=value['market_buy_policy_sha256'],
+                     retry=value['opening_retry'], fingerprint=value['plan_fingerprint'])

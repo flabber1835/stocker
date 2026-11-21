@@ -16,6 +16,7 @@ import uuid
 
 from sentinel_backup_lock import lock_is_held, _lock_path
 from sentinel_backup_deadlines import BASE_COMMAND_SECONDS, INVOCATION_SECONDS
+from sentinel_backup_publication import progress_sql, validate_progress
 from sentinel_maintenance_process import run_bounded
 from sentinel_backup_integrity_report import validate as validate_shared_integrity
 from sentinel_backup_integrity_report import parse_failure, failure as failure_record
@@ -38,6 +39,10 @@ class Refused(RuntimeError):
     def __init__(self,message,*,failure=None):
         super().__init__(message)
         self.failure = failure
+
+
+class BasePublicationPending(Refused):
+    """The exact original producer still owns an unpublished successor."""
 
 
 def run(command, *, timeout=120, stdin=None, on_wait=None):
@@ -150,11 +155,14 @@ def renewal_due(selected, observation):
     return renewal_reason(selected, observation) is not None
 
 
-def renew_base(root, image, runner=run, *, on_wait=None):
+def renew_base(root, image, runner=run, *, on_wait=None, progress=None):
     """Produce and select one exact successor; callers retain their lock/budget."""
     options = dict(timeout=BASE_COMMAND_SECONDS)
     if on_wait is not None: options['on_wait'] = on_wait
-    output = runner(['bash', 'scripts/sentinel-base-backup.sh'], **options)
+    command = ['bash', 'scripts/sentinel-base-backup.sh']
+    if progress is not None:
+        command.extend(['--maintenance-progress', json.dumps(progress, sort_keys=True, separators=(',', ':'))])
+    output = runner(command, **options)
     paths = [line[len('verified_base_backup:'):].strip() for line in output.splitlines()
              if line.startswith('verified_base_backup:')]
     if len(paths) != 1:
@@ -165,6 +173,13 @@ def renew_base(root, image, runner=run, *, on_wait=None):
         raise Refused('producer successor differs from selected generation')
     if renewal_due(selected, observation):
         raise Refused('successor already exhausts maintenance headroom')
+    if progress is not None:
+        expected = dict(progress, base_backup=selected['name'], phase='VERIFY_CHAIN')
+        committed = _committed_progress(progress, runner)
+        if committed != expected:
+            raise Refused('producer did not publish the exact successor transition')
+        progress.clear()
+        progress.update(committed)
     return selected, observation
 
 
@@ -447,15 +462,7 @@ def reap_restore_resources(now, runner=run):
 
 def publish_progress(progress, runner=run):
     """Presentation evidence only; never lends authority to a recovery gate."""
-    payload = json.dumps(progress, sort_keys=True, separators=(',', ':'))
-    # Machine identities are validated before interpolation; JSON strings can
-    # still contain apostrophes (e.g. an image tag), so escape the SQL literal.
-    payload = payload.replace("'", "''")
-    query = ("WITH evidence AS (SELECT '" + payload + "'::jsonb AS proof), recorded AS ("
-        "INSERT INTO sentinel_backup_evidence(kind,evidence_sha256,proof) "
-        "SELECT 'MAINTENANCE_PROGRESS',encode(sha256(convert_to(proof::text,'UTF8')),'hex'),proof "
-        "FROM evidence RETURNING proof) SELECT proof::text FROM recorded")
-    if json.loads(sql(query, runner)) != progress:
+    if json.loads(sql(progress_sql(progress), runner)) != progress:
         raise Refused('maintenance progress was not persisted exactly')
 
 
@@ -465,6 +472,36 @@ def _progress(progress, runner, **changes):
     publish_progress(successor, runner)
     progress.clear()
     progress.update(successor)
+
+
+def _committed_progress(progress, runner):
+    """Authenticate the exact attempt without guessing a lost reply's generation."""
+    attempt = progress.get('attempt', '')
+    if not isinstance(attempt, str) or not re.fullmatch('[a-f0-9]{32}', attempt):
+        raise Refused('failed progress attempt identity is invalid')
+    raw = sql("SELECT json_build_object('proof',proof,'authentic',"
+        "evidence_sha256=encode(sha256(convert_to(proof::text,'UTF8')),'hex')) "
+        "FROM sentinel_backup_evidence WHERE kind='MAINTENANCE_PROGRESS' "
+        "AND proof->>'attempt'='" + attempt + "' ORDER BY observed_at DESC,seq DESC LIMIT 1", runner)
+    record = json.loads(raw)
+    committed = record.get('proof') if isinstance(record, dict) else None
+    immutable = lambda p: {k: v for k, v in p.items() if k not in {'phase', 'base_backup'}}
+    if (not isinstance(committed, dict) or record.get('authentic') is not True
+            or immutable(committed) != immutable(progress)
+            or not BASE_RE.fullmatch(str(committed.get('base_backup', '')))):
+        raise Refused('failed progress committed identity is unauthenticated')
+    return committed
+
+
+def _failed_progress(progress, runner):
+    committed = _committed_progress(progress, runner)
+    if committed.get('phase') in {'COMPLETE', 'FAILED'}:
+        return
+    if committed.get('phase') not in {'BASE_BACKUP', 'VERIFY_RESTORE', 'VERIFY_CHAIN'}:
+        raise Refused('failed progress committed phase is invalid')
+    progress.clear()
+    progress.update(committed)
+    _progress(progress, runner, phase='FAILED')
 
 
 class FreshnessReader:
@@ -490,7 +527,7 @@ class FreshnessReader:
                 child = run_bounded([sys.executable,'-B','scripts/sentinel_backup_maintenance.py',
                     '--freshness-only','--timeout-seconds',str(budget)],timeout=budget+5,private_group=False)
                 value = renewal.parse(child.stdout,refresh=True)
-                expected = 0 if value['outcome']=='SUCCESS' else 75 if value['outcome']=='RETRYABLE' else 4
+                expected = 0 if value['outcome'] in {'SUCCESS','STANDBY'} else 75 if value['outcome']=='RETRYABLE' else 4
                 if child.returncode != expected: raise ValueError('freshness child result mismatch')
             except Exception:
                 value = renewal.result(outcome='BLOCKED',phase='VERIFY_CHAIN',code='INVALID_RESULT',
@@ -527,11 +564,18 @@ def tick(root, runner=run, *, freshness=False, budget=None):
             elapsed_seconds=time.monotonic()-started, started_at=started_at,
             finished_at=datetime.now(timezone.utc).isoformat(), **state['schedule'].timing()),refresh=freshness)
         return value
+    except BasePublicationPending:
+        if not freshness:
+            raise
+        renewal.emit(renewal.result(outcome='STANDBY', phase='OBSERVE', code='TARGET_BUSY',
+            elapsed_seconds=time.monotonic()-started, started_at=started_at,
+            finished_at=datetime.now(timezone.utc).isoformat(),
+            publication_at=state['schedule'].publication()), refresh=True)
+        return dict(runtime_chain_current=False, maintenance_standby=True)
     except Exception as primary:
         if progress:
-            progress['phase'] = 'FAILED'
             try:
-                publish_progress(progress, runner)
+                _failed_progress(progress, runner)
             except Exception as progress_error:
                 print('maintenance failure progress unreadable: ' + type(progress_error).__name__, file=sys.stderr)
         failure = primary.failure if isinstance(primary,Refused) else None
@@ -580,8 +624,43 @@ def _fresh_tick(root,runner,state):
     observation = observe_primary(runner)
     if observation.get('publication_at') is not None: state['schedule'].accept(observation['publication_at'])
     selected = worker('observe-current',image,root,observation,runner)
+    _require_base_publication(selected, observation, runner)
     _chain(root,image,selected,observation,runner,state,shared_mode=True)
     return dict(runtime_chain_current=True,base=selected['name'])
+
+
+def _require_base_publication(selected, observation, runner):
+    """An owned physical rollover is not yet a published restore-chain input."""
+    frontier = json.loads(sql("SELECT json_build_object('publication_frontier',true,"
+        "'base',b.proof,'base_current',b.observed_at<=clock_timestamp(),"
+        "'progress',m.proof,'progress_authentic',m.authentic,"
+        "'progress_at',floor(extract(epoch FROM m.observed_at))::bigint,"
+        "'progress_current',m.observed_at<=clock_timestamp(),"
+        "'now',floor(extract(epoch FROM clock_timestamp()))::bigint) "
+        "FROM (SELECT 1) seed LEFT JOIN LATERAL "
+        "(SELECT proof,observed_at FROM sentinel_backup_evidence WHERE kind='BASE_BACKUP' "
+        "ORDER BY observed_at DESC,seq DESC LIMIT 1) b ON TRUE LEFT JOIN LATERAL "
+        "(SELECT proof,observed_at,evidence_sha256=encode(sha256(convert_to(proof::text,'UTF8')),'hex') AS authentic "
+        "FROM sentinel_backup_evidence WHERE kind='MAINTENANCE_PROGRESS' "
+        "ORDER BY observed_at DESC,seq DESC LIMIT 1) m ON TRUE", runner))
+    base, progress = frontier.get('base'), frontier.get('progress')
+    if (isinstance(base,dict) and base.get('base_backup') == selected['name']
+            and base.get('system_identifier') == observation['system_id']
+            and frontier.get('base_current') is True):
+        return
+    try:
+        validate_progress(progress)
+    except (ValueError,TypeError,KeyError):
+        raise Refused('selected base has no current producer publication') from None
+    if (isinstance(base,dict) and base.get('system_identifier') == observation['system_id']
+            == progress['system_identifier'] and base.get('base_backup') == progress['predecessor_base']
+            and selected['name'] > progress['predecessor_base']
+            and frontier.get('base_current') is True
+            and frontier.get('progress_authentic') is True and frontier.get('progress_current') is True
+            and type(frontier.get('now')) is int and type(frontier.get('progress_at')) is int
+            and progress['started_at'] <= frontier['progress_at'] <= frontier['now'] < progress['deadline']):
+        raise BasePublicationPending('original base producer publication is still pending')
+    raise Refused('selected base has no current producer publication')
 
 
 def _tick(root, runner, progress, started,state):
@@ -611,8 +690,7 @@ def _tick(root, runner, progress, started,state):
             deadline=first_second + INVOCATION_SECONDS,
             system_identifier=observation['system_id'], image=image,
             predecessor_base=selected['name'], base_backup=selected['name'],phase='BASE_BACKUP')
-        selected, observation = renew_base(root, image, runner,on_wait=on_wait)
-        _progress(progress, runner, base_backup=selected['name'], phase='VERIFY_CHAIN')
+        selected, observation = renew_base(root, image, runner, on_wait=on_wait, progress=progress)
     chain,receipt,observation = _chain(root,image,selected,observation,runner,state,shared_mode=bool(shared_mode))
     state['phase'] = 'CHECKPOINT'
     from sentinel_backup_capacity import checkpoint

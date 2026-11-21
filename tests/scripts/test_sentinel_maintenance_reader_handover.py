@@ -94,6 +94,7 @@ class FakeSystemd(module.Native):
             source_scope=module.qualification.OPERATIONAL_SCOPE,commit=NEW,predecessor_commit=OLD,
             source_files={p:'f'*64 for p in ('scripts/sentinel_maintenance_reader_handover.py',
                 'scripts/sentinel_backup_maintenance.py','scripts/sentinel_backup_shared_integrity.py',
+                'scripts/sentinel_backup_publication.py',
                 'scripts/sentinel_backup_integrity_report.py','sentinel/backup_maintenance_integrity.py')}))
         self.validations = []
         def validate(path,sha,source,commit,predecessor):
@@ -939,3 +940,36 @@ def test_native_assets_same_candidate_route_requires_exact_completed_app_report(
 def test_wait_is_bounded_before_lock(tmp_path,seconds):
     with pytest.raises(DeliveryRefused,match='WAIT_INVALID'):
         with module.pass_fence(tmp_path/'pass.lock',seconds): pass
+
+
+def test_publication_dependency_cannot_be_omitted_from_reader_qualification(lab):
+    value=module.read_json(lab.qualification)
+    del value['source_files']['scripts/sentinel_backup_publication.py']
+    dump(lab.qualification,value)
+    with pytest.raises(DeliveryRefused,match='READER_QUALIFICATION_INPUTS_MISSING'):
+        lab.prepare()
+
+
+def test_publication_dependency_is_included_even_when_unchanged(tmp_path,monkeypatch):
+    name='scripts/sentinel_backup_publication.py'
+    paths=[name,'sentinel/anchor.py','scripts/sentinel_local_delivery/__init__.py',
+        'scripts/sentinel_backed_local_patch.py']
+    for item in paths:
+        path=tmp_path/item;path.parent.mkdir(parents=True,exist_ok=True);path.write_text('# private fixture\n')
+    def reader(*args):
+        return '\0'.join(paths)+'\0' if args[0]=='ls-tree' else 'sentinel/anchor.py\0'
+    def covered():
+        files=module.qualification.source_files(tmp_path,scope=module.qualification.OPERATIONAL_SCOPE,
+            predecessor_commit='a'*40,commit='b'*40,git_reader=reader)
+        assert files.get(name)==module.file_sha(tmp_path/name)
+    covered()
+    monkeypatch.setattr(module.qualification,'HANDOVER_INPUTS',module.qualification.HANDOVER_INPUTS-{name})
+    with pytest.raises(AssertionError):covered()
+
+
+def test_missing_publication_dependency_guard_has_an_executed_falsifier(lab,monkeypatch):
+    original=module.require
+    monkeypatch.setattr(module,'require',lambda ok,reason:
+        None if reason=='READER_QUALIFICATION_INPUTS_MISSING' else original(ok,reason))
+    with pytest.raises(pytest.fail.Exception):
+        test_publication_dependency_cannot_be_omitted_from_reader_qualification(lab)
