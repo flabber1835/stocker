@@ -20,6 +20,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
+import psycopg
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -224,17 +225,33 @@ class TestCommandJournal:
         assert [c.state for c in journal.in_flight_commands(conn, DEPLOY)] \
             == [S.UNKNOWN]
 
-    def test_fills_are_idempotent_across_a_re_read(self, conn):
-        """A recovery that re-reads recent fills must not double-count them:
-        the same fill twice inflates the believed position and generates a
-        spurious sell."""
-        b = SimulatedBroker()
-        c = run(recovery.dispatch(b, recovery.prepare_send(cmd())))
-        b.fill(c.client_key)
-        fills = run(b.recent_fills(b.now))
+    def test_fills_are_idempotent_across_a_re_read(self, conn, monkeypatch):
+        """A mixed replay admits new fills once and an exact replay only reads."""
+        broker = SimulatedBroker()
+        first = run(recovery.dispatch(broker, recovery.prepare_send(cmd())))
+        broker.fill(first.client_key)
+        assert journal.record_fills(conn, run(broker.recent_fills(broker.now))) == 1
 
+        second = run(recovery.dispatch(broker, recovery.prepare_send(cmd(instrument=BBB))))
+        broker.fill(second.client_key)
+        fills = run(broker.recent_fills(broker.now))
+        assert len(fills) == 2
         assert journal.record_fills(conn, fills) == 1
-        assert journal.record_fills(conn, fills) == 0
+
+        statements = []
+
+        class TracingCursor(psycopg.Cursor):
+            def execute(self, query, *args, **kwargs):
+                if isinstance(query, str) and "sentinel_fills" in query:
+                    statements.append(query.split()[0])
+                return super().execute(query, *args, **kwargs)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(conn, "cursor_factory", TracingCursor)
+            assert journal.record_fills(conn, fills) == 0
+
+        assert statements == ["SELECT"]
+        assert conn.execute("SELECT count(*) FROM sentinel_fills").fetchone() == (2,)
 
 
 class TestTerminalRecoveryWatermark:

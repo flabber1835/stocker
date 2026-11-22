@@ -110,6 +110,24 @@ def a_plan(pid, basket):
                          data_version=1)
 
 
+def test_current_plan_is_loaded_once_under_the_writer_lock(conns, monkeypatch):
+    conn, _ = conns
+    plan = a_plan("plan-current", {"SEC-AAA": 100})
+    journal.save_plan(conn, plan)
+    load_plan = journal.load_plan
+    loads = []
+
+    def tracked_load(connection, plan_id):
+        loads.append(plan_id)
+        return load_plan(connection, plan_id)
+
+    monkeypatch.setattr(journal, "load_plan", tracked_load)
+    with journal.writer_lock(conn):
+        E._assert_current_plan(conn, plan)
+
+    assert loads == [plan.plan_id]
+
+
 class TestSupersessionDuringLockAcquisition:
     def test_a_plan_superseded_while_the_lock_is_taken_SUBMITS_NOTHING(
             self, conns, monkeypatch):

@@ -545,19 +545,14 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
         from sentinel.execution import alpaca as alpaca_adapter
         strict_recovery = not informational_current_book and _is_broker_instance(
             broker, alpaca_adapter.AlpacaExecutionBroker)
-        recovery_checkpoint = None if informational_current_book else (
-            alpaca_adapter.strict_checkpoint(conn)
-            if strict_recovery
-            else journal.terminal_recovery_checkpoint(conn))
-        recovery_floor = None if informational_current_book else (
-            alpaca_adapter.strict_floor(conn)
-            if strict_recovery
-            else journal.terminal_recovery_floor(conn))
         if informational_current_book:
             observation = await broker.observe()
         else:
+            recovery_checkpoint = (alpaca_adapter.strict_checkpoint(conn)
+                                   if strict_recovery
+                                   else journal.terminal_recovery_checkpoint(conn))
             observation = await broker.observe_with_terminal_recovery(
-                submitted_after=recovery_floor,
+                submitted_after=recovery_checkpoint - journal.TERMINAL_RECOVERY_OVERLAP,
                 processed_through=recovery_checkpoint)
     except BrokerAuthorityRefused:
         raise
