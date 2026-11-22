@@ -40,7 +40,19 @@ def test_active_failure_cannot_render_a_green_baseline_action():
     review=OperatorReview(scope='a'*64,head=2,reviewed_head=1,status='FAILED',
         active=['broker'],observed_at=now)
     assert '<button' not in review_controls.render(review)
-    assert 'current conditions' in review_controls.render(review)
+    html = review_controls.render(review)
+    assert 'current conditions' in html
+    assert 'Paper holdings and orders' in html
+
+
+def test_warning_lists_the_blocking_check_at_the_acknowledgment_action():
+    now = datetime.now(timezone.utc)
+    view = OperatorReview(scope='a'*64, head=2, reviewed_head=1, status='REVIEW',
+        observed_at=now, warnings=['alert_dispatcher'])
+    html = review_controls.render(view)
+    assert 'Notification delivery' in html
+    assert 'review-acknowledge' not in html
+    assert 'current checks before acknowledging' in review_controls.render(view, current=False)
 
 
 def test_unavailable_review_explains_the_specific_controlled_refusal():

@@ -897,23 +897,37 @@ def _write_fill_cash(cur, fill, key):
         raise FillEconomicsChanged("broker fill identity was reused with changed cash impact")
 
 
+def _read_fills_by_key(cur, keys):
+    cur.execute(
+        "SELECT fill_key,broker_order_id,client_key,quantity,price,filled_at"
+        " FROM sentinel_fills WHERE fill_key=ANY(%s)",
+        (keys,))
+    matching = {}
+    for key, *row in cur.fetchall():
+        matching.setdefault(key, []).append(row)
+    return matching
+
+
 def _write_fills(cur, fills: Sequence[BrokerFill]) -> int:
+    if not fills:
+        return 0
+    keyed_fills = [(fill_fingerprint(fill), fill) for fill in fills]
+    stored = _read_fills_by_key(cur, list(dict.fromkeys(key for key, _ in keyed_fills)))
     written = 0
-    for fill in fills:
-        key = fill_fingerprint(fill)
-        cur.execute(
-            "INSERT INTO sentinel_fills (broker_order_id, fill_key,"
-            " client_key, quantity, price, filled_at)"
-            " VALUES (%s,%s,%s,%s,%s,%s)"
-            " ON CONFLICT (broker_order_id, fill_key) DO NOTHING",
-            (fill.broker_order_id, key, fill.client_key,
-             str(fill.quantity), str(fill.price), fill.filled_at))
-        written += cur.rowcount
-        cur.execute(
-            "SELECT broker_order_id,client_key,quantity,price,filled_at"
-            " FROM sentinel_fills WHERE fill_key=%s ORDER BY broker_order_id",
-            (key,))
-        matching = cur.fetchall()
+    for key, fill in keyed_fills:
+        matching = stored.get(key)
+        if matching is None:
+            cur.execute(
+                "INSERT INTO sentinel_fills (broker_order_id, fill_key,"
+                " client_key, quantity, price, filled_at)"
+                " VALUES (%s,%s,%s,%s,%s,%s)"
+                " ON CONFLICT (broker_order_id, fill_key) DO NOTHING",
+                (fill.broker_order_id, key, fill.client_key,
+                 str(fill.quantity), str(fill.price), fill.filled_at))
+            written += cur.rowcount
+            # Re-read after the insert to validate a conflict or a competing row.
+            matching = _read_fills_by_key(cur, [key]).get(key, [])
+            stored[key] = matching
         if not matching:
             raise RuntimeError("fill vanished immediately after insertion")
         if (len(matching) != 1

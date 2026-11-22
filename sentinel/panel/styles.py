@@ -69,7 +69,12 @@ th{color:var(--muted);font-weight:600;letter-spacing:.04em}
 .state.neutral,.dot.neutral{color:var(--muted)}
 .review-card{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:0 0 16px;font-size:13px;line-height:1.5}
 .review-card h2{margin:0;font-size:15px;line-height:1.4}.review-card a{color:var(--warn);text-underline-offset:2px}
-.review-card p{margin:7px 0}.review-card small{color:var(--muted)}.review-card summary{padding:8px 0}.review-card ol{padding-left:20px}
+.review-card p,.review-page p{margin:7px 0}.review-card small,.review-incident time{color:var(--muted)}
+.review-card summary,.review-page summary{padding:8px 0}.review-card ol,.review-page ol{padding-left:20px}
+.review-decision{font-weight:650}.review-incident{border-top:1px solid var(--line);padding:9px 0;margin:0;overflow-wrap:anywhere}
+.review-incident h3{font-size:14px;line-height:1.45;margin:0}.review-incident p{margin:3px 0}
+.review-recovered{font-weight:600}.review-card pre,.review-page pre{max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere}
+.review-page nav{margin-top:12px}.review-page a{color:var(--warn);text-underline-offset:2px}
 .row.neutral,.not-current .row.ok{border-color:var(--muted)}.not-current .dot.ok{color:var(--muted)}
 .refreshing-status .row.ok{border-color:var(--muted)}
 .refreshing-status .dot.ok,.refreshing-status .heartbeat{color:var(--muted)}.refreshing-status .heartbeat::before{color:var(--muted)}

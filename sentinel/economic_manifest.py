@@ -15,11 +15,11 @@ from pathlib import Path
 import re
 from functools import lru_cache
 
-MANIFEST_SHA256 = '2ef14c1a9df7f4cfa6f60bc06495751ee78cee099df0e82de693b356946f0ba1'
+MANIFEST_SHA256 = '39deecc9a0286c96a5ba3b99897d61bb2bca53b00717c6d5097eefef81f32415'
 MANIFEST = Path(__file__).with_name('economic-implementation-v2.json')
 PREDECESSOR = 'b2e308bb664718da373175f1a7d988d07b159ae2'
 PREDECESSOR_DATA_SEMANTICS_SHA256 = '38c750bd9bb244bc71600aaeba8c4aad22d2095747f4199e9ac4e0bd433425cb'
-RETIREMENT_SHA256 = '4263d51eff9e9cc50d3bce78d7c6b8e56ee17c3f51cc6b2eec635e10d8b8e575'
+RETIREMENT_SHA256 = '4e495da1525425620a8bcafbf20d69a8f4074b305123e80579d7de195b3a70a3'
 COMPACT_WINDOW_MODULE = 'sentinel.core.window_material'
 COMPACT_WINDOW_SHA256 = 'ce7ef77041f9b4fd5f8517254a6e39053a202ef34740535e4570fddd65e57435'
 SNAPSHOT_ADMISSION_SHA256 = '8b7cba0d389fa93aa597c4cf95923b359ae414c01cf91e1457cd656e6329bc2a'
@@ -189,11 +189,8 @@ def _retired_source_profile():
     return json.loads(raw)
 
 
-def previous_source(name, raw, profile=None):
-    """Reverse a reviewed edit for a byte-exact predecessor comparison."""
-    profile = _retired_source_profile() if profile is None else profile
-    delta = profile['reverse'].get(name)
-    if delta is None or _sha(raw) != delta['after']:
+def _reverse_source_edit(name, raw, delta):
+    if _sha(raw) != delta['after']:
         return raw
     lines = raw.splitlines(keepends=True)
     for start, stop, replacement in reversed(delta['edits']):
@@ -202,6 +199,20 @@ def previous_source(name, raw, profile=None):
     if _sha(prior) != delta['before']:
         raise EconomicManifestRefused('ECONOMIC_PREDECESSOR_CHANGED:'+name)
     return prior
+
+
+def previous_source(name, raw, profile=None):
+    """Reverse reviewed edits for a byte-exact predecessor comparison."""
+    profile = _retired_source_profile() if profile is None else profile
+    delta = profile['reverse'].get(name)
+    if delta is None:
+        return raw
+    successor = delta.get('successor')
+    if successor is not None:
+        if successor['before'] != delta['after']:
+            raise EconomicManifestRefused('ECONOMIC_PREDECESSOR_CHANGED:'+name)
+        raw = _reverse_source_edit(name, raw, successor)
+    return _reverse_source_edit(name, raw, delta)
 
 
 def wealth_core_source_hash(root):
@@ -269,10 +280,10 @@ def identity(*, schema):
         if exact_close_readiness and name in close_compilers:
             actual[name] = expected[name]
             continue
-        if transition and _sha(raw) == transition['after']:
+        if transition:
             if name in profile['reverse']:
                 raw = previous_source(name, raw, profile)
-            else:
+            elif _sha(raw) == transition['after']:
                 actual[name] = expected[name]
                 continue
         if name in performance_source_basis.BASELINES:

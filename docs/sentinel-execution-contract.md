@@ -1611,6 +1611,21 @@ new leading edge.
 
 Nothing is submitted before step 7 completes.
 
+Current-plan admission loads the uniquely selected durable plan once under
+the execution writer lock and compares its fingerprint with the requested
+plan. The requested historical plan is read on refusal to identify explicit
+supersession. For terminal-order recovery, one validated checkpoint supplies
+both the processed boundary and its fixed replay overlap in an observation.
+The economic source proof reverses this exact observation edit to the previous
+reconciliation source before applying the existing compiler proofs. The full
+runtime seal still verifies the actual executable bytes. Both source boundaries
+reject unknown edits, including edits to action compilation.
+
+Fill persistence reads the incoming identities as a batch in the journal
+transaction. Existing rows still verify order identity, quantity, price and
+time. New rows use the conflict-safe insert and readback. A repeated fill can
+still add newly available cash evidence, which commits with its observation.
+
 ### 10.2 Corporate actions are applied before foreign-activity classification
 
 > **A quantity or instrument change that a corporate action explains is not

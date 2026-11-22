@@ -3,6 +3,7 @@ from copy import deepcopy
 from dataclasses import replace
 from datetime import timedelta
 import inspect
+from textwrap import dedent
 
 import pytest
 
@@ -170,6 +171,135 @@ def test_signed_failure_and_recovery_name_only_backup_and_keep_acknowledgement(c
                                     actor='private qualification operator')
     assert acknowledged.status == 'CLEAN'
     assert presentation.dashboard_health(replace(page, operator_review=acknowledged))['color'] == 'green'
+
+
+def delivery_status(page, status):
+    recovery = (model.RecoveryEvidence(phase='ALERT_TRANSPORT', automatic=True, attempt=1,
+        maximum_attempts=5, next_attempt_at=page.now+timedelta(seconds=15))
+        if status == model.WARN else None)
+    return changed_history_panel(page, 'alert_dispatcher', status=status, recovery=recovery)
+
+
+@pytest.mark.parametrize('status', [model.WARN, model.FAIL, model.UNKNOWN])
+def test_delivery_incident_does_not_invent_scheduled_wait_incidents(status):
+    page = healthy_history_panel()
+    failed = delivery_status(page, status)
+    facts = presentation.health_facts(failed)
+    assert facts == ({'active': [], 'warnings': ['alert_dispatcher']} if status == model.WARN
+                     else {'active': ['alert_dispatcher'], 'warnings': []})
+    assert not presentation._scheduled_work_normal(failed)
+    assert presentation._scheduled_wait_attributable(failed)
+    assert all(failed.row(key) == page.row(key) for key in WAITING)
+    assert presentation.dashboard_health(failed)['color'] == (
+        'amber' if status == model.WARN else 'red')
+
+
+def test_backup_and_delivery_incidents_keep_independent_attribution():
+    page = expired_backup(healthy_history_panel())
+    failed = changed_history_panel(page, 'alert_dispatcher', status=model.FAIL)
+    assert presentation.health_facts(failed) == {
+        'active': ['alert_dispatcher', 'backup_restore'], 'warnings': []}
+    assert presentation._scheduled_wait_attributable(failed)
+    assert not presentation._scheduled_work_normal(failed)
+
+
+def test_delivery_failure_cannot_excuse_an_unproven_schedule_or_backup():
+    page = changed_history_panel(healthy_history_panel(), 'alert_dispatcher', status=model.FAIL)
+    malformed_wait = changed_history_panel(page, 'paper_plan', paper_plan=None)
+    no_backup = replace(page, rows=[row for row in page.rows if row.key != 'backup_restore'])
+    for uncertain in (malformed_wait, no_backup):
+        assert not presentation._scheduled_wait_attributable(uncertain)
+        facts = presentation.health_facts(uncertain)
+        assert facts['active'] == ['alert_dispatcher']
+        assert WAITING <= set(facts['warnings'])
+
+
+def test_signed_delivery_history_records_one_recovery_after_retries_and_failure(conn):
+    owner = review.Recorder()
+    page = healthy_history_panel()
+    current = owner.observe(page, conn.info.dsn)
+    current = owner.acknowledge(page, conn.info.dsn, current.token, actor='private qualification operator')
+
+    for status, kind in ((model.WARN, 'REVIEW'), (model.FAIL, 'FAILED'),
+                         (model.WARN, 'REVIEW'), (model.OK, 'RECOVERED')):
+        observed = delivery_status(page, status)
+        result = owner.observe(observed, conn.info.dsn)
+        fresh = [event for event in result.events if event['sequence'] > current.head]
+        assert len(fresh) == 1, ("unexpected incident transition", status, fresh)
+        event = fresh[0]
+        assert event['kind'] == kind
+        detail = event['details']
+        assert set(detail['evidence']) == {'alert_dispatcher'}
+        if status == model.OK:
+            assert detail['transition'] == 'RESOLVED'
+            assert detail['conditions'] == [] and detail['previous'] == ['alert_dispatcher']
+            assert result.token
+        else:
+            assert detail['conditions'] == ['alert_dispatcher']
+            assert not result.token
+        assert owner.observe(observed, conn.info.dsn).head == result.head
+        current = result
+
+    assert presentation.dashboard_health(replace(page, operator_review=current))['color'] == 'amber'
+    acknowledged = owner.acknowledge(page, conn.info.dsn, current.token, actor='private qualification operator')
+    assert acknowledged.status == 'CLEAN'
+
+
+def test_resolved_warning_can_become_expected_work_without_claiming_full_health(conn):
+    owner = review.Recorder()
+    page = healthy_history_panel()
+    warning = changed_history_panel(page, 'backup_restore', status=model.WARN,
+        value='BACKUP NEEDS REVIEW', recovery=model.RecoveryEvidence(
+            phase='BACKUP_RETRY', automatic=True, deadline=page.now+timedelta(minutes=5)))
+    seen = owner.observe(warning, conn.info.dsn)
+    assert seen.warnings == ['backup_restore'] and not seen.token
+
+    maintaining = maintenance_backup(page)
+    after = owner.observe(maintaining, conn.info.dsn)
+    event, = [event for event in after.events if event['sequence'] > seen.head]
+    assert event['kind'] == 'RECOVERED'
+    assert event['details']['transition'] == 'RESOLVED'
+    assert event['details']['evidence']['backup_restore']['effective_status'] == model.WARN
+    assert after.active == after.warnings == []
+    assert not presentation._green_eligible(maintaining)
+
+
+def test_recovery_names_only_the_check_that_resolved(conn):
+    owner = review.Recorder()
+    page = healthy_history_panel()
+    failed_backup = expired_backup(page)
+    both_failed = changed_history_panel(failed_backup, 'alert_dispatcher', status=model.FAIL)
+    seen = owner.observe(both_failed, conn.info.dsn)
+    after = owner.observe(failed_backup, conn.info.dsn)
+    event, = [event for event in after.events if event['sequence'] > seen.head]
+    assert event['kind'] == 'RECOVERED'
+    assert event['details']['previous'] == ['alert_dispatcher']
+    assert after.active == ['backup_restore'] and not after.token
+
+
+def test_restored_alert_health_coupling_fails_the_wait_attribution_oracle(monkeypatch):
+    source = inspect.getsource(presentation._scheduled_wait_proven)
+    guard = 'if key not in _SCHEDULE_INDEPENDENT_CHECKS'
+    assert source.count(guard) == 1
+    namespace = dict(vars(presentation))
+    exec(compile(source.replace(guard, "if key != 'backup_restore'"),
+                 '<restored alert coupling>', 'exec'), namespace)
+    monkeypatch.setattr(presentation, '_scheduled_wait_proven', namespace['_scheduled_wait_proven'])
+    with pytest.raises(AssertionError):
+        test_delivery_incident_does_not_invent_scheduled_wait_incidents(model.FAIL)
+
+
+def test_per_severity_recovery_fails_the_signed_retry_history_oracle(conn, monkeypatch):
+    source = dedent(inspect.getsource(review.Recorder.observe_owned))
+    guard = 'resolved = sorted(previous_conditions - current_conditions)'
+    assert source.count(guard) == 1
+    broken = """resolved = sorted((set(state['active']) - set(facts['active']))
+                      | (set(state['warnings']) - set(facts['warnings'])))"""
+    namespace = dict(vars(review))
+    exec(compile(source.replace(guard, broken), '<recovery on severity change>', 'exec'), namespace)
+    monkeypatch.setattr(review.Recorder, 'observe_owned', namespace['observe_owned'])
+    with pytest.raises(AssertionError, match='unexpected incident transition'):
+        test_signed_delivery_history_records_one_recovery_after_retries_and_failure(conn)
 
 
 def test_restored_global_coupling_fails_executed_exact_attribution_oracle(monkeypatch):

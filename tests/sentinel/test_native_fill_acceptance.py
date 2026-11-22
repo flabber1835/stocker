@@ -124,6 +124,11 @@ def test_initial_observation_failure_classifies_native_integrity(
                                             raw_event=raw_event)
                if native_refusal else TimeoutError('broker request timed out'))
     retained = []
+    checkpoints = []
+
+    def checkpoint(conn):
+        checkpoints.append(conn)
+        return prior.START
 
     class FailingBroker:
         async def identify_account(self):
@@ -131,12 +136,12 @@ def test_initial_observation_failure_classifies_native_integrity(
 
         async def observe_with_terminal_recovery(
                 self, *, submitted_after, processed_through):
-            assert (submitted_after, processed_through) == (prior.START, prior.START)
+            assert submitted_after == prior.START - journal.TERMINAL_RECOVERY_OVERLAP
+            assert processed_through == prior.START
             raise failure
 
     monkeypatch.setattr(binding_mod, 'verify', lambda *_: None)
-    monkeypatch.setattr(journal, 'terminal_recovery_floor', lambda _: prior.START)
-    monkeypatch.setattr(journal, 'terminal_recovery_checkpoint', lambda _: prior.START)
+    monkeypatch.setattr(journal, 'terminal_recovery_checkpoint', checkpoint)
     monkeypatch.setattr(fill_integrity, 'retain_native_refusal',
                         lambda *args: retained.append(args))
 
@@ -147,6 +152,7 @@ def test_initial_observation_failure_classifies_native_integrity(
     assert result.runtime_state is (
         RuntimeState.RECONCILING if native_refusal else RuntimeState.BROKER_DEGRADED)
     assert retained == ([(connection, identity, failure)] if native_refusal else [])
+    assert checkpoints == [connection]
 
 
 @pytest.mark.parametrize('initial', [(), ('6',)])

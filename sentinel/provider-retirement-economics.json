@@ -1032,7 +1032,18 @@
           351,
           "\n\ndef _order_observation_fingerprint(order) -> tuple:\n    return (\n        order.broker_order_id, order.client_key,\n        order.instrument.security_id, order.instrument.broker_id,\n        order.side, order.quantity, order.order_terms,\n        order.notional,\n        order.state, order.filled_quantity, order.filled_average_price,\n        order.submitted_at, bool(order.external_replacement),\n        order.replaced_by, order.replaces)\n"
         ]
-      ]
+      ],
+      "successor": {
+        "after": "c5e3f891b92c53583192086d959d2c00e04c4b1014248e159f5d709e738bb841",
+        "before": "a8dbb42e34b00bbbdfb409b40a928df496807eaeaf95e6252ca6c9d9928ea364",
+        "edits": [
+          [
+            545,
+            556,
+            "        strict_recovery = not informational_current_book and _is_broker_instance(\n            broker, alpaca_adapter.AlpacaExecutionBroker)\n        recovery_checkpoint = None if informational_current_book else (\n            alpaca_adapter.strict_checkpoint(conn)\n            if strict_recovery\n            else journal.terminal_recovery_checkpoint(conn))\n        recovery_floor = None if informational_current_book else (\n            alpaca_adapter.strict_floor(conn)\n            if strict_recovery\n            else journal.terminal_recovery_floor(conn))\n        if informational_current_book:\n            observation = await broker.observe()\n        else:\n            observation = await broker.observe_with_terminal_recovery(\n                submitted_after=recovery_floor,\n                processed_through=recovery_checkpoint)\n"
+          ]
+        ]
+      }
     },
     "sentinel.feed": {
       "after": "20b16d0cc989030dc6b8979dd459a27ab7767917ea4106ab27039afef677a9a9",

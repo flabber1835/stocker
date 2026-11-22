@@ -140,14 +140,15 @@ def _assert_current_plan(conn, plan: ExecutionPlan) -> None:
     # plan built before it was superseded has `superseded_by is None` in memory
     # and is exactly the caller this check exists to stop — it is how Monday's
     # obsolete plan arrives on Wednesday looking current.
-    stored = journal.load_plan(conn, plan.plan_id)
+    current = journal.latest_plan(conn)
+    stored = (current if current is not None and current.plan_id == plan.plan_id
+              else journal.load_plan(conn, plan.plan_id))
     if stored is not None and stored.is_superseded:
         raise StalePlanRefused(
             f"plan {plan.plan_id} was superseded by {stored.superseded_by}. A "
             f"superseded plan may not execute — not even its reductions. "
             f"Liquidating today because an obsolete plan wanted zero is the "
             f"inverse of convergence.")
-    current = journal.latest_plan(conn)
     if current is None:
         raise StalePlanRefused(
             f"plan {plan.plan_id} is not persisted. The executor runs the "
