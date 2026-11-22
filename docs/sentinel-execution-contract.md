@@ -1616,6 +1616,10 @@ the execution writer lock and compares its fingerprint with the requested
 plan. The requested historical plan is read on refusal to identify explicit
 supersession. For terminal-order recovery, one validated checkpoint supplies
 both the processed boundary and its fixed replay overlap in an observation.
+The economic source proof reverses this exact observation edit to the previous
+reconciliation source before applying the existing compiler proofs. The full
+runtime seal still verifies the actual executable bytes. Both source boundaries
+reject unknown edits, including edits to action compilation.
 
 Fill persistence reads the incoming identities as a batch in the journal
 transaction. Existing rows still verify order identity, quantity, price and

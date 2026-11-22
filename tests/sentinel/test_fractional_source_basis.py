@@ -76,6 +76,30 @@ def test_opening_source_witness_reconstructs_installed_reconcile_exactly():
     assert basis.contribution(basis.MODULE, current) == basis.BEFORE
 
 
+def test_checkpoint_read_source_reconstructs_both_reviewed_predecessors():
+    raw = Path(reconcile.__file__).read_bytes()
+    profile = economic_manifest._retired_source_profile()
+    delta = profile['reverse'][basis.MODULE]
+    retired = economic_manifest._reverse_source_edit(basis.MODULE, raw, delta['successor'])
+    assert hashlib.sha256(retired).hexdigest() == (
+        'a8dbb42e34b00bbbdfb409b40a928df496807eaeaf95e6252ca6c9d9928ea364')
+    before, after = ast.parse(retired), ast.parse(raw)
+    assert len(before.body) == len(after.body)
+    assert [left.name for left, right in zip(before.body, after.body)
+            if ast.dump(left) != ast.dump(right)] == ['reconcile']
+    assert economic_manifest.local_imports(retired, module_name=basis.MODULE) == (
+        economic_manifest.local_imports(raw, module_name=basis.MODULE))
+    prior = economic_manifest.previous_source(basis.MODULE, raw, profile)
+    assert prior == economic_manifest.previous_source(basis.MODULE, retired, profile)
+    assert hashlib.sha256(prior).hexdigest() == basis._profile()['opening_after']
+
+    neighbor = raw + b'\n# unreviewed change\n'
+    assert economic_manifest.previous_source(basis.MODULE, neighbor, profile) == neighbor
+    delta['successor']['before'] = '0' * 64
+    with pytest.raises(economic_manifest.EconomicManifestRefused, match='ECONOMIC_PREDECESSOR_CHANGED'):
+        economic_manifest.previous_source(basis.MODULE, neighbor, profile)
+
+
 def test_only_execution_definitions_change_and_action_input_bytes_stay_exact():
     current = economic_manifest.previous_source(basis.MODULE, Path(reconcile.__file__).read_bytes())
     prior = qualified_predecessor(basis.MODULE, current)
