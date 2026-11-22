@@ -316,16 +316,19 @@ class Recorder:
                 details={'conditions':['dashboard_read_unavailable'], 'recovered_before_recording':True}, now=now)
             store.append(conn, key, state, kind='RECOVERED', event_key='recovered:'+str(state['head']+1),
                 details={'conditions':['dashboard_read_unavailable']}, now=now)
-        if facts['active'] != state['active']:
-            kind = 'FAILED' if facts['active'] else 'RECOVERED'
-            store.append(conn, key, state, kind=kind, event_key='condition:'+str(state['head']+1),
-                details={'conditions':facts['active'], 'previous':state['active'],
-                         'evidence':condition_evidence(panel, facts['active']+state['active'])}, now=now)
-        if facts['warnings'] != state['warnings']:
-            kind = 'REVIEW' if facts['warnings'] else 'RECOVERED'
-            store.append(conn, key, state, kind=kind, event_key='warning:'+str(state['head']+1),
-                details={'conditions':facts['warnings'], 'previous':state['warnings'],
-                         'evidence':condition_evidence(panel, facts['warnings']+state['warnings'])}, now=now)
+        for severity, kind, prefix in (('active', 'FAILED', 'condition'), ('warnings', 'REVIEW', 'warning')):
+            entered = sorted(set(facts[severity]) - set(state[severity]))
+            if entered:
+                store.append(conn, key, state, kind=kind, event_key=prefix+':'+str(state['head']+1),
+                    details={'conditions':entered, 'previous':state[severity],
+                             'evidence':condition_evidence(panel, entered)}, now=now)
+        previous_conditions = set(state['active']) | set(state['warnings'])
+        current_conditions = set(facts['active']) | set(facts['warnings'])
+        resolved = sorted(previous_conditions - current_conditions)
+        if resolved:
+            store.append(conn, key, state, kind='RECOVERED', event_key='recovered:'+str(state['head']+1),
+                details={'conditions':[], 'previous':resolved, 'transition':'RESOLVED',
+                         'evidence':condition_evidence(panel, resolved)}, now=now)
         notices = _notices(conn)
         unseen = sorted(set(notices) - set(state['incidents']))
         if unseen:

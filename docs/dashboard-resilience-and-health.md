@@ -122,6 +122,31 @@ snapshot. A changed head or baseline asks the operator to reopen the view from
 the dashboard. Reading history has no acknowledgment side effects. The existing
 exact-view POST remains the sole action that advances the baseline.
 
+Decision 2026-11-22. Health history is an incident review for a person. The
+visible summary names the affected check, what the recorded evidence establishes,
+the observed time range in Pacific time and whether recovery was recorded.
+Present current blockers and the status of acknowledgement before the action.
+An eligible action reviews the entire stated unreviewed range. The current
+snapshot, signed head, active checks and explicit same-origin submit still
+govern eligibility.
+
+Record entry into each failure or material warning level and record recovery
+only when the condition leaves both sets. A move between warning and failure
+continues the same incident. Prove the dated scheduled PAPER wait independently
+of an observed notification delivery or backup incident. Both dependencies
+remain required for full current health. Missing evidence or a broken schedule
+still refuses the wait attribution.
+
+Group transitions for the same check within the bounded signed page, preserving
+each record under expandable details. A legacy recovery while the same check is
+still warning or failing does not establish recovery. Recognize the legacy
+scheduled-wait trace only when the paired same-observation notification event
+and exact WAITING_OPEN, opening-wait and PAPER alignment evidence support it.
+Keep other ambiguous records visible with conservative wording. Past records
+cannot acquire a cause, start date or trading outcome that they did not capture.
+Older pages retain their exact sequence bounds, and the history projection
+performs no new collection or financial work.
+
 The additive presentation schema is optional for financial runtime admission and
 mandatory for a green dashboard. It has an exact catalog witness, append-only
 history guards and an explicit fenced installer; HTTP startup/reads never CREATE

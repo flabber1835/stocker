@@ -105,6 +105,26 @@ history_documents = dict(dashboard=publication(replace(review_page, operator_rev
                                                             first=22, stylesheet=STYLE_ASSET),
                          last=review_controls.history_page(events[20:], **history_args,
                                                            first=2, stylesheet=STYLE_ASSET))
+def delivery_event(sequence, offset, kind, status, *, phase=None):
+    key = 'alert_dispatcher'
+    at = now - timedelta(minutes=offset)
+    evidence = {key: dict(code='ROW_CONDITION', effective_status=status, recovery_phase=phase)}
+    details = dict(conditions=[] if kind == 'RECOVERED' else [key],
+                   previous=[key] if kind == 'RECOVERED' else [], evidence=evidence)
+    return dict(sequence=sequence, kind=kind, at=at.isoformat(), details=details)
+
+
+delivery_history = [
+    delivery_event(6, 3, 'RECOVERED', 'ok'),
+    delivery_event(5, 4, 'FAILED', 'fail'),
+    delivery_event(4, 15, 'RECOVERED', 'ok'),
+    delivery_event(3, 16, 'RECOVERED', 'warn', phase='ALERT_TRANSPORT'),
+    delivery_event(2, 17, 'FAILED', 'fail'),
+]
+mobile_history = publication(replace(review_page, operator_review=OperatorReview(
+    scope='a'*64, head=6, reviewed_head=1, status='REVIEW', observed_at=now,
+    reviewed_at=now-timedelta(hours=1), events=delivery_history,
+    token='mobile-qualified-review-view')), now, now+timedelta(seconds=20))
 close_at = datetime(2026, 11, 20, 21, 15, tzinfo=timezone.utc)
 close_until = close_at + timedelta(seconds=20)
 close_feed = model.feed_row(frontier='2026-11-20', sessions_behind=0, ready=None,
@@ -128,4 +148,4 @@ print(json.dumps(dict(now=now.isoformat(),
     green=render(page, refresh_seconds=5), red=render(negative, refresh_seconds=5),
     short_receipts=short_receipts, short_partial=short_partial,
     review_documents=review_documents, history_documents=history_documents,
-    close_documents=close_documents)))
+    mobile_history=mobile_history, close_documents=close_documents)))
