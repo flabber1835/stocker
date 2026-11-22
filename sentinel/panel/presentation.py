@@ -180,6 +180,7 @@ def _normal_idle(panel, row: Row) -> bool:
             and _fresh_worker(panel, 'automation_leader'))
 
 
+_SCHEDULE_INDEPENDENT_CHECKS = ('backup_restore', 'alert_dispatcher')
 _HISTORY_CURRENT_FACTS = (
     'automation', 'automation_leader', 'authority', 'alpaca_account', 'broker',
     'feed', 'shadow_worker', 'shadow_verification', 'book', 'exposure', 'terminals',
@@ -223,7 +224,7 @@ def _historical_schedule_evidence(panel, history: Row | None, saved: Row) -> boo
 
 
 def _scheduled_wait_proven(panel) -> bool:
-    """Prove the scheduled facts without borrowing an independent backup verdict."""
+    """Prove the dated scheduled facts independently of backup and notification health."""
     if (not panel.local_paper_mode or panel.source_errors
             or len({row.key for row in panel.rows}) != len(panel.rows)):
         return False
@@ -239,7 +240,7 @@ def _scheduled_wait_proven(panel) -> bool:
         return False
     if (any(leg.action == 'UNAVAILABLE' for leg in plan.legs)
             or not all(_current_health_fact(panel, key) for key in _HISTORY_CURRENT_FACTS
-                       if key != 'backup_restore')
+                       if key not in _SCHEDULE_INDEPENDENT_CHECKS)
             or not _enabled_policy(panel.row('automation'))
             or not panel.row('alpaca_account').can_show_paper_account(panel.now)
             or not _current_input_session(panel, str(plan.decision_session))
@@ -262,7 +263,7 @@ def _scheduled_wait_proven(panel) -> bool:
 
 def _scheduled_work_normal(panel) -> bool:
     """Complete original admission for green styling and its proof boundaries."""
-    return (_current_health_fact(panel, 'backup_restore')
+    return (all(_current_health_fact(panel, key) for key in _SCHEDULE_INDEPENDENT_CHECKS)
             and _scheduled_wait_proven(panel))
 
 
@@ -278,18 +279,19 @@ def _backup_maintenance_normal(panel, row: Row) -> bool:
 
 
 def _scheduled_wait_attributable(panel) -> bool:
-    """An observed backup incident cannot invent a second waiting incident.
-
-    This grants neither green admission nor a financial verdict. Every other
-    current capability and the complete dated waiting/history proof still bind.
-    Missing or unadmitted backup evidence supplies no attribution exception.
-    """
+    """Attribute an independent incident without treating scheduled waits as faults."""
     from sentinel.panel.delivery import row_current
-    backup = panel.row('backup_restore')
-    return (backup is not None and backup.required_current
-            and row_current(panel, backup)
-            and backup.effective_status(panel.now) in {'warn', 'fail', 'unknown'}
-            and _scheduled_wait_proven(panel))
+
+    adverse = False
+    for key in _SCHEDULE_INDEPENDENT_CHECKS:
+        if _current_health_fact(panel, key):
+            continue
+        row = panel.row(key)
+        if (row is None or not row.required_current or not row_current(panel, row)
+                or row.effective_status(panel.now) not in {'warn', 'fail', 'unknown'}):
+            return False
+        adverse = True
+    return adverse and _scheduled_wait_proven(panel)
 
 
 def _green_eligible(panel) -> bool:

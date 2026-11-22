@@ -43,6 +43,41 @@ test('keyboard review of older entries leaves the dashboard and its baseline ava
   expect(writes).toEqual([]);
 });
 
+test('mobile review names each recovered incident and explains what acknowledgment covers',async({page,request})=>{
+  const document=JSON.parse(fs.readFileSync(process.env.SENTINEL_DOM_FIXTURE,'utf8')).mobile_history;
+  const assets=await panelAssets(request,document);
+  await page.clock.install({time:new Date(document.match(/data-generated-at="([^"]+)"/)[1])});
+  const writes=[];
+  await page.route('**/*',async route=>{
+    const req=route.request();
+    const path=new URL(req.url()).pathname;
+    if(req.method()!=='GET')writes.push(req.method());
+    if(assets.has(path))return route.fulfill({status:200,...assets.get(path)});
+    if(path==='/')return route.fulfill({contentType:'text/html',body:document});
+    return route.fulfill({status:404,body:''});
+  });
+  await page.goto('http://127.0.0.1:18947/');
+  const review=page.locator('#operator-review');
+  await expect(review).toBeHidden();
+  await page.locator('#system-details > summary').click();
+  const incidents=review.locator('.review-incident');
+  await expect(incidents).toHaveCount(2);
+  for(const article of await incidents.all()) {
+    await expect(article.getByRole('heading',{name:'Notification delivery'})).toBeVisible();
+    await expect(article).toContainText('Recovery recorded');
+    await expect(article).toContainText('Pacific');
+  }
+  await expect(review.locator('.review-decision')).toHaveText(
+    'Current checks are clear. Acknowledge after reviewing the outstanding history.');
+  await expect(review).toContainText('records your review of all 5 outstanding entries');
+  await expect(review.getByRole('button',{name:'Acknowledge reviewed history'})).toBeVisible();
+  await expect(review.locator('[data-detail-key="review-history"]')).not.toHaveAttribute('open','');
+  await review.getByText('Recorded evidence (5 recorded entries)',{exact:true}).click();
+  await expect(review.locator('[data-detail-key="review-history"] li')).toHaveCount(5);
+  expect(await review.evaluate(node=>node.scrollWidth<=node.clientWidth+1)).toBe(true);
+  expect(writes).toEqual([]);
+});
+
 for(const outcome of ['accepted','refused']) {
   test(`review action introduced by refresh is keyboard accessible and ${outcome}`,async({page,request})=>{
     const documents=JSON.parse(fs.readFileSync(process.env.SENTINEL_DOM_FIXTURE,'utf8')).review_documents;
@@ -83,9 +118,9 @@ for(const outcome of ['accepted','refused']) {
     await expect(page.locator('#review-acknowledge')).toHaveCount(0);
     await expect(page.locator('body')).toHaveAttribute('data-health','amber');
     await page.clock.runFor(5000);
-    const button=page.getByRole('button',{name:'Acknowledge reviewed state'});
+    const button=page.getByRole('button',{name:'Acknowledge reviewed history'});
     await expect(button).toBeVisible();
-    await expect(review).toContainText('This does not verify pending PAPER results.');
+    await expect(review).toContainText('PAPER results have a separate verification check.');
     expect(posted).toHaveLength(0);
     await button.focus();
     await page.keyboard.press('Enter');
