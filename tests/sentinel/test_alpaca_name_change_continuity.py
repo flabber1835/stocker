@@ -224,6 +224,7 @@ def test_unproven_controller_identity_replacement_retains_original_book(conn,pro
 def test_old_source_policy_cannot_satisfy_fresh_readiness(conn,provider,monkeypatch,legacy_policy):
     from sentinel import rolling_initialization as initial
     from sentinel.feed import alpaca_source,rolling_go_inputs
+    from sentinel.core.rolling_inputs import RollingInputsRefused
     prices,publish=provider
     publish();before=initial.initialize(conn,observation_id=OBS,starting_cash=50_000)
     prices.window=PriceWindow.through(calendar.next_session(before.state.last_processed_session))
@@ -231,13 +232,16 @@ def test_old_source_policy_cannot_satisfy_fresh_readiness(conn,provider,monkeypa
     original=alpaca_source.AlpacaSource.reference_payload
     def legacy_reference(self):
         value=original(self)
+        value.pop('merger_conversions')
         if legacy_policy=='1':
             value.pop('identity_bindings')
             return value | dict(schema='sentinel.rolling-alpaca-openfigi-references/2')
-        return value
+        return value | dict(schema='sentinel.rolling-alpaca-openfigi-references/3')
     monkeypatch.setattr(alpaca_source,'SOURCE','sentinel.alpaca-openfigi-operational-source/'+legacy_policy)
     monkeypatch.setattr(alpaca_source.AlpacaSource,'reference_payload',legacy_reference)
-    publish()
+    with pytest.raises(RollingInputsRefused,match='UNBOUND_ALPACA_MERGER_NORMALIZATION'):
+        publish()
+    conn.rollback()
     monkeypatch.setattr(alpaca_source,'SOURCE',current)
     monkeypatch.setattr(alpaca_source.AlpacaSource,'reference_payload',original)
     def fresh_acquisition(*_args,**_kwargs):
@@ -270,5 +274,8 @@ def test_source_and_identity_reference_must_agree(conn,alpaca_path,monkeypatch,m
                 schema='sentinel.rolling-alpaca-openfigi-references/2')
         return value
     monkeypatch.setattr(rolling_store,'load_evidence',mixed)
-    with pytest.raises(RollingInputsRefused,match='UNBOUND_ALPACA_IDENTITY'):
+    expected=('UNBOUND_ALPACA_MERGER_NORMALIZATION'
+              if mismatch in ('new_source_old_reference','unknown_source_old_reference')
+              else 'UNBOUND_ALPACA_IDENTITY')
+    with pytest.raises(RollingInputsRefused,match=expected):
         SnapshotReferences(conn,candidate_id=binding['candidate_id'],snapshot_id=binding['snapshot_id'])
