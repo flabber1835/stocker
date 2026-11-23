@@ -9,8 +9,8 @@ from stock_strategy_shared.wealth_core.feed import SecurityMeta, VendorBar
 
 from sentinel.core.loader import CorpusWindow
 from sentinel.core.spinoffs import map_distributions
-from sentinel.core.session import FeedAnchor
-from sentinel.core.terminal import SPINOFF_ACTIONS, map_terminal_rows
+from sentinel.core.session import FeedAnchor, _path_dependent_security_ids
+from sentinel.core.terminal import SPINOFF_ACTIONS, TerminalKind, TerminalTerms, map_terminal_rows
 from sentinel.feed import (
     action_source, calendar, rolling_store, source_aliases, symbol_identity, tickers_authority,
 )
@@ -50,6 +50,33 @@ def fresh_anchors(bars, meta, known):
     return {bar.security_id: FeedAnchor(bar.security_id, bar.ticker,
                 meta[bar.security_id].issuer_key()[0] or f"S:{bar.security_id}", 1.0)
             for bar in bars if bar.security_id not in known}
+
+
+def merger_provider_assets(conn, refs):
+    """Read provider UUIDs from the immutable publication, not a live inventory."""
+    from sentinel.feed.alpaca_identity import published_assets
+
+    reference = rolling_store.load_evidence(conn, refs.manifest.reference_sha256)
+    source = rolling_store.load_evidence(conn, refs.manifest.source_evidence_sha256)
+    return {row['ticker']: row['asset_id'] for row in published_assets(reference, source)}
+
+
+def merger_owned_security_ids(prior):
+    return _path_dependent_security_ids(prior.wealth_core, prior.pending)
+
+
+def merger_anchor_bar(session, security_id, ticker, raw_close, signal_close):
+    return VendorBar(session, security_id, ticker, raw_close, None, None,
+                     signal_close=signal_close)
+
+
+def merger_terminal_terms(row, *, session, issuer):
+    """Construct the controller's source-bound terminal from verified conversion facts."""
+    return TerminalTerms(session, row.old_security_id, TerminalKind.CONVERSION,
+        delivered_security_id=row.successor_security_id,
+        delivered_ticker=row.successor_symbol, delivered_issuer_id=issuer,
+        exchange_ratio=row.exchange_ratio,
+        reference='alpaca/stock_merger/' + row.record_id + '/' + row.terms_sha256)
 
 
 class SnapshotReferences:

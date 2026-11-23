@@ -82,6 +82,12 @@ pending identity stays under its existing unsupported-action refusal. The
 execution layer alone reconciles broker shares and no controller conversion is
 an order, target-share or broker-position instruction.
 
+The pinned economic compiler dependency map remains immutable. Merger-specific
+calendar interpretation, typed terminal construction and checkpoint strategy
+compatibility stay behind the compiler modules that already own those
+dependencies. A new cross-boundary import is not accepted merely to make a
+test pass.
+
 ## Correcting a published session
 
 A current same-session publication under the superseded source policy is not

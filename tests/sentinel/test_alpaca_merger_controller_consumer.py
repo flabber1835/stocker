@@ -125,7 +125,7 @@ def test_held_merger_refuses_before_reading_a_price(monkeypatch):
             conn, prior=prior, previous=previous, current=current, cursor=CURSOR, session=SESSION)
     assert conn.queries == []
     # Falsifier: disabling the ownership check would admit the exact same event.
-    monkeypatch.setattr(window_continuity, '_path_dependent_security_ids', lambda *_args: set())
+    monkeypatch.setattr(window_continuity, 'merger_owned_security_ids', lambda _prior: set())
     bridges, _ = window_continuity._merger_bridges(
         conn, prior=prior, previous=previous, current=current, cursor=CURSOR, session=SESSION)
     assert OLD in bridges

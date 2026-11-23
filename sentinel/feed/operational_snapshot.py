@@ -241,7 +241,6 @@ def _session_consumed(conn, session):
 
 def _require_correction_strategy(conn, previous, request):
     from sentinel import rolling_checkpoint, rolling_daily_checkpoint
-    from sentinel.economic_migration import compatible
     from sentinel.strategy import production_strategy
 
     selected = production_strategy()[1]
@@ -249,7 +248,7 @@ def _require_correction_strategy(conn, previous, request):
         raise OperationalSnapshotRefused('SUPERSESSION_SELECTED_STRATEGY_CHANGED')
     checkpoint = rolling_daily_checkpoint.read(conn) or rolling_checkpoint.read(conn)
     if checkpoint is not None and (checkpoint.session >= previous.window_end
-            or not compatible(checkpoint.strategy_identity, selected)):
+            or not rolling_checkpoint.compatible_strategy(checkpoint.strategy_identity, selected)):
         raise OperationalSnapshotRefused('SUPERSESSION_STRATEGY_COMPATIBILITY_UNPROVEN')
 
 

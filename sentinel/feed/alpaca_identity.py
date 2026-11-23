@@ -8,8 +8,9 @@ import re
 
 from pydantic import Field, model_validator
 
-from sentinel.feed import calendar
-from sentinel.feed.alpaca_observation import action_participants, structural_action_date
+from sentinel.feed.alpaca_observation import (
+    action_effective_session, action_participants, structural_action_date,
+)
 from sentinel.feed.alpaca_transport import AlpacaTransportRefused
 from sentinel.feed.rolling_contract import Contract, Digest, digest
 
@@ -98,7 +99,7 @@ def _merger_record(record: dict) -> tuple[str, str]:
             raise AlpacaTransportRefused('stock merger date is missing or invalid') from None
     if record.get('cash_rate') is not None or record.get('stock_movements') is not None:
         raise AlpacaTransportRefused('stock merger has conflicting consideration')
-    return calendar.session_on_or_after(record['effective_date']), _exact_ratio(record)
+    return action_effective_session(record['effective_date']), _exact_ratio(record)
 
 
 class MergerConversion(Contract):
@@ -161,7 +162,7 @@ def merger_conversions(*, selected, previous_identity, bindings_raw, records,
         if kind != 'stock_mergers' or not isinstance(record, dict) or record.get('acquiree_symbol') not in prior:
             continue
         day = structural_action_date(kind, record)
-        if day is None or calendar.session_on_or_after(day) != target_session:
+        if day is None or action_effective_session(day) != target_session:
             continue
         by_old.setdefault(record['acquiree_symbol'], []).append(record)
     result = []

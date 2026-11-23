@@ -56,6 +56,12 @@ def _signature(payload):
     return publication._receipt_hmac({"purpose": SCHEMA, "checkpoint": payload})
 
 
+def compatible_strategy(prior, selected):
+    """Use the reviewed retained-book migration predicate at feed admission."""
+    from sentinel.economic_migration import compatible
+    return compatible(prior, selected)
+
+
 def read(conn):
     from sentinel import committed_read
     return committed_read.checkpoint(conn, cursor=CURSOR, read=_read)
