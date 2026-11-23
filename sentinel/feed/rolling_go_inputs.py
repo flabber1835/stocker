@@ -111,6 +111,7 @@ def _assess(conn, pub, *, target, summary_only=False):
     from sentinel.feed import readiness_scope
     readiness_scope.require(conn)
     binding = snapshots._bound(conn, pub)
+    snapshots.require_supersession(conn, pub)
     _, strategy = production_strategy()
     request = rolling_jobs.status(conn, binding["job_id"])["request"]
     if request["strategy_sha256"] != digest(strategy):

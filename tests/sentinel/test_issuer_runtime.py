@@ -23,7 +23,8 @@ NATIVE = BrokerInstrument('canonical', 'CLASS.A', 'native-asset')
 
 
 def part_reader(monkeypatch, *, schema='sentinel.acquisition-part/2', encoded=False,
-                selected=None, identity_bindings=None):
+                selected=None, identity_bindings=None,
+                reference_schema='sentinel.rolling-alpaca-openfigi-references/3'):
     payload = {'selected': selected if selected is not None else [
         {'asset_id': 'native-asset', 'ticker': 'CLASS.A', 'exchange': 'NYSE',
          'security_type': 'Common Stock', 'security_type2': 'Common Stock'}]}
@@ -44,7 +45,7 @@ def part_reader(monkeypatch, *, schema='sentinel.acquisition-part/2', encoded=Fa
 
     def load(_conn, identity):
         h.references.append(identity)
-        return {'schema': 'sentinel.rolling-alpaca-openfigi-references/3',
+        return {'schema': reference_schema,
             'identity_bindings': identity_bindings or []}
 
     monkeypatch.setattr(rolling_store, 'load_evidence', load)
@@ -53,10 +54,15 @@ def part_reader(monkeypatch, *, schema='sentinel.acquisition-part/2', encoded=Fa
     return h
 
 
+@pytest.mark.parametrize('reference_schema', [
+    'sentinel.rolling-alpaca-openfigi-references/3',
+    'sentinel.rolling-alpaca-openfigi-references/4'])
 @pytest.mark.parametrize('schema', ['sentinel.acquisition-part/1', 'sentinel.acquisition-part/2'])
 @pytest.mark.parametrize('encoded', [False, True])
-def test_reference_loader_authenticates_complete_part_without_price_or_provider_read(monkeypatch, schema, encoded):
-    h = part_reader(monkeypatch, schema=schema, encoded=encoded)
+def test_reference_loader_authenticates_complete_part_without_price_or_provider_read(
+        monkeypatch, schema, encoded, reference_schema):
+    h = part_reader(monkeypatch, schema=schema, encoded=encoded,
+                    reference_schema=reference_schema)
     result = runtime.reference_instruments(h.conn, h.publication)
     assert result['native-asset'].provider_asset_id == 'native-asset'
     assert result['native-asset'].symbol == 'CLASS.A'

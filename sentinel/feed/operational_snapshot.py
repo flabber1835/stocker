@@ -11,6 +11,17 @@ from sentinel.feed.observation_timing import latest_acquirable_session
 
 SCHEMA = "sentinel.operational-snapshot-publication/1"
 VALIDATION_SCHEMA = "sentinel.operational-snapshot-validation/1"
+SUPERSESSION_SCHEMA = "sentinel.operational-snapshot-supersession/1"
+_OLD_ALPACA_POLICY = (
+    "sentinel.alpaca-openfigi-operational-source/3",
+    "sentinel.rolling-alpaca-openfigi-references/3",
+    "sentinel.alpaca-openfigi-dividend-current-window/3",
+)
+_MERGER_ALPACA_POLICY = (
+    "sentinel.alpaca-openfigi-operational-source/4",
+    "sentinel.rolling-alpaca-openfigi-references/4",
+    "sentinel.alpaca-openfigi-dividend-current-window/4",
+)
 
 
 class OperationalSnapshotRefused(RuntimeError):
@@ -202,6 +213,113 @@ def _bound(conn, pub):
     return binding
 
 
+def _alpaca_policy(conn, manifest):
+    if manifest.provider != 'ALPACA_OPENFIGI':
+        return None
+    source = rolling_store.load_evidence(conn, manifest.source_evidence_sha256)
+    reference = rolling_store.load_evidence(conn, manifest.reference_sha256)
+    if not isinstance(source, dict) or not isinstance(reference, dict):
+        raise OperationalSnapshotRefused('SUPERSESSION_SOURCE_EVIDENCE_INVALID')
+    return source.get('schema'), reference.get('schema'), manifest.normalization_version
+
+
+def superseded_source(conn, pub):
+    """Whether this publication needs the reviewed merger source successor."""
+    _, manifest = _bound_and_manifest(conn, pub)
+    return _alpaca_policy(conn, manifest) == _OLD_ALPACA_POLICY
+
+
+def _session_consumed(conn, session):
+    # A publisher holds the exclusive corpus lock. A canonical transition
+    # holds a shared publication pin, so no checkpoint can cross this test.
+    if conn.execute("SELECT to_regclass('sentinel_processed_sessions')").fetchone()[0] is None:
+        return False
+    from sentinel import rolling_checkpoint, rolling_daily_checkpoint
+    checkpoint = rolling_daily_checkpoint.read(conn) or rolling_checkpoint.read(conn)
+    return checkpoint is not None and checkpoint.session >= session
+
+
+def _require_correction_strategy(conn, previous, request):
+    from sentinel import rolling_checkpoint, rolling_daily_checkpoint
+    from sentinel.economic_migration import compatible
+    from sentinel.strategy import production_strategy
+
+    selected = production_strategy()[1]
+    if request.strategy_sha256 != digest(selected):
+        raise OperationalSnapshotRefused('SUPERSESSION_SELECTED_STRATEGY_CHANGED')
+    checkpoint = rolling_daily_checkpoint.read(conn) or rolling_checkpoint.read(conn)
+    if checkpoint is not None and (checkpoint.session >= previous.window_end
+            or not compatible(checkpoint.strategy_identity, selected)):
+        raise OperationalSnapshotRefused('SUPERSESSION_STRATEGY_COMPATIBILITY_UNPROVEN')
+
+
+def _edge_fields(conn, previous, candidate, request):
+    older, old_manifest = _bound_and_manifest(conn, previous)
+    new_manifest = rolling_store.manifest(conn, candidate)
+    if (_alpaca_policy(conn, old_manifest) != _OLD_ALPACA_POLICY
+            or _alpaca_policy(conn, new_manifest) != _MERGER_ALPACA_POLICY):
+        raise OperationalSnapshotRefused('SAME_SESSION_SUPERSESSION_POLICY_REQUIRED')
+    old_request = jobs.PreparationRequest.model_validate(jobs.status(conn, older['job_id'])['request'])
+    if (previous.version != request.expected_publication_version
+            or previous.window_end != str(request.window.end)):
+        raise OperationalSnapshotRefused('SAME_SESSION_SUPERSESSION_PREDECESSOR_CHANGED')
+    reference = rolling_store.load_evidence(conn, new_manifest.reference_sha256)
+    source = rolling_store.load_evidence(conn, new_manifest.source_evidence_sha256)
+    conversions = reference.get('merger_conversions') if isinstance(reference, dict) else None
+    if (not isinstance(conversions, list)
+            or not any(isinstance(item, dict) and item.get('effective_session') == previous.window_end
+                       for item in conversions)
+            or not isinstance(source, dict)
+            or source.get('merger_conversions_sha256') != digest(conversions)):
+        raise OperationalSnapshotRefused('SAME_SESSION_MERGER_CORRECTION_REQUIRED')
+    return {
+        'schema': SUPERSESSION_SCHEMA, 'session': previous.window_end,
+        'superseded_version': previous.version,
+        'superseded_publication_sha256': digest(previous.to_dict()),
+        'superseded_snapshot_id': old_manifest.snapshot_id,
+        'superseded_source_sha256': old_manifest.source_evidence_sha256,
+        'superseded_source_schema': _OLD_ALPACA_POLICY[0],
+        'successor_candidate_id': candidate,
+        'successor_snapshot_id': new_manifest.snapshot_id,
+        'successor_source_sha256': new_manifest.source_evidence_sha256,
+        'successor_source_schema': _MERGER_ALPACA_POLICY[0],
+        'superseded_strategy_sha256': old_request.strategy_sha256,
+        'successor_strategy_sha256': request.strategy_sha256,
+    }
+
+
+def require_supersession(conn, pub):
+    """Authenticate an immutable correction edge; return its predecessor."""
+    edge = pub.evidence.get('operational_supersession')
+    if edge is None:
+        return None
+    publication._validate_publication(conn, pub, allow_snapshot=True)
+    version = edge.get('superseded_version') if isinstance(edge, dict) else None
+    if type(version) is not int or version < 1:
+        raise OperationalSnapshotRefused('OPERATIONAL_SUPERSESSION_CHANGED')
+    row = conn.execute(
+        'SELECT version,previous_version,run_id,window_start,window_end,evidence '
+        'FROM sentinel_corpus_publications WHERE version=%s', (version,)).fetchone()
+    if row is None:
+        raise OperationalSnapshotRefused('OPERATIONAL_SUPERSESSION_PREDECESSOR_MISSING')
+    previous = publication.Publication(int(row[0]), row[1], str(row[2]) if row[2] else None,
+                                       str(row[3]), str(row[4]), row[5])
+    publication._validate_publication(conn, previous, allow_snapshot=True)
+    binding = _bound(conn, pub)
+    request = jobs.PreparationRequest.model_validate(jobs.status(conn, binding['job_id'])['request'])
+    at_row = conn.execute('SELECT published_at FROM sentinel_corpus_publications WHERE version=%s',
+                          (pub.version,)).fetchone()
+    opened, _ = calendar.session_window(calendar.next_session(previous.window_end))
+    if (pub.previous_version != previous.version
+            or pub.window_end != previous.window_end
+            or at_row is None
+            or (at_row[0] >= opened) != (request.cursor is not None)
+            or ('operational_recovery' in pub.evidence) != (request.cursor is not None)
+            or edge != _edge_fields(conn, previous, binding['candidate_id'], request)):
+        raise OperationalSnapshotRefused('OPERATIONAL_SUPERSESSION_CHANGED')
+    return previous
+
+
 def require_alpaca_openfigi(conn, pub):
     """Reject a legacy rolling candidate at a deployed operational boundary."""
     binding, manifest = _bound_and_manifest(conn, pub)
@@ -250,9 +368,18 @@ def publish(conn, lease, request, *, producer):
                  "request_sha256": request.request_sha256}:
         raise OperationalSnapshotRefused("BOUND_OPERATIONAL_VALIDATION_REQUIRED")
     previous = _current(conn)
-    with conn.cursor() as cur:
-        cur.execute("SELECT clock_timestamp()")
-        at = cur.fetchone()[0]
+    same_session = previous is not None and previous.window_end == str(request.window.end)
+    correction = False
+    if same_session:
+        _, old_manifest = _bound_and_manifest(conn, previous)
+        correction = (_alpaca_policy(conn, old_manifest) == _OLD_ALPACA_POLICY
+                      or _alpaca_policy(conn, manifest) == _MERGER_ALPACA_POLICY)
+    edge = None
+    if correction:
+        if _session_consumed(conn, previous.window_end):
+            raise OperationalSnapshotRefused('SAME_SESSION_PUBLICATION_ALREADY_CONSUMED')
+        _require_correction_strategy(conn, previous, request)
+        edge = _edge_fields(conn, previous, candidate, request)
     version = previous.version + 1 if previous else 1
     evidence = {"producer": actual_producer, "pitr": publication._publication_recovery_target(conn),
                 "rolling_snapshot": {"schema": SCHEMA, "candidate_id": candidate,
@@ -260,17 +387,24 @@ def publish(conn, lease, request, *, producer):
                     "job_id": lease.job_id, "validation_sha256": validated[0]},
                 "strategy_history": {"schema": "sentinel.strategy-history-mutations/1",
                     "baseline_version": version, "publication_version": version, "changes": []}}
+    if edge is not None:
+        evidence['operational_supersession'] = edge
+    from sentinel.feed import action_history, rolling_work
+    with rolling_work.renewing(lambda: jobs.heartbeat(conn, lease, lease_seconds=600)):
+        evidence["action_history"] = action_history.append(
+            conn, candidate=candidate, version=version, previous=previous)
+    jobs._owned(conn, lease)
+    at = conn.execute('SELECT clock_timestamp()').fetchone()[0]
+    if correction:
+        opened, _ = calendar.session_window(calendar.next_session(previous.window_end))
+        if (at >= opened) != (request.cursor is not None):
+            raise OperationalSnapshotRefused('SAME_SESSION_CORRECTION_TIMING_CHANGED')
     if request.cursor is not None:
         evidence['operational_recovery'] = {
             'schema':'sentinel.current-information-recovery-inputs/1',
             'policy':'CURRENT_INFORMATION_RECOVERY_V1', 'cursor':str(request.cursor),
             'session':str(request.window.end), 'observed_at':at.isoformat(),
             'historical_availability_claim':False, 'broker_authority':False}
-    from sentinel.feed import action_history, rolling_work
-    with rolling_work.renewing(lambda: jobs.heartbeat(conn, lease, lease_seconds=600)):
-        evidence["action_history"] = action_history.append(
-            conn, candidate=candidate, version=version, previous=previous)
-    jobs._owned(conn, lease)
     publication._insert_receipted_publication(
         conn, previous=previous, next_version=version, run_id=None, published_at=at,
         window_start=str(request.window.start), window_end=str(request.window.end), publication_evidence=evidence)

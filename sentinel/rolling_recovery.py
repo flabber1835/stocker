@@ -97,9 +97,15 @@ def _prepare_missing(conn, *, context, through):
             conn.rollback()
             return
         try:
-            evidence.select(conn, session=session, previous_version=prior.state.data_version)
-            conn.rollback()
-            return
+            dated, _ = evidence.select(conn, session=session, previous_version=prior.state.data_version)
+            current = snapshots._current(conn)
+            if (current is None or dated.version != current.version
+                    or not snapshots.superseded_source(conn, dated)):
+                conn.rollback()
+                return
+            # The current /3 capture cannot establish the newly required
+            # merger semantics. Acquire a /4 current-information successor;
+            # never relabel the old dated receipt as corrected evidence.
         except evidence.InputsUnavailable as exc:
             if not str(exc).startswith('MISSING_DATED_PUBLICATION:'):
                 raise

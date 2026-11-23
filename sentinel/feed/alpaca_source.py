@@ -21,7 +21,8 @@ from sentinel.feed.alpaca_transport import (
 from sentinel.feed.operational_source import _months
 from sentinel.feed.rolling_contract import digest
 
-SOURCE = "sentinel.alpaca-openfigi-operational-source/3"
+SOURCE = "sentinel.alpaca-openfigi-operational-source/4"
+REFERENCE = "sentinel.rolling-alpaca-openfigi-references/4"
 _NY = ZoneInfo("America/New_York")
 
 
@@ -100,6 +101,7 @@ class AlpacaSource:
         self.splits = []
         self.months = []
         self.identity_bindings = []
+        self.merger_conversions = []
         self.previous_identity = None
 
     def preflight(self):
@@ -256,7 +258,9 @@ class AlpacaSource:
                         seen[record["id"]] = identity
                         by_type[kind] += 1
                         involved = action_participants(record) & selected
-                        if not involved:
+                        prior_acquiree = (kind == 'stock_mergers'
+                                          and record.get('acquiree_symbol') in prior_assets)
+                        if not involved and not prior_acquiree:
                             continue
                         if kind == "cash_dividends":
                             try:
@@ -298,19 +302,36 @@ class AlpacaSource:
                                     resets.append((symbol, economic_date, record['id']))
         identity_bindings = alpaca_identity.bind(selected=self.selected, records=structural,
             target_session=str(self.window.end), **previous) if previous is not None else []
+        merger_conversions = alpaca_identity.merger_conversions(
+            selected=self.selected, previous_identity=previous,
+            bindings_raw=identity_bindings, records=structural,
+            target_session=str(self.window.end))
         exemptions = {item['event']['id'] for item in identity_bindings}
+        current_mergers = {item['record_id']: item for item in merger_conversions}
         for symbol, day, event_id in resets:
-            if event_id not in exemptions:
-                reset_after[symbol] = max(day, reset_after.get(symbol, ''))
+            if event_id in exemptions:
+                continue
+            merger = current_mergers.get(event_id)
+            if (merger is not None and symbol == merger['successor_symbol']
+                    and symbol != merger['old_symbol']):
+                # The recipient is a separate current listing; this record
+                # terminates its acquiree, not its own price history.
+                continue
+            # A new same-symbol asset cannot inherit old history, but its
+            # actual event-day bar starts the successor's fresh series.
+            reset_day = previous['previous_session'] if merger is not None else day
+            reset_after[symbol] = max(reset_day, reset_after.get(symbol, ''))
         dividends = sorted((item for item in dividends
                             if item["ticker"] not in affected),
                            key=lambda item: (item["date"], item["ticker"], item["id"]))
         summary = {"actions": len(seen), "by_type": dict(sorted(by_type.items())),
                    "affected_selected_symbols": len(affected),
                    "post_event_reset_symbols": len(reset_after),
-                   "cash_dividend_rows": len(dividends)}
+                   "cash_dividend_rows": len(dividends),
+                   "merger_conversion_rows": len(merger_conversions)}
         return {"affected": sorted(affected), "reset_after": reset_after,
                 'identity_bindings': identity_bindings,
+                'merger_conversions': merger_conversions,
                 "dividends": dividends,
                 'pending_cash': sorted(pending_cash, key=lambda item: item['id']),
                 "splits": sorted(splits.values(), key=lambda item:(item['date'],item['ticker'])),
@@ -330,7 +351,7 @@ class AlpacaSource:
         if str(row[4]) == str(self.window.end):
             current_manifest = rolling_store.manifest(self.conn, row[5]['rolling_snapshot']['candidate_id'])
             current_reference = rolling_store.load_evidence(self.conn, current_manifest.reference_sha256)
-            if current_reference.get('schema') != 'sentinel.rolling-alpaca-openfigi-references/3':
+            if current_reference.get('schema') != REFERENCE:
                 row = self.conn.execute('SELECT version,previous_version,run_id,window_start,window_end,evidence '
                     'FROM sentinel_corpus_publications WHERE window_end < %s '
                     'ORDER BY window_end DESC,version DESC LIMIT 1', (str(self.window.end),)).fetchone()
@@ -411,6 +432,7 @@ class AlpacaSource:
         self.pending_cash = actions.get('pending_cash', [])
         self.splits = actions["splits"]
         self.identity_bindings = actions['identity_bindings']
+        self.merger_conversions = actions['merger_conversions']
         self.sfp = self._part("SFP", {**base, "component": "benchmarks",
                                       "window": self.window.model_dump(mode="json")},
                               self._benchmark_rows, checkpoint)
@@ -433,7 +455,8 @@ class AlpacaSource:
                           "actions_sha256": digest({"affected": sorted(self.action_affected),
                                                     "reset_after": self.reset_after,
                                                     "splits": self.splits,
-                                                    'identity_bindings': self.identity_bindings}),
+                                                    'identity_bindings': self.identity_bindings,
+                                                    'merger_conversions': self.merger_conversions}),
                           "asof": str(self.window.end)}
             def acquire():
                 raw, raw_proofs = self._bars(safe_symbols, lo, hi, "raw")
@@ -473,6 +496,8 @@ class AlpacaSource:
             raise SourceRevision("ACTIONS", digest(before), digest(after))
         if actions['identity_bindings'] != self.identity_bindings:
             raise SourceRevision('ACTIONS', digest(self.identity_bindings), digest(actions['identity_bindings']))
+        if actions['merger_conversions'] != self.merger_conversions:
+            raise SourceRevision('ACTIONS', digest(self.merger_conversions), digest(actions['merger_conversions']))
 
     def reference_payload(self):
         admitted = {row["ticker"]: row["firstpricedate"] for row in self.tickers}
@@ -486,8 +511,9 @@ class AlpacaSource:
             'name':None, 'value':event['ratio'], 'contraticker':None, 'contraname':None}
             for event in self.splits if event['ticker'] in admitted
             and event['date'] >= admitted[event['ticker']])
-        return {"schema": "sentinel.rolling-alpaca-openfigi-references/3",
+        return {"schema": REFERENCE,
                 'identity_bindings': self.identity_bindings,
+                'merger_conversions': self.merger_conversions,
                 "tickers": self.tickers, "actions": actions,
                 'cash_observations': self.dividends,
                 'pending_cash': self.pending_cash}
@@ -511,5 +537,6 @@ class AlpacaSource:
                 "selection_sha256": digest(self.selected),
                 "action_quarantine": self.action_evidence,
                 'identity_bindings_sha256': digest(self.identity_bindings),
+                'merger_conversions_sha256': digest(self.merger_conversions),
                 "post_event_reset_sha256": digest(self.reset_after),
                 "dividends_sha256": digest(self.dividends)}

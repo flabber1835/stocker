@@ -1,9 +1,15 @@
 """Daily feature replacement with continuity of retained economic state."""
+import math
+
+from stock_strategy_shared.wealth_core.feed import VendorBar
+from stock_strategy_shared.wealth_core.terminal import TerminalKind, TerminalTerms
+
 from sentinel.feed.normalized_layout import candidate_query
 from sentinel.core import window_features
 from sentinel.core.history import CurrentWindowProof
 from sentinel.core.rolling_inputs import SnapshotReferences
 from sentinel.core.rolling_reader import RollingPriceReader
+from sentinel.core.session import _path_dependent_security_ids
 from sentinel.feed import calendar, rolling_store
 from sentinel.feed.rolling_contract import canonical_json, digest
 
@@ -33,6 +39,102 @@ def protected_economics(conn, *, previous, current, live, start, cursor):
     return digest(evidence)
 
 
+def _provider_assets(conn, refs):
+    """Recover published provider UUIDs without consulting today's broker."""
+    from sentinel.feed.alpaca_identity import published_assets
+
+    reference = rolling_store.load_evidence(conn, refs.manifest.reference_sha256)
+    source = rolling_store.load_evidence(conn, refs.manifest.source_evidence_sha256)
+    return {row['ticker']: row['asset_id'] for row in published_assets(reference, source)}
+
+
+def _merger_bridges(conn, *, prior, previous, current, cursor, session):
+    """Read prior published anchors only for source-proven controller exits."""
+    from sentinel.core.rolling_continuity import RollingContinuityRefused
+
+    selected = set((prior.median5 or {}).get('selected', ()))
+    owned = _path_dependent_security_ids(prior.wealth_core, prior.pending)
+    conversions = [row for row in current.merger_conversions
+                   if row.old_security_id in selected or row.old_security_id in owned]
+    if not conversions:
+        return {}, ()
+    if any(row.old_security_id in owned for row in conversions):
+        raise RollingContinuityRefused('OWNED_MERGER_CONVERSION_UNSUPPORTED')
+    if previous.manifest.provider != 'ALPACA_OPENFIGI' or str(previous.manifest.window.end) != cursor:
+        raise RollingContinuityRefused('MERGER_PRIOR_PUBLICATION_MISMATCH')
+    prior_assets = _provider_assets(conn, previous)
+    current_assets = _provider_assets(conn, current)
+    for row in conversions:
+        sid = row.old_security_id
+        if (row.effective_session != session
+                or row.origin_snapshot_id != previous.manifest.snapshot_id
+                or prior_assets.get(row.old_symbol) != row.old_provider_asset_id
+                or previous.resolver.resolve(row.old_symbol, cursor) != sid):
+            raise RollingContinuityRefused('MERGER_SOURCE_IDENTITY_MISMATCH: ' + sid)
+        successor_provider = current_assets.get(row.successor_symbol)
+        successor_id = current.resolver.resolve(row.successor_symbol, session)
+        if successor_provider is None and successor_id is None:
+            raise RollingContinuityRefused('MERGER_SUCCESSOR_CURRENT_CLOSE_REQUIRED: ' + sid)
+        if (successor_provider != row.successor_provider_asset_id
+                or successor_id != row.successor_security_id):
+            raise RollingContinuityRefused('MERGER_SOURCE_IDENTITY_MISMATCH: ' + sid)
+    rolling_store.verify_content(conn, previous.candidate_id)
+    bridges = {}
+    for row in conversions:
+        sid = row.old_security_id
+        series = prior.feed.get('series', {}).get(sid, {})
+        anchor = series.get('signal_basis_anchor')
+        if not isinstance(anchor, (list, tuple)) or len(anchor) != 3 or anchor[0] != cursor:
+            raise RollingContinuityRefused('MERGER_PRIOR_SIGNAL_ANCHOR_REQUIRED: ' + sid)
+        rows = conn.execute(candidate_query(conn,
+            'SELECT session,security_id,ticker,close_unadjusted,close_signal '
+            'FROM sentinel_snapshot_bars WHERE candidate_id=%s AND security_id=%s AND session=%s'),
+            (previous.candidate_id, sid, cursor)).fetchall()
+        if len(rows) != 1:
+            raise RollingContinuityRefused('MERGER_PRIOR_PUBLISHED_ANCHOR_REQUIRED: ' + sid)
+        day, observed_sid, ticker, raw, signal = rows[0]
+        try:
+            retained_raw, retained_signal = float(anchor[1]), float(anchor[2])
+            published_raw, published_signal = float(raw), float(signal)
+            multiplier = float(series.get('signal_basis_multiplier', 1.0))
+        except (TypeError, ValueError, OverflowError):
+            raise RollingContinuityRefused('MERGER_PRIOR_SIGNAL_ANCHOR_INVALID: ' + sid) from None
+        if (str(day) != cursor or observed_sid != sid or ticker != row.old_symbol
+                or not all(math.isfinite(value) and value > 0 for value in (
+                    retained_raw, retained_signal, published_raw, published_signal, multiplier))
+                or published_raw != retained_raw
+                or published_signal * multiplier != retained_signal):
+            raise RollingContinuityRefused('MERGER_PRIOR_SIGNAL_ANCHOR_CHANGED: ' + sid)
+        bridges[sid] = VendorBar(cursor, sid, ticker, published_raw, None, None,
+                                 signal_close=published_signal)
+    return bridges, tuple(conversions)
+
+
+def _merger_terminals(*, conversions, prices, metadata, session):
+    from sentinel.core.rolling_continuity import RollingContinuityRefused
+
+    bars = {bar.security_id: bar for bar in prices.bars}
+    result = []
+    for row in conversions:
+        sid, successor = row.old_security_id, row.successor_security_id
+        bar = bars.get(successor)
+        meta = metadata.get(successor)
+        if (bar is None or meta is None or bar.session != session
+                or bar.ticker != row.successor_symbol
+                or bar.raw_close is None or not math.isfinite(bar.raw_close)
+                or bar.raw_close <= 0):
+            raise RollingContinuityRefused('MERGER_SUCCESSOR_CURRENT_CLOSE_REQUIRED: ' + sid)
+        issuer = meta.issuer_key()[0] or 'S:' + successor
+        terms = TerminalTerms(session, sid, TerminalKind.CONVERSION,
+            delivered_security_id=successor, delivered_ticker=row.successor_symbol,
+            delivered_issuer_id=issuer, exchange_ratio=row.exchange_ratio,
+            reference='alpaca/stock_merger/' + row.record_id + '/' + row.terms_sha256)
+        if not terms.completeness(0)[0]:
+            raise RollingContinuityRefused('MERGER_TERMS_INCOMPLETE: ' + sid)
+        result.append(terms)
+    return tuple(result)
+
+
 def prepare(conn, *, prior, previous_binding, publication, binding):
     from sentinel.core.rolling_continuity import DailyInputs, RollingContinuityRefused
     cursor, session = prior.last_processed_session, publication.window_end
@@ -47,12 +149,15 @@ def prepare(conn, *, prior, previous_binding, publication, binding):
     reader = RollingPriceReader(conn, candidate_id=refs.candidate_id, snapshot_id=refs.manifest.snapshot_id)
     reader.require_checkpoint_window(prior)
     live = window_features.protected(prior)
+    bridges, conversions = _merger_bridges(
+        conn, prior=prior, previous=previous, current=refs, cursor=cursor, session=session)
     anchors = {}
     for sid in sorted(live):
         anchor = prior.feed.get('series', {}).get(sid, {}).get('signal_basis_anchor')
         if not anchor:
             raise RollingContinuityRefused('LIVE_SIGNAL_ANCHOR_REQUIRED: '+sid)
-        anchors[sid] = anchor[0]
+        if sid not in bridges:
+            anchors[sid] = anchor[0]
     try:
         prices = reader.prices(session=session, spy_sessions=254, anchor_sessions=anchors)
     except RuntimeError as exc:
@@ -76,11 +181,15 @@ def prepare(conn, *, prior, previous_binding, publication, binding):
     meta, sectors = refs.current_metadata()
     features = window_features.load(conn, prior=prior, refs=refs, publication=publication)
     terminals = refs.terminals(start=session, end=session)
+    merger_events = _merger_terminals(
+        conversions=conversions, prices=prices, metadata=meta, session=session)
+    if {event.security_id for event in terminals.events} & {event.security_id for event in merger_events}:
+        raise RollingContinuityRefused('MERGER_TERMINAL_CONFLICT')
     material = DailyInputs(session, prices.bars, meta, sectors, prices.benchmarks,
-        tuple(terminals.events), refs.distributions(session=session),
+        tuple(terminals.events) + merger_events, refs.distributions(session=session),
         window_features=features.model_dump(mode='json', by_alias=True), cash_distributions=cash)
     proof = CurrentWindowProof(prior_version=prior.data_version,
         publication_version=publication.version, prior_session=cursor, session=session,
         prior_state_sha256=prior.state_hash, snapshot_sha256=refs.manifest.snapshot_id,
         features_sha256=features.sha256, protected_economics_sha256=economics)
-    return material, prices.signal_basis_anchors, proof.model_dump(by_alias=True)
+    return material, {**prices.signal_basis_anchors, **bridges}, proof.model_dump(by_alias=True)
