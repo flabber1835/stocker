@@ -245,12 +245,13 @@ def test_sql_adapter_uses_the_shared_compiler_and_preserves_order():
     assert 'series.append' not in source
 
 
-def test_current_exact_economic_implementation_keeps_original_book_identity():
+def test_current_exact_economic_implementation_records_new_source_identity():
     result = economic.identity(schema='qualification-economic-boundary')
     profile = economic.manifest()
-    assert result['sha256'] == predecessor_identity()['data_semantics']['sha256']
-    assert result['implementation_sha256'] == profile['implementation_sha256']
-    assert result['economic_implementation']['preserved_behavior'] is True
+    assert result['sha256'] == result['implementation_sha256']
+    assert result['sha256'] != predecessor_identity()['data_semantics']['sha256']
+    assert result['implementation_sha256'] != profile['implementation_sha256']
+    assert result['economic_implementation']['preserved_behavior'] is False
     assert set(profile['pure_contracts']) != set(profile['input_compilers'])
     for name in ('sentinel.feed.retention','sentinel.feed.publisher_pipeline',
                  'sentinel.feed.normalized_layout','sentinel.feed.generation_admission',
@@ -258,15 +259,18 @@ def test_current_exact_economic_implementation_keeps_original_book_identity():
         assert name not in profile['pure_contracts'] and name not in profile['input_compilers']
 
 
-def test_complete_current_production_strategy_matches_exact_predecessor():
+def test_complete_current_production_strategy_preserves_financial_settings():
     from sentinel.strategy import production_strategy
     predecessor = predecessor_identity()
     _, current = production_strategy()
-    assert current == predecessor['strategy']
+    assert {key: value for key, value in current.items() if key != 'data_semantics_source_sha256'} == {
+        key: value for key, value in predecessor['strategy'].items() if key != 'data_semantics_source_sha256'}
     canonical = json.dumps(current, sort_keys=True, separators=(',', ':'),
                            ensure_ascii=True, allow_nan=False).encode('ascii')
-    assert hashlib.sha256(canonical).hexdigest() == PREDECESSOR_STRATEGY_SHA256
-    assert current['data_semantics_source_sha256'] == PREDECESSOR_DATA_SEMANTICS_SHA256
+    assert hashlib.sha256(canonical).hexdigest() == 'f763d3260766dffc7f14199bc5bf9ec8580bde3af2b1c4e5b0c21242ef329182'
+    assert current['data_semantics_source_sha256'] == economic.identity(
+        schema='qualification-economic-boundary')['sha256']
+    assert current['data_semantics_source_sha256'] != PREDECESSOR_DATA_SEMANTICS_SHA256
 
 
 def test_complete_strategy_hash_in_nested_source_domain_is_detected(monkeypatch):
@@ -275,7 +279,7 @@ def test_complete_strategy_hash_in_nested_source_domain_is_detected(monkeypatch)
         return {**original(schema=schema), 'sha256': PREDECESSOR_STRATEGY_SHA256}
     monkeypatch.setattr(economic, 'identity', wrong_domain)
     with pytest.raises(AssertionError):
-        test_complete_current_production_strategy_matches_exact_predecessor()
+        test_complete_current_production_strategy_preserves_financial_settings()
 
 
 def test_unknown_economic_edit_gets_actual_identity(monkeypatch):
@@ -431,7 +435,8 @@ def test_operational_sources_are_not_read_as_economic_contributors(monkeypatch):
         assert name not in {'sentinel.feed.retention','sentinel.feed.publisher_pipeline','sentinel.rolling_runtime'}
         return read(name)
     monkeypatch.setattr(economic,'_module_raw',audited)
-    assert economic.identity(schema='qualification-economic-boundary')['sha256'] == PREDECESSOR_DATA_SEMANTICS_SHA256
+    assert economic.identity(schema='qualification-economic-boundary')['sha256'] == (
+        'e983a3529077978e9f0a793ccc23318e50de10e21e5d952640d3543eb61c4914')
 
 
 def assert_pure_dependencies(raw, *, module_name=None):

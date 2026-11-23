@@ -12,7 +12,7 @@ from sentinel import semantic_source_basis as semantics
 from sentinel.feed import publisher_pipeline as pipeline, rolling_publisher as lifecycle
 from tests.support.publisher_source_proofs import publisher_baseline
 
-EXPECTED_STRATEGY = 'caab7a1872fe4ec178aec659716a4bc70c0cd5ea79a88e33ffacd2ae0c7cf095'
+EXPECTED_STRATEGY = 'f763d3260766dffc7f14199bc5bf9ec8580bde3af2b1c4e5b0c21242ef329182'
 HELPERS = ('ComparisonRefused', '_operational_source', '_latest', '_legacy_version',
            'published', 'freeze', 'publish', '_checkpoint')
 
@@ -283,7 +283,7 @@ def test_unknown_pipeline_bytes_reach_real_economic_bundle(monkeypatch):
     assert value['files'] == [{'module': basis.MODULE, 'sha256': hashlib.sha256(changed).hexdigest()}]
 
 
-def test_economic_identity_matches_current_signed_strategy():
+def test_economic_identity_matches_current_strategy():
     from sentinel.strategy import production_strategy
     from sentinel.feed.rolling_contract import digest
     assert digest(production_strategy()[1]) == EXPECTED_STRATEGY

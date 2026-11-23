@@ -16,7 +16,7 @@ from sentinel.strategy import production_strategy
 BASE = '277160861e2353d8ad93d15da8e2615ebdb11c18'
 FIXTURE = Path(__file__).resolve().parents[1]/'support/operation-read-277-sources.json'
 FIXTURE_SHA = '3d7fd186d316c3285cde43af4735cb389c66fe72196ce749a89e0acc14e640c0'
-STRATEGY = 'caab7a1872fe4ec178aec659716a4bc70c0cd5ea79a88e33ffacd2ae0c7cf095'
+STRATEGY = 'f763d3260766dffc7f14199bc5bf9ec8580bde3af2b1c4e5b0c21242ef329182'
 SEMANTICS = '38c750bd9bb244bc71600aaeba8c4aad22d2095747f4199e9ac4e0bd433425cb'
 
 
@@ -153,14 +153,14 @@ def test_manifest_changes_only_its_reader_pin_and_all_old_witness_bytes_stay_exa
         assert sha(raw) == expected, path
 
 
-def test_complete_strategy_and_all_original_economic_contributions_remain_exact():
+def test_current_strategy_and_reviewed_operation_read_contributions_remain_exact():
     value=economic.identity(schema='operation-owned-action-source-qualification')
     profile=economic.manifest()
-    assert value['sha256']==SEMANTICS
-    assert value['implementation_sha256']==profile['implementation_sha256']
-    assert value['economic_implementation']['preserved_behavior'] is True
-    assert {item['module']:item['sha256'] for item in value['files']}=={
-        **profile['pure_contracts'],**profile['input_compilers']}
+    assert value['sha256']==value['implementation_sha256']!=SEMANTICS
+    assert value['economic_implementation']['preserved_behavior'] is False
+    current = {item['module']:item['sha256'] for item in value['files']}
+    assert all(current[module] == profile['input_compilers'][module]
+               for module in basis.BASELINES)
     assert digest(production_strategy()[1])==STRATEGY
 
 
@@ -205,7 +205,7 @@ def test_unknown_dependencies_still_refuse_before_a_contribution_can_be_used(mod
         economic.identity(schema='unknown-operation-read-dependency')
 
 
-def test_unsealed_pair_never_preserves_original_strategy(monkeypatch):
+def test_unsealed_pair_never_preserves_current_strategy(monkeypatch):
     monkeypatch.setattr(basis,'PROFILE_SHA256','0'*64)
     assert digest(production_strategy()[1])!=STRATEGY
 

@@ -9,8 +9,6 @@ from sentinel import semantic_source_basis as semantics
 from sentinel import worker_notification_source_basis as basis
 from tests.support import publisher_source_proofs as proofs
 
-EXPECTED_STRATEGY_SHA256 = 'caab7a1872fe4ec178aec659716a4bc70c0cd5ea79a88e33ffacd2ae0c7cf095'
-
 
 @pytest.fixture
 def sources():

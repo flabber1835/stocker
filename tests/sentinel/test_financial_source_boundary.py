@@ -77,17 +77,17 @@ def test_unknown_financial_source_flows_through_real_semantic_bundle(monkeypatch
 def test_historical_financial_mapping_does_not_replace_current_economic_owner(monkeypatch):
     from sentinel.strategy import production_strategy
     from sentinel.feed.rolling_contract import digest
-    expected = 'caab7a1872fe4ec178aec659716a4bc70c0cd5ea79a88e33ffacd2ae0c7cf095'
+    expected = 'f763d3260766dffc7f14199bc5bf9ec8580bde3af2b1c4e5b0c21242ef329182'
     assert digest(production_strategy()[1]) == expected
     monkeypatch.setattr(basis, 'economic_contribution', lambda _module, raw: hashlib.sha256(raw).hexdigest())
     assert digest(production_strategy()[1]) == expected
 
 
-def test_current_economic_bytes_are_required_for_original_signed_strategy(monkeypatch):
+def test_current_economic_bytes_are_required_for_current_strategy(monkeypatch):
     from sentinel import economic_manifest as economic
     from sentinel.strategy import production_strategy
     from sentinel.feed.rolling_contract import digest
-    expected = 'caab7a1872fe4ec178aec659716a4bc70c0cd5ea79a88e33ffacd2ae0c7cf095'
+    expected = 'f763d3260766dffc7f14199bc5bf9ec8580bde3af2b1c4e5b0c21242ef329182'
     original = production_strategy()[1]
     assert digest(original) == expected
     read = economic._module_raw
@@ -108,7 +108,7 @@ def test_frozen_current_economic_identity_has_behavioral_falsifier(monkeypatch):
     frozen = economic.identity(schema=DATA_SEMANTICS_IDENTITY_SCHEMA)
     monkeypatch.setattr(economic, 'identity', lambda *, schema: {**frozen, 'schema': schema})
     with pytest.raises(AssertionError):
-        test_current_economic_bytes_are_required_for_original_signed_strategy(monkeypatch)
+        test_current_economic_bytes_are_required_for_current_strategy(monkeypatch)
 
 
 def test_closed_financial_mapping_has_behavioral_falsifier(monkeypatch):

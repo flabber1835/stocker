@@ -55,6 +55,10 @@ The producer retains the exact conversion projection and original terms hash
 in a new paired source/reference schema and rechecks it during corroboration.
 The normalization and source policy advance together; older published schemas
 remain readable as historical evidence but cannot satisfy fresh GO acquisition.
+The current strategy's economic-source digest advances with the merger reader;
+the previous signed digest remains a historical baseline. Tests that pin the
+current digest must identify the reviewed successor and retain their mutation
+falsifiers rather than relabeling historical authority.
 The prior-publication lookup for a correction skips an older same-session
 schema that omitted the merger, returning to the preceding dated identity
 source. Publication and source hashes bind the corrected input; neither old
@@ -134,3 +138,11 @@ must preserve the same book/genesis and issue zero historical broker commands.
 This design and PR do not install PAPER, release a kill switch, alter a broker
 account or authorize LIVE. CI, reviewed merge, backed release qualification
 and exact installed-source handover remain separate gates.
+The standing PAPER certificate also binds the previous strategy identity.
+Its narrow historical local exception does not authorize the merger reader's
+new strategy digest. Before this code can produce a prospective PAPER plan,
+the owner must issue and rotate a separately signed successor certificate
+under the existing authority lifecycle, bound to the exact qualified runtime,
+strategy, account and controller rollout. Installation by itself cannot pass
+that gate. This PR leaves the old exception and certificate unchanged; see
+[PAPER observation certificate rotation](sentinel-paper-observation.md).
