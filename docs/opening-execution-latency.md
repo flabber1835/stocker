@@ -887,3 +887,13 @@ available in the inspected environment. The existing physical backup retains
 the production database identity, so it cannot be passed to the private harness
 as if it were an independent cluster. No full-basket timing, speedup or release
 qualification is claimed from these diagnostic tests.
+
+The frozen PAPER lifecycle equivalence manifest and its reviewed delta registry
+retain their existing hashes. The architecture test must recognize exactly the
+six phase markers at their specified projection boundaries and the two
+single-statement initial/final projection timing scopes. Removing only those
+diagnostic nodes from a copy of each canonical function must recover its
+existing reviewed AST fingerprint. Missing, duplicated, moved or changed
+timing nodes, and any other change to either canonical body, must refuse. This
+comparison is a source-integrity witness for diagnostics, not a new financial
+result or release qualification.
