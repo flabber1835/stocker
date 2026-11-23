@@ -820,3 +820,70 @@ zero commands/fills/observations. All diagnostic processes and scopes ended.
 The report is explicitly DIAGNOSTIC_ONLY, not native order or gateway timing
 qualification. The subsequent free-data order-policy investigation does not
 inherit a passing release claim from these measurements.
+
+## November 23 opening trace: measure repeated work before changing it
+
+Decision: 2026-11-23. The installed PAPER open completed a no-order gateway in
+115.907 seconds. Its logged stage marks are consecutive intervals, not nested
+durations. Ten guarded broker reads accumulated 35.409 seconds in their fresh
+before/after checks and 7.492 seconds in the adapters. The guard totals are
+nested inside the gateway stages; they must not be added to the stage total.
+The trace does not attribute guard time to connection setup, SQL, immutable
+calculation or current authorization, and it does not measure which portion of
+either target projection is safely reusable. A no-order success does not
+qualify the full command basket or native opening liquidity.
+
+Select diagnostic-only, fixed-vocabulary nested timings within the existing
+opening callback context. For each fresh broker read guard, aggregate bounded
+counts and elapsed time by broker operation, before/after boundary, and phase for
+connection/read-only setup, grant and structural validation, publication and
+rollout, signed authority, and result/evidence validation. A count names phase
+segments; a check can have two result/evidence segments when it also publishes
+an operational verdict. `grant_structural` includes the grant's result-dependent
+identity checks; `result_evidence` measures only the later result/evidence and
+verdict block. Preserve the existing before/adapter/after totals so the nested
+measurements retain their parent relationship; do not add child timings to their parent or
+assume further nested phases are exclusive. Mutation guards retain their
+existing behavior and are outside this read-guard phase breakdown.
+
+Record the first and second target projection separately. Within each, use
+consecutive broad phases named
+`state_target`, `mutable_inputs` (including commands), `action_inputs`,
+`unit_projection`, `policy_resolution` and `finalization` (comparison and
+persistence). These phases cover only `_target_projection_or_refuse`; its
+surrounding stage interval includes other work and need not equal their sum.
+These are not all pure calculations: `policy_resolution` may read the database.
+Use a monotonic clock and fixed phase names. Emit only counts,
+durations and fixed outcome categories: no SQL text, exception messages,
+account or position values, command keys, certificates, or credentials. Bound
+the recorded cardinality even when a callback repeats a phase. Diagnostics
+must not change ordering, transaction scope, return values, exception identity,
+refusal behavior or financial authority, and a logging failure cannot turn a
+refusal into permission.
+
+Defer memoization until the nested profile and a production-sized private
+qualification identify a concrete immutable subcalculation and its exact
+authenticated lifetime. The existing scope may reuse only verified immutable
+material under its current invalidation rules. Broker observations, before/after
+authority, publication, control/kill, leader fencing, signed revocations,
+readiness, cash, clocks and command-sensitive post-reconciliation projection
+inputs remain fresh. Retain the second complete broker reconciliation and its
+before/after account evidence bracket. A prior shadow-service or display proof
+does not replace callback verification.
+
+Qualify the instrumentation with focused tests for nested timing accounting,
+bounded output, exception and refusal preservation, and secret-free logs. Run
+the existing guarded broker and target-reprojection tests, including their
+freshness falsifiers. Use the private opening-latency path with production-sized
+retained inputs to compare callback timing and unchanged economic commitments;
+do not infer a performance gain from a microbenchmark. This decision authorizes
+repository diagnosis and PR review only. It does not install a new production
+PAPER image or grant LIVE authority.
+
+The isolated, network-disabled source-copy checks passed 17 focused timing tests
+and 155 directly affected authority, broker, projection, gateway, and diagnostic
+tests. No physically separate production-sized `opening_latency_*` cluster was
+available in the inspected environment. The existing physical backup retains
+the production database identity, so it cannot be passed to the private harness
+as if it were an independent cluster. No full-basket timing, speedup or release
+qualification is claimed from these diagnostic tests.

@@ -27,8 +27,26 @@ _TEMPLATES = frozenset({
     "automation_callback_startup stage=%s event=begin",
     "automation_callback_startup stage=%s event=end elapsed_ms=%d",
     "paper_broker_read_timing operation=%s part=%s count=%d elapsed_ms=%d",
+    "paper_guard_phase operation=%s part=%s phase=%s count=%d elapsed_ms=%d",
+    "paper_projection_phase stage=%s phase=%s elapsed_ms=%d",
 })
 _BROKER_READS = ContextVar("opening_broker_reads", default=None)
+_GUARD_PHASES = ContextVar("opening_guard_phases", default=None)
+_ACTIVE_BROKER_READ = ContextVar("opening_active_broker_read", default=None)
+_GUARD_PHASE_NAMES = frozenset({
+    "connection_setup", "read_only_setup", "grant_structural",
+    "publication_rollout", "signed_authority", "result_evidence",
+})
+_GUARD_READ_PARTS = frozenset({"before_read", "after_read"})
+_GUARD_READ_OPERATIONS = frozenset({
+    "identify_account", "account_snapshot", "account_close_valuation",
+    "account_fill_interval_evidence", "resolve_instrument", "asset_rules",
+    "market_clock", "opening_prices", "account_cash_activities",
+    "observe", "observe_with_terminal_recovery", "find_by_client_key",
+    "recent_fills", "owned_order_fills",
+})
+_MAX_PHASE_COUNT = 100_000
+_MAX_PHASE_NS = 86_400_000_000_000
 
 
 class _WorkerStageSink(logging.Handler):
@@ -101,14 +119,20 @@ def callback_startup(phase: str, stage: str):
 @contextmanager
 def broker_reads():
     counts = {}
+    guard_counts = {}
     token = _BROKER_READS.set(counts)
+    guard_token = _GUARD_PHASES.set(guard_counts)
     try:
         yield
     finally:
+        _GUARD_PHASES.reset(guard_token)
         _BROKER_READS.reset(token)
         for (operation, part), (count, elapsed) in counts.items():
             info("paper_broker_read_timing operation=%s part=%s count=%d elapsed_ms=%d",
                  operation, part, count, min(86_400_000, elapsed // 1_000_000))
+        for (operation, part, phase), (count, elapsed) in guard_counts.items():
+            info("paper_guard_phase operation=%s part=%s phase=%s count=%d elapsed_ms=%d",
+                 operation, part, phase, count, elapsed // 1_000_000)
 
 
 @contextmanager
@@ -118,12 +142,47 @@ def broker_read(operation: str, part: str):
         yield
         return
     start = perf_counter_ns()
+    active_token = (_ACTIVE_BROKER_READ.set((operation, part))
+                    if operation in _GUARD_READ_OPERATIONS
+                    and part in _GUARD_READ_PARTS else None)
     try:
         yield
     finally:
+        if active_token is not None:
+            _ACTIVE_BROKER_READ.reset(active_token)
         key = (operation, part)
         count, elapsed = counts.get(key, (0, 0))
         counts[key] = count + 1, elapsed + max(0, perf_counter_ns() - start)
+
+
+@contextmanager
+def guard_phase(phase: str, *, enabled: bool = True):
+    """Aggregate only fixed timing names within an owned broker-read trace."""
+    counts = _GUARD_PHASES.get()
+    active = _ACTIVE_BROKER_READ.get()
+    if (not enabled or counts is None or active is None
+            or phase not in _GUARD_PHASE_NAMES):
+        yield
+        return
+    try:
+        start = perf_counter_ns()
+    except Exception:
+        yield
+        return
+    try:
+        yield
+    finally:
+        try:
+            key = (*active, phase)
+            key_count, elapsed = counts.get(key, (0, 0))
+            counts[key] = (
+                min(_MAX_PHASE_COUNT, key_count + 1),
+                min(_MAX_PHASE_NS,
+                    elapsed + max(0, perf_counter_ns() - start)),
+            )
+        except Exception:
+            # Timing must not replace an authorization refusal or broker result.
+            pass
 
 
 def install_worker_sink() -> None:

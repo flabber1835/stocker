@@ -47,6 +47,7 @@ from sentinel.execution.guarded import (
     PaperPreparationGrant,
 )
 from sentinel.feed import publication
+from sentinel.opening_stage_log import guard_phase
 from sentinel.standing_observation_authority import (
     require_standing_observation_authority,
 )
@@ -377,115 +378,124 @@ def build_fresh_execution_check(
             raise AuthorityRefused("PAPER grant cannot authorize LIVE transport")
         if not live:
             assert_paper_url(paper_base_url)
-        with closing(connection_factory()) as conn:
+        with guard_phase("connection_setup"):
+            connection = connection_factory()
+        with closing(connection) as conn:
             if not publish_operational_evidence:
                 # This separate authority reader must never contend with its
                 # caller's financial transaction through diagnostic triggers.
-                with conn.cursor() as cur:
-                    cur.execute('SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY')
-                # Some authority readers finish their own proof transaction.
-                # Bind the connection default so those rollbacks cannot turn a
-                # later check back into a writer. This connection owns no
-                # financial work from the caller.
-                conn.commit()
+                with guard_phase("read_only_setup"):
+                    with conn.cursor() as cur:
+                        cur.execute('SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY')
+                    # Some authority readers finish their own proof transaction.
+                    # Bind the connection default so those rollbacks cannot turn a
+                    # later check back into a writer. This connection owns no
+                    # financial work from the caller.
+                    conn.commit()
             backup_proof = None
             evidence_written = False
             try:
-                if operation not in _READ_OPERATIONS:
-                    backup_proof = backup_runtime_authority.require(
-                        conn, operation=f"broker {operation.value} mutation", allow_continuity=not live)
-                    if live and (backup_proof.get("enabled") is not True
-                            or backup_proof.get("backup_state") == "DEGRADED"
-                            or backup_proof.get("independent_archive_current", True) is not True):
-                        raise AuthorityRefused("LIVE mutations require enabled qualified backups and current independent archive")
-                strategy = dict(strategy_identity()) if bind_strategy_to_grant else None
-                if strategy is None:
-                    validate_grant(conn, grant, operation, result)
-                else:
-                    validate_grant(conn, grant, operation, result, strategy)
-                rollout = load_rollout_state(conn)
-                # This observation-only recovery runs before the new GO
-                # publication and admits no fresh plan or submission. Its
-                # signed safety certificate is independent of corpus drift.
-                current = (None if isinstance(grant, FencedPaperRecoveryGrant)
-                           else feed_inputs.require_current(conn))
-                concrete = _authority_operation(grant, operation)
-                kwargs = dict(
-                    runtime_identity=runtime_identity(),
-                    strategy_identity=strategy if strategy is not None else strategy_identity(),
-                    required_mode=rollout.mode,
-                    paper_base_url=paper_base_url,
-                    current_publication_version=(current.version if current is not None else None),
-                    automation_config_sha256=automation_config_sha256)
-                if isinstance(grant, FencedPaperRecoveryGrant):
-                    if concrete != "SAFETY_READ" or live:
-                        raise AuthorityRefused("fenced PAPER recovery has no mutation or LIVE authority")
-                    concrete_cert = safety_authority_check(
-                        conn, required_operation="SAFETY_READ",
+                with guard_phase("grant_structural"):
+                    if operation not in _READ_OPERATIONS:
+                        backup_proof = backup_runtime_authority.require(
+                            conn, operation=f"broker {operation.value} mutation", allow_continuity=not live)
+                        if live and (backup_proof.get("enabled") is not True
+                                or backup_proof.get("backup_state") == "DEGRADED"
+                                or backup_proof.get("independent_archive_current", True) is not True):
+                            raise AuthorityRefused("LIVE mutations require enabled qualified backups and current independent archive")
+                    strategy = dict(strategy_identity()) if bind_strategy_to_grant else None
+                    if strategy is None:
+                        validate_grant(conn, grant, operation, result)
+                    else:
+                        validate_grant(conn, grant, operation, result, strategy)
+                with guard_phase("publication_rollout"):
+                    rollout = load_rollout_state(conn)
+                    # This observation-only recovery runs before the new GO
+                    # publication and admits no fresh plan or submission. Its
+                    # signed safety certificate is independent of corpus drift.
+                    current = (None if isinstance(grant, FencedPaperRecoveryGrant)
+                               else feed_inputs.require_current(conn))
+                    concrete = _authority_operation(grant, operation)
+                    kwargs = dict(
+                        runtime_identity=runtime_identity(),
+                        strategy_identity=strategy if strategy is not None else strategy_identity(),
                         required_mode=rollout.mode,
-                        paper_base_url=paper_base_url)
-                    if grant.certificate_sha256 != concrete_cert.certificate_sha256:
-                        raise AuthorityRefused("fenced PAPER recovery signed safety authority changed")
-                elif concrete in {"SAFETY_READ", "SAFETY_CANCEL"} and not live:
-                    regular_operation = (
-                        "CANCEL" if concrete == "SAFETY_CANCEL"
-                        else "EXECUTE_READ")
-                    try:
-                        concrete_cert = authorize_automation(
-                            conn, regular_operation, **kwargs)
-                    except AuthorityRefused:
+                        paper_base_url=paper_base_url,
+                        current_publication_version=(current.version if current is not None else None),
+                        automation_config_sha256=automation_config_sha256)
+                with guard_phase("signed_authority"):
+                    if isinstance(grant, FencedPaperRecoveryGrant):
+                        if concrete != "SAFETY_READ" or live:
+                            raise AuthorityRefused("fenced PAPER recovery has no mutation or LIVE authority")
                         concrete_cert = safety_authority_check(
-                            conn, required_operation=concrete,
+                            conn, required_operation="SAFETY_READ",
                             required_mode=rollout.mode,
                             paper_base_url=paper_base_url)
-                    if grant.certificate_sha256 != (
-                            concrete_cert.certificate_sha256):
-                        raise AuthorityRefused(
-                            "recovery grant and safety authority differ")
-                elif isinstance(grant, AutomationExecutionGrant):
-                    if live:
-                        concrete = "CANCEL" if concrete == "SAFETY_CANCEL" else "EXECUTE_READ" if concrete == "SAFETY_READ" else concrete
-                    concrete_cert = authorize_automation(conn, concrete, **kwargs)
-                else:
-                    concrete_cert = authority_check(
-                        conn, required_operation=concrete, **kwargs)
-                accounts = (_result_accounts(result)
-                            if result is not None else ())
-                for account in accounts:
-                    expected = getattr(grant, "broker_account_id", None)
-                    if isinstance(grant, LiveExecutionGrant):
-                        expected = grant.subject.account_id
-                    if isinstance(grant, PaperPreparationGrant):
-                        expected = grant.expected_account
-                    if isinstance(grant, FencedPaperRecoveryGrant):
-                        expected = grant.expected_account
-                    if expected is None:
-                        expected = getattr(
-                            grant, "confirm_paper_account", None)
-                    if account.account_id != expected:
-                        raise AuthorityRefused(
-                            "broker result account does not match the guarded "
-                            "grant")
-                    if live and account.broker != "alpaca-live":
-                        raise AuthorityRefused("LIVE result has a different broker namespace")
-                if publish_operational_evidence and isinstance(result, BrokerAccountSnapshot):
-                    operational_evidence.record_account_snapshot(conn, result)
-                    evidence_written = True
-                if (publish_operational_evidence and backup_proof and backup_proof.get("enabled") is True
-                        and backup_proof.get("backup_state") != "DEGRADED"):
-                    operational_evidence.record_backup_proof(
-                        conn, kind="RUNTIME_CHAIN", proof=backup_proof)
-                    evidence_written = True
+                        if grant.certificate_sha256 != concrete_cert.certificate_sha256:
+                            raise AuthorityRefused("fenced PAPER recovery signed safety authority changed")
+                    elif concrete in {"SAFETY_READ", "SAFETY_CANCEL"} and not live:
+                        regular_operation = (
+                            "CANCEL" if concrete == "SAFETY_CANCEL"
+                            else "EXECUTE_READ")
+                        try:
+                            concrete_cert = authorize_automation(
+                                conn, regular_operation, **kwargs)
+                        except AuthorityRefused:
+                            concrete_cert = safety_authority_check(
+                                conn, required_operation=concrete,
+                                required_mode=rollout.mode,
+                                paper_base_url=paper_base_url)
+                        if grant.certificate_sha256 != (
+                                concrete_cert.certificate_sha256):
+                            raise AuthorityRefused(
+                                "recovery grant and safety authority differ")
+                    elif isinstance(grant, AutomationExecutionGrant):
+                        if live:
+                            concrete = "CANCEL" if concrete == "SAFETY_CANCEL" else "EXECUTE_READ" if concrete == "SAFETY_READ" else concrete
+                        concrete_cert = authorize_automation(conn, concrete, **kwargs)
+                    else:
+                        concrete_cert = authority_check(
+                            conn, required_operation=concrete, **kwargs)
+                with guard_phase("result_evidence", enabled=(
+                        result is not None or backup_proof is not None)):
+                    accounts = (_result_accounts(result)
+                                if result is not None else ())
+                    for account in accounts:
+                        expected = getattr(grant, "broker_account_id", None)
+                        if isinstance(grant, LiveExecutionGrant):
+                            expected = grant.subject.account_id
+                        if isinstance(grant, PaperPreparationGrant):
+                            expected = grant.expected_account
+                        if isinstance(grant, FencedPaperRecoveryGrant):
+                            expected = grant.expected_account
+                        if expected is None:
+                            expected = getattr(
+                                grant, "confirm_paper_account", None)
+                        if account.account_id != expected:
+                            raise AuthorityRefused(
+                                "broker result account does not match the guarded "
+                                "grant")
+                        if live and account.broker != "alpaca-live":
+                            raise AuthorityRefused("LIVE result has a different broker namespace")
+                    if publish_operational_evidence and isinstance(result, BrokerAccountSnapshot):
+                        operational_evidence.record_account_snapshot(conn, result)
+                        evidence_written = True
+                    if (publish_operational_evidence and backup_proof and backup_proof.get("enabled") is True
+                            and backup_proof.get("backup_state") != "DEGRADED"):
+                        operational_evidence.record_backup_proof(
+                            conn, kind="RUNTIME_CHAIN", proof=backup_proof)
+                        evidence_written = True
             except Exception as exc:                          # noqa: BLE001
                 if publish_operational_evidence and isinstance(grant, AutomationExecutionGrant):
                     from sentinel.automation import store as automation_store
                     try:
-                        automation_store.record_authority_verdict(
-                            conn, verdict="FAIL",
-                            detail=(f"{operation.value}: {type(exc).__name__}: "
-                                    f"{exc}"), holder_id=grant.holder_id,
-                            fence_token=grant.fence_token,
-                            control_generation=grant.control_generation)
+                        with guard_phase("result_evidence"):
+                            automation_store.record_authority_verdict(
+                                conn, verdict="FAIL",
+                                detail=(f"{operation.value}: {type(exc).__name__}: "
+                                        f"{exc}"), holder_id=grant.holder_id,
+                                fence_token=grant.fence_token,
+                                control_generation=grant.control_generation)
                     except Exception:                         # noqa: BLE001
                         # Revocation/kill/takeover often invalidates the same
                         # fence required to publish a global verdict. Preserve
@@ -495,15 +505,17 @@ def build_fresh_execution_check(
                 raise
             if publish_operational_evidence and isinstance(grant, AutomationExecutionGrant):
                 from sentinel.automation import store as automation_store
-                automation_store.record_authority_verdict(
-                    conn, verdict="PASS",
-                    detail=(f"{operation.value}: signed certificate "
-                            f"{concrete_cert.certificate_sha256} verified"),
-                    holder_id=grant.holder_id,
-                    fence_token=grant.fence_token,
-                    control_generation=grant.control_generation)
+                with guard_phase("result_evidence"):
+                    automation_store.record_authority_verdict(
+                        conn, verdict="PASS",
+                        detail=(f"{operation.value}: signed certificate "
+                                f"{concrete_cert.certificate_sha256} verified"),
+                        holder_id=grant.holder_id,
+                        fence_token=grant.fence_token,
+                        control_generation=grant.control_generation)
             elif evidence_written:
-                conn.commit()
+                with guard_phase("result_evidence"):
+                    conn.commit()
 
     return check
 

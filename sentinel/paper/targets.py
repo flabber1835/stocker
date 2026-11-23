@@ -71,6 +71,7 @@ from .model import (
 )
 
 from .inspection import DEFENSIVE_SYMBOL
+from . import opening_diagnostics
 
 def _action_lookup(conn, state: SessionState | None, through: date, history=None):
     """Corporate-action quantity changes since the last durable decision.
@@ -312,11 +313,13 @@ def _target_projection_or_refuse(
             target_reprojection.TargetProjection] = None,
         opening_prices=None, allow_restrictions: bool = False):
     """Derive the exact unit projection and bind it to durable plan state."""
+    opening_diagnostics.projection_phase("state_target")
     if state.state_hash != plan.shadow_snapshot_hash:
         raise PaperActivationRefused(
             "target projection canonical state differs from the immutable "
             "plan snapshot")
     target = shadow_target(state)
+    opening_diagnostics.projection_phase("mutable_inputs")
     from sentinel.execution import market_buy_sizing, protected_limits
     from sentinel.execution.market_buy_policy import MarketBuyPolicy
     market_policy = MarketBuyPolicy.from_env()
@@ -347,6 +350,7 @@ def _target_projection_or_refuse(
         # are ticker-bound; omitting this symbol would let an unresolved BIL
         # action miss a fresh defensive target with no prior command/position.
         symbols[DEFENSIVE_SECURITY_ID].add(DEFENSIVE_SYMBOL)
+    opening_diagnostics.projection_phase("action_inputs")
     if not allow_restrictions:
         from sentinel.execution.share_units import material_events_for_security
         material = {event.source_row_id: event
@@ -375,6 +379,7 @@ def _target_projection_or_refuse(
         tuple(event.to_dict() for event in evidence_reader(target_security_ids))
         if callable(evidence_reader) else ())
     try:
+        opening_diagnostics.projection_phase("unit_projection")
         projected = target_reprojection.project_target(
             plan, through_session=through,
             action_multipliers=multipliers,
@@ -386,6 +391,7 @@ def _target_projection_or_refuse(
             minimum_quantity_increment=(
                 broker.capabilities.minimum_quantity_increment),
             fractional_entitlements=pending_targets)
+        opening_diagnostics.projection_phase("policy_resolution")
         policy = protected_limits.ProtectedLimitPolicy.from_env()
         if fractional:
             retained, retries = held_targets.plan_sizing(conn, plan=plan, state=state)
@@ -430,6 +436,7 @@ def _target_projection_or_refuse(
                 projected = opening_sizing.resolve(state, plan, projected, opening_prices)
             except OpeningPriceUnavailable as exc:
                 raise PaperRetryableRefused(str(exc)) from exc
+        opening_diagnostics.projection_phase("finalization")
         if (expected_projection is not None
                 and projected != expected_projection):
             raise target_reprojection.TargetProjectionRefused(
