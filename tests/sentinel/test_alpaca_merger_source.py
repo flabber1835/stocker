@@ -14,6 +14,23 @@ DAY = '2026-09-15'
 PRIOR = '2026-09-14'
 
 
+@pytest.fixture
+def synthetic_feed_authority(monkeypatch, tmp_path):
+    """Bind this module's synthetic provider to a test-only publication key."""
+    from sentinel import backup_runtime_authority, identity as runtime_identity
+
+    monkeypatch.setenv('SENTINEL_PUBLICATION_RECEIPT_KEY', 'test-only-receipt-key-' * 4)
+    monkeypatch.setattr(backup_runtime_authority, 'POLICY_MARKER',
+                        tmp_path / 'absent-production-backup-policy')
+    assert not backup_runtime_authority.enabled()
+    monkeypatch.setattr(runtime_identity, 'require_feed_producer_identity', lambda: {
+        'schema': 'sentinel.feed-producer/1',
+        'git_commit': 'a' * 40,
+        'runtime_image_digest': 'sha256:' + 'b' * 64,
+        'image_source_revision': 'a' * 40,
+    })
+
+
 def merger(old, new='AAA', *, id, old_cusip='111111111', new_cusip='999999999',
            old_rate='1', new_rate='1'):
     # Alpaca's published stock-merger fields use acquirer_rate/acquiree_rate.
@@ -111,7 +128,8 @@ def test_vanished_acquiree_preserves_unchanged_acquirer_history():
             for row in payload['merger_conversions']] == [('old-bbb', 'old-aaa')]
 
 
-def test_published_same_symbol_and_vanished_acquiree_earn_current_return(conn, provider):
+def test_published_same_symbol_and_vanished_acquiree_earn_current_return(
+        conn, provider, synthetic_feed_authority):
     from sentinel import rolling_daily, rolling_initialization
     from sentinel.core.window_material import protected
     from sentinel.core.session import _path_dependent_security_ids
@@ -194,7 +212,8 @@ def test_published_same_symbol_and_vanished_acquiree_earn_current_return(conn, p
         starting_cash=50_000).state.state_hash == after.state.state_hash
 
 
-def test_irrelevant_incomplete_merger_does_not_block_source_or_daily_book(conn, provider):
+def test_irrelevant_incomplete_merger_does_not_block_source_or_daily_book(
+        conn, provider, synthetic_feed_authority):
     from sentinel import rolling_daily, rolling_initialization
     from sentinel.core.window_material import protected
     from sentinel.feed import calendar, rolling_store
