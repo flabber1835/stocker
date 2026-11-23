@@ -192,6 +192,8 @@ def test_new_negative_evidence_never_falls_back_to_the_previous_positive(databas
 def run_lost_reply(database,boundary,monkeypatch,*,legacy=False):
     import tests.backup.test_recurring_maintenance as harness
     monkeypatch.setattr(harness,'NOW',int(time.time()))
+    # Exercise the publication path regardless of the wall-clock market window.
+    monkeypatch.setattr(harness.retention,'market_reservation',lambda _at:False)
     before,after=OLD,boundary.name
     boundary.name,boundary.old=before,True
     copies=[]
