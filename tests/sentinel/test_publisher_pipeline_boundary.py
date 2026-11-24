@@ -332,16 +332,53 @@ def test_state_only_recovery_snapshot_identity_has_exact_predecessor(monkeypatch
     path = Path(snapshot.__file__).resolve()
     current = path.read_bytes()
     current_sha = hashlib.sha256(current).hexdigest()
-    assert current_sha == economic_manifest.SNAPSHOT_RECOVERY_SHA256
-    assert current_sha == semantics.SNAPSHOT_RECOVERY_SHA256
+    assert current_sha == economic_manifest.SNAPSHOT_RETIRED_EDGE_SHA256
     assert (economic_manifest.SNAPSHOT_RECOVERY_PREDECESSOR_SHA256
             == semantics.SNAPSHOT_RECOVERY_PREDECESSOR_SHA256)
+
+    # Peel only the exact reviewed retirement read path. The older recovery
+    # witness below must still reconstruct its own exact predecessor.
+    retired_header = (b'def _edge_fields(conn, previous, candidate, request, *, older=None,\n'
+        b'                 old_manifest=None, new_manifest=None):\n'
+        b'    if older is None or old_manifest is None:\n'
+        b'        older, old_manifest = _bound_and_manifest(conn, previous)\n'
+        b'    if new_manifest is None:\n'
+        b'        new_manifest = rolling_store.manifest(conn, candidate)\n')
+    previous_header = (b'def _edge_fields(conn, previous, candidate, request):\n'
+        b'    older, old_manifest = _bound_and_manifest(conn, previous)\n'
+        b'    new_manifest = rolling_store.manifest(conn, candidate)\n')
+    assert current.count(retired_header) == 1
+    recovered = current.replace(retired_header, previous_header)
+    helper_start = recovered.index(b'\n\ndef _retired_edge_fields(')
+    helper_end = recovered.index(b'\n\ndef _require_supersession(', helper_start)
+    recovered = recovered[:helper_start] + recovered[helper_end:]
+    retired_check = b'''            or ('operational_recovery' in pub.evidence) != (request.cursor is not None)):
+        raise OperationalSnapshotRefused('OPERATIONAL_SUPERSESSION_CHANGED')
+    older, old_manifest = _bound_and_manifest(conn, previous)
+    new_manifest = rolling_store.manifest(conn, binding['candidate_id'])
+    old_retired = rolling_store.retired(conn, older['candidate_id'])
+    new_retired = rolling_store.retired(conn, binding['candidate_id'])
+    common = dict(older=older, old_manifest=old_manifest, new_manifest=new_manifest)
+    expected = (_retired_edge_fields(conn, previous, binding['candidate_id'], request,
+                                     edge, old_retired=old_retired, new_retired=new_retired,
+                                     **common)
+                if old_retired or new_retired else
+                _edge_fields(conn, previous, binding['candidate_id'], request, **common))
+    if edge != expected:
+        raise OperationalSnapshotRefused('OPERATIONAL_SUPERSESSION_CHANGED')'''
+    previous_check = b'''            or ('operational_recovery' in pub.evidence) != (request.cursor is not None)
+            or edge != _edge_fields(conn, previous, binding['candidate_id'], request)):
+        raise OperationalSnapshotRefused('OPERATIONAL_SUPERSESSION_CHANGED')'''
+    assert recovered.count(retired_check) == 1
+    recovered = recovered.replace(retired_check, previous_check)
+    assert hashlib.sha256(recovered).hexdigest() == economic_manifest.SNAPSHOT_RECOVERY_SHA256
+    assert hashlib.sha256(recovered).hexdigest() == semantics.SNAPSHOT_RECOVERY_SHA256
 
     recovery_schema = (
         b'RECOVERY_SUPERSESSION_SCHEMA = '
         b'"sentinel.current-information-recovery-supersession/1"\n')
-    assert current.count(recovery_schema) == 1
-    predecessor = current.replace(recovery_schema, b'')
+    assert recovered.count(recovery_schema) == 1
+    predecessor = recovered.replace(recovery_schema, b'')
     start = predecessor.index(b'def _edge_fields(conn, previous, candidate, request):')
     end = predecessor.index(b'\n\ndef _require_supersession', start)
     previous_edge = b'''def _edge_fields(conn, previous, candidate, request):
@@ -412,17 +449,32 @@ def test_state_only_recovery_snapshot_identity_has_exact_predecessor(monkeypatch
     assert {'module': name, 'sha256':
         economic_manifest.SNAPSHOT_RECOVERY_PREDECESSOR_SHA256} in identity['files']
 
-    guard = b'request.cursor is not None and prior == conversions'
-    assert current.count(guard) == 1
-    mutated = current.replace(guard, b'request.cursor is not None or prior == conversions')
-    mutated_sha = hashlib.sha256(mutated).hexdigest()
+    retired_guard = b'    if not (old_retired or new_retired):'
+    assert current.count(retired_guard) == 1
+    changed_retirement = current.replace(retired_guard, b'    if False:')
+    changed_retirement_sha = hashlib.sha256(changed_retirement).hexdigest()
     original_raw = economic_manifest._module_raw
+    with monkeypatch.context() as change:
+        change.setattr(economic_manifest, '_module_raw',
+            lambda module: changed_retirement if module == name else original_raw(module))
+        assert {'module': name, 'sha256': changed_retirement_sha} in (
+            economic_manifest.identity(schema='retired-edge-mutant')['files'])
+    read = Path.read_bytes
+    with monkeypatch.context() as change:
+        change.setattr(Path, 'read_bytes',
+            lambda candidate: changed_retirement if candidate == path else read(candidate))
+        assert semantics.economic_sources([name], schema='retired-edge-mutant')['files'] == [
+            {'module': name, 'sha256': changed_retirement_sha}]
+
+    guard = b'request.cursor is not None and prior == conversions'
+    assert recovered.count(guard) == 1
+    mutated = recovered.replace(guard, b'request.cursor is not None or prior == conversions')
+    mutated_sha = hashlib.sha256(mutated).hexdigest()
     with monkeypatch.context() as change:
         change.setattr(economic_manifest, '_module_raw',
             lambda module: mutated if module == name else original_raw(module))
         assert {'module': name, 'sha256': mutated_sha} in (
             economic_manifest.identity(schema='recovery-snapshot-mutant')['files'])
-    read = Path.read_bytes
     with monkeypatch.context() as change:
         change.setattr(Path, 'read_bytes',
             lambda candidate: mutated if candidate == path else read(candidate))
