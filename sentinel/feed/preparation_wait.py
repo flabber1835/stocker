@@ -5,6 +5,7 @@ import time
 
 from sentinel.feed import progress, rolling_jobs as jobs, archive_tables, writer_schedule
 from sentinel.feed.publication import CorpusBusy
+from sentinel.feed.alpaca_pending import AlpacaSourcePending
 from sentinel.feed.alpaca_transport import AlpacaTransportUnavailable
 
 
@@ -24,7 +25,8 @@ def run(conn, job_id, *, prepare, check_target, sleep=None):
             job_id = successor(conn, job_id, exc.component)
             continue
         except (archive_tables.RetryDeferred, ConnectionError, CorpusBusy,
-                jobs.JobWaiting, SourceCoveragePending, AlpacaTransportUnavailable) as exc:
+                jobs.JobWaiting, SourceCoveragePending, AlpacaSourcePending,
+                AlpacaTransportUnavailable) as exc:
             if writer_schedule.connection_discarded(exc):
                 raise
             conn.rollback()

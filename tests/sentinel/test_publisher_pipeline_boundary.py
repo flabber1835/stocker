@@ -9,10 +9,11 @@ import pytest
 
 from sentinel import economic_manifest, publisher_pipeline_source_basis as basis
 from sentinel import semantic_source_basis as semantics
+from sentinel.feed import operational_snapshot as snapshot
 from sentinel.feed import publisher_pipeline as pipeline, rolling_publisher as lifecycle
 from tests.support.publisher_source_proofs import publisher_baseline
 
-EXPECTED_STRATEGY = 'caab7a1872fe4ec178aec659716a4bc70c0cd5ea79a88e33ffacd2ae0c7cf095'
+EXPECTED_STRATEGY = '421a1697353ced9bdb0efba82150e900265c8f1bb7e296dbb7f6423b40a6cc81'
 HELPERS = ('ComparisonRefused', '_operational_source', '_latest', '_legacy_version',
            'published', 'freeze', 'publish', '_checkpoint')
 
@@ -134,10 +135,11 @@ def test_lifecycle_retains_original_failure_and_cleanup_ast():
     current = Path(lifecycle.__file__).read_text(encoding='utf-8')
     new = ast.parse(current)
     assert _dump(_definition(old, 'prepare')) == _dump(_definition(new, 'prepare'))
-    # af0ed1ecc supplied the unchanged post-provider-retirement failure policy.
+    # The late Alpaca evidence wait extends failure classification while the
+    # preparation handler and cleanup remain pinned to their historical AST.
     failure_body = ast.get_source_segment(current, _definition(new, '_record_failure'))
     assert hashlib.sha256(failure_body.encode()).hexdigest() == (
-        '34e6ca88c5c6e126003b41b09d39ccb06308c7bb7ada72517f531e36ff4bb5f7')
+        '81f3001e72cf4fd2cfef4a1ba8e607c7cdd3cbea8de89cfc3d48de8b0b68e513')
     old_prepare = _definition(old, '_prepare')
     new_prepare = _definition(new, '_prepare')
     old_try = next(n for n in old_prepare.body if isinstance(n, ast.Try))
@@ -219,8 +221,58 @@ def test_snapshot_identity_changes_only_for_its_exact_prepublication_guard(monke
     name = operational_snapshot.__name__
     path = Path(operational_snapshot.__file__).resolve()
     current = path.read_bytes()
+    # Reconstruct the independently pinned pre-merger compiler. The new
+    # supersession functions and publication edge have a distinct current hash.
+    historical = current
+    start = historical.index(b'SUPERSESSION_SCHEMA = ')
+    stop = historical.index(b'\nclass OperationalSnapshotRefused', start)
+    historical = historical[:start] + b'\n' + historical[stop:]
+    start = historical.index(b'def _alpaca_policy(')
+    stop = historical.index(b'def require_alpaca_openfigi(', start)
+    historical = historical[:start] + historical[stop:]
+    new_publish = (b'    previous = _current(conn)\n'
+                   b'    same_session = previous is not None and previous.window_end == str(request.window.end)\n'
+                   b'    correction = False\n'
+                   b'    if same_session:\n'
+                   b'        _, old_manifest = _bound_and_manifest(conn, previous)\n'
+                   b'        correction = (_alpaca_policy(conn, old_manifest) == _OLD_ALPACA_POLICY\n'
+                   b'                      or _alpaca_policy(conn, manifest) == _MERGER_ALPACA_POLICY)\n'
+                   b'    edge = None\n'
+                   b'    if correction:\n'
+                   b'        if _session_consumed(conn, previous.window_end):\n'
+                   b"            raise OperationalSnapshotRefused('SAME_SESSION_PUBLICATION_ALREADY_CONSUMED')\n"
+                   b'        _require_correction_strategy(conn, previous, request)\n'
+                   b'        edge = _edge_fields(conn, previous, candidate, request)\n')
+    old_publish = (b'    previous = _current(conn)\n'
+                   b'    with conn.cursor() as cur:\n'
+                   b'        cur.execute("SELECT clock_timestamp()")\n'
+                   b'        at = cur.fetchone()[0]\n')
+    assert historical.count(new_publish) == 1
+    historical = historical.replace(new_publish, old_publish)
+    edge_and_timing = (b'    if edge is not None:\n'
+                       b"        evidence['operational_supersession'] = edge\n"
+                       b'    from sentinel.feed import action_history, rolling_work\n'
+                       b'    with rolling_work.renewing(lambda: jobs.heartbeat(conn, lease, lease_seconds=600)):\n'
+                       b'        evidence["action_history"] = action_history.append(\n'
+                       b'            conn, candidate=candidate, version=version, previous=previous)\n'
+                       b'    jobs._owned(conn, lease)\n'
+                       b"    at = conn.execute('SELECT clock_timestamp()').fetchone()[0]\n"
+                       b'    if correction:\n'
+                       b'        opened, _ = calendar.session_window(calendar.next_session(previous.window_end))\n'
+                       b'        if (at >= opened) != (request.cursor is not None):\n'
+                       b"            raise OperationalSnapshotRefused('SAME_SESSION_CORRECTION_TIMING_CHANGED')\n")
+    action_history = (b'    from sentinel.feed import action_history, rolling_work\n'
+                      b'    with rolling_work.renewing(lambda: jobs.heartbeat(conn, lease, lease_seconds=600)):\n'
+                      b'        evidence["action_history"] = action_history.append(\n'
+                      b'            conn, candidate=candidate, version=version, previous=previous)\n'
+                      b'    jobs._owned(conn, lease)\n')
+    assert historical.count(edge_and_timing) == 1
+    historical = historical.replace(edge_and_timing, b'')
+    insert = b'    publication._insert_receipted_publication(\n'
+    assert historical.count(insert) == 1
+    historical = historical.replace(insert, action_history + insert)
     staged = b'readiness_inputs(conn, candidate_id=candidate, snapshot_id=manifest.snapshot_id, staged=True)'
-    assert current.count(staged) == 1
+    assert historical.count(staged) == 1
     changes = (
         (b'def _bound_and_manifest(conn, pub):', b'def _bound(conn, pub):'),
         (b'    binding = {"data_version": pub.version, "scope": "DATA_ONLY", "operational_go": False,\n'
@@ -233,7 +285,7 @@ def test_snapshot_identity_changes_only_for_its_exact_prepublication_guard(monke
          b'    binding = _bound(conn, pub)\n'
          b'    if rolling_store.manifest(conn, binding["candidate_id"]).provider != "ALPACA_OPENFIGI":'),
     )
-    prior = current
+    prior = historical
     for reviewed, predecessor in changes:
         assert prior.count(reviewed) == 1
         prior = prior.replace(reviewed, predecessor)
@@ -265,13 +317,117 @@ def test_snapshot_identity_changes_only_for_its_exact_prepublication_guard(monke
 @pytest.mark.parametrize('name', economic_manifest.CLOSE_READINESS_COMPILERS)
 def test_close_readiness_identity_requires_all_reviewed_compiler_bytes(monkeypatch, name):
     before = economic_manifest.identity(schema='close-readiness')
-    assert before['economic_implementation']['preserved_behavior']
+    assert before['sha256'] == before['implementation_sha256']
+    assert before['economic_implementation']['preserved_behavior'] is False
     read = economic_manifest._module_raw
     changed = read(name) + b'\n# unreviewed compiler bytes\n'
     monkeypatch.setattr(economic_manifest, '_module_raw', lambda module: changed if module == name else read(module))
     live = economic_manifest.identity(schema='close-readiness')
     assert {'module': name, 'sha256': hashlib.sha256(changed).hexdigest()} in live['files']
     assert live['sha256'] != before['sha256']
+
+
+def test_state_only_recovery_snapshot_identity_has_exact_predecessor(monkeypatch):
+    name = 'sentinel.feed.operational_snapshot'
+    path = Path(snapshot.__file__).resolve()
+    current = path.read_bytes()
+    current_sha = hashlib.sha256(current).hexdigest()
+    assert current_sha == economic_manifest.SNAPSHOT_RECOVERY_SHA256
+    assert current_sha == semantics.SNAPSHOT_RECOVERY_SHA256
+    assert (economic_manifest.SNAPSHOT_RECOVERY_PREDECESSOR_SHA256
+            == semantics.SNAPSHOT_RECOVERY_PREDECESSOR_SHA256)
+
+    recovery_schema = (
+        b'RECOVERY_SUPERSESSION_SCHEMA = '
+        b'"sentinel.current-information-recovery-supersession/1"\n')
+    assert current.count(recovery_schema) == 1
+    predecessor = current.replace(recovery_schema, b'')
+    start = predecessor.index(b'def _edge_fields(conn, previous, candidate, request):')
+    end = predecessor.index(b'\n\ndef _require_supersession', start)
+    previous_edge = b'''def _edge_fields(conn, previous, candidate, request):
+    older, old_manifest = _bound_and_manifest(conn, previous)
+    new_manifest = rolling_store.manifest(conn, candidate)
+    old_policy = _alpaca_policy(conn, old_manifest)
+    new_policy = _alpaca_policy(conn, new_manifest)
+    if (old_policy not in (_OLD_ALPACA_POLICY, _MERGER_ALPACA_POLICY)
+            or new_policy != _MERGER_ALPACA_POLICY):
+        raise OperationalSnapshotRefused('SAME_SESSION_SUPERSESSION_POLICY_REQUIRED')
+    old_request = jobs.PreparationRequest.model_validate(jobs.status(conn, older['job_id'])['request'])
+    if (previous.version != request.expected_publication_version
+            or previous.window_end != str(request.window.end)):
+        raise OperationalSnapshotRefused('SAME_SESSION_SUPERSESSION_PREDECESSOR_CHANGED')
+    reference = rolling_store.load_evidence(conn, new_manifest.reference_sha256)
+    source = rolling_store.load_evidence(conn, new_manifest.source_evidence_sha256)
+    conversions = reference.get('merger_conversions') if isinstance(reference, dict) else None
+    if (not isinstance(conversions, list)
+            or not any(isinstance(item, dict) and item.get('effective_session') == previous.window_end
+                       for item in conversions)
+            or not isinstance(source, dict)
+            or source.get('merger_conversions_sha256') != digest(conversions)):
+        raise OperationalSnapshotRefused('SAME_SESSION_MERGER_CORRECTION_REQUIRED')
+    if old_policy == _MERGER_ALPACA_POLICY:
+        prior_reference = rolling_store.load_evidence(conn, old_manifest.reference_sha256)
+        prior_source = rolling_store.load_evidence(conn, old_manifest.source_evidence_sha256)
+        prior = (prior_reference.get('merger_conversions')
+                 if isinstance(prior_reference, dict) else None)
+        if (not isinstance(prior, list) or not isinstance(prior_source, dict)
+                or prior_source.get('merger_conversions_sha256') != digest(prior)
+                or old_manifest.snapshot_id == new_manifest.snapshot_id
+                or old_manifest.source_evidence_sha256 == new_manifest.source_evidence_sha256):
+            raise OperationalSnapshotRefused('SAME_SESSION_MERGER_EXTENSION_REQUIRED')
+        old_by_id = {item.get('old_security_id'): item for item in prior
+                     if isinstance(item, dict) and isinstance(item.get('old_security_id'), str)}
+        new_by_id = {item.get('old_security_id'): item for item in conversions
+                     if isinstance(item, dict) and isinstance(item.get('old_security_id'), str)}
+        if (len(old_by_id) != len(prior) or len(new_by_id) != len(conversions)
+                or len(new_by_id) <= len(old_by_id)
+                or any(sid not in new_by_id or digest(new_by_id[sid]) != digest(item)
+                       for sid, item in old_by_id.items())
+                or any(item.get('effective_session') != previous.window_end
+                       for sid, item in new_by_id.items() if sid not in old_by_id)):
+            raise OperationalSnapshotRefused('SAME_SESSION_MERGER_EXTENSION_REQUIRED')
+    return {
+        'schema': SUPERSESSION_SCHEMA, 'session': previous.window_end,
+        'superseded_version': previous.version,
+        'superseded_publication_sha256': digest(previous.to_dict()),
+        'superseded_snapshot_id': old_manifest.snapshot_id,
+        'superseded_source_sha256': old_manifest.source_evidence_sha256,
+        'superseded_source_schema': old_policy[0],
+        'successor_candidate_id': candidate,
+        'successor_snapshot_id': new_manifest.snapshot_id,
+        'successor_source_sha256': new_manifest.source_evidence_sha256,
+        'successor_source_schema': _MERGER_ALPACA_POLICY[0],
+        'superseded_strategy_sha256': old_request.strategy_sha256,
+        'successor_strategy_sha256': request.strategy_sha256,
+    }
+'''
+    predecessor = predecessor[:start] + previous_edge + predecessor[end:]
+    assert hashlib.sha256(predecessor).hexdigest() == (
+        economic_manifest.SNAPSHOT_RECOVERY_PREDECESSOR_SHA256)
+
+    source = semantics.economic_sources([name], schema='recovery-snapshot-proof')
+    assert source['files'] == [{'module': name, 'sha256':
+        economic_manifest.SNAPSHOT_RECOVERY_PREDECESSOR_SHA256}]
+    identity = economic_manifest.identity(schema='recovery-snapshot-proof')
+    assert {'module': name, 'sha256':
+        economic_manifest.SNAPSHOT_RECOVERY_PREDECESSOR_SHA256} in identity['files']
+
+    guard = b'request.cursor is not None and prior == conversions'
+    assert current.count(guard) == 1
+    mutated = current.replace(guard, b'request.cursor is not None or prior == conversions')
+    mutated_sha = hashlib.sha256(mutated).hexdigest()
+    original_raw = economic_manifest._module_raw
+    with monkeypatch.context() as change:
+        change.setattr(economic_manifest, '_module_raw',
+            lambda module: mutated if module == name else original_raw(module))
+        assert {'module': name, 'sha256': mutated_sha} in (
+            economic_manifest.identity(schema='recovery-snapshot-mutant')['files'])
+    read = Path.read_bytes
+    with monkeypatch.context() as change:
+        change.setattr(Path, 'read_bytes',
+            lambda candidate: mutated if candidate == path else read(candidate))
+        assert semantics.economic_sources([name], schema='recovery-snapshot-mutant')['files'] == [
+            {'module': name, 'sha256': mutated_sha}]
 
 
 def test_unknown_pipeline_bytes_reach_real_economic_bundle(monkeypatch):
@@ -283,7 +439,7 @@ def test_unknown_pipeline_bytes_reach_real_economic_bundle(monkeypatch):
     assert value['files'] == [{'module': basis.MODULE, 'sha256': hashlib.sha256(changed).hexdigest()}]
 
 
-def test_economic_identity_matches_current_signed_strategy():
+def test_economic_identity_matches_current_strategy():
     from sentinel.strategy import production_strategy
     from sentinel.feed.rolling_contract import digest
     assert digest(production_strategy()[1]) == EXPECTED_STRATEGY

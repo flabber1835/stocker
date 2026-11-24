@@ -454,19 +454,35 @@ def service_advance(conn, *, through, observation_id, starting_cash, acquisition
                 raise Refused("ROLLING_RUNTIME_SESSION_GAP")
             prepared = prepare_adjacent(conn, previous=previous, through=through,
                 acquisition_deadline=acquisition_deadline, continuation=True)
-    # Fresh genesis and crash recovery must consume the reviewed/current exact
-    # publication; neither is permitted to replace it with newly acquired data.
-    # Keep canonical ownership through the small validated health projection.
-    with journal.writer_lock(conn):
-        result = advance(conn, through=through, observation_id=observation_id, starting_cash=starting_cash,
-                         prepared_binding=prepared)
-        import os, sys
-        if os.environ.get('SENTINEL_FEED_SERVICE_MODE') == 'SHADOW':
-            try:
-                from sentinel import shadow_health_projection, shadow_service
-                shadow_health_projection.publish(
-                    shadow_service.ShadowServiceConfig.from_env(), result.to_dict(), conn)
-            except Exception as exc:
-                print('WARNING: shadow health projection unavailable: ' +
-                      type(exc).__name__, file=sys.stderr, flush=True)
-    return result
+    # A missing selected-only identity may warrant a fresh broker-free action
+    # observation. The first failed transition rolls back before source work;
+    # the second attempt consumes only the exact newly published correction.
+    def commit(prepared_binding):
+        with journal.writer_lock(conn):
+            result = advance(conn, through=through, observation_id=observation_id,
+                             starting_cash=starting_cash, prepared_binding=prepared_binding)
+            import os, sys
+            if os.environ.get('SENTINEL_FEED_SERVICE_MODE') == 'SHADOW':
+                try:
+                    from sentinel import shadow_health_projection, shadow_service
+                    shadow_health_projection.publish(
+                        shadow_service.ShadowServiceConfig.from_env(), result.to_dict(), conn)
+                except Exception as exc:
+                    print('WARNING: shadow health projection unavailable: ' +
+                          type(exc).__name__, file=sys.stderr, flush=True)
+        return result
+
+    from sentinel.core.window_continuity import MergerActionPending
+    try:
+        return commit(prepared)
+    except MergerActionPending:
+        conn.rollback()
+        opened, _ = calendar.session_window(calendar.next_session(through))
+        opened = opened.astimezone(timezone.utc)
+        if shadow_budget.now() >= opened:
+            raise  # A later source may recover state, never this missed open.
+        deadline = min(acquisition_deadline, opened)
+        shadow_budget.require_remaining(deadline)
+        refreshed = inputs._prepare(conn, target_session=through,
+            absolute_deadline=deadline, continuation=True, force_action_reobserve=True)
+        return commit(refreshed)

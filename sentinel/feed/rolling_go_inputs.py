@@ -111,6 +111,7 @@ def _assess(conn, pub, *, target, summary_only=False):
     from sentinel.feed import readiness_scope
     readiness_scope.require(conn)
     binding = snapshots._bound(conn, pub)
+    snapshots.require_supersession(conn, pub)
     _, strategy = production_strategy()
     request = rolling_jobs.status(conn, binding["job_id"])["request"]
     if request["strategy_sha256"] != digest(strategy):
@@ -208,7 +209,7 @@ def prepare(conn, *, target_session, budget_seconds=3600, resume_job_id=None,
 
 
 def _prepare(conn, *, target_session, budget_seconds=3600, wait=False, resume_job_id=None,
-             absolute_deadline=None, continuation=False):
+             absolute_deadline=None, continuation=False, force_action_reobserve=False):
     """Shared acquisition; callers first prove fresh or attested runtime state."""
     try:
         if target_session != snapshots.source_final_session():
@@ -237,7 +238,8 @@ def _prepare(conn, *, target_session, budget_seconds=3600, wait=False, resume_jo
                     or (actual != expected and (window_policy.enabled(strategy)
                                                 or isinstance(expected, FormationWindow)))):
                 pub = None
-        if is_rolling(pub) and pub.window_end == target_session:
+        if (not force_action_reobserve and is_rolling(pub)
+                and pub.window_end == target_session):
             with pinned(conn) as held:
                 binding = snapshots._bound(conn,held)
                 original = rolling_jobs.status(conn,binding['job_id'])['request']['strategy_sha256']

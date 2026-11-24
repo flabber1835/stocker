@@ -509,12 +509,13 @@ async def _execute_current_paper_plan(
                     conn, state=state, plan=plan, broker=broker)
             # Retain canonical sizing independently of optional pre-open
             # evidence. Known material events become per-security restrictions.
-            target_projection = _target_projection_or_refuse(
-                conn, state=state, plan=plan, binding=binding,
-                broker=broker, through=today, actions=actions,
-                target_actions=target_actions,
-                persist_projection=False, opening_prices=opening_prices,
-                allow_restrictions=True)
+            with opening_diagnostics.projection("initial"):
+                target_projection = _target_projection_or_refuse(
+                    conn, state=state, plan=plan, binding=binding,
+                    broker=broker, through=today, actions=actions,
+                    target_actions=target_actions,
+                    persist_projection=False, opening_prices=opening_prices,
+                    allow_restrictions=True)
             opening_diagnostics.mark("initial_projection")
             preflight = await reconciliation.reconcile(
                 broker=broker, conn=conn, binding=None,
@@ -582,12 +583,13 @@ async def _execute_current_paper_plan(
             # present at the first projection boundary.  Re-run all
             # material-action checks over that expanded command set and
             # require the result to equal the immutable pre-read target.
-            target_projection = _target_projection_or_refuse(
-                conn, state=state, plan=plan, binding=binding,
-                broker=broker, through=today, actions=actions,
-                target_actions=target_actions,
-                expected_projection=target_projection, opening_prices=opening_prices,
-                allow_restrictions=True)
+            with opening_diagnostics.projection("final"):
+                target_projection = _target_projection_or_refuse(
+                    conn, state=state, plan=plan, binding=binding,
+                    broker=broker, through=today, actions=actions,
+                    target_actions=target_actions,
+                    expected_projection=target_projection, opening_prices=opening_prices,
+                    allow_restrictions=True)
             from sentinel.execution.share_units import material_restrictions
             from sentinel.core.decision import shadow_target, DEFENSIVE_SECURITY_ID
             symbols = dict(shadow_target(state).tickers)

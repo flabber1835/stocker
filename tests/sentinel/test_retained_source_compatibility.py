@@ -26,7 +26,7 @@ def test_forward_policy_changes_economic_identity_and_never_masks_neighbor_mutat
     if module in checkpoint_source.CANDIDATES:
         expected_candidate = (checkpoint_source.STORAGE_CANDIDATE
                               if module == 'sentinel.rolling_daily_checkpoint'
-                              else checkpoint_source.CANDIDATES[module])
+                              else checkpoint_source.STRATEGY_COMPATIBLE_CANDIDATE)
         assert raw_hash == expected_candidate
         assert contribution == checkpoint_source.BASELINES[module]
     else:

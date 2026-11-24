@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import logging
+from itertools import count
 import subprocess
 import sys
 
@@ -57,6 +58,97 @@ def test_stage_vocabulary_and_cardinality_are_bounded():
         trace.mark('entry')
     with pytest.raises(ValueError, match='unknown or repeated'):
         trace.mark('arbitrary-broker-payload')
+
+
+def test_projection_subphases_are_consecutive_and_bounded(monkeypatch, caplog):
+    ticks = count()
+    monkeypatch.setattr(opening_diagnostics, 'perf_counter_ns',
+                        lambda: next(ticks) * 1_000_000)
+
+    @opening_diagnostics.timed_execution
+    async def operation():
+        with opening_diagnostics.projection('initial'):
+            for phase in opening_diagnostics._PROJECTION_PHASES:
+                opening_diagnostics.projection_phase(phase)
+            opening_diagnostics.projection_phase('state_target')
+            opening_diagnostics.projection_phase('private-account-value')
+        return _Result()
+
+    with caplog.at_level(logging.INFO, logger=opening_stage_log.LOGGER_NAME):
+        asyncio.run(operation())
+    records = [message for message in caplog.messages
+               if message.startswith('paper_projection_phase ')]
+    assert records == [
+        f'paper_projection_phase stage=initial phase={phase} elapsed_ms=1'
+        for phase in opening_diagnostics._PROJECTION_PHASES
+    ]
+    assert 'private-account-value' not in caplog.text
+
+
+def test_projection_refusal_emits_last_phase_without_secret(monkeypatch, caplog):
+    ticks = count()
+    monkeypatch.setattr(opening_diagnostics, 'perf_counter_ns',
+                        lambda: next(ticks) * 1_000_000)
+    refusal = RuntimeError('private account and certificate values')
+
+    @opening_diagnostics.timed_execution
+    async def operation():
+        with opening_diagnostics.projection('final'):
+            opening_diagnostics.projection_phase('state_target')
+            raise refusal
+
+    with caplog.at_level(logging.INFO, logger=opening_stage_log.LOGGER_NAME):
+        with pytest.raises(RuntimeError) as caught:
+            asyncio.run(operation())
+    assert caught.value is refusal
+    assert ('paper_projection_phase stage=final phase=state_target '
+            'elapsed_ms=1') in caplog.messages
+    assert 'private account' not in caplog.text
+
+
+@pytest.mark.parametrize('failed_clock_call', (1, 2))
+def test_projection_clock_failure_preserves_success(monkeypatch, failed_clock_call):
+    ticks = count()
+
+    def failing_clock():
+        tick = next(ticks)
+        if tick == failed_clock_call:
+            raise RuntimeError('diagnostic clock unavailable')
+        return tick * 1_000_000
+
+    monkeypatch.setattr(opening_diagnostics, 'perf_counter_ns', failing_clock)
+
+    @opening_diagnostics.timed_execution
+    async def operation():
+        with opening_diagnostics.projection('initial'):
+            opening_diagnostics.projection_phase('state_target')
+        return _Result()
+
+    result = asyncio.run(operation())
+    assert 'gateway_exit' in result.opening_stages_ms
+
+
+def test_projection_finish_clock_failure_preserves_original_refusal(monkeypatch):
+    ticks = count()
+
+    def failing_clock():
+        tick = next(ticks)
+        if tick == 3:
+            raise RuntimeError('diagnostic clock unavailable')
+        return tick * 1_000_000
+
+    monkeypatch.setattr(opening_diagnostics, 'perf_counter_ns', failing_clock)
+    refusal = RuntimeError('original financial refusal')
+
+    @opening_diagnostics.timed_execution
+    async def operation():
+        with opening_diagnostics.projection('final'):
+            opening_diagnostics.projection_phase('state_target')
+            raise refusal
+
+    with pytest.raises(RuntimeError) as caught:
+        asyncio.run(operation())
+    assert caught.value is refusal
 
 
 def test_preflight_times_a_refusal_and_preserves_its_exception(monkeypatch, caplog):
@@ -208,13 +300,17 @@ def test_logging_failure_cannot_change_terminal_or_gateway_result(monkeypatch):
     @opening_diagnostics.timed_execution
     async def successful_gateway():
         opening_diagnostics.mark('entry')
+        with opening_diagnostics.projection('initial'):
+            opening_diagnostics.projection_phase('state_target')
         return _Result()
 
     assert 'entry' in asyncio.run(successful_gateway()).opening_stages_ms
 
     @opening_diagnostics.timed_execution
     async def refused_gateway():
-        raise RuntimeError('original gateway refusal')
+        with opening_diagnostics.projection('final'):
+            opening_diagnostics.projection_phase('state_target')
+            raise RuntimeError('original gateway refusal')
 
     with pytest.raises(RuntimeError, match='original gateway refusal'):
         asyncio.run(refused_gateway())

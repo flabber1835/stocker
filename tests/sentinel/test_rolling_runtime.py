@@ -571,7 +571,7 @@ def operational_dispatch(conn, alpaca_path, monkeypatch):
     alpaca_path.window = CurrentFormationWindow.through('2026-09-14')
     insert = publication._insert_receipted_publication
     def publish_at_fixture_time(connection, **kwargs):
-        return insert(connection, **dict(kwargs, published_at=NOW))
+        return insert(connection, **dict(kwargs, published_at=op._now()))
     monkeypatch.setattr(publication, '_insert_receipted_publication', publish_at_fixture_time)
     _, strategy = shadow_runtime._strategy()
     job = op.enqueue(conn, strategy_sha256=digest(strategy),
@@ -840,6 +840,7 @@ def test_operational_dispatch_expired_candidate_is_reconstruction_never_prospect
 def test_operational_dispatch_gap_keeps_exact_data_only_recovery_and_provider_refusal(
         conn, operational_dispatch, monkeypatch):
     from sentinel import shadow_budget
+    from sentinel.feed import preparation_wait
     config, _ = operational_dispatch
     first = advance(conn); conn.rollback()
     financial_before = _dispatch_financial_rows(conn)
@@ -859,6 +860,11 @@ def test_operational_dispatch_gap_keeps_exact_data_only_recovery_and_provider_re
         requests.append(kwargs)
         return enqueue(connection, **kwargs)
     monkeypatch.setattr(op, 'enqueue_reconstruction', record_recovery)
+    run = preparation_wait.run
+    def refuse_unexpected_wait(*args, **kwargs):
+        return run(*args, sleep=lambda _seconds: pytest.fail('unexpected acquisition wait'),
+                   **kwargs)
+    monkeypatch.setattr(preparation_wait, 'run', refuse_unexpected_wait)
     # Current-window recovery may acquire the exact missing dated data; this
     # provider fixture deliberately has no Sep15 coverage. Its hard native
     # refusal must not become a backdated publication or prospective authority.
@@ -875,16 +881,24 @@ def test_operational_dispatch_gap_keeps_exact_data_only_recovery_and_provider_re
 
 
 def test_operational_fresh_genesis_rejects_valid_publication_moving_after_source_guard(
-        conn, operational_dispatch, monkeypatch):
+        conn, operational_dispatch, alpaca_path, monkeypatch):
     from sentinel.feed import readers, rolling_store
+    from sentinel.feed.rolling_contract import CurrentFormationWindow
     config, old_binding = operational_dispatch
     # Build another publication through its real signed publisher. Only private
     # provider responses are fixtures; no publication/receipt guard is replaced.
     original = shadow_service._require_operational_source
     observed = []
+    next_close = NOW + timedelta(days=1)
     def move_after_guard(connection):
         original(connection)
         connection.rollback()
+        alpaca_path.window = CurrentFormationWindow.through('2026-09-15')
+        alpaca_path.observed_at = '2026-09-16T00:00:00+00:00'
+        alpaca_path.classifier.observed_at = alpaca_path.observed_at
+        monkeypatch.setattr(op, '_now', lambda: next_close)
+        monkeypatch.setattr(initial, '_now', lambda _: next_close)
+        monkeypatch.setattr(calendar, 'latest_closed_session', lambda now=None: '2026-09-15')
         _, strategy = shadow_runtime._strategy()
         job = op.enqueue(connection, strategy_sha256=digest(strategy),
                          dependencies_sha256=digest('valid-native-publication-movement'))
@@ -901,7 +915,7 @@ def test_operational_fresh_genesis_rejects_valid_publication_moving_after_source
         connection.rollback()
     monkeypatch.setattr(shadow_service, '_require_operational_source', move_after_guard)
     with pytest.raises(shadow_service.ShadowServiceRefused, match='UNREVIEWED_GENESIS_PUBLICATION'):
-        shadow_recovery.advance_once(config, now=NOW)
+        shadow_recovery.advance_once(config, now=next_close)
     assert len(observed) == 1 and origin.read(conn) is None
     assert authority.latest(conn, OBS) == []
     assert _dispatch_financial_rows(conn)[1:] == [0, 0, 0]

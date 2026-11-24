@@ -56,6 +56,10 @@ def test_admitted_target_survives_preflight_and_restart(
     opened,_=calendar.session_window(calendar.next_session(missing))
     monkeypatch.setattr(initial,'_now',lambda c:opened+timedelta(minutes=20))
     conn.rollback()
+    from sentinel.feed import preparation_wait
+    original_wait = preparation_wait.run
+    monkeypatch.setattr(preparation_wait, 'run', lambda *args, **kwargs:
+        original_wait(*args, **kwargs, sleep=lambda _: pytest.fail('unexpected acquisition wait')))
     result=recovery.advance_one(conn,through=missing,observation_id=OBS,starting_cash=50000)
     assert result.session==missing and result.verification_scope=='ROLLING_RECONSTRUCTION_ONLY'
     assert result.state.strategy_identity==current['strategy']
@@ -71,6 +75,8 @@ def test_admitted_target_survives_preflight_and_restart(
         if input_state!='dated':
             assert pub.evidence['operational_recovery']['historical_availability_claim'] is False
             assert pub.evidence['operational_recovery']['broker_authority'] is False
+        if input_state == 'dated':
+            assert pub.evidence['operational_supersession']['schema'] == snapshots.RECOVERY_SUPERSESSION_SCHEMA
         if stale_job:
             assert pub.version>stale['data_version'] and binding['job_id']!=stale_job
             retained=rolling_jobs.status(conn,stale_job)

@@ -39,6 +39,19 @@ def structural_action_date(kind: str, record: dict) -> str | None:
     return value
 
 
+def action_effective_session(day: str) -> str:
+    """Place a validated structural action on its first XNYS session."""
+    if not isinstance(day, str):
+        raise AlpacaTransportRefused('structural action date is invalid')
+    try:
+        if date.fromisoformat(day).isoformat() != day:
+            raise ValueError
+    except ValueError:
+        raise AlpacaTransportRefused('structural action date is invalid') from None
+    from sentinel.feed import calendar
+    return calendar.session_on_or_after(day)
+
+
 def cash_dividend(record: dict, *, axis: set[str], retain_historical: bool = False) -> dict | None:
     """Return one usable USD cash event; malformed selected events are refused."""
     symbol = str(record.get("symbol") or "").strip().upper()

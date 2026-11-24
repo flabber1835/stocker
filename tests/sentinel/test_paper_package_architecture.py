@@ -229,6 +229,7 @@ def test_equivalence_manifest_covers_every_canonical_definition():
                     node.decorator_list.clear()
                 if node.name == '_validate_broker_grant':
                     _check_broker_grant_frontier_delta(node, record)
+                _check_and_remove_opening_projection_delta(node)
                 _check_and_remove_backup_gate_delta(node)
                 normalized = ast.dump(
                     node, annotate_fields=True, include_attributes=False)
@@ -238,6 +239,85 @@ def test_equivalence_manifest_covers_every_canonical_definition():
                         f"unreviewed canonical paper definition: {module_name}.{node.name}")
     assert actual == expected
     assert not unreviewed, "\n".join(unreviewed)
+
+
+def _check_and_remove_opening_projection_delta(node):
+    """Restore only the six timed phases and two exact projection call scopes."""
+    if node.name == '_target_projection_or_refuse':
+        assert len(node.body) > 24 and isinstance(node.body[24], ast.Try), (
+            'opening projection phase parent changed')
+        outer, inner = node.body, node.body[24].body
+        markers = (
+            (outer, 1, 'state_target'),
+            (outer, 4, 'mutable_inputs'),
+            (outer, 18, 'action_inputs'),
+            (inner, 0, 'unit_projection'),
+            (inner, 2, 'policy_resolution'),
+            (inner, 5, 'finalization'),
+        )
+        for statements, index, phase in markers:
+            expected = ast.parse(
+                f'opening_diagnostics.projection_phase({phase!r})').body[0]
+            assert index < len(statements) and ast.dump(statements[index]) == ast.dump(expected), (
+                f'opening projection phase moved or changed: {phase}')
+        for statements, indices in ((outer, (18, 4, 1)), (inner, (5, 2, 0))):
+            for index in indices:
+                del statements[index]
+    elif node.name == '_execute_current_paper_plan':
+        expected_owner = ast.parse(
+            'with feed_inputs.pinned(conn, commit=False) as pinned, '
+            'structural_verification.callback(conn) as proof_scope:\n    pass'
+        ).body[0]
+        owners = [candidate for candidate in ast.walk(node)
+                  if isinstance(candidate, ast.With)
+                  and [ast.dump(item) for item in candidate.items] ==
+                  [ast.dump(item) for item in expected_owner.items]]
+        assert len(owners) == 1, 'opening projection scope parent changed'
+        statements = owners[0].body
+        for index, stage in ((41, 'initial'), (51, 'final')):
+            expected = ast.parse(
+                f'with opening_diagnostics.projection({stage!r}):\n    pass'
+            ).body[0].items[0]
+            assert index < len(statements) and isinstance(statements[index], ast.With), (
+                f'opening projection scope moved: {stage}')
+            wrapper = statements[index]
+            assert len(wrapper.items) == 1 and ast.dump(wrapper.items[0]) == ast.dump(expected), (
+                f'opening projection scope changed: {stage}')
+            assert len(wrapper.body) == 1 and isinstance(wrapper.body[0], ast.Assign), (
+                f'opening projection body changed: {stage}')
+            assignment = wrapper.body[0]
+            assert (len(assignment.targets) == 1
+                    and ast.dump(assignment.targets[0]) == ast.dump(
+                        ast.Name(id='target_projection', ctx=ast.Store()))
+                    and isinstance(assignment.value, ast.Call)
+                    and ast.dump(assignment.value.func) == ast.dump(
+                        ast.Name(id='_target_projection_or_refuse', ctx=ast.Load()))), (
+                f'opening projection call changed: {stage}')
+        for index in (51, 41):
+            statements[index:index + 1] = statements[index].body
+
+
+@pytest.mark.parametrize('defect', ('missing_phase', 'moved_phase', 'changed_scope'))
+def test_opening_projection_equivalence_witness_rejects_other_deltas(defect):
+    module, name = (('execution', '_execute_current_paper_plan')
+                    if defect == 'changed_scope' else
+                    ('targets', '_target_projection_or_refuse'))
+    tree = ast.parse((PACKAGE / f'{module}.py').read_text(encoding='utf-8'))
+    node = next(item for item in tree.body
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and item.name == name)
+    if defect == 'missing_phase':
+        del node.body[1]
+    elif defect == 'moved_phase':
+        node.body[1], node.body[2] = node.body[2], node.body[1]
+    else:
+        owner = next(item for item in ast.walk(node)
+                     if isinstance(item, ast.With) and len(item.items) == 2
+                     and isinstance(item.items[0].context_expr, ast.Call)
+                     and ast.unparse(item.items[0].context_expr.func) == 'feed_inputs.pinned')
+        owner.body[41].items[0].context_expr.args[0].value = 'unexpected'
+    with pytest.raises(AssertionError, match='opening projection'):
+        _check_and_remove_opening_projection_delta(node)
 
 
 def _check_broker_grant_frontier_delta(node, record):

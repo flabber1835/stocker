@@ -302,6 +302,7 @@ def test_rounding_cannot_hide_material_unknown_split_in_low_price_history():
 def test_bil_split_price_domains_and_action_record_reach_execution():
     source = object.__new__(AlpacaSource)
     source.identity_bindings = []
+    source.merger_conversions = []
     source.window = SimpleNamespace(start=date.fromisoformat(AXIS[0]),end=date.fromisoformat(AXIS[-1]),
         sessions=list(map(date.fromisoformat,AXIS)))
     source.action_affected,source.reset_after,source.tickers = frozenset(),{},[]

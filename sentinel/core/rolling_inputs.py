@@ -9,8 +9,8 @@ from stock_strategy_shared.wealth_core.feed import SecurityMeta, VendorBar
 
 from sentinel.core.loader import CorpusWindow
 from sentinel.core.spinoffs import map_distributions
-from sentinel.core.session import FeedAnchor
-from sentinel.core.terminal import SPINOFF_ACTIONS, map_terminal_rows
+from sentinel.core.session import FeedAnchor, _path_dependent_security_ids
+from sentinel.core.terminal import SPINOFF_ACTIONS, TerminalKind, TerminalTerms, map_terminal_rows
 from sentinel.feed import (
     action_source, calendar, rolling_store, source_aliases, symbol_identity, tickers_authority,
 )
@@ -52,6 +52,33 @@ def fresh_anchors(bars, meta, known):
             for bar in bars if bar.security_id not in known}
 
 
+def merger_provider_assets(conn, refs):
+    """Read provider UUIDs from the immutable publication, not a live inventory."""
+    from sentinel.feed.alpaca_identity import published_assets
+
+    reference = rolling_store.load_evidence(conn, refs.manifest.reference_sha256)
+    source = rolling_store.load_evidence(conn, refs.manifest.source_evidence_sha256)
+    return {row['ticker']: row['asset_id'] for row in published_assets(reference, source)}
+
+
+def merger_owned_security_ids(prior):
+    return _path_dependent_security_ids(prior.wealth_core, prior.pending)
+
+
+def merger_anchor_bar(session, security_id, ticker, raw_close, signal_close):
+    return VendorBar(session, security_id, ticker, raw_close, None, None,
+                     signal_close=signal_close)
+
+
+def merger_terminal_terms(row, *, session, issuer):
+    """Construct the controller's source-bound terminal from verified conversion facts."""
+    return TerminalTerms(session, row.old_security_id, TerminalKind.CONVERSION,
+        delivered_security_id=row.successor_security_id,
+        delivered_ticker=row.successor_symbol, delivered_issuer_id=issuer,
+        exchange_ratio=row.exchange_ratio,
+        reference='alpaca/stock_merger/' + row.record_id + '/' + row.terms_sha256)
+
+
 class SnapshotReferences:
     def __init__(self, conn, *, candidate_id: str, snapshot_id: str):
         manifest = rolling_store.manifest(conn, candidate_id)
@@ -84,15 +111,25 @@ class SnapshotReferences:
         reference_schema = ("sentinel.rolling-alpaca-openfigi-references/1"
                             if self.manifest.provider == "ALPACA_OPENFIGI" else
                             archive_identifiers.REFERENCES_SCHEMA)
+        merger_schema = (self.manifest.provider == 'ALPACA_OPENFIGI'
+                         and reference.get('schema') == 'sentinel.rolling-alpaca-openfigi-references/4')
+        if self.manifest.provider == 'ALPACA_OPENFIGI' and merger_schema != (
+                self.manifest.normalization_version == ALPACA_NORMALIZATION):
+            raise RollingInputsRefused('UNBOUND_ALPACA_MERGER_NORMALIZATION')
         identity_schema = (self.manifest.provider == 'ALPACA_OPENFIGI'
-                           and reference.get('schema') == 'sentinel.rolling-alpaca-openfigi-references/3')
+                           and reference.get('schema') in (
+                               'sentinel.rolling-alpaca-openfigi-references/3',
+                               'sentinel.rolling-alpaca-openfigi-references/4'))
         cash_schema = (self.manifest.provider == 'ALPACA_OPENFIGI'
                        and reference.get('schema') in ('sentinel.rolling-alpaca-openfigi-references/2',
-                                                     'sentinel.rolling-alpaca-openfigi-references/3'))
-        keys = {'identity_bindings'} if identity_schema else set()
+                                                     'sentinel.rolling-alpaca-openfigi-references/3',
+                                                     'sentinel.rolling-alpaca-openfigi-references/4'))
+        keys = ({'identity_bindings'} if identity_schema else set()) | (
+            {'merger_conversions'} if merger_schema else set())
         if (set(reference) != (keys | {'schema', 'tickers', 'actions', 'cash_observations', 'pending_cash'}
                               if cash_schema else {"schema", "tickers", "actions"})
-                or reference["schema"] != ('sentinel.rolling-alpaca-openfigi-references/3' if identity_schema else
+                or reference["schema"] != ('sentinel.rolling-alpaca-openfigi-references/4' if merger_schema else
+                                          'sentinel.rolling-alpaca-openfigi-references/3' if identity_schema else
                                           'sentinel.rolling-alpaca-openfigi-references/2' if cash_schema else reference_schema)
                 or not isinstance(reference["tickers"], list)
                 or not isinstance(reference["actions"], list)):
@@ -102,10 +139,14 @@ class SnapshotReferences:
             if (source.get('schema') not in (
                     'sentinel.alpaca-openfigi-operational-source/1',
                     'sentinel.alpaca-openfigi-operational-source/2',
-                    'sentinel.alpaca-openfigi-operational-source/3')
+                    'sentinel.alpaca-openfigi-operational-source/3',
+                    'sentinel.alpaca-openfigi-operational-source/4')
                     or (source.get('schema') in (
                         'sentinel.alpaca-openfigi-operational-source/2',
-                        'sentinel.alpaca-openfigi-operational-source/3')) != identity_schema):
+                        'sentinel.alpaca-openfigi-operational-source/3',
+                        'sentinel.alpaca-openfigi-operational-source/4')) != identity_schema
+                    or (source.get('schema') == 'sentinel.alpaca-openfigi-operational-source/4')
+                       != merger_schema):
                 raise RollingInputsRefused('UNBOUND_ALPACA_IDENTITY_SOURCE')
         if identity_schema:
             from sentinel.feed.alpaca_identity import bindings
@@ -120,6 +161,13 @@ class SnapshotReferences:
                 if any(row['permaticker'] != value.security_id for row in reference['tickers']
                        if row['ticker'] == value.ticker) or len(matches) > 1:
                     raise RollingInputsRefused('UNBOUND_ALPACA_IDENTITY_REFERENCE')
+        self.merger_conversions = ()
+        if merger_schema:
+            from sentinel.feed.alpaca_identity import conversions
+
+            if source.get('merger_conversions_sha256') != digest(reference['merger_conversions']):
+                raise RollingInputsRefused('UNBOUND_ALPACA_MERGER_DIGEST')
+            self.merger_conversions = tuple(conversions(reference['merger_conversions']))
         self.cash_observations = reference.get('cash_observations', [])
         self.pending_cash = reference.get('pending_cash', [])
         if not isinstance(self.cash_observations, list) or not isinstance(self.pending_cash, list):

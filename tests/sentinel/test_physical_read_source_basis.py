@@ -180,17 +180,32 @@ def test_unknown_batch_storage_or_sql_cannot_inherit_original_compiler_identity(
 def test_alpaca_page_mapping_requires_exact_compiler_and_read_dependencies(name, monkeypatch):
     path = Path(importlib.import_module(basis.ALPACA_PAGE_COMPILER).__file__)
     raw = path.read_bytes()
-    assert economic_manifest.page_contribution(basis.ALPACA_PAGE_COMPILER, raw) == basis.ALPACA_PAGE_BEFORE
+    assert hashlib.sha256(raw).hexdigest() == '783673e2d2733492c699034414295aa3e528b717eb82507ef03ef7d7fb6db0cd'
+    assert economic_manifest.page_contribution(basis.ALPACA_PAGE_COMPILER, raw) == hashlib.sha256(raw).hexdigest()
 
-    tampered = raw.replace(b'ORDER BY p.ticker', b'ORDER BY p.ticker DESC', 1)
-    assert tampered != raw
+    current_policy = (b'ALPACA_NORMALIZATION_HISTORICAL = (\n'
+                      b'    "sentinel.alpaca-openfigi-dividend-current-window/2",\n'
+                      b'    "sentinel.alpaca-openfigi-dividend-current-window/3",\n'
+                      b')\n'
+                      b'ALPACA_NORMALIZATION = "sentinel.alpaca-openfigi-dividend-current-window/4"')
+    previous_policy = (b'ALPACA_NORMALIZATION_HISTORICAL = '
+                       b'("sentinel.alpaca-openfigi-dividend-current-window/2",)\n'
+                       b'ALPACA_NORMALIZATION = "sentinel.alpaca-openfigi-dividend-current-window/3"')
+    assert raw.count(current_policy) == 1
+    historical = raw.replace(current_policy, previous_policy)
+    predecessor = economic_manifest._retired_source_profile()['reverse'][basis.ALPACA_PAGE_COMPILER]['after']
+    assert hashlib.sha256(historical).hexdigest() == predecessor
+    assert economic_manifest.page_contribution(basis.ALPACA_PAGE_COMPILER, historical) == basis.ALPACA_PAGE_BEFORE
+
+    tampered = historical.replace(b'ORDER BY p.ticker', b'ORDER BY p.ticker DESC', 1)
+    assert tampered != historical
     assert economic_manifest.page_contribution(basis.ALPACA_PAGE_COMPILER, tampered) == hashlib.sha256(tampered).hexdigest()
 
     read = Path.read_bytes
     dependency = path.with_name(name)
     monkeypatch.setattr(Path, 'read_bytes',
                         lambda self: read(self) + b'\n# unknown read change\n' if self == dependency else read(self))
-    assert economic_manifest.page_contribution(basis.ALPACA_PAGE_COMPILER, raw) == hashlib.sha256(raw).hexdigest()
+    assert economic_manifest.page_contribution(basis.ALPACA_PAGE_COMPILER, historical) == hashlib.sha256(historical).hexdigest()
 
 
 def test_other_modules_never_gain_physical_mapping():
@@ -198,10 +213,11 @@ def test_other_modules_never_gain_physical_mapping():
     assert basis.contribution('sentinel.core.input_domains',raw)==hashlib.sha256(raw).hexdigest()
 
 
-def test_unsealed_mapping_cannot_retain_the_original_strategy(monkeypatch):
-    assert digest(production_strategy()[1])=='caab7a1872fe4ec178aec659716a4bc70c0cd5ea79a88e33ffacd2ae0c7cf095'
+def test_unsealed_mapping_cannot_retain_the_current_strategy(monkeypatch):
+    current_strategy = '421a1697353ced9bdb0efba82150e900265c8f1bb7e296dbb7f6423b40a6cc81'
+    assert digest(production_strategy()[1]) == current_strategy
     monkeypatch.setattr(basis,'PROFILE_SHA256','0'*64)
-    assert digest(production_strategy()[1])!='caab7a1872fe4ec178aec659716a4bc70c0cd5ea79a88e33ffacd2ae0c7cf095'
+    assert digest(production_strategy()[1]) != current_strategy
 
 
 def test_tampered_physical_witness_refuses(monkeypatch,tmp_path):

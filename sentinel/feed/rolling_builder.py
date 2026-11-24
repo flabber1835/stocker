@@ -161,8 +161,11 @@ def _build(conn, lease, request, source):
         return candidate
 
 
-ALPACA_NORMALIZATION_HISTORICAL = ("sentinel.alpaca-openfigi-dividend-current-window/2",)
-ALPACA_NORMALIZATION = "sentinel.alpaca-openfigi-dividend-current-window/3"
+ALPACA_NORMALIZATION_HISTORICAL = (
+    "sentinel.alpaca-openfigi-dividend-current-window/2",
+    "sentinel.alpaca-openfigi-dividend-current-window/3",
+)
+ALPACA_NORMALIZATION = "sentinel.alpaca-openfigi-dividend-current-window/4"
 MIN_ADMITTED_COMMON_STOCKS = 500
 MIN_ALPACA_ADMITTED_PERCENT = 95
 

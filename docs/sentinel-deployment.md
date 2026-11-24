@@ -6,6 +6,10 @@ verified validation, progress, dashboard, and scheduler paths at market close.
 [Closing observation continuity](close-price-observation-continuity.md) records
 the forward-only transition and recovery through corrected historical SIP closes.
 
+[Alpaca merger controller continuity](alpaca-merger-controller-continuity.md)
+defines source-bound conversion of unheld Median-5 witnesses and immutable
+same-session correction without broker or historical-order authority.
+
 [PAPER installation progress](paper-install-observation.md) describes the
 live host phase visible during a dashboard handoff and the checks that bind
 runtime selection to the signed image and the fenced database.

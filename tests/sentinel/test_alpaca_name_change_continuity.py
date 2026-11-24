@@ -74,6 +74,7 @@ def test_unit_delivery_does_not_reset_a_common_stock_recipient():
 @pytest.mark.parametrize('fault', ['', 'changed_asset', 'unproved_asset', 'ambiguous_cusip', 'missing_rate'])
 def test_stock_merger_preserves_only_the_proven_receiving_asset(monkeypatch, fault):
     from sentinel.feed.alpaca_observation import admissible_history
+    from sentinel.feed.alpaca_pending import AlpacaSourcePending
     from sentinel.feed.alpaca_source import AlpacaSource
 
     window = PriceWindow.through('2026-09-15')
@@ -102,6 +103,11 @@ def test_stock_merger_preserves_only_the_proven_receiving_asset(monkeypatch, fau
         'previous_snapshot_id': digest('accepted predecessor'),
     }
     monkeypatch.setattr(source, '_previous_identity', lambda: prior)
+    if fault == 'changed_asset':
+        # The merger proves LSI's exit, not the new EXR provider identity.
+        with pytest.raises(AlpacaSourcePending, match='ALPACA_IDENTITY_ACTION_PENDING:EXR'):
+            source._action_rows()
+        return
     action_data, *_ = source._action_rows()
     assert action_data['reset_after']['LSI'] == session
     assert ('EXR' in action_data['reset_after']) is bool(fault)
@@ -203,18 +209,19 @@ def test_daily_name_change_preserves_held_or_leadership_economics_and_restart(co
 
 
 def test_unproven_controller_identity_replacement_retains_original_book(conn,provider):
-    from sentinel import rolling_initialization as initial,rolling_daily as daily,rolling_daily_checkpoint
-    from sentinel.rolling_reconstruction_evidence import InputsUnavailable
+    from sentinel import rolling_initialization as initial,rolling_daily_checkpoint
+    from sentinel.feed import operational_snapshot as op
+    from sentinel.feed.alpaca_pending import AlpacaSourcePending
     prices,publish=provider
-    publish();before=initial.initialize(conn,observation_id=OBS,starting_cash=50_000)
+    origin=publish();before=initial.initialize(conn,observation_id=OBS,starting_cash=50_000)
     sid=before.state.median5['selected'][0]
     ticker=before.state.feed['series'][sid]['ticker']
     day=calendar.next_session(before.state.last_processed_session)
     prices.window=PriceWindow.through(day)
     change_provider(prices,ticker=ticker,previous_id=sid,day=day,with_event=False)
-    publish()
-    with pytest.raises(InputsUnavailable,match='HELD_ECONOMIC_INPUT_PENDING'):
-        daily.advance(conn,observation_id=OBS,starting_cash=50_000)
+    with pytest.raises(AlpacaSourcePending,match='ALPACA_IDENTITY_ACTION_PENDING'):
+        publish()
+    assert op._current(conn).version==origin['data_version']
     conn.rollback()
     _,_,restored=rolling_daily_checkpoint.load(conn,initial._context(OBS,50_000))
     assert restored.state.state_hash==before.state.state_hash
@@ -224,6 +231,7 @@ def test_unproven_controller_identity_replacement_retains_original_book(conn,pro
 def test_old_source_policy_cannot_satisfy_fresh_readiness(conn,provider,monkeypatch,legacy_policy):
     from sentinel import rolling_initialization as initial
     from sentinel.feed import alpaca_source,rolling_go_inputs
+    from sentinel.core.rolling_inputs import RollingInputsRefused
     prices,publish=provider
     publish();before=initial.initialize(conn,observation_id=OBS,starting_cash=50_000)
     prices.window=PriceWindow.through(calendar.next_session(before.state.last_processed_session))
@@ -231,13 +239,16 @@ def test_old_source_policy_cannot_satisfy_fresh_readiness(conn,provider,monkeypa
     original=alpaca_source.AlpacaSource.reference_payload
     def legacy_reference(self):
         value=original(self)
+        value.pop('merger_conversions')
         if legacy_policy=='1':
             value.pop('identity_bindings')
             return value | dict(schema='sentinel.rolling-alpaca-openfigi-references/2')
-        return value
+        return value | dict(schema='sentinel.rolling-alpaca-openfigi-references/3')
     monkeypatch.setattr(alpaca_source,'SOURCE','sentinel.alpaca-openfigi-operational-source/'+legacy_policy)
     monkeypatch.setattr(alpaca_source.AlpacaSource,'reference_payload',legacy_reference)
-    publish()
+    with pytest.raises(RollingInputsRefused,match='UNBOUND_ALPACA_MERGER_NORMALIZATION'):
+        publish()
+    conn.rollback()
     monkeypatch.setattr(alpaca_source,'SOURCE',current)
     monkeypatch.setattr(alpaca_source.AlpacaSource,'reference_payload',original)
     def fresh_acquisition(*_args,**_kwargs):
@@ -270,5 +281,8 @@ def test_source_and_identity_reference_must_agree(conn,alpaca_path,monkeypatch,m
                 schema='sentinel.rolling-alpaca-openfigi-references/2')
         return value
     monkeypatch.setattr(rolling_store,'load_evidence',mixed)
-    with pytest.raises(RollingInputsRefused,match='UNBOUND_ALPACA_IDENTITY'):
+    expected=('UNBOUND_ALPACA_MERGER_NORMALIZATION'
+              if mismatch in ('new_source_old_reference','unknown_source_old_reference')
+              else 'UNBOUND_ALPACA_IDENTITY')
+    with pytest.raises(RollingInputsRefused,match=expected):
         SnapshotReferences(conn,candidate_id=binding['candidate_id'],snapshot_id=binding['snapshot_id'])

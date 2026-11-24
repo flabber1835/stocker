@@ -188,7 +188,8 @@ def test_shadow_service_requires_reviewed_shadow_capable_mode(mode):
             _env(SENTINEL_REVIEWED_DEPLOYMENT_MODE=mode))
 
 
-@pytest.mark.parametrize("transient", [True, False, "deadline", "source_wait", "frontier_wait"])
+@pytest.mark.parametrize("transient", [True, False, "deadline", "source_wait",
+                                     "frontier_wait", "merger_action_wait", "alpaca_source_wait"])
 def test_rolling_service_preserves_availability_retry_and_integrity_refusal(monkeypatch, transient):
     from sentinel import rolling_runtime
     from sentinel.feed import alpaca_transport, provider_budget
@@ -209,6 +210,12 @@ def test_rolling_service_preserves_availability_retry_and_integrity_refusal(monk
         if transient == "source_wait":
             from sentinel.feed.source_wait import SourceCoveragePending
             raise SourceCoveragePending({"session": "2026-09-15"})
+        if transient == "merger_action_wait":
+            from sentinel.core.window_continuity import MergerActionPending
+            raise MergerActionPending('2026-09-15', 'old-provider-id')
+        if transient == "alpaca_source_wait":
+            from sentinel.feed.alpaca_pending import AlpacaSourcePending
+            raise AlpacaSourcePending('ALPACA_ACTION_REOBSERVATION_PENDING')
         if transient == "deadline":
             from sentinel.feed.rolling_jobs import JobDeadlineExceeded
             raise JobDeadlineExceeded("elapsed")
@@ -218,7 +225,8 @@ def test_rolling_service_preserves_availability_retry_and_integrity_refusal(monk
         raise rolling_runtime.Refused("CHECKPOINT_CHANGED")
     monkeypatch.setattr(rolling_runtime, "service_advance", unavailable)
     expected = shadow_service.ShadowServiceRetry if transient else shadow_service.ShadowServiceRefused
-    if transient in {"source_wait", "frontier_wait"}:
+    if transient in {"source_wait", "frontier_wait", "merger_action_wait",
+                     "alpaca_source_wait"}:
         expected = shadow_service.ShadowServiceWaiting
     with pytest.raises(expected) as caught:
         shadow_service.advance_once(cfg)

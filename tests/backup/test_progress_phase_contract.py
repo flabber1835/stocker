@@ -27,6 +27,8 @@ def test_native_renewal_progress_uses_real_guard(database, boundary, monkeypatch
     import tests.backup.test_recurring_maintenance as harness
     from sentinel_backup_publication import base_transition_sql
     monkeypatch.setattr(harness,'NOW',int(time.time()))
+    # Exercise the progress guard regardless of the wall-clock market window.
+    monkeypatch.setattr(harness.retention,'market_reservation',lambda _at:False)
     before = 'base-20260918T120000Z'
     after = boundary.name
     boundary.name, boundary.old = before, True

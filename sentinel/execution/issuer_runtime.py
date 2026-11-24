@@ -59,7 +59,8 @@ def reference_instruments(conn, publication):
     reference = rolling_store.load_evidence(
         conn, publication.evidence['rolling_snapshot']['reference_sha256'])
     if reference.get('schema') not in ('sentinel.rolling-alpaca-openfigi-references/2',
-                                        'sentinel.rolling-alpaca-openfigi-references/3'):
+                                        'sentinel.rolling-alpaca-openfigi-references/3',
+                                        'sentinel.rolling-alpaca-openfigi-references/4'):
         raise admission.IssuerAdmissionRefused('ISSUER_REFERENCE_IDENTITY_SCHEMA_CHANGED')
     inherited = {value.provider_asset_id: value
         for value in alpaca_identity.bindings(reference.get('identity_bindings', []))}
