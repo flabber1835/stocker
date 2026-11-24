@@ -351,11 +351,29 @@ def test_removed_read_reuse_is_detected_by_real_work_counts(conn, checkpoints, m
 def test_exact_wrapper_reconstructs_the_independently_archived_module(name):
     records = predecessors()
     raw = Path(importlib.import_module(name).__file__).read_bytes()
-    expected = basis.STORAGE_CANDIDATE if name == 'sentinel.rolling_daily_checkpoint' else basis.CANDIDATES[name]
+    expected = (basis.STORAGE_CANDIDATE if name == 'sentinel.rolling_daily_checkpoint'
+                else basis.STRATEGY_COMPATIBLE_CANDIDATE)
     assert sha(raw) == expected
     before = basis.predecessor(name, raw)
     assert before == records[name]['source'].encode()
     assert semantic.canonical_contribution(name, raw) == semantic.canonical_contribution(name, before)
+
+
+@pytest.mark.parametrize('before,after,reason', [
+    (b'return compatible(prior, selected)', b'return True',
+     'CHECKPOINT_STRATEGY_HELPER_RECIPE_CHANGED'),
+    (b'if payload != checkpoint.model_dump',
+     b'if False and payload != checkpoint.model_dump',
+     'CHECKPOINT_STRATEGY_HELPER_PREDECESSOR_CHANGED'),
+])
+def test_strategy_compatibility_source_recipe_rejects_changed_helper_or_neighbor(
+        monkeypatch, before, after, reason):
+    raw = Path(origin.__file__).read_bytes()
+    assert raw.count(before) == 1
+    changed = raw.replace(before, after, 1)
+    monkeypatch.setattr(basis, 'STRATEGY_COMPATIBLE_CANDIDATE', sha(changed))
+    with pytest.raises(ValueError, match=reason):
+        basis.predecessor('sentinel.rolling_checkpoint', changed)
 
 
 def test_storage_source_transition_refuses_a_changed_codec(monkeypatch, tmp_path):
@@ -417,11 +435,12 @@ def test_profile_missing_tamper_duplicate_and_unknown_module_are_refused(monkeyp
     assert basis.predecessor('unreviewed.module', b'unknown') == b'unknown'
 
 
-def test_full_economic_manifest_bytes_and_prior_action_witness_remain_unchanged():
+def test_full_economic_manifest_retains_prior_witness_and_names_current_successor():
     from sentinel import economic_manifest, operation_read_source_basis
     value = economic_manifest.identity(schema='checkpoint-read-qualification')
-    assert value['economic_implementation']['preserved_behavior'] is True
-    assert value['sha256'] == economic_manifest.PREDECESSOR_DATA_SEMANTICS_SHA256
+    assert value['economic_implementation']['preserved_behavior'] is False
+    assert value['sha256'] == '4e0527eb06780b744fefeadc47e2b18c2cdaacfa77ffa24946a569c5e59b0b1b'
+    assert value['sha256'] != economic_manifest.PREDECESSOR_DATA_SEMANTICS_SHA256
     assert operation_read_source_basis._profile()['base_revision'] == '277160861e2353d8ad93d15da8e2615ebdb11c18'
 
 

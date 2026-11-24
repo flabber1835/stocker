@@ -54,7 +54,13 @@ def test_profile_and_module_authentication(tmp_path, monkeypatch, kind):
 @pytest.mark.parametrize('name', sorted(upgrade.ADDITIONS))
 def test_identity_addition_is_exactly_pinned(name):
     actual=hashlib.sha256((Path(upgrade.__file__).parent/name).read_bytes()).hexdigest()
-    assert upgrade.additions_allowed({name:actual})=={name}
+    reviewed = upgrade.profile()['additions'][name]
+    assert upgrade.additions_allowed({name:reviewed})=={name}
+    if actual != reviewed:
+        # The merger-capable successor is sealed separately; the historical
+        # close-cycle addition cannot silently admit its new bytes.
+        assert name == 'feed/alpaca_identity.py'
+        assert upgrade.additions_allowed({name:actual})==set()
     assert upgrade.additions_allowed({name:'f'*64})==set()
     assert upgrade.additions_allowed({'feed/unreviewed_identity.py':actual})==set()
 

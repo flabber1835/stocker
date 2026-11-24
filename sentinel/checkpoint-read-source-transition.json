@@ -1,7 +1,7 @@
 {
   "authority_effect": "NONE",
   "base_revision": "e4d8671cb84af325fb5000cf8eaa2a4e0cf454c7",
-  "module_sha256": "beb5443e3149c0ff6b1af869638b495227c0783167c81db4354ee4210a7abb62",
+  "module_sha256": "8c794417acd08cf475b1309a78d972cdf191114749ad65a6c87cf0e4cf421b15",
   "readers": {
     "sentinel.rolling_checkpoint": {
       "after": "5ad70f4e6fef66ede7392bf7371693cac808046ff47e7657349438a51d70058b",

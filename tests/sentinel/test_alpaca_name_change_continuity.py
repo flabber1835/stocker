@@ -74,6 +74,7 @@ def test_unit_delivery_does_not_reset_a_common_stock_recipient():
 @pytest.mark.parametrize('fault', ['', 'changed_asset', 'unproved_asset', 'ambiguous_cusip', 'missing_rate'])
 def test_stock_merger_preserves_only_the_proven_receiving_asset(monkeypatch, fault):
     from sentinel.feed.alpaca_observation import admissible_history
+    from sentinel.feed.alpaca_pending import AlpacaSourcePending
     from sentinel.feed.alpaca_source import AlpacaSource
 
     window = PriceWindow.through('2026-09-15')
@@ -102,6 +103,11 @@ def test_stock_merger_preserves_only_the_proven_receiving_asset(monkeypatch, fau
         'previous_snapshot_id': digest('accepted predecessor'),
     }
     monkeypatch.setattr(source, '_previous_identity', lambda: prior)
+    if fault == 'changed_asset':
+        # The merger proves LSI's exit, not the new EXR provider identity.
+        with pytest.raises(AlpacaSourcePending, match='ALPACA_IDENTITY_ACTION_PENDING:EXR'):
+            source._action_rows()
+        return
     action_data, *_ = source._action_rows()
     assert action_data['reset_after']['LSI'] == session
     assert ('EXR' in action_data['reset_after']) is bool(fault)

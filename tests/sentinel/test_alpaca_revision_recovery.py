@@ -9,7 +9,7 @@ from sentinel.feed import rolling_jobs as jobs, rolling_store
 from sentinel.feed.acquisition_parts import MAX_SUCCESSORS
 from sentinel.feed.alpaca_source import AlpacaSource
 from sentinel.feed.alpaca_transport import ACTION_URL, ASSETS, BAR_URL
-from sentinel.feed.rolling_contract import digest
+from sentinel.feed.rolling_contract import PriceWindow, digest
 from tests.sentinel.test_alpaca_operational_snapshot import alpaca_path  # noqa: F401
 from tests.sentinel.test_rolling_snapshot_publisher import conn, pg  # noqa: F401
 
@@ -51,12 +51,19 @@ def test_fresh_equal_partitions_share_verified_payload_without_reusing_observati
     monkeypatch.setattr(retention, 'maintain', lambda *_a, **_k: None)
     original = alpaca_path.pages
     revision = [0]
+    def next_close(day):
+        # Each publication advances the frontier; an equal same-session /4
+        # observation is not a valid merger correction.
+        alpaca_path.window = PriceWindow.through(day)
+        monkeypatch.setattr(op, '_now',
+            lambda: datetime.fromisoformat(day + 'T23:00:00+00:00'))
+        monkeypatch.setattr(op.calendar, 'latest_closed_session', lambda now=None: day)
     def pages(endpoint, params, *, key):
         for values, proof in original(endpoint, params, key=key):
             if endpoint == BAR_URL and revision[0] == 2:
                 values = deepcopy(values)
                 for row in values.get('AAA', []):
-                    if row['t'][:10] == str(alpaca_path.window.end):
+                    if row['t'][:10] == '2026-09-15':
                         row['c'] += 1
             yield values, {**proof, 'observed_at':f'2026-09-15T00:00:0{revision[0]}+00:00'}
     monkeypatch.setattr(alpaca_path, 'pages', pages)
@@ -65,9 +72,11 @@ def test_fresh_equal_partitions_share_verified_payload_without_reusing_observati
     initial_bytes = conn.execute("SELECT pg_total_relation_size('sentinel_acquisition_prices')").fetchone()[0]
     requests = sum(endpoint == BAR_URL for endpoint, _ in alpaca_path.calls)
     revision[0] = 1
+    next_close('2026-09-15')
     second = op.prepare(conn, enqueue(conn))
     assert sum(endpoint == BAR_URL for endpoint, _ in alpaca_path.calls) == 2 * requests
-    assert conn.execute('SELECT count(*) FROM sentinel_acquisition_prices').fetchone()[0] == rows
+    second_rows = conn.execute('SELECT count(*) FROM sentinel_acquisition_prices').fetchone()[0]
+    assert rows < second_rows < 2 * rows
     shared_bytes = conn.execute("SELECT pg_total_relation_size('sentinel_acquisition_prices')").fetchone()[0]
     shared = conn.execute('SELECT l.part_id,l.payload_part_id,a.manifest,b.manifest '
         'FROM sentinel_acquisition_price_links l JOIN sentinel_acquisition_parts a ON a.part_id=l.part_id '
@@ -78,13 +87,19 @@ def test_fresh_equal_partitions_share_verified_payload_without_reusing_observati
     assert all(conn.execute('SELECT sentinel_acquisition_part_pinned(%s)', (root,)).fetchone()[0]
                for _, root, _, _ in shared)
     revision[0] = 2
+    next_close('2026-09-16')
     third = op.prepare(conn, enqueue(conn))
     assert third['snapshot_id'] != second['snapshot_id']
-    added = conn.execute('SELECT count(*) FROM sentinel_acquisition_prices').fetchone()[0] - rows
+    def prior_close(candidate):
+        return next(row.close_unadjusted for row in rolling_store.read_bars(
+            conn, candidate, start='2026-09-15', end='2026-09-15')
+            if row.ticker == 'AAA')
+    assert prior_close(third['candidate_id']) == prior_close(second['candidate_id']) + 1
+    added = conn.execute('SELECT count(*) FROM sentinel_acquisition_prices').fetchone()[0] - second_rows
     assert 0 < added < rows
     record_property('fresh_baseline_rows', rows)
-    record_property('equal_refresh_additional_rows', 0)
-    record_property('changed_refresh_additional_rows', added)
+    record_property('next_session_additional_rows', second_rows - rows)
+    record_property('changed_next_session_additional_rows', added)
     record_property('baseline_price_relation_bytes', initial_bytes)
     record_property('equal_refresh_price_relation_bytes', shared_bytes)
     record_property('bar_requests_per_complete_observation', requests)

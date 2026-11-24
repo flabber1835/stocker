@@ -118,6 +118,18 @@ it supports current-information state recovery only, never a backdated plan or
 broker command. Reobservation stops at the relevant market-time boundary and
 retains an explicit pending or blocked reason if Alpaca has not supplied terms.
 
+The same-session correction admission checks the retained checkpoint's strategy
+with the already reviewed `economic_migration.compatible` predicate. Its
+`rolling_checkpoint.compatible_strategy` forwarding helper changes neither a
+checkpoint read nor its signed value. The checkpoint source-basis reader may
+recover the archived candidate only from the exact reviewed helper bytes in an
+exactly pinned current module; it removes that helper and must reconstruct the
+archived module byte for byte. A changed helper body or neighboring checkpoint
+logic loses the historical economic-source equivalence. The close-cycle source
+profile remains pinned to its original `alpaca_identity` bytes; the new
+merger-capable identity module is authenticated by the current source seal, not
+admitted as an unchanged close-cycle addition.
+
 Qualification must falsify missing action on both first reads for a vanished
 acquiree and a same-symbol new UUID, then show that a later complete record is
 fetched afresh and the exact prior anchor is used once. It must also cover

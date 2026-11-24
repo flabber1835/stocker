@@ -461,9 +461,17 @@ class AlpacaSource:
     def references(self, checkpoint):
         base = {"provider": self.provider, "target": str(self.window.end), 'source_policy': SOURCE,
                 'assets_endpoint': getattr(self.client, 'assets_url', ASSETS)}
+        # A resumed acquisition with retained TICKERS but no ACTIONS needs
+        # a fresh asset read. Backup and classification retries do not.
+        retained = ({row[0] for row in self.conn.execute(
+            'SELECT component FROM sentinel_acquisition_bindings '
+            'WHERE job_id=%s AND component IN (%s,%s)',
+            (self.lease.job_id, 'TICKERS', 'ACTIONS')).fetchall()}
+            if self.lease.fence > 1 else set())
+        recheck_action_wait = 'TICKERS' in retained and 'ACTIONS' not in retained
         refs = self._classified_references(base, checkpoint)
         self.selected = refs["selected"]
-        if self.lease.fence > 1:
+        if recheck_action_wait:
             # A prior action wait left TICKERS retained in this job. A new
             # inventory must either match or earn a fresh revision successor.
             newer, *_ = self._inventory()

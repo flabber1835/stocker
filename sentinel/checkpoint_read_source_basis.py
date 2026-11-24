@@ -12,7 +12,14 @@ BASELINES = {
     'sentinel.rolling_daily_checkpoint': 'b82768e4c925f73bcb14878d245672f93a069d3e7139f7e0f65a5d1762110f3e',
 }
 CANDIDATES = {'sentinel.rolling_checkpoint': '5ad70f4e6fef66ede7392bf7371693cac808046ff47e7657349438a51d70058b', 'sentinel.rolling_daily_checkpoint': '8f93be6f455c17c8b6eeb17ab1bf8a20936338e6dc4da63692e0a6c6caf9d57b'}
-PROFILE_SHA256 = '6b96d8423d13b0bb91f0a6cf4c08dfd148cb5fbac7af3cdf373e29f22dbf2189'
+STRATEGY_COMPATIBLE_CANDIDATE = 'e19a64460e88d76b77bb531168feb8dec0dd1993bf6017741d7033a6c29a65ea'
+_STRATEGY_COMPATIBLE_HELPER = (
+    b'def compatible_strategy(prior, selected):\n'
+    b'    """Use the reviewed retained-book migration predicate at feed admission."""\n'
+    b'    from sentinel.economic_migration import compatible\n'
+    b'    return compatible(prior, selected)\n\n\n'
+)
+PROFILE_SHA256 = '2859dadd45b54b3b26aecf74e742253f06ab8cfd2f3c88e1bf44a2d99bd3df16'
 PROFILE = Path(__file__).with_name('checkpoint-read-source-transition.json')
 _WRAPPER = (b'def read(conn):\n    from sentinel import committed_read\n'
             b'    return committed_read.checkpoint(conn, cursor=CURSOR, read=_read)\n\n\n'
@@ -163,6 +170,12 @@ def _profile():
 
 def predecessor(module, raw):
     """Reverse only the complete sealed wrapper to independently pinned bytes."""
+    if module == 'sentinel.rolling_checkpoint' and _sha(raw) == STRATEGY_COMPATIBLE_CANDIDATE:
+        if raw.count(_STRATEGY_COMPATIBLE_HELPER) != 1:
+            raise ValueError('CHECKPOINT_STRATEGY_HELPER_RECIPE_CHANGED')
+        raw = raw.replace(_STRATEGY_COMPATIBLE_HELPER, b'', 1)
+        if _sha(raw) != CANDIDATES[module]:
+            raise ValueError('CHECKPOINT_STRATEGY_HELPER_PREDECESSOR_CHANGED')
     if module == _CAS_MODULE and _sha(raw) == STORAGE_CANDIDATE:
         if _sha(_STORAGE_HELPER.read_bytes()) != _STORAGE_HELPER_SHA256:
             raise ValueError('CHECKPOINT_STORAGE_SOURCE_CODEC_CHANGED')

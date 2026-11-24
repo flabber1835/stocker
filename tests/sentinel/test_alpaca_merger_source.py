@@ -193,10 +193,12 @@ def test_late_same_symbol_action_retries_original_job_without_publication(
     day = calendar.next_session(str(prices.window.end))
     prices.window = PriceWindow.through(day)
     original_get, original_pages = prices.get, prices.pages
+    asset_observations = []
 
     def changed_asset(endpoint, params):
         assets, proof = original_get(endpoint, params)
         assert endpoint == ASSETS
+        asset_observations.append(True)
         return [({**item, 'id': 'new-uuid-00'} if item['symbol'] == 'T00' else item)
                 for item in assets], proof
 
@@ -230,6 +232,7 @@ def test_late_same_symbol_action_retries_original_job_without_publication(
     reference = rolling_store.load_evidence(conn, manifest.reference_sha256)
     assert [(row['old_provider_asset_id'], row['successor_provider_asset_id'])
             for row in reference['merger_conversions']] == [('uuid-00', 'new-uuid-00')]
+    assert len(asset_observations) == 3
 
 
 @pytest.mark.parametrize('gap', ['latest', 'historical'])
