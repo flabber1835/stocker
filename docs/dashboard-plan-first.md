@@ -1,5 +1,10 @@
 # Plan-first PAPER dashboard
 
+[Trading continuity and panic status](dashboard-trading-continuity.md) supersedes
+this document's older human color rule where an old failed cycle or idle broker
+snapshot would make the current dashboard red. It leaves strict financial rows
+and execution gates in force.
+
 Owner selection, 2026-10-22: implement mockup A. The primary mobile view is a
 compact operational health card, the saved next trading plan, recorded paper
 account totals, and the twenty canonical Wealth Core slots with cooldowns.

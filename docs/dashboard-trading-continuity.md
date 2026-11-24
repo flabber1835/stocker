@@ -1,0 +1,134 @@
+# Dashboard trading continuity and panic status
+
+Decision, 2026-11-24, before implementation. The owner defines a red dashboard
+as a panic signal: unattended trading cannot continue at the next eligible
+opportunity without intervention. This decision supersedes the older rule that
+every active failed operational row makes the human headline red. It changes
+operator presentation and the operational health projection only. It does not
+change the broker, execution, verification, authority, backup, or scheduling
+guards and does not authorize LIVE trading.
+
+## One current continuity decision
+
+Publish a typed, scope-bound `trading_continuity` result from the existing
+authenticated operational snapshot. Use the same result for the HTML headline,
+`/panel.json`, `/operational-health`, and escalation notifications. It has a
+status, controlled reason codes, original evidence times and expiry, the next
+eligible scheduled action when proved, and the row keys that support it. Do not
+derive it from display strings, the worst historical row, a successful HTTP
+response, or the fact that an automation switch says ACTIVE. The decision must
+be recomputed when its original evidence expires; refreshing the page cannot
+extend a proof.
+
+The visible colors have these meanings:
+
+* **Red — trading stopped, action required.** A current fence, exhausted or
+  forbidden recovery, or missing required current proof means the unattended
+  path cannot be shown to resume at its next eligible action without an
+  operator. Examples include the emergency kill, lost current authority or
+  ownership, a critical integrity latch, unresolved broker command outcome,
+  irreconcilable account/position/order evidence, or a required source/backup
+  proof that has no valid automatic recovery path. Say which gate is stopping
+  trading and what action is required. Red never means merely that an old cycle
+  failed or that an incident awaits acknowledgement.
+* **Amber — attention or review, automatic path remains.** A current issue has
+  a proved bounded automatic recovery, or a past opportunity was missed but
+  the current scheduler can prepare the next eligible session. Recovered and
+  unacknowledged incidents, planned restarts, and dated stale idle observations
+  stay visible here. Say what was missed or degraded, the next scheduled action
+  and its evidence boundary. Amber does not claim an order can be submitted now.
+* **Green — normal unattended path, reviewed interval.** Current required
+  capabilities and ownership are proved, the system is doing its expected work
+  or waiting for a proved scheduled action, and the operator review interval is
+  clean. It is not a financial certificate or a promise of a future fill.
+* **Neutral — current status cannot be established by this display.** An
+  offline/stale browser or partial/unavailable dashboard observation cannot
+  assert that trading is active or stopped. Show dated last-known facts and
+  retry. Never turn this into green or renew a source clock. A fresh,
+  authenticated current negative fact still takes precedence over a partial
+  view.
+
+The classifier must distinguish **current execution permission** from
+**unattended continuity**. A market closed for the night, a normal opening
+wait, or the ten-minute new-buy cutoff being over does not mean the system is
+permanently stopped. It must name the next eligible action from actual owned
+scheduling evidence. If the current window is lost, retain that incident and
+its economic consequence as amber; do not backfill or replay an expired BUY.
+If no bounded next-session path can be proved, do not claim automatic recovery.
+"Trading active" means the scheduler can pursue the next eligible plan under
+all its existing guards. It does not promise an order today, an intraday crash
+sale, automatic liquidation, or protection from a market decline. A green or
+amber continuity display must never imply those capabilities.
+
+## The November 24 examples and hard boundaries
+
+A terminal `SUPERSEDED` / `CONTROL_GENERATION_SUPERSEDED` cycle can keep its
+immutable `NOT_VERIFIED` verdict and zero-order result. Its failed step rows
+are historical when the current generation has a proved enabled leader,
+authority, current account and next decision path, with no unresolved command,
+working order, or journal hazard. Show the missed session and retained review
+warning in amber. Never relabel that old trial as successful or adopt its plan.
+If supersession is ambiguous, if an order may have been sent, or if the
+current generation is fenced, the relevant current stop remains red.
+
+A full broker order/position snapshot keeps its original observation time.
+When execution is idle, no order or journal hazard exists, and an owned next
+pre-open check will obtain a new complete snapshot before any order, expiry of
+the old full snapshot is an amber dated warning, not a panic state. A fresh
+account observation is not a new full broker snapshot. During active execution,
+reconciliation, or outstanding command/order work, the existing ten-minute
+full-snapshot requirement remains. An expired or incomplete required snapshot
+cannot authorize an order; without an active bounded recovery it is red.
+
+A terminal cycle must not inherit the worker's next poll time and display it
+as that cycle's next wake. Show the terminal time on the old cycle and the
+worker's separately sourced next action on the current scheduler. The next
+action is a prediction only when its owner, generation, lease and original
+deadline are current.
+
+Any claim of automatic recovery must identify its exact typed owner, phase,
+remaining attempt/deadline and the future gate it will recheck. A generic
+retry string, a future timestamp alone, or another domain's retry budget is
+insufficient. Preserve the UNKNOWN outcome rule, exact command identity,
+account binding, long-only/unlevered envelope, current source and backup
+proofs, and all original cutoffs. Presentation cannot grant financial
+authority, acknowledge an incident, or resume a fence.
+
+## Public contracts and alerts
+
+`/panel.json` exposes `trading_continuity` with the visible status, color,
+controlled reasons, blocking keys, warning keys, next action and original
+validity. Keep raw financial and operational rows, immutable verdicts,
+`overall` and `operational` as separately named strict diagnostics; label them
+as such so an old raw FAIL cannot be mistaken for a current trading stop.
+`dashboard_health.color` and the HTML headline follow the continuity decision
+plus the existing review requirement. Details show the dated raw evidence and
+review history without a red panic badge for a historical event.
+
+`/operational-health` reports the same current continuity status/color and
+blocking/warning keys. Return 503 for a current red trading stop or when its
+current observation is unavailable; an unavailable response is explicitly
+neutral/unknown, not a fabricated red trading stop. Return 2xx for proved
+green or amber continuity while preserving the raw strict diagnostic verdict
+in a separate response field. Before changing the endpoint's status behavior,
+audit every in-repository and installed consumer that may treat 2xx as
+execution authority; update or retain a distinct strict readiness check for
+that consumer. Never use this endpoint itself to admit an order.
+
+Panic/red notifications fire once for a newly proved current continuity stop
+or escalation from bounded recovery to that stop. A missed past session, idle
+snapshot expiry, recovered condition, or unacknowledged history is an amber
+warning/review event, still coalesced by its existing incident identity. Do
+not delete, rewrite, auto-acknowledge, or replay old notifications. Raw
+critical evidence stays available for audit; current trading-stop alerts take
+priority over historical review messages. A notification-delivery failure
+cannot manufacture a green claim.
+
+Qualify the classifier and all three surfaces with a superseded zero-order
+cycle, expired idle full broker snapshot, genuine unresolved UNKNOWN, active
+execution snapshot expiry, emergency kill, lost leader/authority, source or
+backup integrity refusal, bounded recovery, missed cutoff, current clean wait,
+unreviewed history and stale/partial browser or server observation. Include
+falsifiers that remove the no-hazard or next-action proof and force the
+expected red/neutral result. Verify any strict endpoint consumer separately
+before installation.
