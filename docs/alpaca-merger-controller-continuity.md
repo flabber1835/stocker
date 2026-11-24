@@ -233,14 +233,18 @@ the 500-stock floor. Widespread provider identity changes still refuse.
 
 A later source cannot treat a legacy `/3` Alpaca source and `/3` reference as
 clean merely because its current UUID matches today's inventory. When that
-dated predecessor lacks identity-break evidence, the producer checks its
+dated predecessor lacks identity-break evidence and no authenticated
+publication already exists for the target session, the producer checks its
 immediately preceding authenticated dated source for same-symbol UUID
 replacements. An unbound replacement requires a corrected publication for
-the affected session before the next source can continue. This bounded check
-does not trigger when the latest dated predecessor is `/1` or `/2`, whose
-earlier aggregates may have been legally retired; those formats retain their
-existing recovery contract. The producer does not infer a new-series floor
-from a `/3` predecessor that already published ambiguous history.
+the affected session before the next source can continue. During an
+authenticated same-session correction, the producer compares with the latest
+preceding dated publication and does not read that publication's older
+predecessor: its evidence may have been legally retired. Existing correction
+authorization and source checks still apply. The bounded check also does not
+trigger when the latest dated predecessor is `/1` or `/2`, whose earlier
+aggregates may have been legally retired. The producer does not infer a new
+series floor from a `/3` predecessor that already published ambiguous history.
 
 The consumer checks the immutable prior state against the resulting snapshot.
 A missing selected Median-5 witness remains `SELECTED_IDENTITY_ACTION_PENDING`;
