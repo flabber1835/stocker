@@ -235,31 +235,43 @@ def test_late_same_symbol_action_retries_original_job_without_publication(
     assert len(asset_observations) == 3
 
 
-@pytest.mark.parametrize('gap', ['latest', 'historical'])
-def test_benchmark_gap_waits_only_for_just_closed_session(gap):
+@pytest.mark.parametrize('gap,symbol,latest_closed', [
+    ('latest', 'SPY', DAY),
+    ('historical', 'SPY', DAY),
+    ('stale', 'SPY', '2026-09-16'),
+    ('latest', 'BIL', DAY),
+    ('stale', 'BIL', '2026-09-16'),
+])
+def test_benchmark_gap_waits_only_for_just_closed_session(
+        gap, symbol, latest_closed, monkeypatch):
+    from sentinel.feed import calendar
     from sentinel.feed.alpaca_source import AlpacaSource, _bounds
     from sentinel.feed.rolling_contract import PriceWindow
 
+    monkeypatch.setattr(calendar, 'latest_closed_session', lambda now=None: latest_closed)
     source = object.__new__(AlpacaSource)
     source.window = PriceWindow.through(DAY)
     source.action_affected = frozenset()
     source.reset_after = {}
     source.splits = []
     sessions = list(map(str, source.window.sessions))
-    missing = sessions[-1] if gap == 'latest' else sessions[-2]
+    missing = sessions[-2] if gap == 'historical' else sessions[-1]
 
     def bars(symbols, first, last, adjustment):
         result = {}
-        for symbol in symbols:
-            result[symbol] = [dict(t=datetime.fromisoformat(_bounds(day, day)[0])
+        for ticker in symbols:
+            result[ticker] = [dict(t=datetime.fromisoformat(_bounds(day, day)[0])
                 .astimezone(timezone.utc).isoformat(), o=100.0, c=100.0, v=1000)
-                for day in sessions if not (symbol == 'SPY' and day == missing
+            for day in sessions if not (ticker == symbol and day == missing
                     and adjustment == 'raw')]
         return result, []
 
     source._bars = bars
     if gap == 'latest':
         with pytest.raises(AlpacaSourcePending, match='ALPACA_BENCHMARK_CLOSE_PENDING'):
+            source._benchmark_rows()
+    elif symbol == 'BIL':
+        with pytest.raises(AlpacaTransportRefused, match='BIL split-only/raw prices lack corroborated coverage'):
             source._benchmark_rows()
     else:
         with pytest.raises(AlpacaTransportRefused, match='SPY/BIL lack exact paired daily coverage'):

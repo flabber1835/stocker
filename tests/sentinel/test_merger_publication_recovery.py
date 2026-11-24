@@ -14,6 +14,66 @@ BEFORE_OPEN = datetime(2026, 11, 23, 21, 12, tzinfo=timezone.utc)
 AFTER_OPEN = datetime(2026, 11, 24, 15, 0, tzinfo=timezone.utc)
 
 
+def test_unchanged_merger_source_allows_only_cursor_bound_state_recovery(monkeypatch):
+    from sentinel.feed import calendar
+
+    old = {'old_security_id': 'old-a', 'record_id': 'record-a',
+           'effective_session': SESSION, 'terms_sha256': 'a' * 64}
+    prior = [old]
+    evidence = {
+        'old-source': {'schema': snapshots._MERGER_ALPACA_POLICY[0],
+                       'merger_conversions_sha256': digest(prior)},
+        'old-reference': {'schema': snapshots._MERGER_ALPACA_POLICY[1],
+                          'merger_conversions': prior},
+        'new-source': {'schema': snapshots._MERGER_ALPACA_POLICY[0],
+                       'merger_conversions_sha256': digest(prior)},
+        'new-reference': {'schema': snapshots._MERGER_ALPACA_POLICY[1],
+                          'merger_conversions': list(prior)},
+    }
+    old_manifest = SimpleNamespace(provider='ALPACA_OPENFIGI',
+        source_evidence_sha256='old-source', reference_sha256='old-reference',
+        normalization_version=snapshots._MERGER_ALPACA_POLICY[2], snapshot_id='old-snapshot')
+    new_manifest = SimpleNamespace(provider='ALPACA_OPENFIGI',
+        source_evidence_sha256='new-source', reference_sha256='new-reference',
+        normalization_version=snapshots._MERGER_ALPACA_POLICY[2], snapshot_id='new-snapshot')
+    previous = SimpleNamespace(version=27, window_end=SESSION,
+                               to_dict=lambda: {'version': 27, 'window_end': SESSION})
+    old_request = rolling_jobs.PreparationRequest(window=PriceWindow.through(SESSION),
+        expected_publication_version=26, strategy_sha256=digest('old strategy'),
+        dependencies_sha256=digest('old dependencies'))
+    cursor = calendar.previous_sessions(SESSION, 2)[0]
+    request = rolling_jobs.PreparationRequest(window=PriceWindow.through(SESSION),
+        cursor=cursor, expected_publication_version=27,
+        strategy_sha256=digest('new strategy'),
+        dependencies_sha256=digest('new dependencies'))
+    monkeypatch.setattr(snapshots, '_bound_and_manifest',
+                        lambda conn, pub: ({'job_id': 'old-job'}, old_manifest))
+    monkeypatch.setattr(snapshots.rolling_store, 'manifest', lambda conn, candidate: new_manifest)
+    monkeypatch.setattr(snapshots.rolling_store, 'load_evidence',
+                        lambda conn, sha: evidence[sha])
+    monkeypatch.setattr(snapshots.jobs, 'status',
+                        lambda conn, job: {'request': old_request.model_dump(mode='json')})
+
+    edge = snapshots._edge_fields(None, previous, 'new-candidate', request)
+    assert edge['schema'] == snapshots.RECOVERY_SUPERSESSION_SCHEMA
+    assert edge['superseded_version'] == previous.version
+    assert edge['superseded_source_sha256'] == 'old-source'
+    assert edge['successor_source_sha256'] == 'new-source'
+    assert edge['successor_strategy_sha256'] == request.strategy_sha256
+
+    with pytest.raises(snapshots.OperationalSnapshotRefused, match='MERGER_EXTENSION_REQUIRED'):
+        snapshots._edge_fields(None, previous, 'new-candidate',
+                               request.model_copy(update={'cursor': None}))
+    with pytest.raises(snapshots.OperationalSnapshotRefused, match='RECOVERY_CURSOR_CHANGED'):
+        snapshots._edge_fields(None, previous, 'new-candidate', request.model_copy(
+            update={'cursor': calendar.previous_sessions(SESSION, 3)[0]}))
+    changed = {**old, 'terms_sha256': 'b' * 64}
+    evidence['new-reference']['merger_conversions'] = [changed]
+    evidence['new-source']['merger_conversions_sha256'] = digest([changed])
+    with pytest.raises(snapshots.OperationalSnapshotRefused, match='MERGER_EXTENSION_REQUIRED'):
+        snapshots._edge_fields(None, previous, 'new-candidate', request)
+
+
 class _Rows:
     def __init__(self, rows):
         self.rows = rows

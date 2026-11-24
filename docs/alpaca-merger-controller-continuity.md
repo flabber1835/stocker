@@ -118,6 +118,23 @@ it supports current-information state recovery only, never a backdated plan or
 broker command. Reobservation stops at the relevant market-time boundary and
 retains an explicit pending or blocked reason if Alpaca has not supplied terms.
 
+A missed-session reconstruction has a different, state-only same-session
+successor when a previously published `/4` source cannot be used as dated
+input. Its immutable request binds the retained preceding book session through
+`cursor`, the selected strategy and the exact predecessor publication. After
+the following open it may reacquire current Alpaca inputs and append a `/4` to
+`/4` recovery publication even when its authenticated merger conversions are
+unchanged. A distinct immutable recovery edge binds both publication and source
+identities; the ordinary merger-correction extension rule still applies to a
+retry without `cursor` and to newly discovered conversions. Recovery validates
+the prior conversion set byte for byte, admits no removed or changed term, and
+requires the existing current-information marker with false historical
+availability and broker authority. The dated selector authenticates this edge
+as part of its bounded same-session chain, then treats the after-open tip as
+current information only. A consumed session, changed predecessor, unbound
+cursor, or publication before the following open refuses. Reacquisition never
+changes a prior receipt or asserts that its data existed at the missed open.
+
 The same-session correction admission checks the retained checkpoint's strategy
 with the already reviewed `economic_migration.compatible` predicate. Its
 `rolling_checkpoint.compatible_strategy` forwarding helper changes neither a

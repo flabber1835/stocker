@@ -328,7 +328,14 @@ class AlpacaSource:
                     or len(current_rows) < len(previous_rows)):
                 raise AlpacaTransportRefused('reobserved merger terms changed')
             if len(current_rows) == len(previous_rows):
-                raise AlpacaSourcePending('ALPACA_ACTION_REOBSERVATION_PENDING')
+                from sentinel.feed import rolling_jobs
+                # Only a retained-book reconstruction may republish identical
+                # source facts as after-open, state-only current information.
+                lease = getattr(self, 'lease', None)
+                reconstruction = (lease is not None and
+                    rolling_jobs.status(self.conn, lease.job_id)['request']['cursor'] is not None)
+                if not reconstruction:
+                    raise AlpacaSourcePending('ALPACA_ACTION_REOBSERVATION_PENDING')
         exemptions = {item['event']['id'] for item in identity_bindings}
         current_mergers = {item['record_id']: item for item in merger_conversions}
         for symbol, day, event_id in resets:
@@ -436,7 +443,8 @@ class AlpacaSource:
         expected_bil = {('BIL', day) for day in sessions}
         observed_bil = {(row['ticker'], row['date']) for row in paired_bil}
         missing_bil = expected_bil - observed_bil
-        if missing_bil and all(day == last for _symbol, day in missing_bil):
+        if (missing_bil and last == calendar.latest_closed_session()
+                and all(day == last for _symbol, day in missing_bil)):
             raise AlpacaSourcePending('ALPACA_BENCHMARK_CLOSE_PENDING', symbol='BIL')
         bil_history, _ = admissible_history(paired_bil, axis=list(map(str,self.window.sessions)),
             symbols={'BIL'}, action_affected=frozenset(), pair_absent=absent_bil,
@@ -447,7 +455,8 @@ class AlpacaSource:
         expected = {(symbol, day) for symbol in symbols for day in sessions}
         observed = {(row['ticker'], row['date']) for row in paired}
         missing = expected - observed
-        if missing and all(day == last for _symbol, day in missing):
+        if (missing and last == calendar.latest_closed_session()
+                and all(day == last for _symbol, day in missing)):
             raise AlpacaSourcePending('ALPACA_BENCHMARK_CLOSE_PENDING')
         if absent or observed != expected:
             raise AlpacaTransportRefused("SPY/BIL lack exact paired daily coverage")

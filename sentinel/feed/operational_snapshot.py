@@ -12,6 +12,7 @@ from sentinel.feed.observation_timing import latest_acquirable_session
 SCHEMA = "sentinel.operational-snapshot-publication/1"
 VALIDATION_SCHEMA = "sentinel.operational-snapshot-validation/1"
 SUPERSESSION_SCHEMA = "sentinel.operational-snapshot-supersession/1"
+RECOVERY_SUPERSESSION_SCHEMA = "sentinel.current-information-recovery-supersession/1"
 _OLD_ALPACA_POLICY = (
     "sentinel.alpaca-openfigi-operational-source/3",
     "sentinel.rolling-alpaca-openfigi-references/3",
@@ -267,35 +268,43 @@ def _edge_fields(conn, previous, candidate, request):
     reference = rolling_store.load_evidence(conn, new_manifest.reference_sha256)
     source = rolling_store.load_evidence(conn, new_manifest.source_evidence_sha256)
     conversions = reference.get('merger_conversions') if isinstance(reference, dict) else None
-    if (not isinstance(conversions, list)
-            or not any(isinstance(item, dict) and item.get('effective_session') == previous.window_end
-                       for item in conversions)
-            or not isinstance(source, dict)
+    if (not isinstance(conversions, list) or not isinstance(source, dict)
             or source.get('merger_conversions_sha256') != digest(conversions)):
         raise OperationalSnapshotRefused('SAME_SESSION_MERGER_CORRECTION_REQUIRED')
+    state_only_recovery = False
     if old_policy == _MERGER_ALPACA_POLICY:
         prior_reference = rolling_store.load_evidence(conn, old_manifest.reference_sha256)
         prior_source = rolling_store.load_evidence(conn, old_manifest.source_evidence_sha256)
         prior = (prior_reference.get('merger_conversions')
                  if isinstance(prior_reference, dict) else None)
         if (not isinstance(prior, list) or not isinstance(prior_source, dict)
-                or prior_source.get('merger_conversions_sha256') != digest(prior)
-                or old_manifest.snapshot_id == new_manifest.snapshot_id
-                or old_manifest.source_evidence_sha256 == new_manifest.source_evidence_sha256):
+                or prior_source.get('merger_conversions_sha256') != digest(prior)):
             raise OperationalSnapshotRefused('SAME_SESSION_MERGER_EXTENSION_REQUIRED')
-        old_by_id = {item.get('old_security_id'): item for item in prior
-                     if isinstance(item, dict) and isinstance(item.get('old_security_id'), str)}
-        new_by_id = {item.get('old_security_id'): item for item in conversions
-                     if isinstance(item, dict) and isinstance(item.get('old_security_id'), str)}
-        if (len(old_by_id) != len(prior) or len(new_by_id) != len(conversions)
-                or len(new_by_id) <= len(old_by_id)
-                or any(sid not in new_by_id or digest(new_by_id[sid]) != digest(item)
-                       for sid, item in old_by_id.items())
-                or any(item.get('effective_session') != previous.window_end
-                       for sid, item in new_by_id.items() if sid not in old_by_id)):
-            raise OperationalSnapshotRefused('SAME_SESSION_MERGER_EXTENSION_REQUIRED')
+        state_only_recovery = (request.cursor is not None and prior == conversions)
+        if state_only_recovery:
+            if calendar.next_session(str(request.cursor)) != previous.window_end:
+                raise OperationalSnapshotRefused('SAME_SESSION_RECOVERY_CURSOR_CHANGED')
+        else:
+            old_by_id = {item.get('old_security_id'): item for item in prior
+                         if isinstance(item, dict) and isinstance(item.get('old_security_id'), str)}
+            new_by_id = {item.get('old_security_id'): item for item in conversions
+                         if isinstance(item, dict) and isinstance(item.get('old_security_id'), str)}
+            if (old_manifest.snapshot_id == new_manifest.snapshot_id
+                    or old_manifest.source_evidence_sha256 == new_manifest.source_evidence_sha256
+                    or len(old_by_id) != len(prior) or len(new_by_id) != len(conversions)
+                    or len(new_by_id) <= len(old_by_id)
+                    or any(sid not in new_by_id or digest(new_by_id[sid]) != digest(item)
+                           for sid, item in old_by_id.items())
+                    or any(item.get('effective_session') != previous.window_end
+                           for sid, item in new_by_id.items() if sid not in old_by_id)):
+                raise OperationalSnapshotRefused('SAME_SESSION_MERGER_EXTENSION_REQUIRED')
+    if (not state_only_recovery
+            and not any(isinstance(item, dict) and item.get('effective_session') == previous.window_end
+                        for item in conversions)):
+        raise OperationalSnapshotRefused('SAME_SESSION_MERGER_CORRECTION_REQUIRED')
     return {
-        'schema': SUPERSESSION_SCHEMA, 'session': previous.window_end,
+        'schema': RECOVERY_SUPERSESSION_SCHEMA if state_only_recovery else SUPERSESSION_SCHEMA,
+        'session': previous.window_end,
         'superseded_version': previous.version,
         'superseded_publication_sha256': digest(previous.to_dict()),
         'superseded_snapshot_id': old_manifest.snapshot_id,
