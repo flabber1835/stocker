@@ -696,10 +696,11 @@ class AlpacaSource:
         if any(value['first_affected_session'] > pub.window_end
                or value['floor_session'] > pub.window_end for value in breaks):
             raise AlpacaTransportRefused('published identity-break floor is in the future')
-        if 'identity_break_policy' not in source:
-            # A legacy publication may already have assigned a replacement
-            # provider UUID to historical same-symbol prices. Before treating
-            # it as the predecessor, inspect exactly its preceding dated tip.
+        if (source.get('schema') == 'sentinel.alpaca-openfigi-operational-source/3'
+                and reference.get('schema') == 'sentinel.rolling-alpaca-openfigi-references/3'):
+            # This pre-policy source could already have assigned a replacement
+            # UUID to historical same-symbol prices. Older /1 and /2 aggregates
+            # retain their separate retirement and recovery contract.
             older = self.conn.execute(
                 'SELECT version,previous_version,run_id,window_start,window_end,evidence '
                 'FROM sentinel_corpus_publications WHERE window_end < %s '

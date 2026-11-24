@@ -68,14 +68,21 @@ def test_retired_dated_legacy_aggregate_supports_next_day_recovery_and_restart(c
     from sentinel.feed import alpaca_source, rolling_builder
     prices,publish=provider
     original=alpaca_source.AlpacaSource.reference_payload
+    original_source=alpaca_source.AlpacaSource.source_payload
     def legacy(self):
         result=original(self);result.pop('identity_bindings');result.pop('merger_conversions')
         return result | dict(schema='sentinel.rolling-alpaca-openfigi-references/2')
+    def legacy_source(self):
+        result=original_source(self)
+        result.pop('identity_break_policy')
+        result.pop('identity_breaks')
+        return result
     with monkeypatch.context() as old:
         old.setattr(alpaca_source,'SOURCE','sentinel.alpaca-openfigi-operational-source/1')
         old.setattr(rolling_builder,'ALPACA_NORMALIZATION',
                     rolling_builder.ALPACA_NORMALIZATION_HISTORICAL[0])
         old.setattr(alpaca_source.AlpacaSource,'reference_payload',legacy)
+        old.setattr(alpaca_source.AlpacaSource,'source_payload',legacy_source)
         old.setattr(alpaca_source.AlpacaSource,'_previous_identity',lambda self:None)
         before_binding=publish()
         before=initial.initialize(conn,observation_id=OBS,starting_cash=50_000)
