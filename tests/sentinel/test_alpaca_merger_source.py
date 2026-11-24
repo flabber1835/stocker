@@ -132,7 +132,7 @@ def test_vanished_acquiree_preserves_unchanged_acquirer_history():
 
 @pytest.mark.parametrize('record', [None,
     merger('AAA', id='early-partial') | {'acquirer_rate': None}])
-def test_unbound_same_symbol_uuid_change_waits_for_fresh_action(record):
+def test_unbound_same_symbol_uuid_change_quarantines_candidate(record):
     from sentinel.feed.alpaca_source import AlpacaSource
     from sentinel.feed.alpaca_transport import ACTION_URL
     from sentinel.feed.rolling_contract import PriceWindow
@@ -148,8 +148,11 @@ def test_unbound_same_symbol_uuid_change_waits_for_fresh_action(record):
     source.selected = [dict(ticker='AAA', asset_id='new-aaa')]
     source.client = Pages()
     source._previous_identity = lambda: inputs([])['previous_identity']
-    with pytest.raises(AlpacaSourcePending, match='ALPACA_IDENTITY_ACTION_PENDING:AAA'):
-        source._action_rows()
+    payload, *_ = source._action_rows()
+    assert payload['reset_after']['AAA'] == DAY
+    assert [(row['ticker'], row['old_provider_asset_id'],
+             row['new_provider_asset_id'], row['split'])
+            for row in payload['identity_breaks']] == [('AAA', 'old-aaa', 'new-aaa', None)]
 
 
 def test_same_session_action_reobservation_waits_for_new_conversion():
@@ -178,14 +181,13 @@ def test_same_session_action_reobservation_waits_for_new_conversion():
     assert len(payload['merger_conversions']) == 1
 
 
-def test_late_same_symbol_action_retries_original_job_without_publication(
+def test_missing_action_quarantines_one_candidate_without_stopping_publication(
         conn, provider, synthetic_feed_authority):
     from sentinel import rolling_initialization
     from sentinel.feed import calendar, operational_snapshot as op, rolling_jobs as jobs, rolling_store
     from sentinel.feed.alpaca_transport import ACTION_URL, ASSETS
     from sentinel.feed.rolling_contract import PriceWindow
     from sentinel.strategy import production_strategy
-    from tests.sentinel.test_rolling_snapshot_publisher import retry_now
 
     prices, publish = provider
     origin = publish()
@@ -216,23 +218,19 @@ def test_late_same_symbol_action_retries_original_job_without_publication(
                      dependencies_sha256=digest('late-action-fixture'), budget_seconds=900)
     conn.commit()
     deadline = jobs.status(conn, job)['deadline']
-    with pytest.raises(AlpacaSourcePending, match='ALPACA_IDENTITY_ACTION_PENDING:T00'):
-        op.prepare(conn, job)
-    state = jobs.status(conn, job)
-    assert state['state'] == 'WAIT_SOURCE' and state['deadline'] == deadline
-    assert op._current(conn).version == origin['data_version']
-    assert conn.execute('SELECT 1 FROM sentinel_acquisition_bindings '
-        'WHERE job_id=%s AND component=%s', (job, 'ACTIONS')).fetchone() is None
-
-    records.append(merger('T00', 'T00', id='arrived'))
-    retry_now(conn, job)
     binding = op.prepare(conn, job)
+    state = jobs.status(conn, job)
+    assert state['state'] == 'PUBLISHED' and state['deadline'] == deadline
+    assert op._current(conn).version > origin['data_version']
     assert jobs.status(conn, job)['deadline'] == deadline
     manifest = rolling_store.manifest(conn, binding['candidate_id'])
     reference = rolling_store.load_evidence(conn, manifest.reference_sha256)
-    assert [(row['old_provider_asset_id'], row['successor_provider_asset_id'])
-            for row in reference['merger_conversions']] == [('uuid-00', 'new-uuid-00')]
-    assert len(asset_observations) == 3
+    source = rolling_store.load_evidence(conn, manifest.source_evidence_sha256)
+    assert source['selected_count'] == 25 and source['admitted_count'] == 24
+    assert not any(row['ticker'] == 'T00' for row in reference['tickers'])
+    assert [(row['old_provider_asset_id'], row['new_provider_asset_id'], row['split'])
+            for row in source['identity_breaks']] == [('uuid-00', 'new-uuid-00', None)]
+    assert len(asset_observations) >= 2
 
 
 @pytest.mark.parametrize('gap,symbol,latest_closed', [

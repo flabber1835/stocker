@@ -79,13 +79,15 @@ proof. The November 23 acquisition began 56 seconds after the close, passed
 source validation and published about 13 minutes after the close; its later
 missing-anchor refusal does not establish an early-acquisition cause.
 
-The producer must wait and reobserve when its own source facts expose an
-unresolved current-session identity change: a former symbol with a new provider
-UUID and no complete bound name-change or merger, including an observed merger
-record whose terms are incomplete for that changed same-symbol identity. A
-typed action wait is
+The producer reobserves assets and actions before certifying an unresolved
+current-session identity change: a former symbol with a new provider UUID and
+no complete bound name-change or merger, including an observed merger whose
+terms are incomplete. A typed action wait, when used for an in-flight job, is
 durable, uses the original acquisition job deadline, and makes a fresh action
 and asset observation on retry. It cannot reuse a retained empty action part.
+The bounded candidate quarantine below permits a complete market publication
+when supported identity evidence remains unavailable; it does not resolve an
+identity needed by the retained book or controller.
 Ordinary inactive listings and unrelated absent former symbols must not block
 the entire market source merely because a merger is possible. Missing current
 benchmark bars are pending only when the absent membership is the just-closed
@@ -167,6 +169,104 @@ late close benchmark coverage, original deadline, restart, correction fork and
 consumption, and the following-open cutoff. These software tests cannot prove
 that an absent provider action will ever arrive or replace the separately
 signed PAPER release qualification.
+
+## Unresolved same-symbol candidate identity (2026-11-24)
+
+A same-symbol provider UUID replacement without a complete supported identity
+binding or conversion must not inherit the old security identity or price
+history. It also must not stop an otherwise complete source publication because
+the symbol is one of thousands of ordinary-equity candidates. The November 24 AEI
+observation has this shape: Alpaca reports a November 23 reverse split with
+changed CUSIP, but that split does not bind the replaced UUID to the old
+canonical identity. No name-change or merger conversion is present. Its old
+security occurs in the retained Median-5 `peer_keys` metadata cache, but not in
+prior selected witnesses, Wealth Core holdings, reserved or pending paths. The
+November 23 source assigned the new UUID to pre-split bars; the corrected
+publication must remove that borrowed history. The cache is consulted only
+for current held episodes and is not itself a price or controller-return
+dependency.
+
+The source, without reading controller state or broker data, records every
+unresolved same-symbol UUID replacement as an identity break. A complete,
+unique, dated Alpaca stock-split record may establish a conservative boundary
+for a **new, independent** candidate series. Its symbol, distinct valid old and
+new CUSIPs, directional positive share rates and economic date must be
+unambiguous; the date must follow the last authenticated old-UUID session and
+precede or equal the first new-UUID inventory observation. A conflicting
+structural action or unsupported terms leaves the symbol quarantined. The
+split record never binds the old and new UUIDs, applies a share conversion to
+the new identity, or supplies the old identity's return.
+
+The fresh-series floor is the later of the split's economic session and the
+first source session that authenticated the new UUID. The new UUID may receive
+only actual paired RAW/adjusted bars **strictly after** that floor. On or before
+it the source publishes no listing or normalized bar for the changed symbol.
+After it, ordinary contiguous-price, adjustment, classification, population
+and eligibility checks apply to the new UUID as a new candidate. The split
+term is not applied to a series whose first admitted bar follows the event.
+Without a complete qualifying split, the source publishes no listing or bar
+for either UUID until a separately reviewed source-proven release rule applies.
+
+The immutable source evidence records a typed, unique row containing the
+symbol, authenticated old provider UUID and origin snapshot/session, newly
+observed provider UUID, first affected session, floor, and any qualifying
+split's exact record ID, terms hash and economic date. A named additive `/4`
+identity-break subpolicy and its content-addressed source payload bind those
+rows; the paired `/4` reference shape and `/4` price normalization remain
+unchanged.
+Earlier `/4` publications without the additive field mean an empty quarantine,
+and a resumed acquisition cannot reuse ACTIONS captured before this subpolicy.
+The source rechecks the rows with fresh inventory and actions at corroboration.
+Malformed, duplicate, conflicting or changed evidence refuses publication.
+
+Every later publication carries the old identity, original observation and
+floor forward, even if that symbol has no current reference row. A matching
+ticker, the same newly observed UUID on a later day, an apparent price path,
+or a temporary listing disappearance cannot remove the floor. Another UUID
+change extends the break record and resets its observation floor; no unproven
+bar from either prior UUID enters the new series. A previously authenticated
+split record remains bound even if a later provider action response omits it;
+changed or contradictory terms refuse. The ordinary selected-candidate count
+includes identity breaks during exclusion, while the admitted count does not:
+an identity break cannot reduce the denominator of the 95% coverage guard or
+the 500-stock floor. Widespread provider identity changes still refuse.
+
+A later source cannot treat a pre-policy dated publication as clean merely
+because its current UUID matches today's inventory. When the latest dated
+predecessor has no identity-break evidence, the producer checks its immediately
+preceding authenticated dated source for same-symbol UUID replacements. An
+unbound replacement requires a corrected publication for that affected
+session before the next source can continue. The producer does not infer a
+new-series floor from a predecessor that already published ambiguous history.
+
+The consumer checks the immutable prior state against the resulting snapshot.
+A missing selected Median-5 witness remains `SELECTED_IDENTITY_ACTION_PENDING`;
+a held, reserved or pending Wealth Core identity remains subject to its
+existing anchor, mark and action guards. Neither path advances the book, creates
+a plan or sends a broker command from missing identity evidence. Cached
+`peer_keys` for an unheld, unselected security remain untouched and do not make
+it a protected return dependency. Only the execution layer observes the PAPER
+account; LIVE remains forbidden.
+
+An identity break without a qualifying split has no automatic time-based
+release. Its quarantine persists until a separately reviewed source-proven
+rule establishes a safe new-series floor or a supported continuity binding.
+No old bar is assigned to the new identity. A split ratio, changed CUSIP,
+symbol or price resemblance alone does not authorize an old-to-new bridge or
+a late correction outside the existing authenticated rules. The original
+publications and failed attempts remain immutable.
+
+Qualification must cover a complete split with no event-day or older bar under
+the new UUID, its first valid later bar and eventual 127-close eligibility; a
+missing, future, duplicate or conflicting split staying quarantined; and an
+unrelated candidate allowing a normal decision. A selected witness and each
+owned dependency must refuse without book or broker mutation. Cover next-day
+and restart carry-forward, repeated or disappearing UUIDs, persistent
+quarantine even after the original price window rolls away, source/reference
+collision, tampered identity evidence, retained old ACTIONS, and mass UUID
+churn crossing the 95% floor. Deliberately remove the floor, exclusion and
+carry-forward guards and show the tests fail. The new source-history seal
+and signed PAPER authority must be qualified before prospective activation.
 
 ## Canonical daily transition
 

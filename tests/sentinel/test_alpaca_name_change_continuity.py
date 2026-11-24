@@ -103,14 +103,14 @@ def test_stock_merger_preserves_only_the_proven_receiving_asset(monkeypatch, fau
         'previous_snapshot_id': digest('accepted predecessor'),
     }
     monkeypatch.setattr(source, '_previous_identity', lambda: prior)
-    if fault == 'changed_asset':
-        # The merger proves LSI's exit, not the new EXR provider identity.
-        with pytest.raises(AlpacaSourcePending, match='ALPACA_IDENTITY_ACTION_PENDING:EXR'):
-            source._action_rows()
-        return
     action_data, *_ = source._action_rows()
     assert action_data['reset_after']['LSI'] == session
     assert ('EXR' in action_data['reset_after']) is bool(fault)
+    if fault == 'changed_asset':
+        # LSI's merger cannot prove a separate replacement of EXR's UUID.
+        assert [row['ticker'] for row in action_data['identity_breaks']] == ['EXR']
+        assert action_data['identity_breaks'][0]['split'] is None
+        assert action_data['reset_after']['EXR'] == session
     axis = [str(day) for day in window.sessions[-2:]]
     rows = [dict(ticker='EXR', date=day, adjusted_close=100, closeunadj=100) for day in axis]
     admitted, _ = admissible_history(rows, axis=axis, symbols={'EXR'}, action_affected=frozenset(),
@@ -209,19 +209,25 @@ def test_daily_name_change_preserves_held_or_leadership_economics_and_restart(co
 
 
 def test_unproven_controller_identity_replacement_retains_original_book(conn,provider):
-    from sentinel import rolling_initialization as initial,rolling_daily_checkpoint
+    from sentinel import rolling_daily, rolling_initialization as initial, rolling_daily_checkpoint
+    from sentinel.core.session import _path_dependent_security_ids
     from sentinel.feed import operational_snapshot as op
-    from sentinel.feed.alpaca_pending import AlpacaSourcePending
+    from sentinel.core.window_continuity import MergerActionPending
     prices,publish=provider
     origin=publish();before=initial.initialize(conn,observation_id=OBS,starting_cash=50_000)
-    sid=before.state.median5['selected'][0]
+    protected=_path_dependent_security_ids(before.state.wealth_core,before.state.pending)
+    sid=next(sid for sid in before.state.median5['selected'] if sid not in protected)
+    assert sid not in protected
     ticker=before.state.feed['series'][sid]['ticker']
     day=calendar.next_session(before.state.last_processed_session)
     prices.window=PriceWindow.through(day)
     change_provider(prices,ticker=ticker,previous_id=sid,day=day,with_event=False)
-    with pytest.raises(AlpacaSourcePending,match='ALPACA_IDENTITY_ACTION_PENDING'):
-        publish()
-    assert op._current(conn).version==origin['data_version']
+    quarantined=publish()
+    assert quarantined['data_version']>origin['data_version']
+    assert op._current(conn).version==quarantined['data_version']
+    with pytest.raises(MergerActionPending) as caught:
+        rolling_daily.advance(conn,observation_id=OBS,starting_cash=50_000)
+    assert str(caught.value)=='SELECTED_IDENTITY_ACTION_PENDING:'+day+':'+sid
     conn.rollback()
     _,_,restored=rolling_daily_checkpoint.load(conn,initial._context(OBS,50_000))
     assert restored.state.state_hash==before.state.state_hash
@@ -237,6 +243,7 @@ def test_old_source_policy_cannot_satisfy_fresh_readiness(conn,provider,monkeypa
     prices.window=PriceWindow.through(calendar.next_session(before.state.last_processed_session))
     current=alpaca_source.SOURCE
     original=alpaca_source.AlpacaSource.reference_payload
+    original_source=alpaca_source.AlpacaSource.source_payload
     def legacy_reference(self):
         value=original(self)
         value.pop('merger_conversions')
@@ -246,11 +253,21 @@ def test_old_source_policy_cannot_satisfy_fresh_readiness(conn,provider,monkeypa
         return value | dict(schema='sentinel.rolling-alpaca-openfigi-references/3')
     monkeypatch.setattr(alpaca_source,'SOURCE','sentinel.alpaca-openfigi-operational-source/'+legacy_policy)
     monkeypatch.setattr(alpaca_source.AlpacaSource,'reference_payload',legacy_reference)
+    def legacy_source(self):
+        with monkeypatch.context() as scoped:
+            scoped.setattr(alpaca_source,'SOURCE',current)
+            value=original_source(self)
+        value['schema']='sentinel.alpaca-openfigi-operational-source/'+legacy_policy
+        value.pop('identity_break_policy')
+        value.pop('identity_breaks')
+        return value
+    monkeypatch.setattr(alpaca_source.AlpacaSource,'source_payload',legacy_source)
     with pytest.raises(RollingInputsRefused,match='UNBOUND_ALPACA_MERGER_NORMALIZATION'):
         publish()
     conn.rollback()
     monkeypatch.setattr(alpaca_source,'SOURCE',current)
     monkeypatch.setattr(alpaca_source.AlpacaSource,'reference_payload',original)
+    monkeypatch.setattr(alpaca_source.AlpacaSource,'source_payload',original_source)
     def fresh_acquisition(*_args,**_kwargs):
         raise ConnectionError('fresh identity source required')
     monkeypatch.setattr(rolling_go_inputs.snapshots,'enqueue',fresh_acquisition)
