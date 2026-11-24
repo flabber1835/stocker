@@ -261,4 +261,4 @@ def test_removed_identity_dispatch_is_detected(monkeypatch):
     exec(compile(code.replace(guard,'elif False:'),'<removed-operation-read-dispatch>','exec'),vars(economic),namespace)
     monkeypatch.setattr(economic,'identity',namespace['identity'])
     with pytest.raises(AssertionError):
-        test_complete_strategy_and_all_original_economic_contributions_remain_exact()
+        test_current_strategy_and_reviewed_operation_read_contributions_remain_exact()

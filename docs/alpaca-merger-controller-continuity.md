@@ -59,6 +59,10 @@ The current strategy's economic-source digest advances with the merger reader;
 the previous signed digest remains a historical baseline. Tests that pin the
 current digest must identify the reviewed successor and retain their mutation
 falsifiers rather than relabeling historical authority.
+The reviewed current strategy digest is
+`f763d3260766dffc7f14199bc5bf9ec8580bde3af2b1c4e5b0c21242ef329182`;
+the old local PAPER exception still names
+`caab7a1872fe4ec178aec659716a4bc70c0cd5ea79a88e33ffacd2ae0c7cf095`.
 The prior-publication lookup for a correction skips an older same-session
 schema that omitted the merger, returning to the preceding dated identity
 source. Publication and source hashes bind the corrected input; neither old

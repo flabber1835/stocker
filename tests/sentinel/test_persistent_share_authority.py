@@ -1,7 +1,10 @@
 """The local execution change has one exact, owner-authorized source pair."""
 from copy import deepcopy
 from types import SimpleNamespace
+import hashlib
 import inspect
+import json
+from pathlib import Path
 
 import pytest
 
@@ -9,6 +12,22 @@ from sentinel import authority, persistent_share_authority as upgrade
 from sentinel import standing_observation_authority as standing
 from sentinel import local_paper
 from sentinel.strategy import production_strategy
+
+
+_PREDECESSOR = Path(__file__).resolve().parents[1] / 'support/architecture-b2-economic-identity.json'
+_PREDECESSOR_SHA256 = '5547702880b5c41578c4fc312bebf38dab768222d3f5b8041481b324c1f15ebe'
+MERGER_STRATEGY_SHA256 = 'f763d3260766dffc7f14199bc5bf9ec8580bde3af2b1c4e5b0c21242ef329182'
+
+
+def _historical_persistent_share_strategy():
+    """Use the signed predecessor witness, not today's evolved source bundle."""
+    raw = _PREDECESSOR.read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == _PREDECESSOR_SHA256
+    witness = json.loads(raw)
+    assert witness['strategy_sha256'] == upgrade.PERSISTENT_SHARE_STRATEGY
+    strategy = witness['strategy']
+    assert authority.canonical_sha256(strategy) == upgrade.PERSISTENT_SHARE_STRATEGY
+    return strategy
 
 
 @pytest.fixture
@@ -23,8 +42,7 @@ def case(monkeypatch):
     monkeypatch.setenv("SENTINEL_RUNTIME_IMAGE_DIGEST", image)
     monkeypatch.setenv("SENTINEL_PAPER_BUY_POLICY", "PROTECTED_LIMIT_DAY_V1")
     monkeypatch.setenv("SENTINEL_PAPER_BUY_CAP_BPS", "100")
-    strategy = production_strategy()[1]
-    assert authority.canonical_sha256(strategy) == upgrade.PERSISTENT_SHARE_STRATEGY
+    strategy = _historical_persistent_share_strategy()
     identity = dict(deployment_id="test", broker="alpaca", broker_account_id="PAexact", takeover_epoch=1,
         environment=authority.PAPER_SCOPE, paper_base_url=authority.PAPER_BASE_URL)
     bindings = dict(strategy_identity_sha256=upgrade.SIGNED_PREDECESSOR,
@@ -56,6 +74,21 @@ def case(monkeypatch):
 def test_exact_local_transition_passes_real_standing_boundary(case):
     certificate, kwargs = case
     assert standing.require_standing_observation_authority(None, **kwargs) is certificate
+
+
+def test_new_merger_strategy_refuses_old_signed_certificate(case):
+    _certificate, kwargs = case
+    current = production_strategy()[1]
+    assert authority.canonical_sha256(current) == MERGER_STRATEGY_SHA256
+    kwargs['strategy_identity'] = current
+    with pytest.raises(authority.AuthorityRefused, match='strategy identity'):
+        standing.require_standing_observation_authority(None, **kwargs)
+
+
+def test_new_merger_strategy_refusal_detects_broad_exception(case, monkeypatch):
+    monkeypatch.setattr(upgrade, 'allows_execution_transition', lambda *args: True)
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_new_merger_strategy_refuses_old_signed_certificate(case)
 
 
 @pytest.mark.parametrize("field", ["strategy", "wealth_core_source_sha256", "controller_rule_sha256",

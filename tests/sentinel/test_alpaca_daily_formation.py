@@ -124,16 +124,21 @@ def test_full_formation_chain_and_frontier_match_unchanged_loader(conn,provider,
 def test_old_alpaca_normalization_requires_fresh_acquisition(conn, provider, monkeypatch):
     from sentinel.feed import rolling_go_inputs
     from sentinel.core import rolling_inputs
+    from sentinel.core.rolling_inputs import RollingInputsRefused
 
     prices, publish = provider
     current = rolling_builder.ALPACA_NORMALIZATION
-    old = 'sentinel.alpaca-openfigi-dividend-current-window/1'
+    old = 'sentinel.alpaca-openfigi-dividend-current-window/3'
     assert current != old
     monkeypatch.setattr(rolling_builder, 'ALPACA_NORMALIZATION', old)
     monkeypatch.setattr(rolling_inputs, 'ALPACA_NORMALIZATION', old)
-    publish()
+    binding = publish()
     monkeypatch.setattr(rolling_builder, 'ALPACA_NORMALIZATION', current)
     monkeypatch.setattr(rolling_inputs, 'ALPACA_NORMALIZATION', current)
+    with pytest.raises(RollingInputsRefused, match='UNBOUND_ALPACA_MERGER_NORMALIZATION'):
+        rolling_inputs.SnapshotReferences(conn, candidate_id=binding['candidate_id'],
+                                          snapshot_id=binding['snapshot_id'])
+    conn.rollback()
 
     def acquire_again(*_a, **_k):
         raise ConnectionError('fresh acquisition required')

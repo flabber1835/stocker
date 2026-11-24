@@ -219,8 +219,58 @@ def test_snapshot_identity_changes_only_for_its_exact_prepublication_guard(monke
     name = operational_snapshot.__name__
     path = Path(operational_snapshot.__file__).resolve()
     current = path.read_bytes()
+    # Reconstruct the independently pinned pre-merger compiler. The new
+    # supersession functions and publication edge have a distinct current hash.
+    historical = current
+    start = historical.index(b'SUPERSESSION_SCHEMA = ')
+    stop = historical.index(b'\nclass OperationalSnapshotRefused', start)
+    historical = historical[:start] + b'\n' + historical[stop:]
+    start = historical.index(b'def _alpaca_policy(')
+    stop = historical.index(b'def require_alpaca_openfigi(', start)
+    historical = historical[:start] + historical[stop:]
+    new_publish = (b'    previous = _current(conn)\n'
+                   b'    same_session = previous is not None and previous.window_end == str(request.window.end)\n'
+                   b'    correction = False\n'
+                   b'    if same_session:\n'
+                   b'        _, old_manifest = _bound_and_manifest(conn, previous)\n'
+                   b'        correction = (_alpaca_policy(conn, old_manifest) == _OLD_ALPACA_POLICY\n'
+                   b'                      or _alpaca_policy(conn, manifest) == _MERGER_ALPACA_POLICY)\n'
+                   b'    edge = None\n'
+                   b'    if correction:\n'
+                   b'        if _session_consumed(conn, previous.window_end):\n'
+                   b"            raise OperationalSnapshotRefused('SAME_SESSION_PUBLICATION_ALREADY_CONSUMED')\n"
+                   b'        _require_correction_strategy(conn, previous, request)\n'
+                   b'        edge = _edge_fields(conn, previous, candidate, request)\n')
+    old_publish = (b'    previous = _current(conn)\n'
+                   b'    with conn.cursor() as cur:\n'
+                   b'        cur.execute("SELECT clock_timestamp()")\n'
+                   b'        at = cur.fetchone()[0]\n')
+    assert historical.count(new_publish) == 1
+    historical = historical.replace(new_publish, old_publish)
+    edge_and_timing = (b'    if edge is not None:\n'
+                       b"        evidence['operational_supersession'] = edge\n"
+                       b'    from sentinel.feed import action_history, rolling_work\n'
+                       b'    with rolling_work.renewing(lambda: jobs.heartbeat(conn, lease, lease_seconds=600)):\n'
+                       b'        evidence["action_history"] = action_history.append(\n'
+                       b'            conn, candidate=candidate, version=version, previous=previous)\n'
+                       b'    jobs._owned(conn, lease)\n'
+                       b"    at = conn.execute('SELECT clock_timestamp()').fetchone()[0]\n"
+                       b'    if correction:\n'
+                       b'        opened, _ = calendar.session_window(calendar.next_session(previous.window_end))\n'
+                       b'        if (at >= opened) != (request.cursor is not None):\n'
+                       b"            raise OperationalSnapshotRefused('SAME_SESSION_CORRECTION_TIMING_CHANGED')\n")
+    action_history = (b'    from sentinel.feed import action_history, rolling_work\n'
+                      b'    with rolling_work.renewing(lambda: jobs.heartbeat(conn, lease, lease_seconds=600)):\n'
+                      b'        evidence["action_history"] = action_history.append(\n'
+                      b'            conn, candidate=candidate, version=version, previous=previous)\n'
+                      b'    jobs._owned(conn, lease)\n')
+    assert historical.count(edge_and_timing) == 1
+    historical = historical.replace(edge_and_timing, b'')
+    insert = b'    publication._insert_receipted_publication(\n'
+    assert historical.count(insert) == 1
+    historical = historical.replace(insert, action_history + insert)
     staged = b'readiness_inputs(conn, candidate_id=candidate, snapshot_id=manifest.snapshot_id, staged=True)'
-    assert current.count(staged) == 1
+    assert historical.count(staged) == 1
     changes = (
         (b'def _bound_and_manifest(conn, pub):', b'def _bound(conn, pub):'),
         (b'    binding = {"data_version": pub.version, "scope": "DATA_ONLY", "operational_go": False,\n'
@@ -233,7 +283,7 @@ def test_snapshot_identity_changes_only_for_its_exact_prepublication_guard(monke
          b'    binding = _bound(conn, pub)\n'
          b'    if rolling_store.manifest(conn, binding["candidate_id"]).provider != "ALPACA_OPENFIGI":'),
     )
-    prior = current
+    prior = historical
     for reviewed, predecessor in changes:
         assert prior.count(reviewed) == 1
         prior = prior.replace(reviewed, predecessor)
@@ -265,7 +315,8 @@ def test_snapshot_identity_changes_only_for_its_exact_prepublication_guard(monke
 @pytest.mark.parametrize('name', economic_manifest.CLOSE_READINESS_COMPILERS)
 def test_close_readiness_identity_requires_all_reviewed_compiler_bytes(monkeypatch, name):
     before = economic_manifest.identity(schema='close-readiness')
-    assert before['economic_implementation']['preserved_behavior']
+    assert before['sha256'] == before['implementation_sha256']
+    assert before['economic_implementation']['preserved_behavior'] is False
     read = economic_manifest._module_raw
     changed = read(name) + b'\n# unreviewed compiler bytes\n'
     monkeypatch.setattr(economic_manifest, '_module_raw', lambda module: changed if module == name else read(module))
