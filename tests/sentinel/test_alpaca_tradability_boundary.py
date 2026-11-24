@@ -46,7 +46,8 @@ def source_with_reobservation(raw):
     source=AlpacaSource(None, None, None, client=Client())
     source.assets=openfigi.inventory([asset()])
     source._action_rows=lambda: (dict(affected=[], reset_after={}, dividends=[],
-        pending_cash=[], splits=[], identity_bindings=[], merger_conversions=[]), None, {}, 0)
+        pending_cash=[], splits=[], identity_bindings=[], merger_conversions=[],
+        identity_breaks=[]), None, {}, 0)
     return source
 
 

@@ -1,12 +1,15 @@
 """Retained Alpaca/OpenFIGI inputs for GO and daily rolling candidates."""
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 import re
 from time import perf_counter_ns
+from typing import Literal
 from zoneinfo import ZoneInfo
+
+from pydantic import Field, ValidationError, model_validator
 
 from sentinel.feed import calendar, progress, rolling_jobs as jobs
 from sentinel.feed.acquisition_parts import Parts, SourceRevision
@@ -20,11 +23,165 @@ from sentinel.feed.alpaca_transport import (
     ACTION_URL, ASSETS, BAR_URL, AlpacaTransportRefused, Client, measure_requests,
 )
 from sentinel.feed.operational_source import _months
-from sentinel.feed.rolling_contract import digest
+from sentinel.feed.rolling_contract import Contract, Digest, digest
 
 SOURCE = "sentinel.alpaca-openfigi-operational-source/4"
 REFERENCE = "sentinel.rolling-alpaca-openfigi-references/4"
+IDENTITY_BREAK_POLICY = 'sentinel.alpaca-identity-break/1'
 _NY = ZoneInfo("America/New_York")
+
+
+class SplitBreakProof(Contract):
+    kind: Literal['forward_splits', 'reverse_splits']
+    record_id: str = Field(min_length=1, max_length=128)
+    terms_sha256: Digest
+    economic_session: date
+    old_cusip: str = Field(pattern=r'^[A-Z0-9]{9}$')
+    new_cusip: str = Field(pattern=r'^[A-Z0-9]{9}$')
+    old_rate: str = Field(min_length=1, max_length=128)
+    new_rate: str = Field(min_length=1, max_length=128)
+    raw_record: dict
+
+    @model_validator(mode='after')
+    def bound_terms(self):
+        record = self.raw_record
+        if calendar.previous_sessions(self.economic_session, 1) != [self.economic_session.isoformat()]:
+            raise ValueError('identity-break split date is not an XNYS session')
+        if (not isinstance(record, dict) or record.get('id') != self.record_id
+                or digest(record) != self.terms_sha256
+                or record.get('old_cusip') != self.old_cusip
+                or record.get('new_cusip') != self.new_cusip
+                or self.old_cusip == self.new_cusip):
+            raise ValueError('identity-break split source terms changed')
+        event = stock_split(self.kind, record, axis={self.economic_session.isoformat()})
+        try:
+            old = Decimal(str(record['old_rate']))
+            new = Decimal(str(record['new_rate']))
+        except (KeyError, InvalidOperation, ValueError, TypeError):
+            raise ValueError('identity-break split rates changed') from None
+        if (self.old_rate != format(old.normalize(), 'f')
+                or self.new_rate != format(new.normalize(), 'f')
+                or event['date'] != self.economic_session.isoformat()):
+            raise ValueError('identity-break split rates or date changed')
+        return self
+
+
+class IdentityBreak(Contract):
+    ticker: str = Field(min_length=1, max_length=32)
+    old_provider_asset_id: str = Field(min_length=1, max_length=128)
+    new_provider_asset_id: str = Field(min_length=1, max_length=128)
+    origin_snapshot_id: Digest
+    origin_session: date
+    first_affected_session: date
+    floor_session: date
+    split: SplitBreakProof | None
+
+    @model_validator(mode='after')
+    def valid_floor(self):
+        if any(calendar.previous_sessions(day, 1) != [day.isoformat()]
+               for day in (self.origin_session, self.first_affected_session,
+                           self.floor_session)):
+            raise ValueError('identity-break date is not an XNYS session')
+        if (self.ticker != self.ticker.upper()
+                or self.old_provider_asset_id == self.new_provider_asset_id
+                or not self.origin_session < self.first_affected_session
+                or self.floor_session < self.first_affected_session):
+            raise ValueError('identity-break origin or floor is invalid')
+        if self.split is None:
+            if self.floor_session != self.first_affected_session:
+                raise ValueError('unproven identity-break floor changed')
+        elif (self.split.raw_record.get('symbol') != self.ticker
+              or not self.origin_session < self.split.economic_session <= self.first_affected_session
+              or self.floor_session != max(self.split.economic_session,
+                                           self.first_affected_session)):
+            raise ValueError('identity-break split does not establish the floor')
+        return self
+
+
+def source_breaks(source):
+    """Validate additive /4 source evidence without changing old /4 rows."""
+    if not isinstance(source, dict):
+        raise AlpacaTransportRefused('published Alpaca identity breaks unavailable')
+    has_policy = 'identity_break_policy' in source
+    has_rows = 'identity_breaks' in source
+    if not has_policy and not has_rows:
+        return []
+    if (source.get('schema') != SOURCE or source.get('provider') != 'ALPACA_OPENFIGI'
+            or not has_policy or not has_rows
+            or source['identity_break_policy'] != IDENTITY_BREAK_POLICY
+            or not isinstance(source['identity_breaks'], list)):
+        raise AlpacaTransportRefused('invalid Alpaca identity-break source policy')
+    try:
+        values = [IdentityBreak.model_validate(row) for row in source['identity_breaks']]
+    except (ValidationError, ValueError, AlpacaTransportRefused) as exc:
+        raise AlpacaTransportRefused('invalid Alpaca identity-break row') from exc
+    if any(value.model_dump(mode='json') != row
+           for value, row in zip(values, source['identity_breaks'])):
+        raise AlpacaTransportRefused('noncanonical Alpaca identity-break row')
+    if values != sorted(values, key=lambda value: (value.ticker, value.first_affected_session)):
+        raise AlpacaTransportRefused('unordered Alpaca identity-break rows')
+    latest = {}
+    owners = {}
+    proof_ids = set()
+    for value in values:
+        previous = latest.get(value.ticker)
+        if (previous is not None
+                and (value.first_affected_session <= previous.first_affected_session
+                     or value.old_provider_asset_id != previous.new_provider_asset_id
+                     or value.origin_session < previous.first_affected_session)):
+            raise AlpacaTransportRefused('conflicting Alpaca identity-break chain')
+        latest[value.ticker] = value
+        if value.split is not None:
+            if value.split.record_id in proof_ids:
+                raise AlpacaTransportRefused('duplicate Alpaca identity-break split proof')
+            proof_ids.add(value.split.record_id)
+        for provider_id in (value.old_provider_asset_id, value.new_provider_asset_id):
+            owner = owners.setdefault(provider_id, value.ticker)
+            if owner != value.ticker:
+                raise AlpacaTransportRefused('colliding Alpaca identity-break provider IDs')
+    return values
+
+
+def _break_events(symbol, origin_session, records):
+    """Retain only actions that could describe the replaced listing."""
+    from sentinel.feed import alpaca_identity
+
+    return [(kind, record) for kind, record in records
+            if symbol in alpaca_identity.action_sources(kind, record)
+            and ((day := structural_action_date(kind, record)) is None
+                 or day > origin_session)]
+
+
+def _split_break_proof(symbol, origin_session, first_affected_session, records):
+    """A split can bound a fresh series; it cannot bridge provider UUIDs."""
+    relevant = _break_events(symbol, origin_session, records)
+    if len(relevant) != 1 or relevant[0][0] not in ('forward_splits', 'reverse_splits'):
+        return None
+    kind, record = relevant[0]
+    day = structural_action_date(kind, record)
+    if day is None or not origin_session < day <= first_affected_session:
+        return None
+    old_cusip, new_cusip = record.get('old_cusip'), record.get('new_cusip')
+    if (not isinstance(old_cusip, str) or not isinstance(new_cusip, str)
+            or re.fullmatch(r'[A-Z0-9]{9}', old_cusip) is None
+            or re.fullmatch(r'[A-Z0-9]{9}', new_cusip) is None
+            or old_cusip == new_cusip):
+        return None
+    try:
+        stock_split(kind, record, axis={day})
+        old = Decimal(str(record['old_rate']))
+        new = Decimal(str(record['new_rate']))
+        value = SplitBreakProof(kind=kind, record_id=record['id'],
+            terms_sha256=digest(record), economic_session=day,
+            old_cusip=old_cusip, new_cusip=new_cusip,
+            old_rate=format(old.normalize(), 'f'),
+            new_rate=format(new.normalize(), 'f'), raw_record=record)
+    except (AlpacaTransportRefused, ValidationError, KeyError, InvalidOperation,
+            ValueError, TypeError):
+        return None
+    if value.raw_record.get('symbol') != symbol:
+        return None
+    return value.model_dump(mode='json')
 
 
 def _bounds(first: str, last: str):
@@ -103,8 +260,10 @@ class AlpacaSource:
         self.months = []
         self.identity_bindings = []
         self.merger_conversions = []
+        self.identity_breaks = []
         self.previous_identity = None
         self.same_session_conversions = None
+        self.same_session_breaks = None
 
     def preflight(self):
         if str(self.window.end) > calendar.latest_closed_session():
@@ -246,6 +405,11 @@ class AlpacaSource:
         selected = current_assets.keys() | {'BIL'}
         previous = self._previous_identity()
         prior_assets = {row['ticker']: row['asset_id'] for row in previous['previous_selected']} if previous else {}
+        prior_breaks = previous.get('identity_breaks', []) if previous else []
+        source_breaks({'schema': SOURCE, 'provider': self.provider,
+                       'identity_break_policy': IDENTITY_BREAK_POLICY,
+                       'identity_breaks': prior_breaks})
+        same_session_breaks = getattr(self, 'same_session_breaks', None)
         axis = {str(day) for day in self.window.sessions}
         for page, proof in self.client.pages(ACTION_URL, params, key="corporate_actions"):
             proofs.append(proof)
@@ -302,8 +466,20 @@ class AlpacaSource:
                                         continue
                                 for symbol in involved:
                                     resets.append((symbol, economic_date, record['id']))
+        for row in [*prior_breaks, *(same_session_breaks or [])]:
+            split = row['split']
+            if split is None:
+                continue
+            observed = seen.get(split['record_id'])
+            expected = digest({'type': split['kind'], 'record': split['raw_record']})
+            if observed is not None and observed != expected:
+                raise AlpacaTransportRefused('published identity-break split changed')
         identity_bindings = alpaca_identity.bind(selected=self.selected, records=structural,
-            target_session=str(self.window.end), **previous) if previous is not None else []
+            target_session=str(self.window.end),
+            previous_selected=previous['previous_selected'],
+            previous_bindings=previous['previous_bindings'],
+            previous_session=previous['previous_session'],
+            previous_snapshot_id=previous['previous_snapshot_id']) if previous is not None else []
         merger_conversions = alpaca_identity.merger_conversions(
             selected=self.selected, previous_identity=previous,
             bindings_raw=identity_bindings, records=structural,
@@ -313,12 +489,105 @@ class AlpacaSource:
         # The producer sees only source inventory, never controller selections.
         bound_symbols = {item['ticker'] for item in identity_bindings}
         converted_symbols = {item['old_symbol'] for item in merger_conversions}
-        for symbol, old_id in sorted(prior_assets.items()):
+        identity_breaks = list(prior_breaks)
+        prior_break_by_symbol = {row['ticker']: row for row in prior_breaks}
+        for symbol, row in prior_break_by_symbol.items():
+            if symbol in prior_assets and prior_assets[symbol] != row['new_provider_asset_id']:
+                raise AlpacaTransportRefused('published identity-break reference changed')
+        prior_ids = {**prior_assets,
+                     **{symbol: row['new_provider_asset_id']
+                        for symbol, row in prior_break_by_symbol.items()}}
+        for symbol, old_id in sorted(prior_ids.items()):
             new_id = current_assets.get(symbol)
-            if (new_id is not None and new_id != old_id
-                    and symbol not in bound_symbols
-                    and symbol not in converted_symbols):
-                raise AlpacaSourcePending('ALPACA_IDENTITY_ACTION_PENDING', symbol=symbol)
+            if new_id is None:
+                continue
+            old_break = prior_break_by_symbol.get(symbol)
+            if new_id == old_id:
+                if old_break is not None and old_break['split'] is None:
+                    proof = _split_break_proof(symbol, old_break['origin_session'],
+                        old_break['first_affected_session'], structural)
+                    if proof is not None:
+                        identity_breaks[identity_breaks.index(old_break)] = {
+                            **old_break, 'split': proof,
+                            'floor_session': max(proof['economic_session'],
+                                                 old_break['first_affected_session'])}
+                elif old_break is not None and old_break['split'] is not None:
+                    # A later action response may omit an old event, but it may
+                    # never rewrite or contradict the authenticated terms.
+                    for kind, record in _break_events(symbol, old_break['origin_session'], structural):
+                        day = structural_action_date(kind, record)
+                        if day is None or day <= old_break['first_affected_session']:
+                            proof = old_break['split']
+                            if (kind != proof['kind'] or record.get('id') != proof['record_id']
+                                    or digest(record) != proof['terms_sha256']):
+                                raise AlpacaTransportRefused('published identity-break split changed')
+                continue
+            if symbol in bound_symbols or symbol in converted_symbols:
+                if old_break is not None:
+                    raise AlpacaSourcePending('ALPACA_IDENTITY_ACTION_PENDING', symbol=symbol)
+                continue
+            proof = _split_break_proof(symbol, previous['previous_session'],
+                                       str(self.window.end), structural)
+            identity_breaks.append(IdentityBreak(
+                ticker=symbol, old_provider_asset_id=old_id,
+                new_provider_asset_id=new_id,
+                origin_snapshot_id=previous['previous_snapshot_id'],
+                origin_session=previous['previous_session'],
+                first_affected_session=str(self.window.end),
+                floor_session=max(proof['economic_session'], str(self.window.end))
+                    if proof is not None else str(self.window.end),
+                split=proof).model_dump(mode='json'))
+        if same_session_breaks is not None:
+            generated = {(row['ticker'], row['first_affected_session']): row
+                         for row in identity_breaks}
+            for retained in same_session_breaks:
+                key = (retained['ticker'], retained['first_affected_session'])
+                observed = generated.get(key)
+                if observed is None:
+                    # The inventory may temporarily omit a quarantined listing.
+                    identity_breaks.append(retained)
+                    generated[key] = retained
+                    continue
+                if observed == retained:
+                    continue
+                if ({key: value for key, value in observed.items()
+                     if key not in ('split', 'floor_session')}
+                        != {key: value for key, value in retained.items()
+                            if key not in ('split', 'floor_session')}
+                        or retained['split'] is None or observed['split'] is not None):
+                    raise AlpacaTransportRefused('same-session identity-break evidence changed')
+                # A prior authenticated split remains evidence when the
+                # provider no longer includes that action in a later page.
+                for kind, record in _break_events(retained['ticker'],
+                                                  retained['origin_session'], structural):
+                    day = structural_action_date(kind, record)
+                    if day is None or day <= retained['first_affected_session']:
+                        proof = retained['split']
+                        if (kind != proof['kind'] or record.get('id') != proof['record_id']
+                                or digest(record) != proof['terms_sha256']):
+                            raise AlpacaTransportRefused('same-session identity-break split changed')
+                generated[key] = retained
+                identity_breaks[identity_breaks.index(observed)] = retained
+        identity_breaks.sort(key=lambda row: (row['ticker'], row['first_affected_session']))
+        source_breaks({'schema': SOURCE, 'provider': self.provider,
+                       'identity_break_policy': IDENTITY_BREAK_POLICY,
+                       'identity_breaks': identity_breaks})
+        if any(row['first_affected_session'] > str(self.window.end)
+               or row['floor_session'] > str(self.window.end)
+               for row in identity_breaks):
+            raise AlpacaTransportRefused('identity-break floor is in the future')
+        reserved_ids = {sid: row['ticker'] for row in identity_breaks
+                        for sid in (row['old_provider_asset_id'],
+                                    row['new_provider_asset_id'])}
+        if any(reserved_ids.get(sid) not in (None, symbol)
+               for symbol, sid in current_assets.items()):
+            raise AlpacaTransportRefused('identity-break provider ID reused by another symbol')
+        if same_session_breaks is not None:
+            current_by_key = {(row['ticker'], row['first_affected_session']): row
+                              for row in identity_breaks}
+            if any(current_by_key.get((row['ticker'], row['first_affected_session'])) != row
+                   for row in same_session_breaks):
+                raise AlpacaTransportRefused('same-session identity-break evidence changed')
         old_conversions = getattr(self, 'same_session_conversions', None)
         if old_conversions is not None:
             alpaca_identity.conversions(old_conversions)
@@ -351,6 +620,15 @@ class AlpacaSource:
             # actual event-day bar starts the successor's fresh series.
             reset_day = previous['previous_session'] if merger is not None else day
             reset_after[symbol] = max(reset_day, reset_after.get(symbol, ''))
+        for row in identity_breaks:
+            symbol = row['ticker']
+            if symbol not in current_assets:
+                continue
+            blocked_by_action = symbol in affected
+            affected.discard(symbol)
+            floor = (row['floor_session'] if row['split'] is not None and not blocked_by_action
+                     else str(self.window.end))
+            reset_after[symbol] = max(floor, reset_after.get(symbol, ''))
         dividends = sorted((item for item in dividends
                             if item["ticker"] not in affected),
                            key=lambda item: (item["date"], item["ticker"], item["id"]))
@@ -358,10 +636,12 @@ class AlpacaSource:
                    "affected_selected_symbols": len(affected),
                    "post_event_reset_symbols": len(reset_after),
                    "cash_dividend_rows": len(dividends),
-                   "merger_conversion_rows": len(merger_conversions)}
+                   "merger_conversion_rows": len(merger_conversions),
+                   'identity_break_rows': len(identity_breaks)}
         return {"affected": sorted(affected), "reset_after": reset_after,
                 'identity_bindings': identity_bindings,
                 'merger_conversions': merger_conversions,
+                'identity_breaks': identity_breaks,
                 "dividends": dividends,
                 'pending_cash': sorted(pending_cash, key=lambda item: item['id']),
                 "splits": sorted(splits.values(), key=lambda item:(item['date'],item['ticker'])),
@@ -394,6 +674,8 @@ class AlpacaSource:
                             digest(self.same_session_conversions)):
                     raise AlpacaTransportRefused('same-session merger source binding changed')
                 alpaca_identity.conversions(self.same_session_conversions)
+                self.same_session_breaks = [row.model_dump(mode='json')
+                    for row in source_breaks(current_source)]
             row = self.conn.execute('SELECT version,previous_version,run_id,window_start,window_end,evidence '
                 'FROM sentinel_corpus_publications WHERE window_end < %s '
                 'ORDER BY window_end DESC,version DESC LIMIT 1', (str(self.window.end),)).fetchone()
@@ -409,9 +691,76 @@ class AlpacaSource:
         from sentinel.feed.alpaca_identity import published_assets
         reference = rolling_store.load_evidence(self.conn, manifest.reference_sha256)
         source = rolling_store.load_evidence(self.conn, manifest.source_evidence_sha256)
-        self.previous_identity = dict(previous_selected=published_assets(reference, source),
+        selected = published_assets(reference, source)
+        breaks = [value.model_dump(mode='json') for value in source_breaks(source)]
+        if any(value['first_affected_session'] > pub.window_end
+               or value['floor_session'] > pub.window_end for value in breaks):
+            raise AlpacaTransportRefused('published identity-break floor is in the future')
+        if (source.get('schema') == 'sentinel.alpaca-openfigi-operational-source/3'
+                and reference.get('schema') == 'sentinel.rolling-alpaca-openfigi-references/3'):
+            # This pre-policy source could already have assigned a replacement
+            # UUID to historical same-symbol prices. Older /1 and /2 aggregates
+            # retain their separate retirement and recovery contract.
+            older = self.conn.execute(
+                'SELECT version,previous_version,run_id,window_start,window_end,evidence '
+                'FROM sentinel_corpus_publications WHERE window_end < %s '
+                'ORDER BY window_end DESC,version DESC LIMIT 1',
+                (pub.window_end,)).fetchone()
+            if older is not None:
+                older_pub = publication.Publication(int(older[0]), older[1],
+                    str(older[2]) if older[2] else None, str(older[3]),
+                    str(older[4]), older[5])
+                publication._validate_publication(self.conn, older_pub, allow_snapshot=True)
+                older_binding = operational_snapshot._bound(self.conn, older_pub)
+                older_manifest = rolling_store.manifest(self.conn, older_binding['candidate_id'])
+                if older_manifest.provider == self.provider:
+                    older_reference = rolling_store.load_evidence(
+                        self.conn, older_manifest.reference_sha256)
+                    older_source = rolling_store.load_evidence(
+                        self.conn, older_manifest.source_evidence_sha256)
+                    older_assets = {item['ticker']: item['asset_id'] for item in
+                                    published_assets(older_reference, older_source)}
+                    from sentinel.feed import alpaca_identity
+                    bound = {item.ticker: item for item in alpaca_identity.bindings(
+                        reference.get('identity_bindings', []))}
+                    converted = {item['old_symbol']: item for item in
+                                 reference.get('merger_conversions', [])}
+                    for item in selected:
+                        symbol = item['ticker']
+                        old_id = older_assets.get(symbol)
+                        if old_id is None or item['asset_id'] == old_id:
+                            continue
+                        binding = bound.get(symbol)
+                        conversion = converted.get(symbol)
+                        proven_name = (binding is not None
+                            and binding.prior_provider_asset_id == old_id
+                            and binding.provider_asset_id == item['asset_id'])
+                        proven_merger = (conversion is not None
+                            and conversion['old_provider_asset_id'] == old_id
+                            and conversion['successor_provider_asset_id'] == item['asset_id'])
+                        if not proven_name and not proven_merger:
+                            raise AlpacaSourcePending('ALPACA_IDENTITY_ACTION_PENDING',
+                                                      symbol=symbol)
+        latest = {value['ticker']: value for value in breaks}
+        reserved_ids = {sid: value['ticker'] for value in breaks
+                        for sid in (value['old_provider_asset_id'],
+                                    value['new_provider_asset_id'])}
+        if any(reserved_ids.get(row['asset_id']) not in (None, row['ticker'])
+               for row in selected):
+            raise AlpacaTransportRefused('published identity-break provider ID collision')
+        for ticker in reference['tickers']:
+            if reserved_ids.get(ticker['permaticker']) not in (None, ticker['ticker']):
+                raise AlpacaTransportRefused('published identity-break provider ID collision')
+            row = latest.get(ticker['ticker'])
+            if row is None:
+                continue
+            if (row['split'] is None or ticker['permaticker'] != row['new_provider_asset_id']
+                    or ticker['firstpricedate'] <= row['floor_session']):
+                raise AlpacaTransportRefused('published identity-break price floor changed')
+        self.previous_identity = dict(previous_selected=selected,
             previous_bindings=reference.get('identity_bindings', []),
-            previous_session=pub.window_end, previous_snapshot_id=manifest.snapshot_id)
+            previous_session=pub.window_end, previous_snapshot_id=manifest.snapshot_id,
+            identity_breaks=breaks)
         return self.previous_identity
 
     def _bars(self, symbols, first, last, adjustment):
@@ -489,7 +838,8 @@ class AlpacaSource:
                 raise SourceRevision('*', digest(self.assets), digest(newer['assets']))
         actions = self._part("ACTIONS", {**base, "component": "actions",
                                           'stock_merger_roles': 1,
-                                          'split_identity': 2,
+                                          'split_identity': 3,
+                                          'identity_break_policy': IDENTITY_BREAK_POLICY,
                                           'prior_identity_sha256': digest(self._previous_identity()),
                                           "start": (self.window.start - timedelta(days=365)).isoformat()},
                              self._action_rows, checkpoint)
@@ -501,6 +851,7 @@ class AlpacaSource:
         self.splits = actions["splits"]
         self.identity_bindings = actions['identity_bindings']
         self.merger_conversions = actions['merger_conversions']
+        self.identity_breaks = actions['identity_breaks']
         self.sfp = self._part("SFP", {**base, "component": "benchmarks",
                                       "window": self.window.model_dump(mode="json")},
                               self._benchmark_rows, checkpoint)
@@ -517,6 +868,17 @@ class AlpacaSource:
         if not safe_symbols:
             raise AlpacaTransportRefused("no candidate securities remain after action quarantine")
         for number, (lo, hi) in enumerate(self.months, 1):
+            starts = defaultdict(set)
+            for symbol in safe_symbols:
+                floor = self.reset_after.get(symbol)
+                if floor is not None and floor >= hi:
+                    continue
+                first = (calendar.next_session(floor)
+                         if floor is not None and floor >= lo else lo)
+                if first > hi:
+                    continue
+                starts[first].add(symbol)
+            month_symbols = set().union(*starts.values()) if starts else set()
             component = f"SEP.{lo}.{hi}"
             generation = {"provider": self.provider, "component": component,
                           "selection_sha256": digest(self.selected),
@@ -524,15 +886,20 @@ class AlpacaSource:
                                                     "reset_after": self.reset_after,
                                                     "splits": self.splits,
                                                     'identity_bindings': self.identity_bindings,
-                                                    'merger_conversions': self.merger_conversions}),
+                                                    'merger_conversions': self.merger_conversions,
+                                                    'identity_breaks': self.identity_breaks}),
                           "asof": str(self.window.end)}
             def acquire():
-                raw, raw_proofs = self._bars(safe_symbols, lo, hi, "raw")
-                adjusted, adjusted_proofs = self._bars(safe_symbols, lo, hi, "split")
+                raw, adjusted, raw_proofs, adjusted_proofs = {}, {}, [], []
+                for first, symbols in sorted(starts.items()):
+                    rows, proofs = self._bars(symbols, first, hi, "raw")
+                    raw.update(rows); raw_proofs.extend(proofs)
+                    rows, proofs = self._bars(symbols, first, hi, "split")
+                    adjusted.update(rows); adjusted_proofs.extend(proofs)
                 sessions = {str(day) for day in self.window.sessions if lo <= str(day) <= hi}
                 with progress.phase('alpaca_price_pairing', job_id=self.lease.job_id,
                                     table='SEP', date_from=lo, date_to=hi) as count:
-                    rows, absent = paired_month(raw, adjusted, symbols=safe_symbols, sessions=sessions)
+                    rows, absent = paired_month(raw, adjusted, symbols=month_symbols, sessions=sessions)
                     count[0] = len(rows)
                 return {"pair_absent": [list(key) for key in sorted(absent)]}, rows, \
                     {"raw": raw_proofs, "split": adjusted_proofs}, len(rows)
@@ -572,8 +939,22 @@ class AlpacaSource:
             raise SourceRevision('ACTIONS', digest(self.identity_bindings), digest(actions['identity_bindings']))
         if actions['merger_conversions'] != self.merger_conversions:
             raise SourceRevision('ACTIONS', digest(self.merger_conversions), digest(actions['merger_conversions']))
+        if actions['identity_breaks'] != self.identity_breaks:
+            raise SourceRevision('ACTIONS', digest(self.identity_breaks), digest(actions['identity_breaks']))
 
     def reference_payload(self):
+        latest_breaks = {row['ticker']: row for row in getattr(self, 'identity_breaks', [])}
+        reserved_ids = {sid: row['ticker'] for row in getattr(self, 'identity_breaks', [])
+                        for sid in (row['old_provider_asset_id'],
+                                    row['new_provider_asset_id'])}
+        for row in self.tickers:
+            if reserved_ids.get(row['permaticker']) not in (None, row['ticker']):
+                raise AlpacaTransportRefused('identity-break reference provider ID collision')
+            previous = latest_breaks.get(row['ticker'])
+            if previous is not None and (previous['split'] is None
+                    or row['permaticker'] != previous['new_provider_asset_id']
+                    or row['firstpricedate'] <= previous['floor_session']):
+                raise AlpacaTransportRefused('identity-break reference crossed price floor')
         admitted = {row["ticker"]: row["firstpricedate"] for row in self.tickers}
         admitted['BIL'] = str(self.window.start)
         actions = [{"date": day, "action": "dividend",
@@ -604,7 +985,7 @@ class AlpacaSource:
         return {key: format(value.normalize(), "f") for key, value in totals.items()}
 
     def source_payload(self):
-        return {"schema": SOURCE, "provider": self.provider,
+        payload = {"schema": SOURCE, "provider": self.provider,
                 "selected_count": len(self.selected),
                 "admitted_count": len(self.tickers),
                 "components": self.evidence, "sfp_sha256": digest(self.sfp),
@@ -612,5 +993,9 @@ class AlpacaSource:
                 "action_quarantine": self.action_evidence,
                 'identity_bindings_sha256': digest(self.identity_bindings),
                 'merger_conversions_sha256': digest(self.merger_conversions),
+                'identity_break_policy': IDENTITY_BREAK_POLICY,
+                'identity_breaks': self.identity_breaks,
                 "post_event_reset_sha256": digest(self.reset_after),
                 "dividends_sha256": digest(self.dividends)}
+        source_breaks(payload)
+        return payload
