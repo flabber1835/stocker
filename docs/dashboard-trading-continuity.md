@@ -143,6 +143,12 @@ as such so an old raw FAIL cannot be mistaken for a current trading stop.
 plus the existing review requirement. Details show the dated raw evidence and
 review history without a red panic badge for a historical event.
 
+Observer receipts encode `trial_reason_codes` as a JSON array even though the
+typed panel row holds a tuple. Normalize this field before signing the receipt
+so an in-memory envelope and its PostgreSQL JSONB round trip are identical;
+validate and restore the tuple only when decoding the row. This representation
+change grants no new trial verdict or trading authority.
+
 `/operational-health` reports the same current continuity status/color and
 blocking/warning keys when the strict observation is current. Return 503 for a
 current red trading stop or when its strict observation is unavailable. An

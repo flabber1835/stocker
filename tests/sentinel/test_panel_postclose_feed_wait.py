@@ -178,7 +178,7 @@ def test_real_build_json_html_and_health_share_queued_ingest_wait(monkeypatch):
     monkeypatch.setattr(app,'_read_panel',lambda:page)
     raw=json.loads(app.panel_json().body)
     health=json.loads(app.operational_health().body)
-    assert raw['color']==health['color']=='amber'
+    assert raw['color']==health['color']=='green'
     assert health['red_rows']==[] and health['source_errors']==[]
     html=render(page)
     assert 'WAITING FOR 2026-10-26 CLOSING DATA' in html

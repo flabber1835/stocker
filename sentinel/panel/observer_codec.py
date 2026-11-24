@@ -13,6 +13,13 @@ def pack(rows, errors, *, observed_at):
     value = {'rows': [asdict(row) for row in rows], 'errors': errors,
              'observed_at': observed_at}
     for raw, row in zip(value['rows'], rows):
+        reasons = row.trial_reason_codes
+        if (not isinstance(reasons, tuple) or len(reasons) > 16
+                or any(not isinstance(reason, str) or len(reason) > 100
+                       for reason in reasons)
+                or reasons and row.key != 'trial_verification'):
+            raise ValueError('observer trial reasons are malformed')
+        raw['trial_reason_codes'] = list(reasons)
         raw['shadow_book'] = row.shadow_book.model_dump(mode='json') if row.shadow_book else None
         raw['shadow_projection'] = (row.shadow_projection.model_dump(mode='json')
                                     if row.shadow_projection else None)

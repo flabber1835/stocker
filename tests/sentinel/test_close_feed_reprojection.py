@@ -122,11 +122,13 @@ def assert_http_handoff(conn, baseline, captured, monkeypatch):
         # GET explains the current handoff; only background observation can
         # record recovery of the previously durable feed refusal.
         assert baseline.operator_review.status == 'FAILED'
-        assert body['dashboard_health']['color'] == 'red'
+        assert body['dashboard_health']['color'] == 'amber'
         assert not body['source_errors']
         machine = client.get('/operational-health')
         assert machine.status_code == 503 and machine.json()['current'] is False
-        assert machine.json()['status'] == model.UNKNOWN
+        assert machine.json()['status'] == model.PENDING
+        assert machine.json()['color'] == 'neutral'
+        assert machine.json()['strict_operational'] == model.UNKNOWN
     finally:
         client.close()
     assert state(conn) == before

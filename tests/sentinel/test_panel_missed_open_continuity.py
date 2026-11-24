@@ -3,6 +3,7 @@ from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 import inspect
+import json
 
 import pytest
 
@@ -94,6 +95,21 @@ def test_exact_signed_missed_open_is_bounded_and_old_trial_remains_failed():
             failure_detail='old pre-transport plan retired',
             execution_close_at=NEXT))
     assert tuple(generated_reasons) == failed.trial_reason_codes
+
+
+def test_trial_reasons_have_one_jsonb_stable_wire_shape():
+    from sentinel.panel import read_projection
+
+    trial = model.trial_verification_row(
+        verdict='NOT_VERIFIED', session='2026-11-23',
+        reason_codes=('CURRENT_CYCLE_CONTROL_GENERATION_SUPERSEDED',))
+    raw = observer_codec.pack([trial], [], observed_at=NOW)['rows'][0]
+    assert raw['trial_reason_codes'] == ['CURRENT_CYCLE_CONTROL_GENERATION_SUPERSEDED']
+    receipt_row = read_projection._json_row(trial)
+    assert receipt_row['trial_reason_codes'] == raw['trial_reason_codes']
+    assert read_projection._decode_row(json.loads(json.dumps(receipt_row))).trial_reason_codes == trial.trial_reason_codes
+    with pytest.raises(ValueError, match='observer trial reasons are malformed'):
+        observer_codec.pack([replace(trial, trial_reason_codes='not-a-tuple')], [], observed_at=NOW)
 
 
 def test_later_clean_idle_broker_snapshot_does_not_revive_old_panic():
