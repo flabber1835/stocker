@@ -244,6 +244,11 @@ def test_old_source_policy_cannot_satisfy_fresh_readiness(conn,provider,monkeypa
     current=alpaca_source.SOURCE
     original=alpaca_source.AlpacaSource.reference_payload
     original_source=alpaca_source.AlpacaSource.source_payload
+    original_previous=alpaca_source.AlpacaSource._previous_identity
+    def legacy_previous(self):
+        with monkeypatch.context() as scoped:
+            scoped.setattr(alpaca_source,'SOURCE',current)
+            return original_previous(self)
     def legacy_reference(self):
         value=original(self)
         value.pop('merger_conversions')
@@ -252,6 +257,7 @@ def test_old_source_policy_cannot_satisfy_fresh_readiness(conn,provider,monkeypa
             return value | dict(schema='sentinel.rolling-alpaca-openfigi-references/2')
         return value | dict(schema='sentinel.rolling-alpaca-openfigi-references/3')
     monkeypatch.setattr(alpaca_source,'SOURCE','sentinel.alpaca-openfigi-operational-source/'+legacy_policy)
+    monkeypatch.setattr(alpaca_source.AlpacaSource,'_previous_identity',legacy_previous)
     monkeypatch.setattr(alpaca_source.AlpacaSource,'reference_payload',legacy_reference)
     def legacy_source(self):
         with monkeypatch.context() as scoped:
@@ -268,6 +274,7 @@ def test_old_source_policy_cannot_satisfy_fresh_readiness(conn,provider,monkeypa
     monkeypatch.setattr(alpaca_source,'SOURCE',current)
     monkeypatch.setattr(alpaca_source.AlpacaSource,'reference_payload',original)
     monkeypatch.setattr(alpaca_source.AlpacaSource,'source_payload',original_source)
+    monkeypatch.setattr(alpaca_source.AlpacaSource,'_previous_identity',original_previous)
     def fresh_acquisition(*_args,**_kwargs):
         raise ConnectionError('fresh identity source required')
     monkeypatch.setattr(rolling_go_inputs.snapshots,'enqueue',fresh_acquisition)
