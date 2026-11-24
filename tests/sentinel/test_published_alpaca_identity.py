@@ -63,16 +63,18 @@ def test_unbound_or_ambiguous_published_identity_refuses(kind):
     with pytest.raises(AlpacaTransportRefused):identity.published_assets(refs,src)
 
 
-def test_retired_dated_legacy_aggregate_supports_same_day_recovery_and_restart(conn,provider,monkeypatch):
+def test_retired_dated_legacy_aggregate_supports_next_day_recovery_and_restart(conn,provider,monkeypatch):
     from sentinel import rolling_initialization as initial,rolling_daily as daily,rolling_checkpoint
-    from sentinel.feed import alpaca_source
+    from sentinel.feed import alpaca_source, rolling_builder
     prices,publish=provider
     original=alpaca_source.AlpacaSource.reference_payload
     def legacy(self):
-        result=original(self);result.pop('identity_bindings')
+        result=original(self);result.pop('identity_bindings');result.pop('merger_conversions')
         return result | dict(schema='sentinel.rolling-alpaca-openfigi-references/2')
     with monkeypatch.context() as old:
         old.setattr(alpaca_source,'SOURCE','sentinel.alpaca-openfigi-operational-source/1')
+        old.setattr(rolling_builder,'ALPACA_NORMALIZATION',
+                    rolling_builder.ALPACA_NORMALIZATION_HISTORICAL[0])
         old.setattr(alpaca_source.AlpacaSource,'reference_payload',legacy)
         old.setattr(alpaca_source.AlpacaSource,'_previous_identity',lambda self:None)
         before_binding=publish()
@@ -82,8 +84,9 @@ def test_retired_dated_legacy_aggregate_supports_same_day_recovery_and_restart(c
         ticker=before.state.feed['series'][sid]['ticker']
         day=calendar.next_session(before.state.last_processed_session)
         prices.window=PriceWindow.through(day)
-        change_provider(prices,ticker=ticker,previous_id=sid,day=day)
-        publish()
+        dated_binding=publish()
+        first=daily.advance(conn,observation_id=OBS,starting_cash=50_000)
+        assert first.appended and first.state.last_processed_session==day
     old_part=conn.execute("SELECT part_id FROM sentinel_acquisition_bindings WHERE job_id=%s AND component='TICKERS'",
         (before_binding['job_id'],)).fetchone()[0]
     for _ in range(100):
@@ -92,14 +95,17 @@ def test_retired_dated_legacy_aggregate_supports_same_day_recovery_and_restart(c
         assert result['status']=='COMPLETE'
     else:pytest.fail('Canonical retention did not retire the unpinned predecessor aggregate')
     conn.commit()
-    assert rolling_store.load_evidence(conn,rolling_store.manifest(conn,before_binding['candidate_id']).reference_sha256)['tickers']
+    assert rolling_store.load_evidence(conn,rolling_store.manifest(conn,dated_binding['candidate_id']).reference_sha256)['tickers']
+    next_day=calendar.next_session(day)
+    prices.window=PriceWindow.through(next_day)
+    change_provider(prices,ticker=ticker,previous_id=sid,day=next_day)
     current=publish()
     manifest=rolling_store.manifest(conn,current['candidate_id'])
     bound=rolling_store.load_evidence(conn,manifest.reference_sha256)['identity_bindings']
     assert len(bound)==1 and bound[0]['security_id']==sid and bound[0]['provider_asset_id']=='replacement-provider'
-    assert bound[0]['origin_snapshot_id']==before_binding['snapshot_id']
+    assert bound[0]['origin_snapshot_id']==dated_binding['snapshot_id']
     advanced=daily.advance(conn,observation_id=OBS,starting_cash=50_000)
-    assert advanced.appended and advanced.state.last_processed_session==day
+    assert advanced.appended and advanced.state.last_processed_session==next_day
     assert sid in advanced.state.feed['series'] and 'replacement-provider' not in advanced.state.feed['series']
     conn.commit()
     assert rolling_checkpoint.read(conn).model_dump(mode='json')==origin

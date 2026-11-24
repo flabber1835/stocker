@@ -23,11 +23,12 @@ class FakeClient:
         self.window = window or PriceWindow.through("2026-09-14")
         self.missing = missing
         self.action = action
+        self.observed_at = "2026-09-15T00:00:00+00:00"
         self.calls = []
 
     def get(self, endpoint, params=None, *, text=False):
         self.calls.append((endpoint, params))
-        proof = {"endpoint": endpoint, "observed_at": "2026-09-15T00:00:00+00:00",
+        proof = {"endpoint": endpoint, "observed_at": self.observed_at,
                  "sha256": digest([endpoint, params])}
         if endpoint == ASSETS:
             return [{"id": "uuid-" + symbol, "symbol": symbol, "class": "us_equity",
@@ -38,7 +39,7 @@ class FakeClient:
     def pages(self, endpoint, params, *, key):
         self.calls.append((endpoint, params))
         proof = {"endpoint": endpoint, "params": params,
-                 "observed_at": "2026-09-15T00:00:00+00:00",
+                 "observed_at": self.observed_at,
                  "sha256": digest([endpoint, params])}
         if endpoint == ACTION_URL:
             records = ([{"id": "split", "process_date": "2026-09-01",
@@ -77,13 +78,14 @@ class FakeClassifier:
 
     def __init__(self):
         self.calls = []
+        self.observed_at = "2026-09-15T00:00:00+00:00"
 
     def mapping(self, assets):
         self.calls.append(assets)
         return [{'data':[{'ticker':openfigi.job(asset)['idValue'], 'exchCode':'US',
             'marketSector':'Equity', 'securityType':'Common Stock', 'securityType2':'Common Stock',
             'compositeFIGI':'FIGI-'+asset['asset_id'], 'shareClassFIGI':'SHARE-'+asset['asset_id']}]}
-            for asset in assets], {'observed_at':'2026-09-15T00:00:00+00:00'}
+            for asset in assets], {'observed_at':self.observed_at}
 
 
 def test_retained_price_pages_match_the_global_order_and_refuse_duplicates(conn):
