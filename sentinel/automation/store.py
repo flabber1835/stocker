@@ -720,6 +720,43 @@ def adoption_identity_matches(
     )
 
 
+_MISSED_WINDOW_ALERT_CODES = frozenset({
+    'CONTROL_GENERATION_SUPERSEDED', 'MISSED_EXECUTION_WINDOW',
+    'MAX_EXECUTION_LATENESS_EXCEEDED',
+})
+_PRETRANSPORT_ALERT_STATES = frozenset({
+    CycleState.DISCOVERED, CycleState.REFRESHING_DATA, CycleState.PREPARING,
+    CycleState.PLAN_READY, CycleState.WAITING_OPEN,
+})
+
+
+def _missed_window_alert_witness(conn, cycle: CycleRecord,
+                                 control: AutomationControl, *,
+                                 failure_code: str | None) -> dict[str, Any] | None:
+    """Prove a new historical miss had no canonical transport or command."""
+    if (failure_code not in _MISSED_WINDOW_ALERT_CODES
+            or cycle.state not in _PRETRANSPORT_ALERT_STATES
+            or cycle.attempt_count != 0 or cycle.historical_state_only
+            or not adoption_identity_matches(cycle, control)):
+        return None
+    from sentinel.automation.unsent_recovery import require_unsent
+
+    try:
+        require_unsent(conn, (cycle,), binding=control.binding,
+                       effective_session=cycle.effective_session)
+    except AutomationRefused:
+        # A failed negative proof changes only the incident severity. The
+        # original terminal transition still records the missed opportunity.
+        return None
+    return {
+        'schema': 'sentinel.missed-window-no-send/1',
+        'cycle_id': cycle.cycle_id,
+        'from_state': cycle.state.value,
+        'attempt_count': 0,
+        'journal': 'NO_TRANSPORT_EVENT_OR_COMMAND',
+    }
+
+
 def _immutable_cycle(record: CycleRecord) -> dict[str, Any]:
     return {
         key: getattr(record, key)
@@ -1060,6 +1097,15 @@ def transition_cycle(
             "failure_detail": failure_detail,
         }
         detail: dict[str, Any] = {}
+        if (to_state is CycleState.SUPERSEDED
+                and failure_code in _MISSED_WINDOW_ALERT_CODES
+                and current.state in _PRETRANSPORT_ALERT_STATES
+                and current.attempt_count == 0):
+            control = load_control(conn)
+            missed = _missed_window_alert_witness(
+                conn, current, control, failure_code=failure_code)
+            if missed is not None:
+                detail['missed_window_no_send'] = missed
         if opening_cutoffs is not None:
             if current.state is not CycleState.PLAN_READY or to_state is not CycleState.WAITING_OPEN:
                 raise InvalidCycleTransition("opening cutoffs belong to the scheduled plan")
@@ -1207,6 +1253,15 @@ def adopt_cycle(
             "previous_fence_token": current.last_fence_token,
             "identity_matches_current_authority": identity_matches,
         }
+        if failure_code is not None:
+            event_detail['failure_code'] = failure_code
+        if failure_detail is not None:
+            event_detail['failure_detail'] = failure_detail
+        if target is CycleState.SUPERSEDED:
+            missed = _missed_window_alert_witness(
+                conn, current, control, failure_code=failure_code)
+            if missed is not None:
+                event_detail['missed_window_no_send'] = missed
         if diagnostic is not None:
             assignments.append("diagnostic=%s::jsonb")
             params.append(_json(diagnostic))

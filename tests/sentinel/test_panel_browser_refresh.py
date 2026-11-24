@@ -37,6 +37,10 @@ def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None, pan
         script = script.replace(guard,'refreshTimer = setTimeout(function(){ invalidate(true); }, refreshDelayMs);')
     elif mutation == 'failed-withdrawal':
         script = script.replace('invalidate(false, !transportDelay);\n        heartbeat.textContent', 'heartbeat.textContent')
+    elif mutation == 'expired-red':
+        guard = 'document.documentElement.classList.add("not-current");\n      badge.className = "state neutral";'
+        assert script.count(guard) == 1
+        script = script.replace(guard, guard.replace('state neutral', 'state fail'))
     elif mutation == 'age-withdrawal':
         script = script.replace('age >= budget', 'false')
     elif mutation == 'known-negative':
@@ -196,6 +200,15 @@ def test_broken_ordinary_refresh_guards_are_detected(mutation, wake, expected):
     result = run_refresh('incomplete' if mutation == 'failed-withdrawal' else 'busy', wake=wake, mutation=mutation)
     assert result.returncode != 0
     assert expected in result.stderr
+
+
+@pytest.mark.parametrize('wake', ['ordinary-expiry', 'offline'])
+def test_unavailable_browser_cannot_show_a_red_trading_stop(wake):
+    current = run_refresh('busy', wake=wake)
+    assert current.returncode == 0, current.stderr
+    changed = run_refresh('busy', wake=wake, mutation='expired-red')
+    assert changed.returncode != 0
+    assert 'state fail' in changed.stderr
 
 
 def test_missing_node_in_ci_lens_fails_instead_of_skipping(monkeypatch):

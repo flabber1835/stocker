@@ -3,7 +3,7 @@
     GET /            the panel
     GET /health      database and required-schema readiness
     GET /panel.json  the same model as JSON, for scripting
-    GET /operational-health the panel's exact recoverability verdict
+    GET /operational-health the panel's trading-continuity verdict and raw diagnostic
 
 The only writes are Web Push enrollment and explicit operator review metadata.
 Neither can express financial intent. No route
@@ -402,23 +402,40 @@ def health() -> dict:
 @app.get("/operational-health")
 @_one_panel_build
 def operational_health() -> JSONResponse:
-    """The same required-fact verdict shown on the operator panel."""
+    """The same continuity verdict shown on the panel, with strict diagnostics."""
     p = _read_panel()
-    machine_color = (color(p.operational) if p.observation_current else
-                     'red' if dashboard_health(p)['color'] == 'red' else 'neutral')
+    health = dashboard_health(p)
+    continuity = health['trading_continuity']
+    reported = (continuity if p.observation_current or continuity['color'] == 'red' else {
+        **continuity, 'status': 'pending', 'color': 'neutral',
+        'reason_codes': ['STATUS_UNKNOWN'], 'blocking_keys': [],
+        'warning_keys': [], 'next_action': None})
+    strict_red_rows = [
+        row.key for row in p.rows
+        if color(row.effective_status(p.now)) == 'red'
+        and row.key not in model.OPERATIONAL_INFORMATIONAL_ROW_KEYS
+    ]
     body = {
-        "status": p.operational if p.observation_current else model.UNKNOWN,
-        "color": machine_color,
+        "status": reported['status'],
+        "color": reported['color'],
         "current": p.observation_current,
         "as_of": p.now.isoformat(),
-        "red_rows": [
-            row.key for row in p.rows
-            if color(row.effective_status(p.now)) == "red"
-            and row.key not in model.OPERATIONAL_INFORMATIONAL_ROW_KEYS
-        ],
+        "reason_codes": reported['reason_codes'],
+        "blocking_keys": reported['blocking_keys'],
+        "warning_keys": reported['warning_keys'],
+        "red_rows": reported['blocking_keys'],
+        "next_action": reported['next_action'],
+        "valid_until": reported['valid_until'],
+        "trading_continuity": reported,
+        **({"display_trading_continuity": continuity}
+           if not p.observation_current else {}),
+        "strict_operational": p.operational if p.observation_current else model.UNKNOWN,
+        "strict_color": color(p.operational) if p.observation_current else 'neutral',
+        "strict_red_rows": strict_red_rows,
         "source_errors": list(p.source_errors),
     }
-    status_code = 503 if not p.observation_current or body["color"] == "red" else 200
+    status_code = (503 if not p.observation_current or not delivery.display_current(p)
+                   or body["color"] in {"red", "neutral"} else 200)
     headers = {"Cache-Control": "no-store"}
     if not p.observation_current:
         body["observation"] = {

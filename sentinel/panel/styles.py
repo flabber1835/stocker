@@ -41,6 +41,7 @@ body[data-refresh-pending="true"] .brand{border-color:#8b8b93}
 .not-current .heartbeat{color:var(--muted);font-weight:650}.not-current .heartbeat::before{color:var(--muted)}
 .status-reasons{margin-top:12px;padding:0 3px;font-size:13px;line-height:1.5}
 .status-reasons ul{margin:6px 0;padding-left:19px}.status-reasons a{color:var(--fail)}
+.status-reasons .review-warning a{color:var(--warn)}
 .err{background:var(--failbg);color:var(--fail);border-radius:12px;padding:12px 14px;margin-bottom:12px;font-size:13px}
 .row{background:linear-gradient(135deg,#222333f5,#171926f5);border:1px solid #494338;border-left:3px solid #9f7c40;
  border-radius:17px;padding:17px 18px;margin-bottom:10px;box-shadow:var(--shadow);

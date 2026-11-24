@@ -147,7 +147,7 @@ def test_removing_the_typed_history_flag_is_detected_by_the_executed_reader(monk
         test_every_unrelated_negative_or_malformed_case_refuses(monkeypatch, 'wrong_flag')
 
 
-def test_original_post_trade_amber_behavior_is_unchanged(monkeypatch):
+def test_post_trade_continuity_color_preserves_strict_warning(monkeypatch):
     now = datetime(2026, 11, 10, 14, 39, tzinfo=timezone.utc)
 
     class Clock(datetime):
@@ -189,6 +189,7 @@ def test_original_post_trade_amber_behavior_is_unchanged(monkeypatch):
     expected = dict(handoff_mode='POST_TRADE',plan=intent.plan_id,decision=str(decision),effective=str(effective))
     before = deepcopy(page)
     result = execute_reader(monkeypatch, page, expected)
-    assert result['color'] == 'amber'
+    assert result['color'] == 'green'
+    assert page['strict_color'] == 'amber'
     assert 'retained_history_warning' not in result and 'operational_ready' not in result
     assert page == before

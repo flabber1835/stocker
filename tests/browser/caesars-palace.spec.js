@@ -652,7 +652,7 @@ test.describe("Caesar's Palace PWA and push path", () => {
     expect(response.status()).toBe(200);
     expect(response.headers()["x-sentinel-panel-status"]).toBe("CONNECTING");
     expect(response.headers()["cache-control"]).toBe("no-store");
-    await expect(page.locator("body")).toContainText("STATUS NOT CURRENT — OFFLINE");
+    await expect(page.locator("body")).toContainText("TRADING STATUS UNKNOWN — OFFLINE");
     await context.setOffline(false);
   });
 

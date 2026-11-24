@@ -1185,11 +1185,45 @@ def health_facts(panel, *, boundaries: list[datetime] | None = None) -> dict:
     return _health_facts(panel, list(_classify_health_rows(panel, checking=checking)), boundaries=boundaries)
 
 
+def _missed_open_witness(panel) -> Row | None:
+    """Accept only the signed, still-current next-decision proof from PAPER."""
+    from sentinel.panel.delivery import row_current
+
+    paper = panel.row('paper_reconciliation')
+    cycle = panel.row('automation_cycle')
+    if (not panel.local_paper_mode or paper is None or cycle is None
+            or paper.paper_alignment != 'MISSED_OPEN_UNATTENDED'
+            or paper.effective_status(panel.now) != 'warn'
+            or not row_current(panel, paper)
+            or paper.recovery is None or not paper.recovery.active(panel.now)
+            or not _aware(paper.next_eligible_decision_at)
+            or not panel.now < paper.next_eligible_decision_at
+            or cycle.as_of != paper.as_of
+            or cycle.effective_status(panel.now) != 'warn'
+            or not row_current(panel, cycle)
+            or cycle.operational_fact is None
+            or (cycle.operational_fact.kind, cycle.operational_fact.state)
+            != ('AUTOMATION_CYCLE', 'SUPERSEDED')
+            or not _enabled_policy(panel.row('automation'))
+            or not _current_health_fact(panel, 'automation')
+            or not _fresh_worker(panel, 'automation_leader')
+            or not _current_health_fact(panel, 'authority')
+            or not _current_health_fact(panel, 'alpaca_account')):
+        return None
+    return paper
+
+
 def _health_facts(panel, classifications, *, boundaries) -> dict:
     active = ['backend_sources'] if panel.source_errors else []
     warnings = []
+    missed_open = _missed_open_witness(panel)
     for row, status, current, normal_warning in classifications:
         if not current:
+            continue
+        if (row.key == 'trial_verification' and status == 'fail'
+                and missed_open is not None
+                and row.trial_reason_codes == ('CURRENT_CYCLE_CONTROL_GENERATION_SUPERSEDED',)):
+            warnings.append(row.key)
             continue
         if status == 'fail' and row.key == 'exposure' and row.status == 'warn':
             if normal_warning:
@@ -1210,6 +1244,79 @@ def _health_facts(panel, classifications, *, boundaries) -> dict:
             for _, status, current, normal_warning in classifications):
         warnings.append('no_current_operation')
     return {'active': sorted(set(active)), 'warnings': sorted(set(warnings))}
+
+
+def _with_trading_continuity(panel, health: dict) -> dict:
+    """Publish one typed human verdict without changing any raw row verdict."""
+    from sentinel.panel.continuity_model import NextAction, TradingContinuity
+
+    missed = _missed_open_witness(panel)
+    blocking = tuple(health['active_conditions'])
+    warning = set(health['review_conditions'])
+    next_action = None
+    if missed is not None:
+        warning.add('paper_reconciliation')
+        for key in ('automation_cycle', 'automation_step_open',
+                    'automation_step_complete'):
+            row = panel.row(key)
+            if (row is not None and row.as_of == missed.as_of
+                    and row.operational_fact is not None
+                    and row.operational_fact.kind == 'AUTOMATION_CYCLE'
+                    and row.operational_fact.state == 'SUPERSEDED'):
+                warning.add(key)
+        broker = panel.row('broker')
+        if broker is not None and broker.is_stale(panel.now) and broker.status == 'warn':
+            warning.add('broker')
+        trial = panel.row('trial_verification')
+        if (trial is not None and trial.effective_status(panel.now) == 'fail'
+                and trial.trial_reason_codes == ('CURRENT_CYCLE_CONTROL_GENERATION_SUPERSEDED',)):
+            warning.add('trial_verification')
+        if health['color'] == 'amber':
+            next_action = NextAction(kind='PREPARE_NEXT_PLAN',
+                                     at=missed.next_eligible_decision_at,
+                                     evidence_key='paper_reconciliation')
+            shown = _pacific(missed.next_eligible_decision_at)
+            health['label'] = 'Missed opening trade · next plan '+(shown or 'scheduled')
+
+    reasons = []
+    if health['color'] == 'red':
+        reasons.append('CURRENT_TRADING_STOP')
+    elif health['color'] == 'neutral':
+        reasons.append('STATUS_UNKNOWN')
+    else:
+        if missed is not None:
+            reasons.append('MISSED_TRADING_WINDOW')
+            broker = panel.row('broker')
+            if broker is not None and broker.is_stale(panel.now) and broker.status == 'warn':
+                reasons.append('IDLE_BROKER_SNAPSHOT_EXPIRED')
+        if any(row.recovery is not None and row.recovery.active(panel.now)
+               for row in panel.rows if row.key in warning):
+            reasons.append('AUTOMATIC_RECOVERY')
+        if health['color'] == 'amber' and warning:
+            reasons.append('CURRENT_CHECK_DEGRADED')
+        if (panel.operator_review is None or panel.operator_review.status != 'CLEAN'):
+            reasons.append('REVIEW_REQUIRED')
+        if not reasons:
+            reasons.append('CURRENT_PATH_READY')
+
+    evidence = set(blocking) | warning
+    if missed is not None:
+        evidence.update(('paper_reconciliation', 'automation', 'automation_leader',
+                         'authority', 'alpaca_account'))
+    times = {key: row.as_of for key in evidence
+             if (row := panel.row(key)) is not None and _aware(row.as_of)}
+    bounds = [datetime.fromisoformat(health['valid_until'])] if health['valid_until'] else []
+    if missed is not None:
+        bounds.append(missed.valid_until)
+    valid_until = min(bounds) if bounds else None
+    health['valid_until'] = valid_until.isoformat() if valid_until is not None else None
+    continuity = TradingContinuity(
+        status=health['status'], color=health['color'],
+        reason_codes=tuple(reasons), blocking_keys=blocking,
+        warning_keys=tuple(sorted(warning)), evidence_keys=tuple(sorted(evidence)),
+        evidence_times=times, valid_until=valid_until, next_action=next_action)
+    health['trading_continuity'] = continuity.model_dump(mode='json')
+    return health
 
 
 def dashboard_health(panel) -> dict:
@@ -1248,7 +1355,7 @@ def dashboard_health(panel) -> dict:
         status == 'ok' or status == 'warn' and normal_warning
         for _, status, _, normal_warning in classifications))
     review = panel.operator_review
-    status = ('fail' if negative or review is not None and review.status in {'FAILED', 'UNAVAILABLE'}
+    status = ('fail' if negative
               else 'ok' if normal and review is not None and review.status == 'CLEAN'
               else 'warn')
     stage = preparation_stage(panel)
@@ -1257,7 +1364,7 @@ def dashboard_health(panel) -> dict:
              ('Preparation delayed' if stage in {'Waiting to retry data acquisition',
                  'Data preparation awaiting a worker'} else 'Needs review')
              +(' · '+stage if stage else ''))
-    if review is not None and review.status == 'UNAVAILABLE':
+    if review is not None and review.status == 'UNAVAILABLE' and not negative:
         label = 'Review history unavailable'
     if not negative and status == 'warn':
         if review is None or review.status == 'UNAVAILABLE':
@@ -1342,25 +1449,25 @@ def dashboard_health(panel) -> dict:
         from sentinel.panel.delivery import closing_refresh_deadline, opening_refresh_deadline
         opening = opening_refresh_deadline(panel)
         if opening is not None:
-            return dict(status='warn', color='amber', label='Refreshing opening evidence',
+            return _with_trading_continuity(panel, dict(status='warn', color='amber', label='Refreshing opening evidence',
                         valid_until=opening.isoformat(), plan_readiness='unavailable',
                         active_conditions=facts['active'], review_conditions=facts['warnings'],
-                        opening_refresh=True)
+                        opening_refresh=True))
         closing = closing_refresh_deadline(panel)
         if closing is not None:
-            return dict(status='warn', color='amber', label='Refreshing closing evidence',
+            return _with_trading_continuity(panel, dict(status='warn', color='amber', label='Refreshing closing evidence',
                         valid_until=closing.isoformat(), plan_readiness='unavailable',
                         active_conditions=facts['active'], review_conditions=facts['warnings'],
-                        closing_refresh=True)
-        return dict(status='pending', color='neutral', label='Status not current · refreshing',
+                        closing_refresh=True))
+        return _with_trading_continuity(panel, dict(status='pending', color='neutral', label='Status not current · refreshing',
                     valid_until=boundary.isoformat() if boundary is not None else None,
                     plan_readiness='unavailable', active_conditions=facts['active'],
-                    review_conditions=facts['warnings'])
-    return dict(status=status, color={'ok': 'green', 'warn': 'amber', 'fail': 'red'}[status],
+                    review_conditions=facts['warnings']))
+    return _with_trading_continuity(panel, dict(status=status, color={'ok': 'green', 'warn': 'amber', 'fail': 'red'}[status],
                 label=label, valid_until=boundary.isoformat() if boundary is not None else None,
                 plan_readiness=plan_readiness, active_conditions=facts['active'],
                 review_conditions=facts['warnings'],
-                **({'close_preparation_pending': True} if close_work_label == label else {}))
+                **({'close_preparation_pending': True} if close_work_label == label else {})))
 
 
 def describe(row: Row, status: str, *, now: datetime | None = None) -> tuple[str, str, str]:

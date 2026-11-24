@@ -58,7 +58,7 @@ button:disabled{opacity:.6}
   var retry = document.getElementById("launch-retry");
   function visible() { return !away && document.visibilityState === "visible"; }
   function offline() {
-    status.textContent = "STATUS NOT CURRENT — OFFLINE";
+    status.textContent = "TRADING STATUS UNKNOWN — OFFLINE";
     detail.textContent = "This device will check system health when it reconnects.";
   }
   function sameOrigin(response) {
@@ -108,7 +108,7 @@ button:disabled{opacity:.6}
   }
   function resume() {
     retryDelay = 5000;
-    if (status.textContent === "STATUS NOT CURRENT — OFFLINE" && navigator.onLine) {
+    if (status.textContent === "TRADING STATUS UNKNOWN — OFFLINE" && navigator.onLine) {
       status.textContent = "Connecting to current status…";
       detail.textContent = "Current system health has not been checked yet.";
     }
@@ -180,7 +180,7 @@ self.addEventListener("fetch", function(event) {
   }
   event.respondWith(fetch(event.request, {cache: "no-store"}).catch(function() {
     return new Response(
-      "<!doctype html><html><head><meta name=viewport content='width=device-width,initial-scale=1,viewport-fit=cover'><meta name=color-scheme content='light dark'><title>Caesar's Palace — offline</title><style>body{margin:0;padding:max(24px,env(safe-area-inset-top)) max(18px,env(safe-area-inset-right)) max(24px,env(safe-area-inset-bottom)) max(18px,env(safe-area-inset-left));background:#16111f;color:#c2b7c8;font:600 18px/1.5 system-ui}main{max-width:38rem;margin:auto;border:2px solid #756b7b;border-radius:16px;padding:20px}small{display:block;margin-top:12px;font-weight:400}</style></head><body><main>STATUS NOT CURRENT — OFFLINE<small>This browser is offline. System health cannot be checked from this device; this notice does not record a system incident. Reconnect to the private Tailscale HTTPS origin.</small></main></body></html>",
+      "<!doctype html><html><head><meta name=viewport content='width=device-width,initial-scale=1,viewport-fit=cover'><meta name=color-scheme content='light dark'><title>Caesar's Palace — offline</title><style>body{margin:0;padding:max(24px,env(safe-area-inset-top)) max(18px,env(safe-area-inset-right)) max(24px,env(safe-area-inset-bottom)) max(18px,env(safe-area-inset-left));background:#16111f;color:#c2b7c8;font:600 18px/1.5 system-ui}main{max-width:38rem;margin:auto;border:2px solid #756b7b;border-radius:16px;padding:20px}small{display:block;margin-top:12px;font-weight:400}</style></head><body><main>TRADING STATUS UNKNOWN — OFFLINE<small>This browser is offline. System health cannot be checked from this device; this notice does not record a system incident. Reconnect to the private Tailscale HTTPS origin.</small></main></body></html>",
       {status: 503, headers: {"Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store"}}
     );
   }));

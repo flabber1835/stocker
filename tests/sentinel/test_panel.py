@@ -1383,7 +1383,7 @@ class TestItCannotAct:
         html = render(panel)
         for event in ("pageshow", "visibilitychange", "online", "offline"):
             assert event in html
-        assert "STATUS NOT CURRENT — LAST KNOWN VALUES" in html
+        assert "TRADING STATUS UNKNOWN — LAST KNOWN VALUES" in html
         assert "event.persisted" in html
         assert "age >= budget" in html and "age < -5000" in html
         script = html.split("<script>", 1)[1].split("</script>", 1)[0]

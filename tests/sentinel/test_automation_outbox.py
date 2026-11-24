@@ -349,6 +349,142 @@ def test_reconstruct_only_missing_control_alerts(conn, monkeypatch):
     assert len(ids) == 2 and ids[0] == (first.alert_id,)
 
 
+@pytest.mark.parametrize('adopt', [False, True])
+@pytest.mark.parametrize('reconstruct', [False, True])
+def test_new_proved_unsent_missed_window_is_warning_across_alert_recovery(
+        conn, adopt, reconstruct):
+    from sentinel.automation import store
+    from sentinel.automation.model import AutomationConfig, CycleState
+    from tests.sentinel.test_automation_store import cycle_spec, enable
+
+    cfg = AutomationConfig(publication_delay_seconds=0, execution_delay_seconds=0)
+    control = enable(conn, cfg)
+    first = store.acquire_lease(conn, holder_id='missed-window-a', lease_seconds=30)
+    cycle = store.create_cycle(conn, permit=first, spec=cycle_spec(control, cfg))
+    if adopt:
+        cycle = store.transition_cycle(
+            conn, permit=first, cycle_id=cycle.cycle_id,
+            to_state=CycleState.PREPARING)
+        store.engage_kill(conn, actor='test', reason='new generation')
+        store.release_kill(conn, expected_binding=control.binding,
+                           actor='test', reason='resume')
+        second = store.acquire_lease(
+            conn, holder_id='missed-window-b', lease_seconds=30)
+        cycle = store.adopt_cycle(
+            conn, permit=second, cycle_id=cycle.cycle_id,
+            to_state=CycleState.SUPERSEDED,
+            failure_code='CONTROL_GENERATION_SUPERSEDED')
+    else:
+        cycle = store.transition_cycle(
+            conn, permit=first, cycle_id=cycle.cycle_id,
+            to_state=CycleState.SUPERSEDED,
+            failure_code='MISSED_EXECUTION_WINDOW')
+    event = conn.execute(
+        "SELECT detail FROM sentinel_automation_cycle_events "
+        "WHERE cycle_id=%s AND to_state='SUPERSEDED' ORDER BY seq DESC LIMIT 1",
+        (cycle.cycle_id,)).fetchone()[0]
+    assert event['missed_window_no_send']['schema'] == 'sentinel.missed-window-no-send/1'
+    assert event['failure_code'] == (
+        'CONTROL_GENERATION_SUPERSEDED' if adopt else 'MISSED_EXECUTION_WINDOW')
+
+    if reconstruct:
+        outbox._reconstruct_missing_transition_alerts(conn)
+        conn.commit()
+    else:
+        outbox.enqueue_cycle_transition_alert(
+            conn, cycle_id=cycle.cycle_id, state='SUPERSEDED')
+    rows = conn.execute(
+        "SELECT idempotency_key,event_type,severity,payload FROM sentinel_alert_outbox "
+        "WHERE event_type='AUTOMATION_SUPERSEDED'").fetchall()
+    assert len(rows) == 1
+    assert rows[0][0].startswith('cycle-event:')
+    assert rows[0][2] == 'WARN'
+    assert rows[0][3]['detail'] == event
+
+
+def test_missed_window_alert_is_critical_when_journal_proof_fails(conn, monkeypatch):
+    from sentinel.automation import store, unsent_recovery
+    from sentinel.automation.model import AutomationConfig, CycleState
+    from tests.sentinel.test_automation_store import cycle_spec, enable
+
+    cfg = AutomationConfig(publication_delay_seconds=0, execution_delay_seconds=0)
+    control = enable(conn, cfg)
+    permit = store.acquire_lease(conn, holder_id='uncertain-window', lease_seconds=30)
+    cycle = store.create_cycle(conn, permit=permit, spec=cycle_spec(control, cfg))
+    # A durable transport event invalidates no-send even if the latest cycle
+    # row still says DISCOVERED and has no recorded attempt.
+    conn.execute(
+        "INSERT INTO sentinel_automation_cycle_events "
+        "(cycle_id,from_state,to_state,control_generation,fence_token,detail) "
+        "VALUES (%s,'EXECUTING','RECONCILING',%s,%s,'{}'::jsonb)",
+        (cycle.cycle_id, permit.control_generation, permit.fence_token))
+    conn.commit()
+    retired = store.transition_cycle(
+        conn, permit=permit, cycle_id=cycle.cycle_id,
+        to_state=CycleState.SUPERSEDED,
+        failure_code='MISSED_EXECUTION_WINDOW')
+    alert = outbox.enqueue_cycle_transition_alert(
+        conn, cycle_id=retired.cycle_id, state='SUPERSEDED')
+    assert alert.severity == 'CRITICAL'
+    assert 'missed_window_no_send' not in alert.payload['detail']
+
+    # Removing the journal check would make this exact case falsely WARN.
+    monkeypatch.setattr(unsent_recovery, 'require_unsent', lambda *_a, **_k: None)
+    with pytest.raises(AssertionError):
+        assert store._missed_window_alert_witness(
+            conn, cycle, store.load_control(conn),
+            failure_code='MISSED_EXECUTION_WINDOW') is None
+
+
+@pytest.mark.parametrize('state,attempts,code', [
+    ('EXECUTING', 0, 'MISSED_EXECUTION_WINDOW'),
+    ('DISCOVERED', 1, 'MISSED_EXECUTION_WINDOW'),
+    ('DISCOVERED', 0, 'UNREVIEWED_FAILURE'),
+])
+def test_transport_or_ambiguous_cycle_cannot_earn_no_send_alert_witness(
+        conn, monkeypatch, state, attempts, code):
+    from sentinel.automation import store, unsent_recovery
+    from sentinel.automation.model import AutomationConfig, CycleState
+    from tests.sentinel.test_automation_store import cycle_spec, enable
+
+    cfg = AutomationConfig(publication_delay_seconds=0, execution_delay_seconds=0)
+    control = enable(conn, cfg)
+    permit = store.acquire_lease(conn, holder_id='unsafe-window', lease_seconds=30)
+    cycle = store.create_cycle(conn, permit=permit, spec=cycle_spec(control, cfg))
+    candidate = cycle.model_copy(update={
+        'state': CycleState(state), 'attempt_count': attempts})
+    monkeypatch.setattr(unsent_recovery, 'require_unsent', lambda *_a, **_k: None)
+    assert store._missed_window_alert_witness(
+        conn, candidate, control, failure_code=code) is None
+
+
+@pytest.mark.parametrize('fault', [
+    'missing', 'wrong-cycle', 'wrong-state', 'attempt', 'journal', 'extra',
+])
+def test_old_or_malformed_missed_window_event_stays_critical(fault):
+    detail = {'failure_code': 'CONTROL_GENERATION_SUPERSEDED',
+              'missed_window_no_send': {
+                  'schema': 'sentinel.missed-window-no-send/1',
+                  'cycle_id': 'old-cycle', 'from_state': 'PREPARING',
+                  'attempt_count': 0,
+                  'journal': 'NO_TRANSPORT_EVENT_OR_COMMAND'}}
+    if fault == 'missing':
+        detail.pop('missed_window_no_send')
+    elif fault == 'wrong-cycle':
+        detail['missed_window_no_send']['cycle_id'] = 'other-cycle'
+    elif fault == 'wrong-state':
+        detail['missed_window_no_send']['from_state'] = 'EXECUTING'
+    elif fault == 'attempt':
+        detail['missed_window_no_send']['attempt_count'] = 1
+    elif fault == 'journal':
+        detail['missed_window_no_send']['journal'] = 'UNKNOWN'
+    else:
+        detail['missed_window_no_send']['extra'] = True
+    alert = outbox._cycle_event_alert(
+        (101, 'old-cycle', 'SUPERSEDED', 2, 7, detail))
+    assert alert['severity'] == 'CRITICAL'
+
+
 @pytest.mark.parametrize('reconstruct', [False, True, 'completion'])
 @pytest.mark.parametrize('deadline_risk', [False, True])
 def test_closing_frontier_wait_is_quiet_in_direct_and_reconstructed_outbox_unless_deadline_risk(

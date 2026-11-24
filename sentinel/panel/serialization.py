@@ -22,7 +22,9 @@ def public_payload(panel):
     return {
         'overall': panel.overall,
         'operational': panel.operational if panel.observation_current else model.UNKNOWN,
-        'color': color(panel.operational) if panel.observation_current else health['color'],
+        'color': health['color'],
+        'trading_continuity': health['trading_continuity'],
+        'strict_color': color(panel.operational) if panel.observation_current else 'neutral',
         'dashboard_health': health,
         'observation': {'current': display_current,
             'strict_current': panel.observation_current,
@@ -60,7 +62,11 @@ def public_payload(panel):
              'feed_readiness': row.feed_readiness, 'paper_alignment': row.paper_alignment,
              'valid_until': row.valid_until.isoformat() if row.valid_until else None,
              'recovery': row.recovery.to_dict(panel.now) if row.recovery else None,
-             'color': delivery.row_color(panel, row)}
+             'color': ('amber' if health['color'] == 'amber'
+                       and row.key in health['trading_continuity']['warning_keys']
+                       and delivery.row_color(panel, row) == 'red'
+                       else delivery.row_color(panel, row)),
+             'strict_color': delivery.row_color(panel, row)}
             for row in panel.rows],
         'trial_details': {key: value for key, value in panel.trial_details.items()
                           if key != 'verification_attempts'},

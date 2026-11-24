@@ -12,7 +12,8 @@ guards and does not authorize LIVE trading.
 
 Publish a typed, scope-bound `trading_continuity` result from the existing
 authenticated operational snapshot. Use the same result for the HTML headline,
-`/panel.json`, `/operational-health`, and escalation notifications. It has a
+`/panel.json`, and `/operational-health`. Durable automation-stop alerts retain
+their separate producer-owned health check. The continuity result has a
 status, controlled reason codes, original evidence times and expiry, the next
 eligible scheduled action when proved, and the row keys that support it. Do not
 derive it from display strings, the worst historical row, a successful HTTP
@@ -106,23 +107,48 @@ plus the existing review requirement. Details show the dated raw evidence and
 review history without a red panic badge for a historical event.
 
 `/operational-health` reports the same current continuity status/color and
-blocking/warning keys. Return 503 for a current red trading stop or when its
-current observation is unavailable; an unavailable response is explicitly
-neutral/unknown, not a fabricated red trading stop. Return 2xx for proved
+blocking/warning keys when the strict observation is current. Return 503 for a
+current red trading stop or when its strict observation is unavailable. An
+unavailable strict response is neutral/unknown and may carry a separately
+named bounded display projection; it never fabricates a red trading stop.
+An independently current, authenticated negative fact still reports red.
+Return 2xx for proved
 green or amber continuity while preserving the raw strict diagnostic verdict
 in a separate response field. Before changing the endpoint's status behavior,
 audit every in-repository and installed consumer that may treat 2xx as
 execution authority; update or retain a distinct strict readiness check for
 that consumer. Never use this endpoint itself to admit an order.
 
-Panic/red notifications fire once for a newly proved current continuity stop
-or escalation from bounded recovery to that stop. A missed past session, idle
-snapshot expiry, recovered condition, or unacknowledged history is an amber
-warning/review event, still coalesced by its existing incident identity. Do
-not delete, rewrite, auto-acknowledge, or replay old notifications. Raw
-critical evidence stays available for audit; current trading-stop alerts take
-priority over historical review messages. A notification-delivery failure
-cannot manufacture a green claim.
+The durable automation health alert remains the trading-stop notification
+source; this dashboard projection does not change its trigger, severity, or
+delivery. A missed past session, idle snapshot expiry, recovered condition, or
+unacknowledged history remains visible as an amber dashboard warning/review
+event. Do not delete, rewrite, auto-acknowledge, or replay old notifications.
+Raw critical evidence stays available for audit. A notification-delivery
+failure cannot manufacture a green claim.
+
+### Prospective missed-window cycle alerts
+
+The cycle-transition outbox also emits a durable incident. Its existing blanket
+`SUPERSEDED` severity is critical even for an unsent missed window. For **new**
+events only, classify that specific historical loss as `WARN` when the fenced
+transition writer proves all of these in its transaction: the cycle came from
+a pre-transport state, its attempt count is zero, its failure code is one of
+`CONTROL_GENERATION_SUPERSEDED`, `MISSED_EXECUTION_WINDOW`, or
+`MAX_EXECUTION_LATENESS_EXCEEDED`, and the existing scoped event and command
+journal check finds no transport or unresolved command. Append a versioned
+no-send witness and the failure code to that immutable event. A transition
+without the witness remains `CRITICAL`; a retry, transport-capable cycle,
+ambiguous journal, or unknown failure code never earns warning severity. The
+extra negative check must not prevent the original terminal transition when
+it cannot prove no-send; it only withholds the warning classification.
+
+The notifier reads only the immutable event and validates the exact witness
+shape and permitted code before assigning `WARN`. Keep the existing event
+identity and outbox reconstruction behavior. Do not rewrite already-created
+alerts, change the active automation health alert, or use alert severity to
+admit an order. Test new no-send missed windows, absent or malformed witness,
+transport-capable supersession, and crash-gap reconstruction from the event.
 
 Qualify the classifier and all three surfaces with a superseded zero-order
 cycle, expired idle full broker snapshot, genuine unresolved UNKNOWN, active

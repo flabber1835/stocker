@@ -675,6 +675,17 @@ class Row:
     trading_run: Optional[TradingRun] = None
     #: A typed display fact; copy changes cannot grant scheduled readiness.
     paper_alignment: Optional[str] = None
+    #: Only the signed, scope-bound missed-open witness may name this next
+    #: decision. A worker poll is not a trading decision.
+    next_eligible_decision_at: Optional[datetime] = None
+    #: Exact retained trial reasons; the failed financial verdict itself is
+    #: immutable and must not be inferred from a shortened display value.
+    trial_reason_codes: tuple[str, ...] = ()
+    #: Exact saved broker/journal counts. The display copy is never parsed to
+    #: establish a hazard-free idle state.
+    broker_working_orders: Optional[int] = None
+    broker_active_commands: Optional[int] = None
+    broker_uncertain_commands: Optional[int] = None
     preparation: Optional[PreparationWork] = None
     source_publication_version: Optional[int] = None
     source_session: Optional[str] = None
@@ -722,6 +733,22 @@ class Row:
                     or not isinstance(self.valid_until,datetime)
                     or self.valid_until.utcoffset() != timedelta(0)
                     or self.is_future(now) or self.is_stale(now)):
+                return FAIL
+            return WARN
+        if self.paper_alignment == 'MISSED_OPEN_UNATTENDED':
+            recovery = self.recovery
+            if (self.key != 'paper_reconciliation' or self.status != WARN
+                    or not self.required_current or recovery is None
+                    or recovery.phase != 'AWAITING_NEXT_DECISION'
+                    or not recovery.active(now) or self.valid_until != recovery.deadline
+                    or not isinstance(self.valid_until, datetime)
+                    or self.valid_until.utcoffset() != timedelta(0)
+                    or not isinstance(self.as_of, datetime)
+                    or self.as_of.utcoffset() != timedelta(0)
+                    or not isinstance(self.next_eligible_decision_at, datetime)
+                    or self.next_eligible_decision_at.utcoffset() != timedelta(0)
+                    or not self.as_of <= now < self.valid_until
+                    or not now < self.next_eligible_decision_at):
                 return FAIL
             return WARN
         return effective_status(
@@ -1080,6 +1107,7 @@ class Panel:
 def trial_verification_row(*, verdict: Optional[str], session: Optional[str],
                            reason_codes=(), verified_at: Optional[datetime] = None,
                            error: Optional[str] = None) -> Row:
+    reason_codes = tuple(reason_codes)
     if error:
         return Row("trial_verification", "Trial verification",
                    "TRIAL NOT VERIFIED — EVIDENCE UNREADABLE", UNKNOWN,
@@ -1089,7 +1117,8 @@ def trial_verification_row(*, verdict: Optional[str], session: Optional[str],
         return Row("trial_verification", "Trial verification",
                    f"TRIAL NOT VERIFIED — {reason.replace('_', ' ')}", FAIL,
                    "performance is informational until every financial clause "
-                   "earns one immutable session certificate", verified_at)
+                   "earns one immutable session certificate", verified_at,
+                   trial_reason_codes=tuple(reason_codes))
     return Row("trial_verification", "Trial verification",
                f"TRIAL VERIFIED THROUGH {session}", OK,
                "actual broker economics, publication, strategy state, cycle, "
@@ -1675,7 +1704,9 @@ def broker_row(*, available: Optional[bool], positions: Optional[int] = None,
                    valid_until=valid_until)
     return Row("broker", "Broker", value, OK, detail, as_of,
                freshness=timedelta(minutes=10), required_current=True,
-               recovery=recovery, valid_until=valid_until)
+               recovery=recovery, valid_until=valid_until,
+               broker_working_orders=working, broker_active_commands=active,
+               broker_uncertain_commands=uncertain)
 
 
 def automation_row(*, installed: Optional[bool] = False,
