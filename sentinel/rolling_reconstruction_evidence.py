@@ -106,6 +106,9 @@ def select(conn, *, session, previous_version):
     from sentinel.feed.rolling_contract import digest
     from sentinel.strategy import production_strategy
     opened, _ = calendar.session_window(calendar.next_session(session))
+    # A corrected current source can itself gain later complete merger terms.
+    # Bound the audit traversal, then authenticate every edge to one unique tip.
+    max_corrections = 8
     rows = conn.execute(
         "SELECT p.version,p.previous_version,p.run_id,p.window_start,p.window_end,p.evidence,p.published_at "
         "FROM sentinel_corpus_publications p "
@@ -113,10 +116,10 @@ def select(conn, *, session, previous_version):
         "JOIN sentinel_snapshot_jobs j ON j.job_id=s.job_id "
         "WHERE p.window_end=%s AND p.version>%s "
         "AND p.published_at >= %s "
-        "AND j.request->>'strategy_sha256'=%s ORDER BY p.version LIMIT 3",
+        "AND j.request->>'strategy_sha256'=%s ORDER BY p.version LIMIT %s",
         (session, previous_version, shadow_runtime.publication_not_before(session),
-         digest(production_strategy()[1]))).fetchall()
-    if len(rows) >= 3:
+         digest(production_strategy()[1]), max_corrections + 1)).fetchall()
+    if len(rows) > max_corrections:
         raise InputsUnavailable(f'AMBIGUOUS_DATED_PUBLICATION:{session}')
     candidates = []
     for row in rows:
@@ -124,17 +127,16 @@ def select(conn, *, session, previous_version):
                                       str(row[3]), str(row[4]), row[5])
         predecessor = operational_snapshot.require_supersession(conn, pub)
         candidates.append((pub, row[6], predecessor))
-    if len(candidates) == 2 and candidates[1][2] is not None:
-        older, newer = candidates
-        if newer[2].version != older[0].version:
+    if not candidates:
+        raise InputsUnavailable(f'MISSING_DATED_PUBLICATION:{session}')
+    for older, newer in zip(candidates, candidates[1:]):
+        if (newer[2] is None or newer[2].version != older[0].version
+                or newer[0].previous_version != older[0].version
+                or newer[1] < older[1]):
             raise InputsUnavailable(f'AMBIGUOUS_DATED_PUBLICATION:{session}')
-        if newer[1] >= opened:
-            # The corrected terms were observed only after the missed open.
-            # The old publication remains audit history, not dated authority.
-            raise InputsUnavailable(f'MISSING_DATED_PUBLICATION:{session}')
-        return newer[0], require_dated(conn, newer[0])
-    dated = [pub for pub, at, _ in candidates if at < opened]
-    if len(dated) != 1:
-        reason = 'MISSING' if not dated else 'AMBIGUOUS'
-        raise InputsUnavailable(f'{reason}_DATED_PUBLICATION:{session}')
-    return dated[0], require_dated(conn, dated[0])
+    tip, observed_at, _ = candidates[-1]
+    if observed_at >= opened:
+        # Later terms cannot be claimed as available before the missed open;
+        # an older source superseded by them is no dated trading authority.
+        raise InputsUnavailable(f'MISSING_DATED_PUBLICATION:{session}')
+    return tip, require_dated(conn, tip)

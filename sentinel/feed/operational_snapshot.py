@@ -255,8 +255,10 @@ def _require_correction_strategy(conn, previous, request):
 def _edge_fields(conn, previous, candidate, request):
     older, old_manifest = _bound_and_manifest(conn, previous)
     new_manifest = rolling_store.manifest(conn, candidate)
-    if (_alpaca_policy(conn, old_manifest) != _OLD_ALPACA_POLICY
-            or _alpaca_policy(conn, new_manifest) != _MERGER_ALPACA_POLICY):
+    old_policy = _alpaca_policy(conn, old_manifest)
+    new_policy = _alpaca_policy(conn, new_manifest)
+    if (old_policy not in (_OLD_ALPACA_POLICY, _MERGER_ALPACA_POLICY)
+            or new_policy != _MERGER_ALPACA_POLICY):
         raise OperationalSnapshotRefused('SAME_SESSION_SUPERSESSION_POLICY_REQUIRED')
     old_request = jobs.PreparationRequest.model_validate(jobs.status(conn, older['job_id'])['request'])
     if (previous.version != request.expected_publication_version
@@ -271,13 +273,34 @@ def _edge_fields(conn, previous, candidate, request):
             or not isinstance(source, dict)
             or source.get('merger_conversions_sha256') != digest(conversions)):
         raise OperationalSnapshotRefused('SAME_SESSION_MERGER_CORRECTION_REQUIRED')
+    if old_policy == _MERGER_ALPACA_POLICY:
+        prior_reference = rolling_store.load_evidence(conn, old_manifest.reference_sha256)
+        prior_source = rolling_store.load_evidence(conn, old_manifest.source_evidence_sha256)
+        prior = (prior_reference.get('merger_conversions')
+                 if isinstance(prior_reference, dict) else None)
+        if (not isinstance(prior, list) or not isinstance(prior_source, dict)
+                or prior_source.get('merger_conversions_sha256') != digest(prior)
+                or old_manifest.snapshot_id == new_manifest.snapshot_id
+                or old_manifest.source_evidence_sha256 == new_manifest.source_evidence_sha256):
+            raise OperationalSnapshotRefused('SAME_SESSION_MERGER_EXTENSION_REQUIRED')
+        old_by_id = {item.get('old_security_id'): item for item in prior
+                     if isinstance(item, dict) and isinstance(item.get('old_security_id'), str)}
+        new_by_id = {item.get('old_security_id'): item for item in conversions
+                     if isinstance(item, dict) and isinstance(item.get('old_security_id'), str)}
+        if (len(old_by_id) != len(prior) or len(new_by_id) != len(conversions)
+                or len(new_by_id) <= len(old_by_id)
+                or any(sid not in new_by_id or digest(new_by_id[sid]) != digest(item)
+                       for sid, item in old_by_id.items())
+                or any(item.get('effective_session') != previous.window_end
+                       for sid, item in new_by_id.items() if sid not in old_by_id)):
+            raise OperationalSnapshotRefused('SAME_SESSION_MERGER_EXTENSION_REQUIRED')
     return {
         'schema': SUPERSESSION_SCHEMA, 'session': previous.window_end,
         'superseded_version': previous.version,
         'superseded_publication_sha256': digest(previous.to_dict()),
         'superseded_snapshot_id': old_manifest.snapshot_id,
         'superseded_source_sha256': old_manifest.source_evidence_sha256,
-        'superseded_source_schema': _OLD_ALPACA_POLICY[0],
+        'superseded_source_schema': old_policy[0],
         'successor_candidate_id': candidate,
         'successor_snapshot_id': new_manifest.snapshot_id,
         'successor_source_sha256': new_manifest.source_evidence_sha256,
@@ -287,11 +310,13 @@ def _edge_fields(conn, previous, candidate, request):
     }
 
 
-def require_supersession(conn, pub):
-    """Authenticate an immutable correction edge; return its predecessor."""
+def _require_supersession(conn, pub, remaining):
+    """Authenticate every edge behind a correction tip within a fixed bound."""
     edge = pub.evidence.get('operational_supersession')
     if edge is None:
         return None
+    if remaining <= 0:
+        raise OperationalSnapshotRefused('OPERATIONAL_SUPERSESSION_CHAIN_LIMIT')
     publication._validate_publication(conn, pub, allow_snapshot=True)
     version = edge.get('superseded_version') if isinstance(edge, dict) else None
     if type(version) is not int or version < 1:
@@ -316,7 +341,13 @@ def require_supersession(conn, pub):
             or ('operational_recovery' in pub.evidence) != (request.cursor is not None)
             or edge != _edge_fields(conn, previous, binding['candidate_id'], request)):
         raise OperationalSnapshotRefused('OPERATIONAL_SUPERSESSION_CHANGED')
+    _require_supersession(conn, previous, remaining - 1)
     return previous
+
+
+def require_supersession(conn, pub):
+    """Authenticate the full immutable correction chain; return its predecessor."""
+    return _require_supersession(conn, pub, 8)
 
 
 def require_alpaca_openfigi(conn, pub):

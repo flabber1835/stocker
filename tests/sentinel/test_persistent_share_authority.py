@@ -16,7 +16,7 @@ from sentinel.strategy import production_strategy
 
 _PREDECESSOR = Path(__file__).resolve().parents[1] / 'support/architecture-b2-economic-identity.json'
 _PREDECESSOR_SHA256 = '5547702880b5c41578c4fc312bebf38dab768222d3f5b8041481b324c1f15ebe'
-MERGER_STRATEGY_SHA256 = 'f763d3260766dffc7f14199bc5bf9ec8580bde3af2b1c4e5b0c21242ef329182'
+MERGER_STRATEGY_SHA256 = '421a1697353ced9bdb0efba82150e900265c8f1bb7e296dbb7f6423b40a6cc81'
 
 
 def _historical_persistent_share_strategy():

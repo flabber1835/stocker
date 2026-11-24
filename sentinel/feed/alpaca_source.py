@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 from sentinel.feed import calendar, progress, rolling_jobs as jobs
 from sentinel.feed.acquisition_parts import Parts, SourceRevision
+from sentinel.feed.alpaca_pending import AlpacaSourcePending
 from sentinel.feed import openfigi
 from sentinel.feed.alpaca_observation import (
     action_participants, action_symbols, cash_dividend, paired_month,
@@ -103,6 +104,7 @@ class AlpacaSource:
         self.identity_bindings = []
         self.merger_conversions = []
         self.previous_identity = None
+        self.same_session_conversions = None
 
     def preflight(self):
         if str(self.window.end) > calendar.latest_closed_session():
@@ -306,6 +308,27 @@ class AlpacaSource:
             selected=self.selected, previous_identity=previous,
             bindings_raw=identity_bindings, records=structural,
             target_session=str(self.window.end))
+        # A replaced provider UUID under the same symbol cannot inherit the
+        # prior history without a complete dated identity or merger action.
+        # The producer sees only source inventory, never controller selections.
+        bound_symbols = {item['ticker'] for item in identity_bindings}
+        converted_symbols = {item['old_symbol'] for item in merger_conversions}
+        for symbol, old_id in sorted(prior_assets.items()):
+            new_id = current_assets.get(symbol)
+            if (new_id is not None and new_id != old_id
+                    and symbol not in bound_symbols
+                    and symbol not in converted_symbols):
+                raise AlpacaSourcePending('ALPACA_IDENTITY_ACTION_PENDING', symbol=symbol)
+        old_conversions = getattr(self, 'same_session_conversions', None)
+        if old_conversions is not None:
+            alpaca_identity.conversions(old_conversions)
+            previous_rows = {item['old_security_id']: item for item in old_conversions}
+            current_rows = {item['old_security_id']: item for item in merger_conversions}
+            if (any(current_rows.get(sid) != item for sid, item in previous_rows.items())
+                    or len(current_rows) < len(previous_rows)):
+                raise AlpacaTransportRefused('reobserved merger terms changed')
+            if len(current_rows) == len(previous_rows):
+                raise AlpacaSourcePending('ALPACA_ACTION_REOBSERVATION_PENDING')
         exemptions = {item['event']['id'] for item in identity_bindings}
         current_mergers = {item['record_id']: item for item in merger_conversions}
         for symbol, day, event_id in resets:
@@ -349,14 +372,26 @@ class AlpacaSource:
         if row is None:
             return None
         if str(row[4]) == str(self.window.end):
+            current_pub = publication.Publication(int(row[0]), row[1],
+                str(row[2]) if row[2] else None, str(row[3]), str(row[4]), row[5])
+            publication._validate_publication(self.conn, current_pub, allow_snapshot=True)
             current_manifest = rolling_store.manifest(self.conn, row[5]['rolling_snapshot']['candidate_id'])
             current_reference = rolling_store.load_evidence(self.conn, current_manifest.reference_sha256)
-            if current_reference.get('schema') != REFERENCE:
-                row = self.conn.execute('SELECT version,previous_version,run_id,window_start,window_end,evidence '
-                    'FROM sentinel_corpus_publications WHERE window_end < %s '
-                    'ORDER BY window_end DESC,version DESC LIMIT 1', (str(self.window.end),)).fetchone()
-                if row is None:
-                    return None
+            if current_reference.get('schema') == REFERENCE:
+                from sentinel.feed import alpaca_identity
+                current_source = rolling_store.load_evidence(
+                    self.conn, current_manifest.source_evidence_sha256)
+                self.same_session_conversions = current_reference.get('merger_conversions')
+                if (not isinstance(current_source, dict) or current_source.get('schema') != SOURCE or
+                        current_source.get('merger_conversions_sha256') !=
+                            digest(self.same_session_conversions)):
+                    raise AlpacaTransportRefused('same-session merger source binding changed')
+                alpaca_identity.conversions(self.same_session_conversions)
+            row = self.conn.execute('SELECT version,previous_version,run_id,window_start,window_end,evidence '
+                'FROM sentinel_corpus_publications WHERE window_end < %s '
+                'ORDER BY window_end DESC,version DESC LIMIT 1', (str(self.window.end),)).fetchone()
+            if row is None:
+                return None
         pub = publication.Publication(int(row[0]), row[1], str(row[2]) if row[2] else None,
             str(row[3]), str(row[4]), row[5])
         publication._validate_publication(self.conn, pub, allow_snapshot=True)
@@ -398,14 +433,23 @@ class AlpacaSource:
         split_bars = bar_page_rows(split, symbols={'BIL'}, sessions=sessions)
         paired_bil, absent_bil = paired_month({'BIL':raw.get('BIL',[])}, split,
                                             symbols={'BIL'}, sessions=sessions)
+        expected_bil = {('BIL', day) for day in sessions}
+        observed_bil = {(row['ticker'], row['date']) for row in paired_bil}
+        missing_bil = expected_bil - observed_bil
+        if missing_bil and all(day == last for _symbol, day in missing_bil):
+            raise AlpacaSourcePending('ALPACA_BENCHMARK_CLOSE_PENDING', symbol='BIL')
         bil_history, _ = admissible_history(paired_bil, axis=list(map(str,self.window.sessions)),
             symbols={'BIL'}, action_affected=frozenset(), pair_absent=absent_bil,
             split_terms=self.split_terms())
         if bil_history != {'BIL':first}:
             raise AlpacaTransportRefused('BIL split-only/raw prices lack corroborated coverage')
         paired, absent = paired_month(raw, adjusted, symbols=symbols, sessions=sessions)
-        if absent or {(row["ticker"], row["date"]) for row in paired} != {
-                (symbol, day) for symbol in symbols for day in sessions}:
+        expected = {(symbol, day) for symbol in symbols for day in sessions}
+        observed = {(row['ticker'], row['date']) for row in paired}
+        missing = expected - observed
+        if missing and all(day == last for _symbol, day in missing):
+            raise AlpacaSourcePending('ALPACA_BENCHMARK_CLOSE_PENDING')
+        if absent or observed != expected:
             raise AlpacaTransportRefused("SPY/BIL lack exact paired daily coverage")
         rows = [{"date": row["date"], "ticker": row["ticker"],
                  "open": split_bars[('BIL',row['date'])]['open'] if row['ticker']=='BIL' else row['open'],
@@ -419,6 +463,13 @@ class AlpacaSource:
                 'assets_endpoint': getattr(self.client, 'assets_url', ASSETS)}
         refs = self._classified_references(base, checkpoint)
         self.selected = refs["selected"]
+        if self.lease.fence > 1:
+            # A prior action wait left TICKERS retained in this job. A new
+            # inventory must either match or earn a fresh revision successor.
+            newer, *_ = self._inventory()
+            if ([openfigi.listing_identity(asset) for asset in newer['assets']]
+                    != [openfigi.listing_identity(asset) for asset in self.assets]):
+                raise SourceRevision('*', digest(self.assets), digest(newer['assets']))
         actions = self._part("ACTIONS", {**base, "component": "actions",
                                           'stock_merger_roles': 1,
                                           'split_identity': 2,
@@ -482,7 +533,13 @@ class AlpacaSource:
         after_inventory = [openfigi.listing_identity(asset) for asset in newer['assets']]
         if after_inventory != before_inventory:
             raise SourceRevision("*", digest(self.assets), digest(newer["assets"]))
-        actions, *_ = self._action_rows()
+        try:
+            actions, *_ = self._action_rows()
+        except AlpacaSourcePending as exc:
+            # ACTIONS was already persisted before the long price acquisition.
+            # A same-job wait would replay that stale part on every retry.
+            raise SourceRevision('ACTIONS', digest(self.merger_conversions),
+                                 digest({'pending': exc.reason, 'symbol': exc.symbol})) from exc
         if (frozenset(actions["affected"]) != self.action_affected
                 or actions["reset_after"] != self.reset_after
                 or actions["dividends"] != self.dividends

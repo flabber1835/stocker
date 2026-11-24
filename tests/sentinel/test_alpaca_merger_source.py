@@ -1,10 +1,12 @@
 """Authenticated Alpaca merger terms across distinct permanent identities."""
 from copy import deepcopy
+from datetime import datetime, timezone
 
 import pytest
 
 from sentinel.feed import alpaca_identity as identity
 from sentinel.feed.alpaca_transport import AlpacaTransportRefused
+from sentinel.feed.alpaca_pending import AlpacaSourcePending
 from sentinel.feed.rolling_contract import digest
 from tests.sentinel.test_alpaca_daily_formation import provider, OBS  # noqa: F401
 from tests.sentinel.test_rolling_snapshot_publisher import conn, pg  # noqa: F401
@@ -126,6 +128,157 @@ def test_vanished_acquiree_preserves_unchanged_acquirer_history():
     assert payload['affected'] == []
     assert [(row['old_security_id'], row['successor_security_id'])
             for row in payload['merger_conversions']] == [('old-bbb', 'old-aaa')]
+
+
+@pytest.mark.parametrize('record', [None,
+    merger('AAA', id='early-partial') | {'acquirer_rate': None}])
+def test_unbound_same_symbol_uuid_change_waits_for_fresh_action(record):
+    from sentinel.feed.alpaca_source import AlpacaSource
+    from sentinel.feed.alpaca_transport import ACTION_URL
+    from sentinel.feed.rolling_contract import PriceWindow
+
+    class Pages:
+        def pages(self, endpoint, params, *, key):
+            assert endpoint == ACTION_URL
+            yield {'stock_mergers': [] if record is None else [record]}, {
+                'observed_at': DAY + 'T23:00:00+00:00'}
+
+    source = object.__new__(AlpacaSource)
+    source.window = PriceWindow.through(DAY)
+    source.selected = [dict(ticker='AAA', asset_id='new-aaa')]
+    source.client = Pages()
+    source._previous_identity = lambda: inputs([])['previous_identity']
+    with pytest.raises(AlpacaSourcePending, match='ALPACA_IDENTITY_ACTION_PENDING:AAA'):
+        source._action_rows()
+
+
+def test_same_session_action_reobservation_waits_for_new_conversion():
+    from sentinel.feed.alpaca_source import AlpacaSource
+    from sentinel.feed.alpaca_transport import ACTION_URL
+    from sentinel.feed.rolling_contract import PriceWindow
+
+    record = merger('AAA', id='same-symbol')
+
+    class Pages:
+        def pages(self, endpoint, params, *, key):
+            assert endpoint == ACTION_URL
+            yield {'stock_mergers': [record]}, {'observed_at': DAY + 'T23:00:00+00:00'}
+
+    source = object.__new__(AlpacaSource)
+    source.window = PriceWindow.through(DAY)
+    source.selected = [dict(ticker='AAA', asset_id='new-aaa')]
+    source.client = Pages()
+    source._previous_identity = lambda: inputs([])['previous_identity']
+    source.same_session_conversions = identity.merger_conversions(**inputs([record]))
+    with pytest.raises(AlpacaSourcePending, match='ALPACA_ACTION_REOBSERVATION_PENDING'):
+        source._action_rows()
+
+    source.same_session_conversions = []
+    payload, *_ = source._action_rows()
+    assert len(payload['merger_conversions']) == 1
+
+
+def test_late_same_symbol_action_retries_original_job_without_publication(
+        conn, provider, synthetic_feed_authority):
+    from sentinel import rolling_initialization
+    from sentinel.feed import calendar, operational_snapshot as op, rolling_jobs as jobs, rolling_store
+    from sentinel.feed.alpaca_transport import ACTION_URL, ASSETS
+    from sentinel.feed.rolling_contract import PriceWindow
+    from sentinel.strategy import production_strategy
+    from tests.sentinel.test_rolling_snapshot_publisher import retry_now
+
+    prices, publish = provider
+    origin = publish()
+    rolling_initialization.initialize(conn, observation_id=OBS, starting_cash=50_000)
+    day = calendar.next_session(str(prices.window.end))
+    prices.window = PriceWindow.through(day)
+    original_get, original_pages = prices.get, prices.pages
+
+    def changed_asset(endpoint, params):
+        assets, proof = original_get(endpoint, params)
+        assert endpoint == ASSETS
+        return [({**item, 'id': 'new-uuid-00'} if item['symbol'] == 'T00' else item)
+                for item in assets], proof
+
+    records = []
+
+    def late_actions(endpoint, params, *, key):
+        if endpoint == ACTION_URL:
+            yield {'stock_mergers': records}, {'observed_at': day + 'T23:00:00+00:00'}
+        else:
+            yield from original_pages(endpoint, params, key=key)
+
+    prices.get, prices.pages = changed_asset, late_actions
+    _, strategy = production_strategy()
+    job = op.enqueue(conn, strategy_sha256=digest(strategy),
+                     dependencies_sha256=digest('late-action-fixture'), budget_seconds=900)
+    conn.commit()
+    deadline = jobs.status(conn, job)['deadline']
+    with pytest.raises(AlpacaSourcePending, match='ALPACA_IDENTITY_ACTION_PENDING:T00'):
+        op.prepare(conn, job)
+    state = jobs.status(conn, job)
+    assert state['state'] == 'WAIT_SOURCE' and state['deadline'] == deadline
+    assert op._current(conn).version == origin['data_version']
+    assert conn.execute('SELECT 1 FROM sentinel_acquisition_bindings '
+        'WHERE job_id=%s AND component=%s', (job, 'ACTIONS')).fetchone() is None
+
+    records.append(merger('T00', 'T00', id='arrived'))
+    retry_now(conn, job)
+    binding = op.prepare(conn, job)
+    assert jobs.status(conn, job)['deadline'] == deadline
+    manifest = rolling_store.manifest(conn, binding['candidate_id'])
+    reference = rolling_store.load_evidence(conn, manifest.reference_sha256)
+    assert [(row['old_provider_asset_id'], row['successor_provider_asset_id'])
+            for row in reference['merger_conversions']] == [('uuid-00', 'new-uuid-00')]
+
+
+@pytest.mark.parametrize('gap', ['latest', 'historical'])
+def test_benchmark_gap_waits_only_for_just_closed_session(gap):
+    from sentinel.feed.alpaca_source import AlpacaSource, _bounds
+    from sentinel.feed.rolling_contract import PriceWindow
+
+    source = object.__new__(AlpacaSource)
+    source.window = PriceWindow.through(DAY)
+    source.action_affected = frozenset()
+    source.reset_after = {}
+    source.splits = []
+    sessions = list(map(str, source.window.sessions))
+    missing = sessions[-1] if gap == 'latest' else sessions[-2]
+
+    def bars(symbols, first, last, adjustment):
+        result = {}
+        for symbol in symbols:
+            result[symbol] = [dict(t=datetime.fromisoformat(_bounds(day, day)[0])
+                .astimezone(timezone.utc).isoformat(), o=100.0, c=100.0, v=1000)
+                for day in sessions if not (symbol == 'SPY' and day == missing
+                    and adjustment == 'raw')]
+        return result, []
+
+    source._bars = bars
+    if gap == 'latest':
+        with pytest.raises(AlpacaSourcePending, match='ALPACA_BENCHMARK_CLOSE_PENDING'):
+            source._benchmark_rows()
+    else:
+        with pytest.raises(AlpacaTransportRefused, match='SPY/BIL lack exact paired daily coverage'):
+            source._benchmark_rows()
+
+
+def test_action_pending_after_part_commit_requires_fresh_revision_successor():
+    from sentinel.feed.acquisition_parts import SourceRevision
+    from sentinel.feed.alpaca_source import AlpacaSource
+
+    source = object.__new__(AlpacaSource)
+    source.assets = []
+    source.merger_conversions = []
+    source._inventory = lambda: ({'assets': []}, None, None, 0)
+
+    def pending():
+        raise AlpacaSourcePending('ALPACA_IDENTITY_ACTION_PENDING', symbol='AAA')
+
+    source._action_rows = pending
+    with pytest.raises(SourceRevision) as caught:
+        source.corroborate()
+    assert caught.value.component == 'ACTIONS'
 
 
 def test_published_same_symbol_and_vanished_acquiree_earn_current_return(

@@ -12,7 +12,7 @@ from sentinel import semantic_source_basis as semantics
 from sentinel.feed import publisher_pipeline as pipeline, rolling_publisher as lifecycle
 from tests.support.publisher_source_proofs import publisher_baseline
 
-EXPECTED_STRATEGY = 'f763d3260766dffc7f14199bc5bf9ec8580bde3af2b1c4e5b0c21242ef329182'
+EXPECTED_STRATEGY = '421a1697353ced9bdb0efba82150e900265c8f1bb7e296dbb7f6423b40a6cc81'
 HELPERS = ('ComparisonRefused', '_operational_source', '_latest', '_legacy_version',
            'published', 'freeze', 'publish', '_checkpoint')
 

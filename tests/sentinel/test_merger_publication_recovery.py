@@ -54,6 +54,51 @@ def test_dated_selection_uses_unique_authenticated_tip(monkeypatch, rows, correc
     assert pub.version == selected and binding == {'version': selected}
 
 
+def test_dated_selection_authenticates_serial_merger_corrections(monkeypatch):
+    from sentinel.feed import publication
+
+    rows = [_row(27, BEFORE_OPEN), _row(28, BEFORE_OPEN, edge=True),
+            _row(29, BEFORE_OPEN, edge=True)]
+    publications = {row[0]: publication.Publication(*row[:6]) for row in rows}
+    monkeypatch.setattr(snapshots, 'require_supersession',
+                        lambda conn, pub: publications.get(pub.version - 1)
+                        if pub.version > 27 and pub.evidence.get('operational_supersession')
+                        else None)
+    monkeypatch.setattr(dated, 'require_dated', lambda conn, pub: {'version': pub.version})
+    pub, binding = dated.select(_Connection(rows), session=SESSION, previous_version=26)
+    assert pub.version == 29 and binding == {'version': 29}
+
+    rows[-1] = _row(29, AFTER_OPEN, edge=True)
+    with pytest.raises(dated.InputsUnavailable, match='MISSING_DATED_PUBLICATION'):
+        dated.select(_Connection(rows), session=SESSION, previous_version=26)
+
+    rows[-1] = _row(29, BEFORE_OPEN)
+    with pytest.raises(dated.InputsUnavailable, match='AMBIGUOUS_DATED_PUBLICATION'):
+        dated.select(_Connection(rows), session=SESSION, previous_version=26)
+
+    rows[-1] = _row(29, BEFORE_OPEN.replace(hour=20), edge=True)
+    with pytest.raises(dated.InputsUnavailable, match='AMBIGUOUS_DATED_PUBLICATION'):
+        dated.select(_Connection(rows), session=SESSION, previous_version=26)
+
+
+def test_dated_selection_refuses_changed_predecessor_or_unbounded_chain(monkeypatch):
+    from sentinel.feed import publication
+
+    rows = [_row(version, BEFORE_OPEN, edge=version > 27)
+            for version in range(27, 30)]
+    publications = {row[0]: publication.Publication(*row[:6]) for row in rows}
+    monkeypatch.setattr(snapshots, 'require_supersession',
+                        lambda conn, pub: publications[27] if pub.version == 29
+                        else publications.get(pub.version - 1) if pub.version > 27 else None)
+    with pytest.raises(dated.InputsUnavailable, match='AMBIGUOUS_DATED_PUBLICATION'):
+        dated.select(_Connection(rows), session=SESSION, previous_version=26)
+
+    rows = [_row(version, BEFORE_OPEN, edge=version > 27)
+            for version in range(27, 36)]
+    with pytest.raises(dated.InputsUnavailable, match='AMBIGUOUS_DATED_PUBLICATION'):
+        dated.select(_Connection(rows), session=SESSION, previous_version=26)
+
+
 @pytest.mark.parametrize('old_strategy_filtered', [False, True])
 def test_late_correction_never_backdates_dated_recovery(monkeypatch, old_strategy_filtered):
     from sentinel.feed import publication
@@ -91,6 +136,52 @@ def test_same_session_correction_requires_unconsumed_checkpoint(monkeypatch):
         monkeypatch.setattr(rolling_daily_checkpoint, 'read',
                             lambda conn, value=checkpoint_session: SimpleNamespace(session=value))
         assert snapshots._session_consumed(conn, SESSION) is expected
+
+
+def test_current_tip_rechecks_every_prior_correction_edge(monkeypatch):
+    from sentinel.feed import publication
+
+    rows = {version: _row(version, BEFORE_OPEN, edge=version > 27)
+            for version in range(27, 30)}
+    for version in (28, 29):
+        rows[version][5]['operational_supersession'].update(
+            **{'from': version - 1, 'superseded_version': version - 1})
+
+    class Database:
+        def execute(self, sql, params):
+            if 'SELECT published_at' in sql:
+                return _Rows([(rows[params[0]][6],)])
+            return _Rows([rows[params[0]][:6]])
+
+    request = rolling_jobs.PreparationRequest(window=PriceWindow.through(SESSION),
+        expected_publication_version=28, strategy_sha256=digest('selected'),
+        dependencies_sha256=digest('dependencies'))
+    monkeypatch.setattr(publication, '_validate_publication',
+                        lambda conn, pub, allow_snapshot: pub)
+    monkeypatch.setattr(snapshots, '_bound',
+                        lambda conn, pub: {'candidate_id': 'candidate', 'job_id': 'job'})
+    monkeypatch.setattr(snapshots.jobs, 'status',
+                        lambda conn, job: {'request': request.model_dump(mode='json')})
+    monkeypatch.setattr(snapshots, '_edge_fields',
+                        lambda conn, previous, candidate, request: {
+                            'schema': snapshots.SUPERSESSION_SCHEMA, 'from': previous.version,
+                            'superseded_version': previous.version})
+    tip = publication.Publication(*rows[29][:6])
+    assert snapshots.require_supersession(Database(), tip).version == 28
+
+    # The tip's own edge stays valid; a changed ancestor must still refuse.
+    rows[28][5]['operational_supersession']['from'] = 26
+    with pytest.raises(snapshots.OperationalSnapshotRefused, match='OPERATIONAL_SUPERSESSION_CHANGED'):
+        snapshots.require_supersession(Database(), tip)
+
+    rows[28][5]['operational_supersession']['from'] = 27
+    for version in range(30, 38):
+        rows[version] = _row(version, BEFORE_OPEN, edge=True)
+        rows[version][5]['operational_supersession'].update(
+            **{'from': version - 1, 'superseded_version': version - 1})
+    tip = publication.Publication(*rows[37][:6])
+    with pytest.raises(snapshots.OperationalSnapshotRefused, match='OPERATIONAL_SUPERSESSION_CHAIN_LIMIT'):
+        snapshots.require_supersession(Database(), tip)
 
 
 def test_correction_strategy_binds_retained_and_selected_identities(monkeypatch):
@@ -168,4 +259,69 @@ def test_edge_binds_exact_old_and_new_source_evidence(monkeypatch):
     new_manifest.normalization_version = snapshots._MERGER_ALPACA_POLICY[2]
     new_reference['merger_conversions'] = []
     with pytest.raises(snapshots.OperationalSnapshotRefused, match='MERGER_CORRECTION_REQUIRED'):
+        snapshots._edge_fields(None, previous, 'new-candidate', request)
+
+
+def test_same_policy_merger_correction_requires_strict_source_extension(monkeypatch):
+    old = {'old_security_id': 'old-a', 'record_id': 'record-a',
+           'effective_session': SESSION, 'terms_sha256': 'a' * 64}
+    added = {'old_security_id': 'old-b', 'record_id': 'record-b',
+             'effective_session': SESSION, 'terms_sha256': 'b' * 64}
+    prior = [old]
+    current = [old, added]
+    old_source = {'schema': snapshots._MERGER_ALPACA_POLICY[0],
+                  'merger_conversions_sha256': digest(prior)}
+    new_source = {'schema': snapshots._MERGER_ALPACA_POLICY[0],
+                  'merger_conversions_sha256': digest(current)}
+    evidence = {'old-source': old_source, 'old-reference': {
+                    'schema': snapshots._MERGER_ALPACA_POLICY[1],
+                    'merger_conversions': prior},
+                'new-source': new_source, 'new-reference': {
+                    'schema': snapshots._MERGER_ALPACA_POLICY[1],
+                    'merger_conversions': current}}
+    old_manifest = SimpleNamespace(provider='ALPACA_OPENFIGI',
+        source_evidence_sha256='old-source', reference_sha256='old-reference',
+        normalization_version=snapshots._MERGER_ALPACA_POLICY[2],
+        snapshot_id='old-snapshot')
+    new_manifest = SimpleNamespace(provider='ALPACA_OPENFIGI',
+        source_evidence_sha256='new-source', reference_sha256='new-reference',
+        normalization_version=snapshots._MERGER_ALPACA_POLICY[2],
+        snapshot_id='new-snapshot')
+    previous = SimpleNamespace(version=27, window_end=SESSION,
+                               to_dict=lambda: {'version': 27, 'window_end': SESSION})
+    request = rolling_jobs.PreparationRequest(window=PriceWindow.through(SESSION),
+        expected_publication_version=27, strategy_sha256=digest('new strategy'),
+        dependencies_sha256=digest('new-dependencies'))
+    old_request = rolling_jobs.PreparationRequest(window=PriceWindow.through(SESSION),
+        expected_publication_version=26, strategy_sha256=digest('old strategy'),
+        dependencies_sha256=digest('old-dependencies'))
+    monkeypatch.setattr(snapshots, '_bound_and_manifest',
+                        lambda conn, pub: ({'job_id': 'old-job'}, old_manifest))
+    monkeypatch.setattr(snapshots.rolling_store, 'manifest', lambda conn, candidate: new_manifest)
+    monkeypatch.setattr(snapshots.rolling_store, 'load_evidence',
+                        lambda conn, sha: evidence[sha])
+    monkeypatch.setattr(snapshots.jobs, 'status',
+                        lambda conn, job: {'request': old_request.model_dump(mode='json')})
+
+    edge = snapshots._edge_fields(None, previous, 'new-candidate', request)
+    assert edge['superseded_source_schema'] == snapshots._MERGER_ALPACA_POLICY[0]
+    assert edge['successor_source_schema'] == snapshots._MERGER_ALPACA_POLICY[0]
+    assert edge['superseded_snapshot_id'] == 'old-snapshot'
+    assert edge['successor_snapshot_id'] == 'new-snapshot'
+
+    # Each mutation is a falsifier: omitting or weakening the extension guard
+    # makes an identical or changed old conversion publish as a correction.
+    evidence['new-reference']['merger_conversions'] = prior
+    new_source['merger_conversions_sha256'] = digest(prior)
+    with pytest.raises(snapshots.OperationalSnapshotRefused, match='MERGER_EXTENSION_REQUIRED'):
+        snapshots._edge_fields(None, previous, 'new-candidate', request)
+    changed = {**old, 'terms_sha256': 'c' * 64}
+    evidence['new-reference']['merger_conversions'] = [changed, added]
+    new_source['merger_conversions_sha256'] = digest([changed, added])
+    with pytest.raises(snapshots.OperationalSnapshotRefused, match='MERGER_EXTENSION_REQUIRED'):
+        snapshots._edge_fields(None, previous, 'new-candidate', request)
+    duplicate = [old, old]
+    evidence['new-reference']['merger_conversions'] = duplicate
+    new_source['merger_conversions_sha256'] = digest(duplicate)
+    with pytest.raises(snapshots.OperationalSnapshotRefused, match='MERGER_EXTENSION_REQUIRED'):
         snapshots._edge_fields(None, previous, 'new-candidate', request)

@@ -11,6 +11,13 @@ from sentinel.core.rolling_inputs import (
 from sentinel.core.rolling_reader import RollingPriceReader
 from sentinel.feed import calendar, rolling_store
 from sentinel.feed.rolling_contract import canonical_json, digest
+class MergerActionPending(RuntimeError):
+    """A selected-only prior identity needs newly observed source action terms."""
+
+    def __init__(self, session, security_id):
+        self.session = session
+        self.security_id = security_id
+        super().__init__('SELECTED_IDENTITY_ACTION_PENDING:' + session + ':' + security_id)
 
 
 def protected_economics(conn, *, previous, current, live, start, cursor):
@@ -41,6 +48,23 @@ def protected_economics(conn, *, previous, current, live, start, cursor):
 def _provider_assets(conn, refs):
     """Recover published provider UUIDs without consulting today's broker."""
     return merger_provider_assets(conn, refs)
+
+
+def _pending_selected_action(*, prior, previous, current, cursor, session):
+    """Ask orchestration to reobserve only a source-visible selected gap."""
+    if (previous.manifest.provider != 'ALPACA_OPENFIGI'
+            or current.manifest.provider != 'ALPACA_OPENFIGI'):
+        return
+    selected = set((prior.median5 or {}).get('selected', ()))
+    owned = merger_owned_security_ids(prior)
+    converted = {row.old_security_id for row in current.merger_conversions}
+    for sid in sorted(selected - owned - converted):
+        former = previous.resolver.ticker_for_security(sid, cursor)
+        if former is None or previous.resolver.resolve(former, cursor) != sid:
+            continue
+        current_name = current.resolver.ticker_for_security(sid, session)
+        if current_name is None or current.resolver.resolve(current_name, session) != sid:
+            raise MergerActionPending(session, sid)
 
 
 def _merger_bridges(conn, *, prior, previous, current, cursor, session):
@@ -140,6 +164,8 @@ def prepare(conn, *, prior, previous_binding, publication, binding):
     reader = RollingPriceReader(conn, candidate_id=refs.candidate_id, snapshot_id=refs.manifest.snapshot_id)
     reader.require_checkpoint_window(prior)
     live = window_features.protected(prior)
+    _pending_selected_action(prior=prior, previous=previous, current=refs,
+                             cursor=cursor, session=session)
     bridges, conversions = _merger_bridges(
         conn, prior=prior, previous=previous, current=refs, cursor=cursor, session=session)
     anchors = {}

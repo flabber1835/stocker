@@ -203,18 +203,19 @@ def test_daily_name_change_preserves_held_or_leadership_economics_and_restart(co
 
 
 def test_unproven_controller_identity_replacement_retains_original_book(conn,provider):
-    from sentinel import rolling_initialization as initial,rolling_daily as daily,rolling_daily_checkpoint
-    from sentinel.rolling_reconstruction_evidence import InputsUnavailable
+    from sentinel import rolling_initialization as initial,rolling_daily_checkpoint
+    from sentinel.feed import operational_snapshot as op
+    from sentinel.feed.alpaca_pending import AlpacaSourcePending
     prices,publish=provider
-    publish();before=initial.initialize(conn,observation_id=OBS,starting_cash=50_000)
+    origin=publish();before=initial.initialize(conn,observation_id=OBS,starting_cash=50_000)
     sid=before.state.median5['selected'][0]
     ticker=before.state.feed['series'][sid]['ticker']
     day=calendar.next_session(before.state.last_processed_session)
     prices.window=PriceWindow.through(day)
     change_provider(prices,ticker=ticker,previous_id=sid,day=day,with_event=False)
-    publish()
-    with pytest.raises(InputsUnavailable,match='HELD_ECONOMIC_INPUT_PENDING'):
-        daily.advance(conn,observation_id=OBS,starting_cash=50_000)
+    with pytest.raises(AlpacaSourcePending,match='ALPACA_IDENTITY_ACTION_PENDING'):
+        publish()
+    assert op._current(conn).version==origin['data_version']
     conn.rollback()
     _,_,restored=rolling_daily_checkpoint.load(conn,initial._context(OBS,50_000))
     assert restored.state.state_hash==before.state.state_hash

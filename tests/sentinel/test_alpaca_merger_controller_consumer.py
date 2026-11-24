@@ -1,4 +1,5 @@
 """A merger may close a controller witness without changing Wealth Core ownership."""
+from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
@@ -67,6 +68,78 @@ def _bound_source(monkeypatch, previous, current, *, old_provider=OLD,
     monkeypatch.setattr(window_continuity, '_provider_assets',
         lambda _conn, refs: {'AAA': old_provider} if refs is previous else
         {'BBB': 'new-provider-uuid'} if successor_admitted else {})
+
+
+@pytest.mark.parametrize('current_symbol', [None, 'AAA'])
+def test_selected_identity_discontinuity_waits_for_new_action(current_symbol):
+    prior = SimpleNamespace(median5={'selected': [OLD]}, wealth_core={}, pending=[])
+    previous = SimpleNamespace(manifest=SimpleNamespace(provider='ALPACA_OPENFIGI'),
+        resolver=SimpleNamespace(
+            ticker_for_security=lambda sid, day: 'AAA' if (sid, day) == (OLD, CURSOR) else None,
+            resolve=lambda symbol, day: OLD if (symbol, day) == ('AAA', CURSOR) else None))
+    current = SimpleNamespace(manifest=SimpleNamespace(provider='ALPACA_OPENFIGI'),
+        merger_conversions=(), resolver=SimpleNamespace(
+            ticker_for_security=lambda _sid, _day: None,
+            resolve=lambda symbol, day: NEW if (symbol, day) == (current_symbol, SESSION) else None))
+    retained = deepcopy(prior.__dict__)
+    with pytest.raises(window_continuity.MergerActionPending,
+                       match='SELECTED_IDENTITY_ACTION_PENDING:' + SESSION + ':' + OLD):
+        window_continuity._pending_selected_action(
+            prior=prior, previous=previous, current=current, cursor=CURSOR, session=SESSION)
+    assert prior.__dict__ == retained
+
+
+def test_complete_conversion_or_source_proven_rename_resolves_action_wait():
+    prior = SimpleNamespace(median5={'selected': [OLD]}, wealth_core={}, pending=[])
+    previous = SimpleNamespace(manifest=SimpleNamespace(provider='ALPACA_OPENFIGI'),
+        resolver=SimpleNamespace(ticker_for_security=lambda *_: 'AAA',
+                                 resolve=lambda *_: OLD))
+    current = SimpleNamespace(manifest=SimpleNamespace(provider='ALPACA_OPENFIGI'),
+        merger_conversions=(SimpleNamespace(old_security_id=OLD),),
+        resolver=SimpleNamespace(ticker_for_security=lambda *_: None,
+                                 resolve=lambda *_: None))
+    window_continuity._pending_selected_action(
+        prior=prior, previous=previous, current=current, cursor=CURSOR, session=SESSION)
+
+
+def test_selected_action_wait_precedes_price_read_and_book_transition(monkeypatch):
+    _conn, prior, previous, current, _ = _case()
+    previous.current_window = current.current_window = True
+    current.candidate_id = 'current'
+    previous.resolver.ticker_for_security = lambda *_: 'AAA'
+    current.manifest = SimpleNamespace(provider='ALPACA_OPENFIGI',
+        window=SimpleNamespace(end=SESSION), snapshot_id='c' * 64)
+    current.merger_conversions = ()
+    current.resolver.ticker_for_security = lambda *_: None
+    monkeypatch.setattr(window_continuity, 'SnapshotReferences',
+        lambda _conn, candidate_id, snapshot_id: previous if candidate_id == 'previous' else current)
+    monkeypatch.setattr(window_continuity.rolling_store, 'verify_content', lambda *_: None)
+    monkeypatch.setattr(window_continuity.window_features, 'protected', lambda _prior: {OLD})
+
+    class NoPriceRead:
+        def __init__(self, *_a, **_k):
+            pass
+
+        def require_checkpoint_window(self, _prior):
+            pass
+
+        def prices(self, **_kwargs):
+            pytest.fail('price read happened before selected identity action wait')
+
+    monkeypatch.setattr(window_continuity, 'RollingPriceReader', NoPriceRead)
+    retained = deepcopy(prior.__dict__)
+    with pytest.raises(window_continuity.MergerActionPending,
+                       match='SELECTED_IDENTITY_ACTION_PENDING'):
+        window_continuity.prepare(_conn, prior=prior,
+            previous_binding={'candidate_id': 'previous', 'snapshot_id': SNAPSHOT},
+            publication=SimpleNamespace(window_end=SESSION),
+            binding={'candidate_id': 'current', 'snapshot_id': 'c' * 64})
+    assert prior.__dict__ == retained
+    current.merger_conversions = ()
+    current.resolver.ticker_for_security = lambda *_: 'BBB'
+    current.resolver.resolve = lambda symbol, day: OLD if (symbol, day) == ('BBB', SESSION) else None
+    window_continuity._pending_selected_action(
+        prior=prior, previous=previous, current=current, cursor=CURSOR, session=SESSION)
 
 
 def test_selected_only_merger_uses_prior_published_anchor_and_fractional_return(monkeypatch):

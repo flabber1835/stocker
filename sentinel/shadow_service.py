@@ -246,6 +246,8 @@ def _advance_rolling(config, *, target, acquisition_deadline, now=None):
         if isinstance(exc, (ShadowServiceRefused, ShadowServiceWaiting)):
             raise
         from sentinel.rolling_reconstruction_evidence import InputsUnavailable
+        from sentinel.core.window_continuity import MergerActionPending
+        from sentinel.feed.alpaca_pending import AlpacaSourcePending
         from sentinel.feed.rolling_jobs import JobDeadlineExceeded
         from sentinel.feed.source_wait import SourceCoveragePending
         from sentinel.feed.rolling_go_inputs import RollingSourceFrontierPending
@@ -254,6 +256,10 @@ def _advance_rolling(config, *, target, acquisition_deadline, now=None):
         if isinstance(exc, SourceCoveragePending):
             raise ShadowServiceWaiting(str(exc)) from exc
         if isinstance(exc, InputsUnavailable):
+            raise ShadowServiceWaiting(str(exc)) from exc
+        if isinstance(exc, MergerActionPending):
+            raise ShadowServiceWaiting(str(exc)) from exc
+        if isinstance(exc, AlpacaSourcePending):
             raise ShadowServiceWaiting(str(exc)) from exc
         if isinstance(exc, JobDeadlineExceeded):
             raise ShadowServiceRetry("rolling shadow acquisition deadline exhausted") from exc

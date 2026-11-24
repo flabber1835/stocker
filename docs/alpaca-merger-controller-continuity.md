@@ -60,13 +60,72 @@ the previous signed digest remains a historical baseline. Tests that pin the
 current digest must identify the reviewed successor and retain their mutation
 falsifiers rather than relabeling historical authority.
 The reviewed current strategy digest is
-`f763d3260766dffc7f14199bc5bf9ec8580bde3af2b1c4e5b0c21242ef329182`;
+`421a1697353ced9bdb0efba82150e900265c8f1bb7e296dbb7f6423b40a6cc81`;
 the old local PAPER exception still names
 `caab7a1872fe4ec178aec659716a4bc70c0cd5ea79a88e33ffacd2ae0c7cf095`.
-The prior-publication lookup for a correction skips an older same-session
-schema that omitted the merger, returning to the preceding dated identity
-source. Publication and source hashes bind the corrected input; neither old
-prices nor old reference rows are edited.
+The merger-conversion origin lookup for a correction skips every same-session
+publication, returning to the preceding dated identity source even when the
+current same-session tip already uses `/4`. The correction predecessor remains
+that exact current tip. Publication and source hashes bind the corrected input;
+neither old prices nor old reference rows are edited.
+
+## Late provider evidence at the close
+
+Acquisition may begin at the exact exchange close. Neither that instant nor two
+equal corporate-action responses proves that Alpaca has finished publishing
+actions. Alpaca documents no action-completeness watermark or guaranteed
+creation time. A fixed post-close delay is therefore not a source-finality
+proof. The November 23 acquisition began 56 seconds after the close, passed
+source validation and published about 13 minutes after the close; its later
+missing-anchor refusal does not establish an early-acquisition cause.
+
+The producer must wait and reobserve when its own source facts expose an
+unresolved current-session identity change: a former symbol with a new provider
+UUID and no complete bound name-change or merger, including an observed merger
+record whose terms are incomplete for that changed same-symbol identity. A
+typed action wait is
+durable, uses the original acquisition job deadline, and makes a fresh action
+and asset observation on retry. It cannot reuse a retained empty action part.
+Ordinary inactive listings and unrelated absent former symbols must not block
+the entire market source merely because a merger is possible. Missing current
+benchmark bars are pending only when the absent membership is the just-closed
+session; malformed, duplicate and historical coverage remain refusals.
+
+The controller consumer separately recognizes a prior selected-only witness
+whose authenticated old identity is absent or replaced in the current source
+and has no complete merger conversion. It reports an explicit pending input,
+leaving the book unchanged. This result may ask the broker-free orchestration
+layer to reobserve Alpaca; it never supplies a return, changes the source's
+market facts, reads broker state, or enters Wealth Core. An ordinary delisting
+with no action may remain unresolved and cannot be guessed into a return.
+The postpublication retry uses a distinct acquisition deadline bounded by the
+following exchange open. It must actually fetch fresh actions and assets, not
+reuse the published empty action part or repeatedly read the same snapshot.
+
+After an already published `/4` source, a retry may append a same-session
+`/4` to `/4` correction only if fresh, source-proven conversion terms strictly
+extend the predecessor's conversion set. The old conversions must remain
+byte-identical. The immutable edge names the exact prior publication, both
+source snapshots, their strategy bindings and the correction time. An identical
+reobservation creates no publication. Serial corrections must form one exact
+verified chain of at most eight same-strategy publications; unrelated
+same-session publications and a longer chain remain ambiguous. A
+correction that still does not resolve the selected witness cannot produce a
+plan. A consumed decision, competing edge, changed predecessor or old terms
+refuses. Before the following open the unique tip may support prospective
+planning after all ordinary gates; after the open
+it supports current-information state recovery only, never a backdated plan or
+broker command. Reobservation stops at the relevant market-time boundary and
+retains an explicit pending or blocked reason if Alpaca has not supplied terms.
+
+Qualification must falsify missing action on both first reads for a vanished
+acquiree and a same-symbol new UUID, then show that a later complete record is
+fetched afresh and the exact prior anchor is used once. It must also cover
+incomplete terms, a valid name change, irrelevant delisting, no-change retry,
+late close benchmark coverage, original deadline, restart, correction fork and
+consumption, and the following-open cutoff. These software tests cannot prove
+that an absent provider action will ever arrive or replace the separately
+signed PAPER release qualification.
 
 ## Canonical daily transition
 

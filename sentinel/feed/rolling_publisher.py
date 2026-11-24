@@ -137,6 +137,7 @@ class PublicationObserver:
 
 def _record_failure(conn, lease, exc, *, operational=False):
     from sentinel.feed.acquisition_limits import AcquisitionResourceExceeded
+    from sentinel.feed.alpaca_pending import AlpacaSourcePending
     from sentinel.feed.alpaca_transport import AlpacaTransportUnavailable
     from sentinel.feed.source_wait import SourceCoveragePending, record as record_source_wait
     conn.rollback()
@@ -148,7 +149,13 @@ def _record_failure(conn, lease, exc, *, operational=False):
         delay = (max(1, math.ceil(exc.delay)) if isinstance(
             exc, (AlpacaTransportUnavailable, archive_tables.RetryDeferred)) else 10)
         horizon = isinstance(exc, backup_runtime_authority.BackupHorizonExceeded)
-        if isinstance(exc, SourceCoveragePending) and remaining > 1:
+        if isinstance(exc, AlpacaSourcePending) and remaining > 1:
+            jobs.wait(conn, lease, state="WAIT_SOURCE",
+                      reason=exc.reason, retry_seconds=60)
+        elif isinstance(exc, AlpacaSourcePending):
+            jobs.finish(conn, lease, state="REFUSED",
+                        reason="ALPACA_SOURCE_PENDING_DEADLINE")
+        elif isinstance(exc, SourceCoveragePending) and remaining > 1:
             record_source_wait(conn, lease, exc)
             jobs.wait(conn, lease, state="WAIT_SOURCE",
                       reason="SOURCE_COVERAGE_PENDING", retry_seconds=60)

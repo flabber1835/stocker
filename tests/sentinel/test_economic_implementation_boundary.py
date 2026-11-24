@@ -267,7 +267,7 @@ def test_complete_current_production_strategy_preserves_financial_settings():
         key: value for key, value in predecessor['strategy'].items() if key != 'data_semantics_source_sha256'}
     canonical = json.dumps(current, sort_keys=True, separators=(',', ':'),
                            ensure_ascii=True, allow_nan=False).encode('ascii')
-    assert hashlib.sha256(canonical).hexdigest() == 'f763d3260766dffc7f14199bc5bf9ec8580bde3af2b1c4e5b0c21242ef329182'
+    assert hashlib.sha256(canonical).hexdigest() == '421a1697353ced9bdb0efba82150e900265c8f1bb7e296dbb7f6423b40a6cc81'
     assert current['data_semantics_source_sha256'] == economic.identity(
         schema='qualification-economic-boundary')['sha256']
     assert current['data_semantics_source_sha256'] != PREDECESSOR_DATA_SEMANTICS_SHA256
