@@ -134,10 +134,11 @@ def test_lifecycle_retains_original_failure_and_cleanup_ast():
     current = Path(lifecycle.__file__).read_text(encoding='utf-8')
     new = ast.parse(current)
     assert _dump(_definition(old, 'prepare')) == _dump(_definition(new, 'prepare'))
-    # af0ed1ecc supplied the unchanged post-provider-retirement failure policy.
+    # The late Alpaca evidence wait extends failure classification while the
+    # preparation handler and cleanup remain pinned to their historical AST.
     failure_body = ast.get_source_segment(current, _definition(new, '_record_failure'))
     assert hashlib.sha256(failure_body.encode()).hexdigest() == (
-        '34e6ca88c5c6e126003b41b09d39ccb06308c7bb7ada72517f531e36ff4bb5f7')
+        '81f3001e72cf4fd2cfef4a1ba8e607c7cdd3cbea8de89cfc3d48de8b0b68e513')
     old_prepare = _definition(old, '_prepare')
     new_prepare = _definition(new, '_prepare')
     old_try = next(n for n in old_prepare.body if isinstance(n, ast.Try))

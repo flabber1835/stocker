@@ -436,7 +436,7 @@ def test_operational_sources_are_not_read_as_economic_contributors(monkeypatch):
         return read(name)
     monkeypatch.setattr(economic,'_module_raw',audited)
     assert economic.identity(schema='qualification-economic-boundary')['sha256'] == (
-        'e983a3529077978e9f0a793ccc23318e50de10e21e5d952640d3543eb61c4914')
+        '4e0527eb06780b744fefeadc47e2b18c2cdaacfa77ffa24946a569c5e59b0b1b')
 
 
 def assert_pure_dependencies(raw, *, module_name=None):
