@@ -439,6 +439,42 @@ def test_operational_sources_are_not_read_as_economic_contributors(monkeypatch):
         '4e0527eb06780b744fefeadc47e2b18c2cdaacfa77ffa24946a569c5e59b0b1b')
 
 
+def test_retired_supersession_reader_preserves_only_the_reviewed_economic_identity(monkeypatch):
+    from sentinel import semantic_source_basis as semantics
+
+    name = 'sentinel.feed.operational_snapshot'
+    read = economic._module_raw
+    source = read(name)
+    assert hashlib.sha256(source).hexdigest() == economic.SNAPSHOT_RETIRED_EDGE_SHA256
+    assert semantics.SNAPSHOT_RETIRED_EDGE_SHA256 == economic.SNAPSHOT_RETIRED_EDGE_SHA256
+    baseline = economic.identity(schema='qualification-economic-boundary')
+    contributions = {row['module']: row['sha256'] for row in baseline['files']}
+    assert contributions[name] == economic.SNAPSHOT_RECOVERY_PREDECESSOR_SHA256
+    assert semantics.economic_sources([name], schema='qualification-economic-boundary')['files'] == [
+        {'module': name, 'sha256': economic.SNAPSHOT_RECOVERY_PREDECESSOR_SHA256}]
+    assert baseline['sha256'] == (
+        '4e0527eb06780b744fefeadc47e2b18c2cdaacfa77ffa24946a569c5e59b0b1b')
+
+    guard = b'if not (old_retired or new_retired):'
+    assert source.count(guard) == 1
+    unreviewed = source.replace(guard, b'if False:')
+    with monkeypatch.context() as change:
+        change.setattr(economic, '_module_raw',
+                       lambda module: unreviewed if module == name else read(module))
+        changed = economic.identity(schema='qualification-economic-boundary')
+    changed_contributions = {row['module']: row['sha256'] for row in changed['files']}
+    assert changed_contributions[name] == hashlib.sha256(unreviewed).hexdigest()
+    assert changed['sha256'] != baseline['sha256']
+
+    source_path = Path(importlib.import_module(name).__file__).resolve()
+    original_read = Path.read_bytes
+    with monkeypatch.context() as change:
+        change.setattr(Path, 'read_bytes',
+                       lambda path: unreviewed if path == source_path else original_read(path))
+        assert semantics.economic_sources([name], schema='qualification-economic-boundary')['files'] == [
+            {'module': name, 'sha256': hashlib.sha256(unreviewed).hexdigest()}]
+
+
 def assert_pure_dependencies(raw, *, module_name=None):
     blocked = {'os','subprocess','socket','requests','psycopg','httpx'}
     for node in ast.walk(ast.parse(raw)):

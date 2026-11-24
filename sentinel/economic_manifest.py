@@ -15,7 +15,7 @@ from pathlib import Path
 import re
 from functools import lru_cache
 
-MANIFEST_SHA256 = '4c27d877de2c1ed65501db426bb9a90e98944afabb7de7bfdb5b3847f449beb6'
+MANIFEST_SHA256 = 'ba837af106288f25742059133fd846042ccdb361a2866aa6ed196eb8aaaaef54'
 MANIFEST = Path(__file__).with_name('economic-implementation-v2.json')
 PREDECESSOR = 'b2e308bb664718da373175f1a7d988d07b159ae2'
 PREDECESSOR_DATA_SEMANTICS_SHA256 = '38c750bd9bb244bc71600aaeba8c4aad22d2095747f4199e9ac4e0bd433425cb'
@@ -24,6 +24,7 @@ COMPACT_WINDOW_MODULE = 'sentinel.core.window_material'
 COMPACT_WINDOW_SHA256 = 'ce7ef77041f9b4fd5f8517254a6e39053a202ef34740535e4570fddd65e57435'
 SNAPSHOT_ADMISSION_SHA256 = '8b7cba0d389fa93aa597c4cf95923b359ae414c01cf91e1457cd656e6329bc2a'
 SNAPSHOT_RECOVERY_SHA256 = '2adb723c2dd51972540bb0f0009ff2fc8da3b6ffafc3621003d6f231ed50a4f1'
+SNAPSHOT_RETIRED_EDGE_SHA256 = '9c05134de105a65f1e68e3f2c81bff5d244e3dc2c73c39dc0c9cec1c1d6d4ff1'
 SNAPSHOT_RECOVERY_PREDECESSOR_SHA256 = '25540d4a498868db32bdb7ed5326fb0115129ead3b1bc5aebdbe4917ad4a1b32'
 CLOSE_READINESS_COMPILERS = {
     'sentinel.core.rolling_inputs': '1c8984cf51bb8b02e6861e5494b11d6a022a4e6f39e2670985710deab755ee3a',
@@ -298,7 +299,8 @@ def identity(*, schema):
             actual[name] = expected[name]
         elif name == 'sentinel.feed.operational_snapshot' and _sha(raw) == SNAPSHOT_ADMISSION_SHA256:
             actual[name] = expected[name]
-        elif name == 'sentinel.feed.operational_snapshot' and _sha(raw) == SNAPSHOT_RECOVERY_SHA256:
+        elif name == 'sentinel.feed.operational_snapshot' and _sha(raw) in {
+                SNAPSHOT_RECOVERY_SHA256, SNAPSHOT_RETIRED_EDGE_SHA256}:
             actual[name] = SNAPSHOT_RECOVERY_PREDECESSOR_SHA256
         else:
             actual[name] = contribution(name,raw) if name in value['input_compilers'] else _sha(raw)

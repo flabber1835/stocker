@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from sentinel import rolling_reconstruction_evidence as dated
-from sentinel.feed import operational_snapshot as snapshots, rolling_jobs
+from sentinel.feed import operational_snapshot as snapshots, rolling_jobs, rolling_store
 from sentinel.feed.rolling_contract import PriceWindow, digest
 
 
@@ -220,10 +220,15 @@ def test_current_tip_rechecks_every_prior_correction_edge(monkeypatch):
                         lambda conn, pub, allow_snapshot: pub)
     monkeypatch.setattr(snapshots, '_bound',
                         lambda conn, pub: {'candidate_id': 'candidate', 'job_id': 'job'})
+    monkeypatch.setattr(snapshots, '_bound_and_manifest',
+                        lambda conn, pub: ({'candidate_id': 'candidate', 'job_id': 'job'},
+                                           SimpleNamespace()))
+    monkeypatch.setattr(rolling_store, 'manifest', lambda conn, candidate: SimpleNamespace())
+    monkeypatch.setattr(rolling_store, 'retired', lambda conn, candidate: False)
     monkeypatch.setattr(snapshots.jobs, 'status',
                         lambda conn, job: {'request': request.model_dump(mode='json')})
     monkeypatch.setattr(snapshots, '_edge_fields',
-                        lambda conn, previous, candidate, request: {
+                        lambda conn, previous, candidate, request, **_loaded: {
                             'schema': snapshots.SUPERSESSION_SCHEMA, 'from': previous.version,
                             'superseded_version': previous.version})
     tip = publication.Publication(*rows[29][:6])
@@ -242,6 +247,124 @@ def test_current_tip_rechecks_every_prior_correction_edge(monkeypatch):
     tip = publication.Publication(*rows[37][:6])
     with pytest.raises(snapshots.OperationalSnapshotRefused, match='OPERATIONAL_SUPERSESSION_CHAIN_LIMIT'):
         snapshots.require_supersession(Database(), tip)
+
+
+def test_retired_merger_chain_keeps_current_tip_and_signed_edges(monkeypatch):
+    """The v28 -> retired v27 -> retired v26 chain survives legal cleanup."""
+    from sentinel.feed import publication
+
+    old = {'old_security_id': 'old-a', 'record_id': 'record-a',
+           'effective_session': SESSION, 'terms_sha256': 'a' * 64}
+    added = {'old_security_id': 'old-b', 'record_id': 'record-b',
+             'effective_session': SESSION, 'terms_sha256': 'b' * 64}
+    conversions = {27: [old], 28: [old, added]}
+    manifests = {
+        version: SimpleNamespace(provider='ALPACA_OPENFIGI',
+            source_evidence_sha256=f'source-{version}', reference_sha256=f'reference-{version}',
+            normalization_version=(snapshots._OLD_ALPACA_POLICY[2] if version == 26
+                                   else snapshots._MERGER_ALPACA_POLICY[2]),
+            snapshot_id=f'snapshot-{version}')
+        for version in (26, 27, 28)}
+    bundles = {
+        'source-26': {'schema': snapshots._OLD_ALPACA_POLICY[0]},
+        'reference-26': {'schema': snapshots._OLD_ALPACA_POLICY[1]},
+        **{f'source-{version}': {'schema': snapshots._MERGER_ALPACA_POLICY[0],
+                                'merger_conversions_sha256': digest(conversions[version])}
+           for version in (27, 28)},
+        **{f'reference-{version}': {'schema': snapshots._MERGER_ALPACA_POLICY[1],
+                                   'merger_conversions': conversions[version]}
+           for version in (27, 28)},
+    }
+    requests = {version: rolling_jobs.PreparationRequest(
+        window=PriceWindow.through(SESSION), expected_publication_version=version - 1,
+        strategy_sha256=digest(f'strategy-{version}'),
+        dependencies_sha256=digest(f'dependencies-{version}'))
+        for version in (26, 27, 28)}
+    bindings = {version: {'candidate_id': f'candidate-{version}', 'job_id': f'job-{version}'}
+                for version in (26, 27, 28)}
+    retired = set()
+    reads = []
+
+    def load(_conn, sha):
+        reads.append(sha)
+        if sha not in bundles:
+            raise rolling_store.SnapshotStorageRefused('missing or corrupt snapshot evidence: ' + sha)
+        return bundles[sha]
+
+    monkeypatch.setattr(snapshots, '_bound', lambda conn, pub: bindings[pub.version])
+    monkeypatch.setattr(snapshots, '_bound_and_manifest',
+                        lambda conn, pub: (bindings[pub.version], manifests[pub.version]))
+    monkeypatch.setattr(rolling_store, 'manifest',
+                        lambda conn, candidate: manifests[int(candidate.removeprefix('candidate-'))])
+    monkeypatch.setattr(rolling_store, 'retired', lambda conn, candidate: candidate in retired)
+    monkeypatch.setattr(rolling_store, 'load_evidence', load)
+    monkeypatch.setattr(snapshots.jobs, 'status',
+                        lambda conn, job: {'request': requests[int(job.removeprefix('job-'))].model_dump(mode='json')})
+    monkeypatch.setattr(publication, '_validate_publication',
+                        lambda conn, pub, allow_snapshot: pub)
+
+    first = publication.Publication(26, 25, None, '2025-09-16', SESSION, {})
+    edge27 = snapshots._edge_fields(None, first, 'candidate-27', requests[27])
+    second = publication.Publication(27, 26, None, '2025-09-16', SESSION,
+                                     {'operational_supersession': edge27})
+    edge28 = snapshots._edge_fields(None, second, 'candidate-28', requests[28])
+    tip = publication.Publication(28, 27, None, '2025-09-16', SESSION,
+                                  {'operational_supersession': edge28})
+    publications = {26: first, 27: second, 28: tip}
+    times = {26: BEFORE_OPEN, 27: BEFORE_OPEN,
+             28: datetime(2026, 11, 24, 11, 52, tzinfo=timezone.utc)}
+
+    class Database:
+        def execute(self, sql, params):
+            version = int(params[0])
+            if 'SELECT published_at' in sql:
+                return _Rows([(times[version],)])
+            pub = publications[version]
+            return _Rows([(pub.version, pub.previous_version, pub.run_id,
+                           pub.window_start, pub.window_end, pub.evidence)])
+
+    database = Database()
+    retired.update({'candidate-26', 'candidate-27'})
+    for version in (26, 27):
+        bundles.pop(f'source-{version}')
+        bundles.pop(f'reference-{version}')
+    reads.clear()
+    assert snapshots.require_supersession(database, tip).version == 27
+    assert set(reads) == {'source-28', 'reference-28'}
+
+    def refuse_changed_receipt(_conn, pub, allow_snapshot):
+        if pub.version == 27:
+            raise publication.CorpusIncoherent('receipt changed')
+        return pub
+
+    monkeypatch.setattr(publication, '_validate_publication', refuse_changed_receipt)
+    with pytest.raises(publication.CorpusIncoherent, match='receipt changed'):
+        snapshots.require_supersession(database, tip)
+    monkeypatch.setattr(publication, '_validate_publication',
+                        lambda conn, pub, allow_snapshot: pub)
+
+    edge27['superseded_source_sha256'] = 'changed'
+    with pytest.raises(snapshots.OperationalSnapshotRefused, match='OPERATIONAL_SUPERSESSION_CHANGED'):
+        snapshots.require_supersession(database, tip)
+    edge27['superseded_source_sha256'] = 'source-26'
+
+    bundles.pop('source-28')
+    with pytest.raises(rolling_store.SnapshotStorageRefused, match='source-28'):
+        snapshots.require_supersession(database, tip)
+    bundles['source-28'] = {'schema': snapshots._MERGER_ALPACA_POLICY[0],
+                            'merger_conversions_sha256': digest(conversions[28])}
+
+    retired.clear()
+    with pytest.raises(rolling_store.SnapshotStorageRefused, match='source-27'):
+        snapshots.require_supersession(database, tip)
+
+    retired.add('candidate-28')
+    bundles['source-27'] = {'schema': snapshots._MERGER_ALPACA_POLICY[0],
+                            'merger_conversions_sha256': 'changed'}
+    bundles['reference-27'] = {'schema': snapshots._MERGER_ALPACA_POLICY[1],
+                               'merger_conversions': conversions[27]}
+    with pytest.raises(snapshots.OperationalSnapshotRefused, match='OPERATIONAL_SUPERSESSION_CHANGED'):
+        snapshots.require_supersession(database, tip)
 
 
 def test_correction_strategy_binds_retained_and_selected_identities(monkeypatch):
