@@ -24,6 +24,11 @@ _CLOSING_DATA_ROWS = frozenset({
     'terminals', 'paper_reconciliation', 'feed', 'ingest', 'automation_cycle',
     'automation_step_data', 'authority',
 })
+_MISSED_TRIAL_REASON_TUPLES = frozenset({
+    ('CURRENT_CYCLE_CONTROL_GENERATION_SUPERSEDED',),
+    ('CURRENT_CYCLE_MISSED_EXECUTION_WINDOW',),
+    ('CURRENT_CYCLE_MAX_EXECUTION_LATENESS_EXCEEDED',),
+})
 _CLOSE_STEPS = {'REFRESHING_DATA': ('automation_step_data', 'AUTOMATION_DATA'),
                 'PREPARING': ('automation_step_prepare', 'AUTOMATION_PREPARE'),
                 'WAITING_OPEN': ('automation_step_open', 'AUTOMATION_OPEN')}
@@ -1191,6 +1196,7 @@ def _missed_open_witness(panel) -> Row | None:
 
     paper = panel.row('paper_reconciliation')
     cycle = panel.row('automation_cycle')
+    broker = panel.row('broker')
     if (not panel.local_paper_mode or paper is None or cycle is None
             or paper.paper_alignment != 'MISSED_OPEN_UNATTENDED'
             or paper.effective_status(panel.now) != 'warn'
@@ -1208,7 +1214,25 @@ def _missed_open_witness(panel) -> Row | None:
             or not _current_health_fact(panel, 'automation')
             or not _fresh_worker(panel, 'automation_leader')
             or not _current_health_fact(panel, 'authority')
-            or not _current_health_fact(panel, 'alpaca_account')):
+            or not _current_health_fact(panel, 'alpaca_account')
+            or broker is None or not row_current(panel, broker)
+            or broker.effective_status(panel.now) not in {'ok', 'warn'}
+            or any(type(count) is not int or count != 0 for count in (
+                broker.broker_working_orders, broker.broker_active_commands,
+                broker.broker_uncertain_commands))
+            or (broker.status == 'warn' and (
+                broker.recovery is None
+                or broker.recovery.phase != 'BROKER_NEXT_PREFLIGHT'
+                or not broker.recovery.active(panel.now)))
+            or (broker.status == 'ok' and broker.is_stale(panel.now))
+            or any((step := panel.row(key)) is None
+                   or not row_current(panel, step)
+                   or step.as_of != cycle.as_of
+                   or step.effective_status(panel.now) != 'warn'
+                   or step.operational_fact is None
+                   or (step.operational_fact.kind, step.operational_fact.state)
+                       != ('AUTOMATION_CYCLE', 'SUPERSEDED')
+                   for key in ('automation_step_open', 'automation_step_complete'))):
         return None
     return paper
 
@@ -1222,7 +1246,12 @@ def _health_facts(panel, classifications, *, boundaries) -> dict:
             continue
         if (row.key == 'trial_verification' and status == 'fail'
                 and missed_open is not None
-                and row.trial_reason_codes == ('CURRENT_CYCLE_CONTROL_GENERATION_SUPERSEDED',)):
+                and row.trial_reason_codes in _MISSED_TRIAL_REASON_TUPLES):
+            warnings.append(row.key)
+            continue
+        if (row.key in {'automation_alerts', 'alert_dispatcher'}
+                and status == 'fail' and row.status == 'fail'
+                and missed_open is not None):
             warnings.append(row.key)
             continue
         if status == 'fail' and row.key == 'exposure' and row.status == 'warn':
@@ -1269,7 +1298,7 @@ def _with_trading_continuity(panel, health: dict) -> dict:
             warning.add('broker')
         trial = panel.row('trial_verification')
         if (trial is not None and trial.effective_status(panel.now) == 'fail'
-                and trial.trial_reason_codes == ('CURRENT_CYCLE_CONTROL_GENERATION_SUPERSEDED',)):
+                and trial.trial_reason_codes in _MISSED_TRIAL_REASON_TUPLES):
             warning.add('trial_verification')
         if health['color'] == 'amber':
             next_action = NextAction(kind='PREPARE_NEXT_PLAN',

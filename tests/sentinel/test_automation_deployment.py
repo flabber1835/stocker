@@ -126,6 +126,21 @@ def test_only_authority_profiles_receive_broker_and_artifact_authority():
         assert f"SENTINEL_AUTOMATION_{name}" in automated_environment
 
 
+def test_verifier_receives_exact_nonsecret_automation_config_inputs():
+    from sentinel.automation.env_config import AUTOMATION_CONFIG_ENV_BY_FIELD
+
+    services = compose()["services"]
+    worker = services["sentinel-automation"]["environment"]
+    verifier = services["sentinel-verifier"]["environment"]
+    identity_inputs = set(AUTOMATION_CONFIG_ENV_BY_FIELD.values()) | {
+        "SENTINEL_PAPER_BUY_POLICY", "SENTINEL_PAPER_BUY_CAP_BPS"}
+    assert identity_inputs <= set(verifier)
+    assert {key: verifier[key] for key in identity_inputs} == {
+        key: worker[key] for key in identity_inputs}
+    assert not ({"ALPACA_API_KEY", "ALPACA_SECRET_KEY", "OPENFIGI_API_KEY",
+                 "SENTINEL_AUTHORIZED_RUNTIME"} & set(verifier))
+
+
 def test_single_runtime_carries_execution_capability_and_second_image_is_retired():
     runtime = RUNTIME_DOCKERFILE.read_text(encoding="utf-8")
     retired = RETIRED_AUTHORIZED_DOCKERFILE.read_text(encoding="utf-8")

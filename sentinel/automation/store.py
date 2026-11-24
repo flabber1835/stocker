@@ -742,11 +742,14 @@ def _missed_window_alert_witness(conn, cycle: CycleRecord,
     from sentinel.automation.unsent_recovery import require_unsent
 
     try:
-        require_unsent(conn, (cycle,), binding=control.binding,
-                       effective_session=cycle.effective_session)
-    except AutomationRefused:
-        # A failed negative proof changes only the incident severity. The
-        # original terminal transition still records the missed opportunity.
+        # The alert-only read must not abort the enclosing fenced transition.
+        # Psycopg nests this block as a savepoint inside the active transaction.
+        with conn.transaction():
+            require_unsent(conn, (cycle,), binding=control.binding,
+                           effective_session=cycle.effective_session)
+    except Exception:
+        # The savepoint has been rolled back even for a PostgreSQL statement
+        # error. No witness means the existing CRITICAL classification wins.
         return None
     return {
         'schema': 'sentinel.missed-window-no-send/1',

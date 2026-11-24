@@ -72,6 +72,27 @@ warning in amber. Never relabel that old trial as successful or adopt its plan.
 If supersession is ambiguous, if an order may have been sent, or if the
 current generation is fenced, the relevant current stop remains red.
 
+The same bounded amber classification also applies to a terminal
+`SUPERSEDED` cycle in the **current** generation with the exact failure code
+`MISSED_EXECUTION_WINDOW` or `MAX_EXECUTION_LATENESS_EXCEEDED`. This covers an
+unattended reboot or network interruption that exhausts the opening window.
+Require zero attempts, exact current binding and configuration, a negative
+canonical cycle-event and command-journal check, no active or uncertain order,
+current leader and authority, a complete idle broker observation, and a
+future next decision from the installed schedule. A transport-capable recovery
+that ends with the same failure code does not qualify. Keep the old trial
+failure, missed opportunity and review warning visible. Unknown send status,
+an older unrelated cycle, a stale owner or any missing proof stays red.
+
+The verifier must derive that next decision using the same validated
+`AutomationConfig` identity as the automation worker. The supported Compose
+release passes the verifier only the configuration inputs consumed by
+`config_from_env`, including the public BUY-policy identity and optional
+PAPER debug window; it does not pass broker credentials or the broader
+authorized-worker environment. The verifier checks the resulting fingerprint
+against current control and health before issuing the bounded signed warning.
+A missing or different configuration refuses the amber claim.
+
 A full broker order/position snapshot keeps its original observation time.
 When execution is idle, no order or journal hazard exists, and an owned next
 pre-open check will obtain a new complete snapshot before any order, expiry of
@@ -126,6 +147,12 @@ unacknowledged history remains visible as an amber dashboard warning/review
 event. Do not delete, rewrite, auto-acknowledge, or replay old notifications.
 Raw critical evidence stays available for audit. A notification-delivery
 failure cannot manufacture a green claim.
+When the exact signed safe missed-open continuity witness is current, a failed
+alert dispatcher or dead-letter row is a separate amber human notification
+warning; its raw FAIL remains visible. Delivery does not fence the scheduler or
+execution, so it cannot by itself turn that proved unattended next-decision
+path red. Without the bounded witness, or with any other current trading stop,
+this exception does not apply. No alert health change grants order authority.
 
 ### Prospective missed-window cycle alerts
 

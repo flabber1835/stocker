@@ -162,14 +162,20 @@ def _safe_case(monkeypatch):
     previous = SimpleNamespace(
         cycle_id='old-cycle', state=CycleState.SUPERSEDED,
         failure_code='CONTROL_GENERATION_SUPERSEDED', attempt_count=0,
+        historical_state_only=False,
         updated_at=OLD, control_generation=4,
+        deployment_id='paper-deployment', broker='alpaca',
+        broker_account_id='paper-1', takeover_epoch=1,
+        config_sha256=default_config.fingerprint,
         decision_session=date(2026, 11, 23),
         effective_session=date(2026, 11, 24),
         diagnostic={'adopting_control_generation': 5,
                     'originating_control_generation': 4})
     control = SimpleNamespace(
         generation=5, broker='alpaca', broker_account_id='paper-1',
-        takeover_epoch=1, binding=object(),
+        takeover_epoch=1, binding=SimpleNamespace(
+            deployment_id='paper-deployment', broker='alpaca',
+            broker_account_id='paper-1', takeover_epoch=1),
         config_sha256=default_config.fingerprint)
     current = SimpleNamespace(
         database_now=NOW, healthy=True, operational_ready=True,
@@ -235,6 +241,7 @@ def test_safe_supersession_requires_exact_current_owner_and_unsent_proof(monkeyp
 def test_next_decision_uses_validated_nondefault_runtime_timing(monkeypatch):
     from sentinel.automation import env_config, schedule, store
     from sentinel.automation.model import AutomationConfig
+    from sentinel.execution.target_reprojection import TargetProjectionRefused
 
     parse_runtime_config = env_config.config_from_env
     cycle, current = _safe_case(monkeypatch)
@@ -254,6 +261,68 @@ def test_next_decision_uses_validated_nondefault_runtime_timing(monkeypatch):
     monkeypatch.setattr(env_config, 'config_from_env',
         lambda: (_ for _ in ()).throw(ValueError('invalid runtime timing')))
     assert sources._recoverable_superseded_wait(object(), cycle) is None
+    monkeypatch.setattr(env_config, 'config_from_env',
+        lambda: (_ for _ in ()).throw(TargetProjectionRefused('invalid BUY policy')))
+    assert sources._recoverable_superseded_wait(object(), cycle) is None
+
+
+@pytest.mark.parametrize('code', [
+    'MISSED_EXECUTION_WINDOW', 'MAX_EXECUTION_LATENESS_EXCEEDED'])
+def test_same_generation_unsent_missed_window_has_bounded_next_decision(
+        monkeypatch, code):
+    from sentinel.automation import store
+
+    cycle, current = _safe_case(monkeypatch)
+    control = store.load_control(object())
+    previous = store.load_cycle(object(), cycle['cycle_id'])
+    cycle['failure_code'] = code
+    current.latest_failure_code = code
+    previous.failure_code = code
+    previous.control_generation = control.generation
+    previous.diagnostic = {}
+    assert sources._recoverable_superseded_wait(object(), cycle) is not None
+
+    previous.config_sha256 = '0' * 64
+    assert sources._recoverable_superseded_wait(object(), cycle) is None
+    previous.config_sha256 = control.config_sha256
+    previous.broker_account_id = 'wrong-account'
+    assert sources._recoverable_superseded_wait(object(), cycle) is None
+    previous.broker_account_id = control.broker_account_id
+    previous.attempt_count = 1
+    assert sources._recoverable_superseded_wait(object(), cycle) is None
+
+
+@pytest.mark.parametrize('fault,guard', [
+    ('config', 'or previous.config_sha256 != control.config_sha256'),
+    ('binding', 'or not store.adoption_identity_matches(previous, control)'),
+])
+def test_same_generation_identity_guards_are_required(monkeypatch, fault, guard):
+    from sentinel.automation import store
+
+    cycle, current = _safe_case(monkeypatch)
+    control = store.load_control(object())
+    previous = store.load_cycle(object(), cycle['cycle_id'])
+    cycle['failure_code'] = 'MISSED_EXECUTION_WINDOW'
+    current.latest_failure_code = 'MISSED_EXECUTION_WINDOW'
+    previous.failure_code = 'MISSED_EXECUTION_WINDOW'
+    previous.control_generation = control.generation
+    previous.diagnostic = {}
+    if fault == 'config':
+        previous.config_sha256 = '0' * 64
+    else:
+        previous.broker_account_id = 'wrong-account'
+
+    def mismatched_identity_must_refuse(candidate):
+        assert candidate(object(), cycle) is None
+
+    mismatched_identity_must_refuse(sources._recoverable_superseded_wait)
+    source = inspect.getsource(sources._recoverable_superseded_wait)
+    assert source.count(guard) == 1
+    namespace = dict(vars(sources))
+    exec(compile(source.replace(guard, 'or False'),
+                 '<removed same-generation identity guard>', 'exec'), namespace)
+    with pytest.raises(AssertionError):
+        mismatched_identity_must_refuse(namespace['_recoverable_superseded_wait'])
 
 
 @pytest.mark.parametrize('changed,guard', [

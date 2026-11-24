@@ -21,7 +21,7 @@ BOUND = NOW + timedelta(seconds=20)
 NEXT = NOW + timedelta(hours=5)
 
 
-def _panel():
+def _panel(*, trial_reason='CURRENT_CYCLE_CONTROL_GENERATION_SUPERSEDED'):
     wait = model.RecoveryEvidence(
         phase='AWAITING_NEXT_DECISION', automatic=True,
         next_attempt_at=NOW + timedelta(seconds=5), deadline=BOUND)
@@ -35,11 +35,21 @@ def _panel():
         'automation_cycle', 'Daily run', 'SUPERSEDED', model.WARN,
         as_of=OLD, required_current=True, valid_until=BOUND, recovery=wait,
         operational_fact=model.OperationalFact(kind='AUTOMATION_CYCLE', state='SUPERSEDED'))
+    steps = [model.Row(
+        key, key, 'SUPERSEDED', model.WARN,
+        as_of=OLD, required_current=True, valid_until=BOUND, recovery=wait,
+        operational_fact=model.OperationalFact(kind='AUTOMATION_CYCLE', state='SUPERSEDED'))
+        for key in ('automation_step_open', 'automation_step_complete')]
+    broker = model.Row(
+        'broker', 'Broker', '0 working', model.OK, as_of=NOW,
+        required_current=True, valid_until=BOUND,
+        broker_working_orders=0, broker_active_commands=0,
+        broker_uncertain_commands=0)
     trial = model.trial_verification_row(
         verdict='NOT_VERIFIED', session='2026-11-23',
-        reason_codes=('CURRENT_CYCLE_CONTROL_GENERATION_SUPERSEDED',),
+        reason_codes=(trial_reason,),
         verified_at=OLD)
-    rows = [paper, cycle, trial]
+    rows = [paper, cycle, *steps, broker, trial]
     rows.append(model.Row('automation', 'Automation', 'ENABLED', model.OK,
                           as_of=NOW, valid_until=BOUND, required_current=True,
                           operational_fact=model.OperationalFact(
@@ -114,12 +124,48 @@ def test_no_next_decision_or_other_trial_failure_keeps_red():
     assert dashboard_health(no_leader)['color'] == 'red'
     assert dashboard_health(no_leader)['trading_continuity']['next_action'] is None
 
+    no_broker = replace(panel, rows=[row for row in panel.rows
+                                     if row.key != 'broker'])
+    assert dashboard_health(no_broker)['color'] == 'red'
+
+    uncertain = _with_row(panel, 'broker', broker_uncertain_commands=1)
+    assert dashboard_health(uncertain)['color'] == 'red'
+
+
+@pytest.mark.parametrize('reason', [
+    'CURRENT_CYCLE_CONTROL_GENERATION_SUPERSEDED',
+    'CURRENT_CYCLE_MISSED_EXECUTION_WINDOW',
+    'CURRENT_CYCLE_MAX_EXECUTION_LATENESS_EXCEEDED',
+])
+def test_only_exact_missed_window_trial_reasons_can_be_historical(reason):
+    assert dashboard_health(_panel(trial_reason=reason))['color'] == 'amber'
+
 
 def test_unavailable_observation_is_neutral_not_a_fabricated_stop():
     panel = replace(_panel(), observation_current=False)
     health = dashboard_health(panel)
     assert health['color'] == 'neutral'
     assert health['trading_continuity']['reason_codes'] == ['STATUS_UNKNOWN']
+
+
+def test_failed_notification_delivery_is_amber_only_with_proved_missed_open():
+    panel = _panel()
+    failed = model.Row('automation_alerts', 'Alerts', '1 DLQ', model.FAIL,
+                       as_of=NOW, required_current=True)
+    sender = model.Row('alert_dispatcher', 'Delivery', 'FAILED', model.FAIL,
+                       as_of=NOW, required_current=True)
+    warning = replace(panel, rows=[*panel.rows, failed, sender])
+    health = dashboard_health(warning)
+    assert health['color'] == 'amber'
+    assert {'automation_alerts', 'alert_dispatcher'} <= set(
+        health['trading_continuity']['warning_keys'])
+    assert warning.operational == 'fail'
+
+    killed = _with_row(warning, 'automation', status=model.FAIL)
+    assert dashboard_health(killed)['color'] == 'red'
+    without_broker = replace(warning, rows=[row for row in warning.rows
+                                            if row.key != 'broker'])
+    assert dashboard_health(without_broker)['color'] == 'red'
 
 
 def test_trial_reason_guard_falsifier_rejects_an_unrelated_failure(monkeypatch):
@@ -129,7 +175,7 @@ def test_trial_reason_guard_falsifier_rejects_an_unrelated_failure(monkeypatch):
                             'CURRENT_PUBLICATION_CHANGED'))
     assert dashboard_health(panel)['color'] == 'red'
     source = textwrap.dedent(inspect.getsource(presentation._health_facts))
-    guard = "and row.trial_reason_codes == ('CURRENT_CYCLE_CONTROL_GENERATION_SUPERSEDED',))"
+    guard = 'and row.trial_reason_codes in _MISSED_TRIAL_REASON_TUPLES)'
     assert source.count(guard) == 1
     namespace = dict(vars(presentation))
     exec(compile(source.replace(guard, 'and True)'), '<removed trial reason guard>',

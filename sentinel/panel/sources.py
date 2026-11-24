@@ -3063,13 +3063,16 @@ class MissedOpenUnattendedWait:
 
 
 def _recoverable_superseded_wait(conn, cycle) -> MissedOpenUnattendedWait | None:
-    """Prove a missed old opening has an owned, hazard-free next decision.
+    """Prove an unsent missed opening has an owned, hazard-free next decision.
 
     This is display evidence only. It never adopts a plan, grants execution
     authority, or refreshes the saved full broker observation.
     """
+    missed_codes = frozenset({
+        'CONTROL_GENERATION_SUPERSEDED', 'MISSED_EXECUTION_WINDOW',
+        'MAX_EXECUTION_LATENESS_EXCEEDED'})
     if (not cycle or cycle.get('state') != 'SUPERSEDED'
-            or cycle.get('failure_code') != 'CONTROL_GENERATION_SUPERSEDED'
+            or cycle.get('failure_code') not in missed_codes
             or type(cycle.get('attempt_count')) is not int
             or cycle['attempt_count'] != 0
             or cycle.get('terminal_reason') is not None
@@ -3080,6 +3083,7 @@ def _recoverable_superseded_wait(conn, cycle) -> MissedOpenUnattendedWait | None
     from sentinel.automation import env_config, schedule, store, unsent_recovery
     from sentinel.automation.health import read_health
     from sentinel.automation.model import AutomationRefused, CycleState
+    from sentinel.execution.target_reprojection import TargetProjectionRefused
     from sentinel.feed import calendar
 
     health = read_health(conn, include_alert_counts=False)
@@ -3092,7 +3096,7 @@ def _recoverable_superseded_wait(conn, cycle) -> MissedOpenUnattendedWait | None
             or health.authority_lifecycle_current is not True
             or health.latest_cycle_id != cycle['cycle_id']
             or health.latest_cycle_state != 'SUPERSEDED'
-            or health.latest_failure_code != 'CONTROL_GENERATION_SUPERSEDED'
+            or health.latest_failure_code != cycle['failure_code']
             or health.broker_outcome_unresolved != 0
             or not isinstance(now, datetime) or now.utcoffset() != timedelta(0)
             or cycle['updated_at'] > now + model.MAXIMUM_FUTURE_SKEW):
@@ -3102,22 +3106,30 @@ def _recoverable_superseded_wait(conn, cycle) -> MissedOpenUnattendedWait | None
     previous = store.load_cycle(conn, cycle['cycle_id'])
     try:
         timing_config = env_config.config_from_env()
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, TargetProjectionRefused):
         return None
     if (control.binding is None or previous is None
             or previous.state is not CycleState.SUPERSEDED
-            or previous.failure_code != 'CONTROL_GENERATION_SUPERSEDED'
+            or previous.failure_code != cycle['failure_code']
             or previous.attempt_count != 0
+            or previous.historical_state_only
             or previous.updated_at != cycle['updated_at']
-            or previous.control_generation >= control.generation
             or control.generation != health.control_generation
             or control.config_sha256 != timing_config.fingerprint
             or health.config_sha256 != control.config_sha256
+            or not store.adoption_identity_matches(previous, control)
             or (control.broker, control.broker_account_id, control.takeover_epoch)
-                != (health.broker, health.broker_account_id, health.takeover_epoch)
-            or previous.diagnostic.get('adopting_control_generation') != control.generation
-            or previous.diagnostic.get('originating_control_generation')
-                != previous.control_generation):
+                != (health.broker, health.broker_account_id, health.takeover_epoch)):
+        return None
+    if cycle['failure_code'] == 'CONTROL_GENERATION_SUPERSEDED':
+        if (previous.control_generation >= control.generation
+                or previous.diagnostic.get('adopting_control_generation')
+                    != control.generation
+                or previous.diagnostic.get('originating_control_generation')
+                    != previous.control_generation):
+            return None
+    elif (previous.control_generation != control.generation
+            or previous.config_sha256 != control.config_sha256):
         return None
     try:
         unsent_recovery.require_unsent(
@@ -3390,8 +3402,8 @@ def _dual_paper_row(conn, *, informational_paper_mirror, publication,
                 'paper_reconciliation', 'Alpaca PAPER mirror',
                 'PAPER NOT VERIFIED · OPEN MISSED · NEXT DECISION SCHEDULED',
                 model.WARN,
-                'The old generation missed its opening. Its plan sent no orders; '
-                'the current generation owns the next scheduled decision. '
+                'The scheduled opening was missed without sending an order; '
+                'the current worker owns the next scheduled decision. '
                 'The old PAPER result remains unverified.',
                 as_of=safe_wait.cycle_updated_at,
                 required_current=True,

@@ -436,6 +436,70 @@ def test_missed_window_alert_is_critical_when_journal_proof_fails(conn, monkeypa
             failure_code='MISSED_EXECUTION_WINDOW') is None
 
 
+def test_alert_only_sql_error_cannot_rollback_missed_cycle_transition(conn, monkeypatch):
+    from sentinel.automation import store, unsent_recovery
+    from sentinel.automation.model import AutomationConfig, CycleState
+    from tests.sentinel.test_automation_store import cycle_spec, enable
+
+    cfg = AutomationConfig(publication_delay_seconds=0, execution_delay_seconds=0)
+    control = enable(conn, cfg)
+    permit = store.acquire_lease(conn, holder_id='optional-alert-proof', lease_seconds=30)
+    cycle = store.create_cycle(conn, permit=permit, spec=cycle_spec(control, cfg))
+
+    def broken_read(connection, *_args, **_kwargs):
+        connection.execute('SELECT 1/0')
+
+    monkeypatch.setattr(unsent_recovery, 'require_unsent', broken_read)
+    retired = store.transition_cycle(
+        conn, permit=permit, cycle_id=cycle.cycle_id,
+        to_state=CycleState.SUPERSEDED,
+        failure_code='MISSED_EXECUTION_WINDOW')
+    assert retired.state is CycleState.SUPERSEDED
+    assert store.load_cycle(conn, cycle.cycle_id).state is CycleState.SUPERSEDED
+    alert = outbox.enqueue_cycle_transition_alert(
+        conn, cycle_id=cycle.cycle_id, state='SUPERSEDED')
+    assert alert.severity == 'CRITICAL'
+    assert 'missed_window_no_send' not in alert.payload['detail']
+
+
+def test_removed_optional_alert_savepoint_falsifier(conn, monkeypatch):
+    from contextlib import nullcontext
+    import inspect
+
+    from sentinel.automation import store, unsent_recovery
+    from sentinel.automation.model import AutomationConfig, CycleState
+    from tests.sentinel.test_automation_store import cycle_spec, enable
+
+    cfg = AutomationConfig(publication_delay_seconds=0, execution_delay_seconds=0)
+    control = enable(conn, cfg)
+    permit = store.acquire_lease(conn, holder_id='alert-savepoint-mutant', lease_seconds=30)
+    cycle = store.create_cycle(conn, permit=permit, spec=cycle_spec(control, cfg))
+    source = inspect.getsource(store._missed_window_alert_witness)
+    guard = 'with conn.transaction():'
+    assert source.count(guard) == 1
+    namespace = {**vars(store), 'nullcontext': nullcontext}
+    exec(compile(source.replace(guard, 'with nullcontext():'),
+                 '<removed-alert-savepoint>', 'exec'), namespace)
+    monkeypatch.setattr(store, '_missed_window_alert_witness',
+                        namespace['_missed_window_alert_witness'])
+    monkeypatch.setattr(unsent_recovery, 'require_unsent',
+                        lambda connection, *_a, **_k: connection.execute('SELECT 1/0'))
+
+    def terminalized() -> bool:
+        try:
+            store.transition_cycle(
+                conn, permit=permit, cycle_id=cycle.cycle_id,
+                to_state=CycleState.SUPERSEDED,
+                failure_code='MISSED_EXECUTION_WINDOW')
+        except Exception:
+            return False
+        return True
+
+    with pytest.raises(AssertionError):
+        assert terminalized()
+    assert store.load_cycle(conn, cycle.cycle_id).state is CycleState.DISCOVERED
+
+
 @pytest.mark.parametrize('state,attempts,code', [
     ('EXECUTING', 0, 'MISSED_EXECUTION_WINDOW'),
     ('DISCOVERED', 1, 'MISSED_EXECUTION_WINDOW'),
