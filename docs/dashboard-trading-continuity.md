@@ -93,6 +93,16 @@ authorized-worker environment. The verifier checks the resulting fingerprint
 against current control and health before issuing the bounded signed warning.
 A missing or different configuration refuses the amber claim.
 
+The backed local installer may admit this one verifier-only Compose forwarding
+change from the `420a860a0` predecessor. Its automation Compose bytes have
+SHA-256 `fa94441022dc618ef598d3d1f08b117b3d8c609b77a4168967882f7274cb5dde`;
+the reviewed candidate bytes have SHA-256
+`768bfbf7a4beb4ee37ccc21cc750aa9fec8945ef932ed15e55889b4d6e7e4029`.
+The installer requires that exact predecessor/candidate pair and the exact
+insertion inside `sentinel-verifier`; its existing qualified source-file hash
+and named allowed-delta checks still apply. This grants no broader Compose
+edits, broker credentials, PAPER authority, or installation bypass.
+
 A full broker order/position snapshot keeps its original observation time.
 When execution is idle, no order or journal hazard exists, and an owned next
 pre-open check will obtain a new complete snapshot before any order, expiry of

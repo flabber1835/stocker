@@ -7,6 +7,7 @@ from contextlib import contextmanager, ExitStack
 from datetime import date
 from decimal import Decimal, InvalidOperation
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -48,6 +49,32 @@ _VERIFIER_PROBE = (
     b'      timeout: 5s\n'
     b'      retries: 2\n'
 )
+_VERIFIER_CONFIG_PREDECESSOR_SHA256 = 'fa94441022dc618ef598d3d1f08b117b3d8c609b77a4168967882f7274cb5dde'
+_VERIFIER_CONFIG_CANDIDATE_SHA256 = '768bfbf7a4beb4ee37ccc21cc750aa9fec8945ef932ed15e55889b4d6e7e4029'
+_VERIFIER_CONFIG_FORWARDING = b'''      # Read-only continuity needs the worker's non-secret scheduling identity.
+      # Keep broker credentials and authorized-worker capability out of here.
+      SENTINEL_PAPER_DEBUG_WINDOW: ${SENTINEL_PAPER_DEBUG_WINDOW:-}
+      SENTINEL_AUTOMATION_PUBLICATION_TIMING_POLICY: ${SENTINEL_AUTOMATION_PUBLICATION_TIMING_POLICY:-ALPACA_OPENFIGI_VALIDATED_CLOSED_SESSION_V2}
+      SENTINEL_AUTOMATION_PUBLICATION_DELAY_SECONDS: ${SENTINEL_AUTOMATION_PUBLICATION_DELAY_SECONDS:-900}
+      SENTINEL_AUTOMATION_EXECUTION_DELAY_SECONDS: ${SENTINEL_AUTOMATION_EXECUTION_DELAY_SECONDS:-60}
+      SENTINEL_AUTOMATION_LEASE_SECONDS: ${SENTINEL_AUTOMATION_LEASE_SECONDS:-12}
+      SENTINEL_AUTOMATION_HEARTBEAT_SECONDS: ${SENTINEL_AUTOMATION_HEARTBEAT_SECONDS:-3}
+      SENTINEL_AUTOMATION_CALLBACK_DEADLINE_SECONDS: ${SENTINEL_AUTOMATION_CALLBACK_DEADLINE_SECONDS:-900}
+      SENTINEL_AUTOMATION_CONTROL_POLL_SECONDS: ${SENTINEL_AUTOMATION_CONTROL_POLL_SECONDS:-3}
+      SENTINEL_AUTOMATION_RETRY_BASE_SECONDS: ${SENTINEL_AUTOMATION_RETRY_BASE_SECONDS:-5}
+      SENTINEL_AUTOMATION_RETRY_MAX_SECONDS: ${SENTINEL_AUTOMATION_RETRY_MAX_SECONDS:-900}
+      SENTINEL_AUTOMATION_REFRESH_MAX_ATTEMPTS: ${SENTINEL_AUTOMATION_REFRESH_MAX_ATTEMPTS:-8}
+      SENTINEL_AUTOMATION_PREFLIGHT_RECOVER_MAX_ATTEMPTS: ${SENTINEL_AUTOMATION_PREFLIGHT_RECOVER_MAX_ATTEMPTS:-8}
+      SENTINEL_AUTOMATION_PREPARE_MAX_ATTEMPTS: ${SENTINEL_AUTOMATION_PREPARE_MAX_ATTEMPTS:-8}
+      SENTINEL_AUTOMATION_EXECUTE_MAX_ATTEMPTS: ${SENTINEL_AUTOMATION_EXECUTE_MAX_ATTEMPTS:-8}
+      SENTINEL_AUTOMATION_RECOVER_MAX_ATTEMPTS: ${SENTINEL_AUTOMATION_RECOVER_MAX_ATTEMPTS:-8}
+      SENTINEL_AUTOMATION_ALERT_CLAIM_SECONDS: ${SENTINEL_AUTOMATION_ALERT_CLAIM_SECONDS:-60}
+      SENTINEL_AUTOMATION_ALERT_MAX_ATTEMPTS: ${SENTINEL_AUTOMATION_ALERT_MAX_ATTEMPTS:-8}
+'''
+_VERIFIER_CONFIG_BEFORE = b'      SENTINEL_PAPER_BUY_CAP_BPS: ${SENTINEL_PAPER_BUY_CAP_BPS:-}\n'
+_VERIFIER_CONFIG_AFTER = b'      SENTINEL_REVIEWED_DEPLOYMENT_MODE: ${SENTINEL_REVIEWED_DEPLOYMENT_MODE:-}\n'
+_VERIFIER_CONFIG_ANCHOR = _VERIFIER_CONFIG_BEFORE + _VERIFIER_CONFIG_AFTER
+_VERIFIER_SERVICE = re.compile(rb'(?m)^  sentinel-verifier:\n(?:^(?:    [^\n]*|)\n)*')
 _CANONICAL_PROGRAM_FILES = ('scripts/sentinel_local_delivery/checks.py',
     'scripts/sentinel_local_delivery/evidence.py')
 _REVIEWED_CANONICAL_PROGRAMS = (
@@ -74,6 +101,19 @@ def _allowed_compose_change(name, previous, candidate):
     """Admit the documented byte-for-byte automation Compose changes."""
     if name != 'docker-compose.sentinel-automation.yml':
         return False
+    # Only the reviewed 420a predecessor may gain this verifier-only public
+    # configuration block. The complete before/after bytes remain pinned.
+    if (hashlib.sha256(previous).hexdigest() == _VERIFIER_CONFIG_PREDECESSOR_SHA256
+            and hashlib.sha256(candidate).hexdigest() == _VERIFIER_CONFIG_CANDIDATE_SHA256):
+        verifiers = list(_VERIFIER_SERVICE.finditer(previous))
+        if len(verifiers) == 1 and verifiers[0].group().count(_VERIFIER_CONFIG_ANCHOR) == 1:
+            verifier = verifiers[0]
+            updated = verifier.group().replace(
+                _VERIFIER_CONFIG_ANCHOR,
+                _VERIFIER_CONFIG_BEFORE + _VERIFIER_CONFIG_FORWARDING
+                + _VERIFIER_CONFIG_AFTER, 1)
+            if previous[:verifier.start()] + updated + previous[verifier.end():] == candidate:
+                return True
     dispatchers = list(_DISPATCHER_SERVICE.finditer(previous))
     if len(dispatchers) == 1:
         dispatcher = dispatchers[0]
