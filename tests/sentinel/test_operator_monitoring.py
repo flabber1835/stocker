@@ -462,7 +462,7 @@ def test_home_screen_heartbeat_and_service_worker_fail_closed() -> None:
     assert "caches.open" not in SERVICE_WORKER
     assert "showNotification" in SERVICE_WORKER
     assert "clients.openWindow" in SERVICE_WORKER
-    assert "TRADING STATUS UNKNOWN — OFFLINE" in SERVICE_WORKER
+    assert "STATUS NOT CURRENT — OFFLINE" in SERVICE_WORKER
     assert "does not record a system incident" in SERVICE_WORKER
     assert "OPERATIONAL RED — OFFLINE" not in SERVICE_WORKER
 
