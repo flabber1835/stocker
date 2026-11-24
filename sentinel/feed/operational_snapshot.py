@@ -253,9 +253,12 @@ def _require_correction_strategy(conn, previous, request):
         raise OperationalSnapshotRefused('SUPERSESSION_STRATEGY_COMPATIBILITY_UNPROVEN')
 
 
-def _edge_fields(conn, previous, candidate, request):
-    older, old_manifest = _bound_and_manifest(conn, previous)
-    new_manifest = rolling_store.manifest(conn, candidate)
+def _edge_fields(conn, previous, candidate, request, *, older=None,
+                 old_manifest=None, new_manifest=None):
+    if older is None or old_manifest is None:
+        older, old_manifest = _bound_and_manifest(conn, previous)
+    if new_manifest is None:
+        new_manifest = rolling_store.manifest(conn, candidate)
     old_policy = _alpaca_policy(conn, old_manifest)
     new_policy = _alpaca_policy(conn, new_manifest)
     if (old_policy not in (_OLD_ALPACA_POLICY, _MERGER_ALPACA_POLICY)
@@ -319,6 +322,76 @@ def _edge_fields(conn, previous, candidate, request):
     }
 
 
+def _retired_edge_fields(conn, previous, candidate, request, edge, *, older,
+                         old_manifest, new_manifest, old_retired, new_retired):
+    """Recheck a signed correction edge after lawful payload retirement.
+
+    Publication creates the edge only after _edge_fields checked both complete
+    source bundles. A receipt-authenticated edge retains that result when an
+    ancestor is retired; surviving bundles are still checked from their bytes.
+    """
+    if not isinstance(edge, dict):
+        raise OperationalSnapshotRefused('OPERATIONAL_SUPERSESSION_CHANGED')
+    if not (old_retired or new_retired):
+        raise OperationalSnapshotRefused('OPERATIONAL_SUPERSESSION_CHANGED')
+    old_policy = next((policy for policy in (_OLD_ALPACA_POLICY, _MERGER_ALPACA_POLICY)
+                       if policy[0] == edge.get('superseded_source_schema')), None)
+    if (old_policy is None or old_manifest.provider != 'ALPACA_OPENFIGI'
+            or old_manifest.normalization_version != old_policy[2]
+            or new_manifest.provider != 'ALPACA_OPENFIGI'
+            or new_manifest.normalization_version != _MERGER_ALPACA_POLICY[2]
+            or previous.version != request.expected_publication_version
+            or previous.window_end != str(request.window.end)):
+        raise OperationalSnapshotRefused('OPERATIONAL_SUPERSESSION_CHANGED')
+    if not old_retired:
+        prior_source = rolling_store.load_evidence(conn, old_manifest.source_evidence_sha256)
+        prior_reference = rolling_store.load_evidence(conn, old_manifest.reference_sha256)
+        if ((prior_source.get('schema'), prior_reference.get('schema'),
+             old_manifest.normalization_version) != old_policy):
+            raise OperationalSnapshotRefused('OPERATIONAL_SUPERSESSION_CHANGED')
+    if not old_retired and old_policy == _MERGER_ALPACA_POLICY:
+        prior = prior_reference.get('merger_conversions') if isinstance(prior_reference, dict) else None
+        if (not isinstance(prior, list) or not isinstance(prior_source, dict)
+                or prior_source.get('merger_conversions_sha256') != digest(prior)):
+            raise OperationalSnapshotRefused('OPERATIONAL_SUPERSESSION_CHANGED')
+    schema = edge.get('schema')
+    if schema == RECOVERY_SUPERSESSION_SCHEMA:
+        if (old_policy != _MERGER_ALPACA_POLICY or request.cursor is None
+                or calendar.next_session(str(request.cursor)) != previous.window_end):
+            raise OperationalSnapshotRefused('OPERATIONAL_SUPERSESSION_CHANGED')
+    elif schema != SUPERSESSION_SCHEMA:
+        raise OperationalSnapshotRefused('OPERATIONAL_SUPERSESSION_CHANGED')
+    if not new_retired:
+        source = rolling_store.load_evidence(conn, new_manifest.source_evidence_sha256)
+        reference = rolling_store.load_evidence(conn, new_manifest.reference_sha256)
+        if ((source.get('schema'), reference.get('schema'),
+             new_manifest.normalization_version) != _MERGER_ALPACA_POLICY):
+            raise OperationalSnapshotRefused('OPERATIONAL_SUPERSESSION_CHANGED')
+        conversions = reference.get('merger_conversions') if isinstance(reference, dict) else None
+        if (not isinstance(conversions, list) or not isinstance(source, dict)
+                or source.get('merger_conversions_sha256') != digest(conversions)
+                or (schema == SUPERSESSION_SCHEMA and not any(
+                    isinstance(item, dict) and item.get('effective_session') == previous.window_end
+                    for item in conversions))):
+            raise OperationalSnapshotRefused('OPERATIONAL_SUPERSESSION_CHANGED')
+    old_request = jobs.PreparationRequest.model_validate(jobs.status(conn, older['job_id'])['request'])
+    return {
+        'schema': schema,
+        'session': previous.window_end,
+        'superseded_version': previous.version,
+        'superseded_publication_sha256': digest(previous.to_dict()),
+        'superseded_snapshot_id': old_manifest.snapshot_id,
+        'superseded_source_sha256': old_manifest.source_evidence_sha256,
+        'superseded_source_schema': old_policy[0],
+        'successor_candidate_id': candidate,
+        'successor_snapshot_id': new_manifest.snapshot_id,
+        'successor_source_sha256': new_manifest.source_evidence_sha256,
+        'successor_source_schema': _MERGER_ALPACA_POLICY[0],
+        'superseded_strategy_sha256': old_request.strategy_sha256,
+        'successor_strategy_sha256': request.strategy_sha256,
+    }
+
+
 def _require_supersession(conn, pub, remaining):
     """Authenticate every edge behind a correction tip within a fixed bound."""
     edge = pub.evidence.get('operational_supersession')
@@ -347,8 +420,19 @@ def _require_supersession(conn, pub, remaining):
             or pub.window_end != previous.window_end
             or at_row is None
             or (at_row[0] >= opened) != (request.cursor is not None)
-            or ('operational_recovery' in pub.evidence) != (request.cursor is not None)
-            or edge != _edge_fields(conn, previous, binding['candidate_id'], request)):
+            or ('operational_recovery' in pub.evidence) != (request.cursor is not None)):
+        raise OperationalSnapshotRefused('OPERATIONAL_SUPERSESSION_CHANGED')
+    older, old_manifest = _bound_and_manifest(conn, previous)
+    new_manifest = rolling_store.manifest(conn, binding['candidate_id'])
+    old_retired = rolling_store.retired(conn, older['candidate_id'])
+    new_retired = rolling_store.retired(conn, binding['candidate_id'])
+    common = dict(older=older, old_manifest=old_manifest, new_manifest=new_manifest)
+    expected = (_retired_edge_fields(conn, previous, binding['candidate_id'], request,
+                                     edge, old_retired=old_retired, new_retired=new_retired,
+                                     **common)
+                if old_retired or new_retired else
+                _edge_fields(conn, previous, binding['candidate_id'], request, **common))
+    if edge != expected:
         raise OperationalSnapshotRefused('OPERATIONAL_SUPERSESSION_CHANGED')
     _require_supersession(conn, previous, remaining - 1)
     return previous

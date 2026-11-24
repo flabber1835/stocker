@@ -137,6 +137,67 @@ current information only. A consumed session, changed predecessor, unbound
 cursor, or publication before the following open refuses. Reacquisition never
 changes a prior receipt or asserts that its data existed at the missed open.
 
+## Retired supersession evidence during current verification (2026-11-24)
+
+After a same-session correction, the current publication and daily checkpoint
+may both move to the successor. Ordinary retention may then retire an older
+candidate and release its large source/reference payloads. The November 24
+PAPER runtime advanced to version 28 but later refused shadow verification
+because its recursive supersession check tried to load legally retired version
+27 evidence. This is a current-status and next-open execution blocker, not a
+reason to restore an old price path or treat a dashboard warning as authority.
+
+The current tip must still pass its full candidate, source, reference, readiness,
+publication and checkpoint checks. Each supersession edge is checked under the
+existing eight-edge bound, exact version/session/timing/cursor/strategy rules
+and signed publication-validation receipt chain. Each unretired side of a
+historical edge still receives its full source/reference and conversion-term
+checks. Only a side with a durable retirement tombstone may rely on the original
+immutable edge, authenticated publications and receipts, and surviving manifest,
+job, validation and binding metadata for the cross-generation relation whose
+released source/reference bytes can no longer be read. The signed edge must still
+match the exact predecessor publication digest, snapshot and source identities,
+strategy bindings and correction kind. A missing, malformed, unsigned, changed
+or mismatched receipt or edge refuses. Missing bytes without a retirement
+tombstone also refuse. No later provider response, matching ticker or current
+source payload may reconstruct or replace the old conversion terms.
+
+This is read-only authentication of a previously admitted correction. It grants
+no new strategy, controller, broker or LIVE authority and does not alter a
+historical book, plan, order, checkpoint or signed receipt. A test must retire
+the intermediate candidate after the successor checkpoint is committed, then
+prove current shadow and plan verification continue; removing the tombstone,
+changing an edge or receipt, or damaging the current tip must still refuse.
+
+`operational_snapshot.py` is an economic input compiler. Its installed exact
+SHA256 `2adb723c2dd51972540bb0f0009ff2fc8da3b6ffafc3621003d6f231ed50a4f1`
+currently contributes the reviewed predecessor source identity
+`25540d4a498868db32bdb7ed5326fb0115129ead3b1bc5aebdbe4917ad4a1b32`.
+The retired-edge read repair changes only authentication of already admitted
+historical metadata after lawful payload retirement; it must not change prices,
+conversion economics, Wealth Core state, controller returns or executable plans.
+After targeted equivalence and guard-removal falsifiers, pin only the final exact
+new source SHA256 to that same predecessor contribution, with its exact declared
+dependency set. Any different source byte or dependency change contributes its
+actual identity or refuses admission. Renew the economic manifest's own hash for
+that exact mapping. The existing strategy identity and signed PAPER certificate
+may remain only when the exact source and dependency gates match; another edit
+requires its own separately reviewed economic and financial authority.
+
+The observed shadow supervisor `CRITICAL_LATCH` remains an incident fence.
+Ordinary restart, a new image and alert acknowledgement do not clear it.
+After this fix passes required CI, install the signed PAPER release with the
+canonical installer in dual mode without automatic activation, leaving the
+publisher and automation quiesced and execution fenced. Follow the existing
+operator procedure in `autonomous-paper-readiness.md`: inspect the stopped
+worker outcome and repaired underlying cause, then hash and durably archive
+both the exact critical and pending marker bytes as incident evidence before
+restart. Do not delete or overwrite them. Queue the separate supervised
+activation only after that archive. The coordinator must authenticate the
+corrected current shadow state, exact PAPER plan and existing financial and
+backup gates before releasing execution; otherwise it remains fenced. No
+canonical-state reset or broker bypass is allowed.
+
 The recovery edge changes only after-open source admission. It changes no
 normalization, book transition, controller return or plan economics. The exact
 reviewed `operational_snapshot.py` successor bytes therefore retain the prior
