@@ -53,7 +53,7 @@ async function launch() {
   vm.runInNewContext(input.source,context);
   assert.equal(reads.length,0,'first paint must precede the status fetch');
   frames.shift()();assert.equal(reads.length,0);frames.shift()();
-  if(input.kind==='offline') {assert.equal(reads.length,0);assert.match(status.textContent,/TRADING STATUS UNKNOWN — OFFLINE/);return;}
+  if(input.kind==='offline') {assert.equal(reads.length,0);assert.match(status.textContent,/STATUS NOT CURRENT — OFFLINE/);return;}
   assert.equal(reads.length,1);
   assert.equal(reads[0].options.cache,'no-store');
   const settle = () => new Promise(resolve => setImmediate(resolve));

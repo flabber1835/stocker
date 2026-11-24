@@ -49,6 +49,12 @@ The visible colors have these meanings:
   authenticated current negative fact still takes precedence over a partial
   view.
 
+The existing PWA offline fallback says `STATUS NOT CURRENT — OFFLINE`. It is a
+neutral, browser-local notice and does not report a trading stop. Preserve its
+exact service-worker bytes in this release: the backed PAPER installer includes
+`SERVICE_WORKER` in its canonical predecessor/candidate proof. Changing that
+copy requires a separate, qualified release decision.
+
 The classifier must distinguish **current execution permission** from
 **unattended continuity**. A market closed for the night, a normal opening
 wait, or the ten-minute new-buy cutoff being over does not mean the system is
