@@ -11,6 +11,8 @@ from pathlib import Path
 BASIS_PATH = Path(__file__).with_name('semantic-source-basis.json')
 # Populated from the reviewed baseline by the generation tool, never at runtime.
 BASIS_SHA256 = '73ab1b931d0b264a124972fd356448b28e5920a87e2efb5b23b87a61c1d77f84'
+SNAPSHOT_RECOVERY_SHA256 = '2adb723c2dd51972540bb0f0009ff2fc8da3b6ffafc3621003d6f231ed50a4f1'
+SNAPSHOT_RECOVERY_PREDECESSOR_SHA256 = '25540d4a498868db32bdb7ed5326fb0115129ead3b1bc5aebdbe4917ad4a1b32'
 
 HOOKS = {
     'sentinel.rolling_checkpoint': ('restore_observer', '''from sentinel.runtime_admission import bind_context
@@ -130,6 +132,8 @@ def economic_sources(modules, *, schema):
             from sentinel import publisher_pipeline_source_basis as publisher_basis
             if actual == publisher_basis.SNAPSHOT_ADMISSION_SHA256:
                 contribution = publisher_basis.SNAPSHOT_BEFORE_SHA256
+            elif actual == SNAPSHOT_RECOVERY_SHA256:
+                contribution = SNAPSHOT_RECOVERY_PREDECESSOR_SHA256
         elif name in {'sentinel.execution.held_targets', 'sentinel.execution.target_reprojection'}:
             from sentinel.structural_refactor_source_basis import economic_contribution
             contribution = economic_contribution(name, raw)

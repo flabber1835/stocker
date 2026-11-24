@@ -9,6 +9,7 @@ import pytest
 
 from sentinel import economic_manifest, publisher_pipeline_source_basis as basis
 from sentinel import semantic_source_basis as semantics
+from sentinel.feed import operational_snapshot as snapshot
 from sentinel.feed import publisher_pipeline as pipeline, rolling_publisher as lifecycle
 from tests.support.publisher_source_proofs import publisher_baseline
 
@@ -324,6 +325,109 @@ def test_close_readiness_identity_requires_all_reviewed_compiler_bytes(monkeypat
     live = economic_manifest.identity(schema='close-readiness')
     assert {'module': name, 'sha256': hashlib.sha256(changed).hexdigest()} in live['files']
     assert live['sha256'] != before['sha256']
+
+
+def test_state_only_recovery_snapshot_identity_has_exact_predecessor(monkeypatch):
+    name = 'sentinel.feed.operational_snapshot'
+    path = Path(snapshot.__file__).resolve()
+    current = path.read_bytes()
+    current_sha = hashlib.sha256(current).hexdigest()
+    assert current_sha == economic_manifest.SNAPSHOT_RECOVERY_SHA256
+    assert current_sha == semantics.SNAPSHOT_RECOVERY_SHA256
+    assert (economic_manifest.SNAPSHOT_RECOVERY_PREDECESSOR_SHA256
+            == semantics.SNAPSHOT_RECOVERY_PREDECESSOR_SHA256)
+
+    recovery_schema = (
+        b'RECOVERY_SUPERSESSION_SCHEMA = '
+        b'"sentinel.current-information-recovery-supersession/1"\n')
+    assert current.count(recovery_schema) == 1
+    predecessor = current.replace(recovery_schema, b'')
+    start = predecessor.index(b'def _edge_fields(conn, previous, candidate, request):')
+    end = predecessor.index(b'\n\ndef _require_supersession', start)
+    previous_edge = b'''def _edge_fields(conn, previous, candidate, request):
+    older, old_manifest = _bound_and_manifest(conn, previous)
+    new_manifest = rolling_store.manifest(conn, candidate)
+    old_policy = _alpaca_policy(conn, old_manifest)
+    new_policy = _alpaca_policy(conn, new_manifest)
+    if (old_policy not in (_OLD_ALPACA_POLICY, _MERGER_ALPACA_POLICY)
+            or new_policy != _MERGER_ALPACA_POLICY):
+        raise OperationalSnapshotRefused('SAME_SESSION_SUPERSESSION_POLICY_REQUIRED')
+    old_request = jobs.PreparationRequest.model_validate(jobs.status(conn, older['job_id'])['request'])
+    if (previous.version != request.expected_publication_version
+            or previous.window_end != str(request.window.end)):
+        raise OperationalSnapshotRefused('SAME_SESSION_SUPERSESSION_PREDECESSOR_CHANGED')
+    reference = rolling_store.load_evidence(conn, new_manifest.reference_sha256)
+    source = rolling_store.load_evidence(conn, new_manifest.source_evidence_sha256)
+    conversions = reference.get('merger_conversions') if isinstance(reference, dict) else None
+    if (not isinstance(conversions, list)
+            or not any(isinstance(item, dict) and item.get('effective_session') == previous.window_end
+                       for item in conversions)
+            or not isinstance(source, dict)
+            or source.get('merger_conversions_sha256') != digest(conversions)):
+        raise OperationalSnapshotRefused('SAME_SESSION_MERGER_CORRECTION_REQUIRED')
+    if old_policy == _MERGER_ALPACA_POLICY:
+        prior_reference = rolling_store.load_evidence(conn, old_manifest.reference_sha256)
+        prior_source = rolling_store.load_evidence(conn, old_manifest.source_evidence_sha256)
+        prior = (prior_reference.get('merger_conversions')
+                 if isinstance(prior_reference, dict) else None)
+        if (not isinstance(prior, list) or not isinstance(prior_source, dict)
+                or prior_source.get('merger_conversions_sha256') != digest(prior)
+                or old_manifest.snapshot_id == new_manifest.snapshot_id
+                or old_manifest.source_evidence_sha256 == new_manifest.source_evidence_sha256):
+            raise OperationalSnapshotRefused('SAME_SESSION_MERGER_EXTENSION_REQUIRED')
+        old_by_id = {item.get('old_security_id'): item for item in prior
+                     if isinstance(item, dict) and isinstance(item.get('old_security_id'), str)}
+        new_by_id = {item.get('old_security_id'): item for item in conversions
+                     if isinstance(item, dict) and isinstance(item.get('old_security_id'), str)}
+        if (len(old_by_id) != len(prior) or len(new_by_id) != len(conversions)
+                or len(new_by_id) <= len(old_by_id)
+                or any(sid not in new_by_id or digest(new_by_id[sid]) != digest(item)
+                       for sid, item in old_by_id.items())
+                or any(item.get('effective_session') != previous.window_end
+                       for sid, item in new_by_id.items() if sid not in old_by_id)):
+            raise OperationalSnapshotRefused('SAME_SESSION_MERGER_EXTENSION_REQUIRED')
+    return {
+        'schema': SUPERSESSION_SCHEMA, 'session': previous.window_end,
+        'superseded_version': previous.version,
+        'superseded_publication_sha256': digest(previous.to_dict()),
+        'superseded_snapshot_id': old_manifest.snapshot_id,
+        'superseded_source_sha256': old_manifest.source_evidence_sha256,
+        'superseded_source_schema': old_policy[0],
+        'successor_candidate_id': candidate,
+        'successor_snapshot_id': new_manifest.snapshot_id,
+        'successor_source_sha256': new_manifest.source_evidence_sha256,
+        'successor_source_schema': _MERGER_ALPACA_POLICY[0],
+        'superseded_strategy_sha256': old_request.strategy_sha256,
+        'successor_strategy_sha256': request.strategy_sha256,
+    }
+'''
+    predecessor = predecessor[:start] + previous_edge + predecessor[end:]
+    assert hashlib.sha256(predecessor).hexdigest() == (
+        economic_manifest.SNAPSHOT_RECOVERY_PREDECESSOR_SHA256)
+
+    source = semantics.economic_sources([name], schema='recovery-snapshot-proof')
+    assert source['files'] == [{'module': name, 'sha256':
+        economic_manifest.SNAPSHOT_RECOVERY_PREDECESSOR_SHA256}]
+    identity = economic_manifest.identity(schema='recovery-snapshot-proof')
+    assert {'module': name, 'sha256':
+        economic_manifest.SNAPSHOT_RECOVERY_PREDECESSOR_SHA256} in identity['files']
+
+    guard = b'request.cursor is not None and prior == conversions'
+    assert current.count(guard) == 1
+    mutated = current.replace(guard, b'request.cursor is not None or prior == conversions')
+    mutated_sha = hashlib.sha256(mutated).hexdigest()
+    original_raw = economic_manifest._module_raw
+    with monkeypatch.context() as change:
+        change.setattr(economic_manifest, '_module_raw',
+            lambda module: mutated if module == name else original_raw(module))
+        assert {'module': name, 'sha256': mutated_sha} in (
+            economic_manifest.identity(schema='recovery-snapshot-mutant')['files'])
+    read = Path.read_bytes
+    with monkeypatch.context() as change:
+        change.setattr(Path, 'read_bytes',
+            lambda candidate: mutated if candidate == path else read(candidate))
+        assert semantics.economic_sources([name], schema='recovery-snapshot-mutant')['files'] == [
+            {'module': name, 'sha256': mutated_sha}]
 
 
 def test_unknown_pipeline_bytes_reach_real_economic_bundle(monkeypatch):

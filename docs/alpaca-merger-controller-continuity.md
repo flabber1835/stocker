@@ -135,6 +135,18 @@ current information only. A consumed session, changed predecessor, unbound
 cursor, or publication before the following open refuses. Reacquisition never
 changes a prior receipt or asserts that its data existed at the missed open.
 
+The recovery edge changes only after-open source admission. It changes no
+normalization, book transition, controller return or plan economics. The exact
+reviewed `operational_snapshot.py` successor bytes therefore retain the prior
+`25540d4a498868db32bdb7ed5326fb0115129ead3b1bc5aebdbe4917ad4a1b32`
+economic source contribution and the installed strategy identity. Both economic
+source readers recognize only that exact successor; any other edit contributes
+its actual digest. A byte-exact predecessor reconstruction and an admission
+guard mutation witness qualify this narrow equivalence. This does not certify
+the late source as dated or grant broker authority. The economic manifest's
+self-hash is renewed for this exact reader change; its closed file and dependency
+inventory and all older source pins remain unchanged.
+
 The same-session correction admission checks the retained checkpoint's strategy
 with the already reviewed `economic_migration.compatible` predicate. Its
 `rolling_checkpoint.compatible_strategy` forwarding helper changes neither a
