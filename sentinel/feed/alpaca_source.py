@@ -658,12 +658,14 @@ class AlpacaSource:
             'ORDER BY window_end DESC,version DESC LIMIT 1', (str(self.window.end),)).fetchone()
         if row is None:
             return None
+        same_session_publication = False
         if str(row[4]) == str(self.window.end):
             current_pub = publication.Publication(int(row[0]), row[1],
                 str(row[2]) if row[2] else None, str(row[3]), str(row[4]), row[5])
             publication._validate_publication(self.conn, current_pub, allow_snapshot=True)
             current_manifest = rolling_store.manifest(self.conn, row[5]['rolling_snapshot']['candidate_id'])
             current_reference = rolling_store.load_evidence(self.conn, current_manifest.reference_sha256)
+            same_session_publication = True
             if current_reference.get('schema') == REFERENCE:
                 from sentinel.feed import alpaca_identity
                 current_source = rolling_store.load_evidence(
@@ -696,7 +698,8 @@ class AlpacaSource:
         if any(value['first_affected_session'] > pub.window_end
                or value['floor_session'] > pub.window_end for value in breaks):
             raise AlpacaTransportRefused('published identity-break floor is in the future')
-        if (source.get('schema') == 'sentinel.alpaca-openfigi-operational-source/3'
+        if (not same_session_publication
+                and source.get('schema') == 'sentinel.alpaca-openfigi-operational-source/3'
                 and reference.get('schema') == 'sentinel.rolling-alpaca-openfigi-references/3'):
             # This pre-policy source could already have assigned a replacement
             # UUID to historical same-symbol prices. Older /1 and /2 aggregates

@@ -341,6 +341,79 @@ def test_weekend_month_end_does_not_request_prices_with_inverted_bounds():
                for symbols, first, _last, _adjustment in calls)
 
 
+def test_same_session_correction_uses_retained_predecessor_without_retired_older_payload(
+        monkeypatch):
+    from sentinel.feed import operational_snapshot, publication, rolling_store
+    from sentinel.feed.rolling_store import SnapshotStorageRefused
+
+    target = '2026-11-23'
+    previous_day = '2026-11-20'
+    queries = []
+    loaded = []
+    validated = []
+
+    class Row:
+        def __init__(self, value):
+            self.value = value
+
+        def fetchone(self):
+            return self.value
+
+    def publication_row(version, day):
+        return (version, version - 1, None, '2025-09-15', day,
+                {'rolling_snapshot': {'candidate_id': 'v' + str(version)}})
+
+    class Conn:
+        def execute(self, sql, params):
+            queries.append((sql, params))
+            if 'window_end <= %s' in sql:
+                assert params == (target,)
+                return Row(publication_row(27, target))
+            if 'window_end < %s' in sql and params == (target,):
+                return Row(publication_row(26, previous_day))
+            if 'window_end < %s' in sql and params == (previous_day,):
+                return Row(publication_row(25, '2026-11-19'))
+            raise AssertionError((sql, params))
+
+    references = {
+        'r27': {'schema': 'sentinel.rolling-alpaca-openfigi-references/3',
+                'identity_bindings': [], 'tickers': [
+                    {'table': 'SEP', 'ticker': 'AAA', 'permaticker': NEW}]},
+        'r26': {'schema': 'sentinel.rolling-alpaca-openfigi-references/3',
+                'identity_bindings': [], 'tickers': [
+                    {'table': 'SEP', 'ticker': 'AAA', 'permaticker': OLD}]},
+        's26': {'schema': 'sentinel.alpaca-openfigi-operational-source/3',
+                'provider': 'ALPACA_OPENFIGI',
+                'identity_bindings_sha256': digest([])},
+    }
+
+    monkeypatch.setattr(publication, '_validate_publication',
+                        lambda _conn, pub, **_kw: validated.append(pub.version))
+    monkeypatch.setattr(operational_snapshot, '_bound',
+                        lambda _conn, pub: {'candidate_id': pub.evidence['rolling_snapshot']['candidate_id']})
+    monkeypatch.setattr(rolling_store, 'manifest', lambda _conn, cid: SimpleNamespace(
+        provider='ALPACA_OPENFIGI', reference_sha256='r' + cid[-2:],
+        source_evidence_sha256='s' + cid[-2:], snapshot_id=digest(cid)))
+
+    def load(_conn, key):
+        loaded.append(key)
+        if key not in references:
+            raise SnapshotStorageRefused('retired predecessor evidence: ' + key)
+        return references[key]
+
+    monkeypatch.setattr(rolling_store, 'load_evidence', load)
+    source = object.__new__(AlpacaSource)
+    source.conn = Conn()
+    source.window = PriceWindow.through(target)
+    source.previous_identity = None
+    result = source._previous_identity()
+    assert result['previous_session'] == previous_day
+    assert result['previous_selected'] == [{'ticker': 'AAA', 'asset_id': OLD}]
+    assert validated == [27, 26]
+    assert loaded == ['r27', 'r26', 's26']
+    assert len(queries) == 2
+
+
 def test_legacy_same_symbol_uuid_splice_cannot_be_used_as_next_day_predecessor(
         monkeypatch):
     from sentinel.feed import alpaca_source, operational_snapshot, publication, rolling_store
