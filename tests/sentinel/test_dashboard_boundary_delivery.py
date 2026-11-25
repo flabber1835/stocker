@@ -51,7 +51,7 @@ def test_captured_boundary_times_retain_display_without_renewing_strict_snapshot
     assert rows['book']['current'] and rows['book']['shadow_book']
     assert rows['alpaca_account']['current'] and rows['alpaca_account']['paper_account']
     assert not rows['automation_step_open']['current'] and rows['automation_step_open']['original_status']==model.FAIL
-    assert payload['operational']==model.UNKNOWN and payload['dashboard_health']['color']=='neutral'
+    assert payload['operational']==model.UNKNOWN and payload['dashboard_health']['color']=='blue'
     assert payload['operator_review'] is None
 
 

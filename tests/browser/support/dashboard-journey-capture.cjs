@@ -78,7 +78,7 @@ function installRecorder({binding, opening}) {
       healthy_border:brand && badge?.classList.contains('ok')
         ? stylesheetReady!==false && getComputedStyle(brand).borderTopColor===getComputedStyle(badge).color : null,
       visibility:document.visibilityState, online:navigator.onLine,
-      refreshing:document.documentElement?.classList.contains('refreshing-status') || false,
+      refreshing:document.documentElement?.matches('.checking-status, .refreshing-status') || false,
       not_current:document.documentElement?.classList.contains('not-current') || false,
       banner_present:!!image,banner_path:bannerPath,banner_complete:image ? image.complete : null,
       banner_assigned:!!image?.getAttribute('src'),
@@ -248,7 +248,9 @@ function assessCapture(report) {
       if (!seen.has('UNATTRIBUTED_STATUS')) { seen.add('UNATTRIBUTED_STATUS'); add('UNATTRIBUTED_STATUS','A browser headline has no matching original response document.'); }
       continue;
     }
-    if (source.document.headline_class==='state ok' && (['state warn','state neutral'].includes(event.headline_class)
+    const expiry=Date.parse(source.document.generated_at)+source.document.max_age_seconds*1000;
+    const prematureCheck=event.headline_class==='state checking' && event.wall_time_ms<expiry;
+    if (source.document.headline_class==='state ok' && (['state warn','state neutral'].includes(event.headline_class) || prematureCheck
         || event.meaningful_visible && event.healthy_border===false)) {
       if (!seen.has('HEALTHY_REFRESH_FLICKER')) { seen.add('HEALTHY_REFRESH_FLICKER'); add('HEALTHY_REFRESH_FLICKER','A healthy document lost its green headline or border during refresh.',{request_id:source.request_id}); }
     }

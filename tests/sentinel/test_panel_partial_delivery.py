@@ -41,12 +41,12 @@ def test_partial_paper_withdraws_affected_positives_and_executable_payloads_only
     assert rows['alpaca_account']['paper_account'] is None and rows['alpaca_account']['order_outcomes']==[]
     assert rows['alpaca_account']['as_of']==page.row('alpaca_account').as_of.isoformat()
     assert payload['operator_review'] is None and payload['operational']==model.UNKNOWN
-    assert payload['dashboard_health']['color']=='neutral'
+    assert payload['dashboard_health']['color']=='blue'
     html = render(page)
     assert 'data-observation-current="false"' in html and 'data-refresh-pending="false"' in html
     assert re.search(r'class="row ok" id="status-book"[^>]*data-current="true"',html)
     assert re.search(r'class="row neutral" id="status-broker"[^>]*data-current="false"',html)
-    assert 'class="state neutral"' in html and 'id="review-acknowledge"' not in html
+    assert 'class="state checking"' in html and 'id="review-acknowledge"' not in html
     assert 'class="overview-card core-slots"' in html and 'class="overview retained-overview"' not in html
     assert 'class="overview-card scope-not-current account-overview"' in html
     assert 'Last known account' in html and 'Account snapshot:' in html
@@ -61,7 +61,7 @@ def test_independently_revalidated_negative_wins_but_retained_negative_is_dated(
     page=replace(page,rows=[replace(row,status=model.FAIL,detail='current financial refusal')
         if row.key==key else row for row in page.rows])
     # No matching current proof: retained failure is dated, not a current headline.
-    assert dashboard_health(page)['color']=='neutral'
+    assert dashboard_health(page)['color']=='blue'
     assert serialization.public_payload(page)['dashboard_health']['active_conditions']==[]
     current=replace(page,observation_revalidated_keys=(key,))
     payload=serialization.public_payload(current)

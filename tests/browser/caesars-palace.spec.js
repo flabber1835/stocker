@@ -246,7 +246,7 @@ test.describe('App resume presentation', () => {
         `data-generated-at="${new Date(now).toISOString()}"`)
         .replace(/data-max-age-seconds="[^"]+"/, 'data-max-age-seconds="9"')
         .replace(/data-refresh-pending="[^"]+"/, 'data-refresh-pending="false"');
-      if (positive) body = body.replace(
+      if (positive) body = body.replace(/(<body [^>]*?data-health=")[^"]+/, '$1green').replace(
         /(<span id="operational-state" class=")state [^"]+("[^>]*>)[\s\S]*?(<\/span>)/,
         '$1state ok$2CLIENT PRESENTATION FIXTURE$3');
       if (positive) body = body.replace('<div id="portfolio-overview">',
@@ -305,7 +305,7 @@ test.describe('App resume presentation', () => {
     };
   }
 
-  test('short original proof stays last-known neutral during two healthy foreground refreshes', async ({page}) => {
+  test('expired original proof stays in checking during two healthy foreground refreshes', async ({page}) => {
     const fixture = await shortProofDisplay(page);
     try {
       for (let cycle = 0; cycle < 2; cycle++) {
@@ -319,11 +319,11 @@ test.describe('App resume presentation', () => {
         await page.clock.runFor(5000);
         await expect.poll(() => fixture.requests.length).toBe(cycle + 1);
         await page.clock.runFor(5001); // First one-second age check after the 9s proof expires.
-        await expect(page.locator('#operational-state')).toHaveClass('state neutral');
+        await expect(page.locator('#operational-state')).toHaveClass('state checking');
         await expect(page.locator('#operational-state')).toContainText('LAST KNOWN');
         expect(await page.locator('body').getAttribute('data-generated-at')).toBe(original);
         await page.clock.runFor(1399); // Five seconds idle plus 6.4 seconds fetching.
-        await expect(page.locator('#operational-state')).toHaveClass('state neutral');
+        await expect(page.locator('#operational-state')).toHaveClass('state checking');
         expect(await page.evaluate(() => window.__pendingHeadlineStates)).not.toContain('state fail');
         await expect(page.locator('html')).not.toHaveClass('not-current');
         await fixture.release(cycle);
@@ -359,17 +359,17 @@ test.describe('App resume presentation', () => {
       await expect.poll(() => fixture.requests.length).toBe(1);
       fixture.requests[0].allowAbort = true;
       await page.clock.runFor(5001);
-      await expect(page.locator('#operational-state')).toHaveClass('state neutral');
+      await expect(page.locator('#operational-state')).toHaveClass('state checking');
       await page.evaluate(() => {
         window.dispatchEvent(new Event('focus'));
         window.dispatchEvent(new PageTransitionEvent('pageshow', {persisted:false}));
       });
       await page.clock.runFor(9998);
-      await expect(page.locator('#operational-state')).toHaveClass('state neutral');
+      await expect(page.locator('#operational-state')).toHaveClass('state checking');
       await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', {persisted:true})));
       await page.clock.runFor(2);
-      await expect(page.locator('#operational-state')).toHaveClass('state neutral');
-      await expect(page.locator('html')).toHaveClass('not-current');
+      await expect(page.locator('#operational-state')).toHaveClass('state checking');
+      await expect(page.locator('html')).toHaveClass('checking-status expired-status');
       await expect(page.locator('#operational-state')).toContainText('TRADING STATUS UNKNOWN — LAST KNOWN VALUES');
       expect(fixture.requests).toHaveLength(1);
       expect(await page.locator('body').getAttribute('data-generated-at')).toBe(original);
@@ -382,7 +382,7 @@ test.describe('App resume presentation', () => {
       await page.clock.runFor(5000);
       await expect.poll(() => fixture.requests.length).toBe(1);
       await page.clock.runFor(6400);
-      await expect(page.locator('#operational-state')).toHaveClass('state neutral');
+      await expect(page.locator('#operational-state')).toHaveClass('state checking');
       await fixture.release(0, 'negative');
       await expect(page.locator('#operational-state')).toHaveClass('state fail');
       await page.evaluate(() => window.dispatchEvent(new Event('focus')));
@@ -413,7 +413,7 @@ test.describe('App resume presentation', () => {
       });
       await expect.poll(() => fixture.requests.length).toBe(2);
       fixture.requests[1].allowAbort = true;
-      await expect(page.locator('#operational-state')).toHaveClass('state neutral');
+      await expect(page.locator('#operational-state')).toHaveClass('state checking');
       expect(await page.locator('body').getAttribute('data-generated-at')).toBe(original);
       await page.clock.runFor(14999);
       await page.evaluate(() => {
@@ -422,14 +422,14 @@ test.describe('App resume presentation', () => {
       });
       expect(fixture.requests).toHaveLength(2);
       await page.clock.runFor(2);
-      await expect(page.locator('#operational-state')).toHaveClass('state neutral');
-      await expect(page.locator('html')).toHaveClass('not-current');
+      await expect(page.locator('#operational-state')).toHaveClass('state checking');
+      await expect(page.locator('html')).toHaveClass('checking-status expired-status');
       expect(await page.locator('body').getAttribute('data-generated-at')).toBe(original);
     } finally { await fixture.close(); }
   });
 
   for (const expires of [false, true]) {
-    test(`a saved positive view is neutral during reconnect${expires ? ' and withdrawn on timeout' : ''}`, async ({ page }) => {
+    test(`a saved positive view shows checking during reconnect${expires ? ' and withdraws current status on timeout' : ''}`, async ({ page }) => {
       // CI's unconfigured server is deliberately red. Only this client-display
       // fixture supplies a positive headline; it is not financial evidence.
       let release;
@@ -439,7 +439,7 @@ test.describe('App resume presentation', () => {
         try {
           const response = await route.fetch({url:new URL('/?document=1',route.request().url()).href});
           const source = await response.text();
-          const body = source.replace(
+          const body = source.replace(/(<body [^>]*?data-health=")[^"]+/, '$1green').replace(
             /(<span id="operational-state" class=")state [^"]+("[^>]*>)[\s\S]*?(<\/span>)/,
             '$1state ok$2CLIENT PRESENTATION FIXTURE$3');
           expect(body).not.toBe(source);
@@ -467,20 +467,20 @@ test.describe('App resume presentation', () => {
           document.dispatchEvent(new Event('visibilitychange'));
           window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}));
         });
-        await expect(page.locator('#operational-state')).toHaveClass('state neutral');
+        await expect(page.locator('#operational-state')).toHaveClass('state checking');
         await expect(page.locator('#operational-state')).toContainText('REFRESHING STATUS');
-        await expect(page.locator('html')).toHaveClass('refreshing-status');
+        await expect(page.locator('html')).toHaveClass('checking-status');
         expect(await page.locator('body').getAttribute('data-generated-at')).toBe(generated);
         if (expires) {
           await page.clock.runFor(15001);
-          await expect(page.locator('#operational-state')).toHaveClass('state neutral');
-          await expect(page.locator('html')).toHaveClass('not-current');
+          await expect(page.locator('#operational-state')).toHaveClass('state checking');
+          await expect(page.locator('html')).toHaveClass('checking-status expired-status');
           await expect(page.locator('#operational-state')).toContainText('TRADING STATUS UNKNOWN — LAST KNOWN VALUES');
         } else {
           await page.evaluate(() => { Date.now = window.__resumeRealNow; });
           release();
           await expect(page.locator('#operational-state')).toContainText('CLIENT PRESENTATION FIXTURE');
-          await expect(page.locator('html')).not.toHaveClass('refreshing-status');
+          await expect(page.locator('html')).not.toHaveClass('checking-status');
         }
         await expect(page.locator('#system-details')).toHaveAttribute('open','');
         await expect(page.locator(`[data-detail-key="${detailKey}"]`)).toHaveAttribute('open','');

@@ -68,13 +68,13 @@ test('close refresh retains an independent card and names the pending next-open 
       'X-Sentinel-Panel-Status':initial?'PARTIAL':'CURRENT'},body:initial?fixture.partial:fixture.verifying});
   });
   await page.goto('http://127.0.0.1:18947/');
-  await expect(page.locator('#operational-state')).toHaveText('Refreshing closing evidence');
+  await expect(page.locator('#operational-state')).toHaveText('Checking closing status · last verified values dated');
   await expect(page.locator('#status-broker')).toHaveAttribute('data-current','true');
   await expect(page.locator('#status-paper_plan')).toHaveAttribute('data-current','false');
   await page.clock.runFor(5000);
-  await expect(page.locator('#operational-state')).toHaveText('Checking strategy for the next open');
-  await expect(page.locator('#operational-state')).toHaveAttribute('title', /NEXT-OPEN PREPARATION IN PROGRESS/);
-  await expect(page.locator('body')).toHaveAttribute('data-health','amber');
+  await expect(page.locator('#operational-state')).toHaveText('Checking strategy for the next open · last verified values dated');
+  await expect(page.locator('#operational-state')).toHaveAttribute('title', /CHECKING CURRENT EVIDENCE/);
+  await expect(page.locator('body')).toHaveAttribute('data-health','blue');
   await expect(page.locator('#status-broker')).toHaveAttribute('data-current','true');
   await expect(page.locator('#status-paper_plan')).toHaveAttribute('data-status','pending');
 });
@@ -196,7 +196,7 @@ for (const residualMs of [3360,1550,670]) {
     }
     if (residualMs!==670) {
       await page.clock.runFor(Date.parse(documents.received)-await page.evaluate(()=>Date.now()));
-      await expect(headline).toHaveClass('state neutral');
+      await expect(headline).toHaveClass('state checking');
       await expect(headline).toContainText('REFRESHING STATUS');
       await expect(page.locator('html')).not.toHaveClass(/not-current/);
     }
@@ -269,7 +269,7 @@ test('near-expiry PARTIAL renews its current book card with bounded reads',async
   await expect(book).toHaveAttribute('data-current','true');
   await expect(page.locator('.overview-card.core-slots')).toHaveAttribute('data-current','true');
   await expect(plan).toHaveAttribute('data-current','false');
-  await expect(page.locator('#operational-state')).toHaveClass('state neutral');
+  await expect(page.locator('#operational-state')).toHaveClass('state checking');
   await page.clock.runFor(335);
   await expect.poll(()=>pending.length).toBe(1);
   pending[0](documents.same);
@@ -285,7 +285,7 @@ test('near-expiry PARTIAL renews its current book card with bounded reads',async
   await expect(body).toHaveAttribute('data-observation-current','false');
   await expect(book).toHaveAttribute('data-current','true');
   await expect(plan).toHaveAttribute('data-current','false');
-  await expect(page.locator('#operational-state')).toHaveClass('state neutral');
+  await expect(page.locator('#operational-state')).toHaveClass('state checking');
   await expect(page.locator('html')).not.toHaveClass(/not-current/);
   await page.clock.runFor(1000);
   expect(pending).toHaveLength(2);
