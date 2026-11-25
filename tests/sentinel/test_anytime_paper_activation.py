@@ -1,12 +1,16 @@
 """Host anytime admission joined to the actual durable scheduler cutover."""
 from datetime import datetime, timedelta, timezone
 import inspect
+from pathlib import Path
+import sys
 import textwrap
 from types import SimpleNamespace
 
 import pytest
 
-import sentinel_autonomous_deploy_install_entry as install
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
+
+import sentinel_autonomous_deploy_install_entry as install  # noqa: E402
 from sentinel.automation import store
 from sentinel.automation.model import CycleState, TickAction
 from sentinel.automation.service import AutomationService
