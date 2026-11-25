@@ -13,6 +13,13 @@ def pack(rows, errors, *, observed_at):
     value = {'rows': [asdict(row) for row in rows], 'errors': errors,
              'observed_at': observed_at}
     for raw, row in zip(value['rows'], rows):
+        reasons = row.trial_reason_codes
+        if (not isinstance(reasons, tuple) or len(reasons) > 16
+                or any(not isinstance(reason, str) or len(reason) > 100
+                       for reason in reasons)
+                or reasons and row.key != 'trial_verification'):
+            raise ValueError('observer trial reasons are malformed')
+        raw['trial_reason_codes'] = list(reasons)
         raw['shadow_book'] = row.shadow_book.model_dump(mode='json') if row.shadow_book else None
         raw['shadow_projection'] = (row.shadow_projection.model_dump(mode='json')
                                     if row.shadow_projection else None)
@@ -49,6 +56,13 @@ def validate_envelope(value, expected_keys):
 def row_from_observation(value):
     """Materialize nested dataclass evidence before public projection."""
     row = dict(value)
+    reasons = row.get('trial_reason_codes', ())
+    if (not isinstance(reasons, (tuple, list)) or len(reasons) > 16
+            or any(not isinstance(reason, str) or len(reason) > 100
+                   for reason in reasons)
+            or reasons and row.get('key') != 'trial_verification'):
+        raise ValueError('observer trial reasons are malformed')
+    row['trial_reason_codes'] = tuple(reasons)
     if row.get('operational_fact') is not None:
         row['operational_fact'] = model.OperationalFact.model_validate(row['operational_fact'])
         row['operational_fact'].require_key(row.get('key'))
@@ -62,21 +76,36 @@ def row_from_observation(value):
         row['shadow_projection'] = model.ShadowProjectionBasis.model_validate(row['shadow_projection'])
     if type(row.get('required_current', False)) is not bool:
         raise ValueError('observer current flag is malformed')
-    if row.get('paper_alignment') not in {None, 'SCHEDULED', 'SCHEDULED_WITH_HISTORY', 'COMPLETED_WITH_HISTORY', 'PRIOR_CYCLE_FAILED'} or (
-            row.get('paper_alignment') is not None
-            and (row.get('key') != 'paper_reconciliation'
-                 or row.get('status') != (model.OK if row['paper_alignment']=='SCHEDULED' else model.WARN)
-                 or row.get('valid_until') is None
-                 or (row['paper_alignment'] in {'SCHEDULED_WITH_HISTORY', 'COMPLETED_WITH_HISTORY'}
-                     and (row.get('required_current') is not True or row.get('recovery') is not None
-                          or not isinstance(row.get('valid_until'), datetime)
-                          or row['valid_until'].utcoffset() != timedelta(0)))
-                 or (row['paper_alignment']=='COMPLETED_WITH_HISTORY'
-                     and (not isinstance(row.get('as_of'), datetime)
-                          or row['as_of'].utcoffset() != timedelta(0)
-                          or row['valid_until'] <= row['as_of']))
-                 or (row['paper_alignment']=='PRIOR_CYCLE_FAILED'
-                     and (row.get('required_current',False) or row.get('recovery') is not None)))):
+    alignment = row.get('paper_alignment')
+    if (
+            alignment not in {None, 'SCHEDULED', 'SCHEDULED_WITH_HISTORY',
+                              'COMPLETED_WITH_HISTORY', 'PRIOR_CYCLE_FAILED',
+                              'MISSED_OPEN_UNATTENDED'}
+            or (alignment is not None and (
+                row.get('key') != 'paper_reconciliation'
+                or row.get('status') != (model.OK if alignment == 'SCHEDULED' else model.WARN)
+                or row.get('valid_until') is None
+                or (alignment in {'SCHEDULED_WITH_HISTORY', 'COMPLETED_WITH_HISTORY'}
+                    and (row.get('required_current') is not True
+                         or row.get('recovery') is not None
+                         or not isinstance(row.get('valid_until'), datetime)
+                         or row['valid_until'].utcoffset() != timedelta(0)))
+                or (alignment == 'COMPLETED_WITH_HISTORY'
+                    and (not isinstance(row.get('as_of'), datetime)
+                         or row['as_of'].utcoffset() != timedelta(0)
+                         or row['valid_until'] <= row['as_of']))
+                or (alignment == 'PRIOR_CYCLE_FAILED'
+                    and (row.get('required_current', False)
+                         or row.get('recovery') is not None))
+                or (alignment == 'MISSED_OPEN_UNATTENDED'
+                    and (row.get('required_current') is not True
+                         or row.get('recovery') is None
+                         or not isinstance(row.get('as_of'), datetime)
+                         or row['as_of'].utcoffset() != timedelta(0)
+                         or not isinstance(row.get('next_eligible_decision_at'), datetime)
+                         or row['next_eligible_decision_at'].utcoffset() != timedelta(0)))))
+            or (row.get('next_eligible_decision_at') is not None
+                and alignment != 'MISSED_OPEN_UNATTENDED')):
         raise ValueError('observer alignment fact is malformed')
     for field in ('as_of', 'valid_until'):
         boundary = row.get(field)
@@ -98,4 +127,8 @@ def row_from_observation(value):
                        for clock in (recovery.next_attempt_at, recovery.deadline))):
             raise ValueError('observer recovery fields are malformed')
         row['recovery'] = recovery
+    if row.get('paper_alignment') == 'MISSED_OPEN_UNATTENDED' and (
+            recovery.phase != 'AWAITING_NEXT_DECISION'
+            or recovery.deadline != row['valid_until']):
+        raise ValueError('missed-open recovery evidence is malformed')
     return model.Row(**row)

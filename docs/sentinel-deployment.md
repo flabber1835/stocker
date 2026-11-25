@@ -1,5 +1,10 @@
 # Sentinel current operating contract
 
+[Dashboard trading continuity](dashboard-trading-continuity.md) defines the
+owner's November 24 red panic meaning and the separation of a present trading
+stop from missed historical work and review warnings. It is a presentation and
+monitoring decision; financial execution guards retain their own authority.
+
 [Close work and evidence handoffs](close-work-and-evidence.md) describes the
 verified validation, progress, dashboard, and scheduler paths at market close.
 

@@ -1,5 +1,10 @@
 # Dashboard resilience, history and current health
 
+[Trading continuity and panic status](dashboard-trading-continuity.md) records
+the owner's November 24 meaning of red. Its current-continuity rule supersedes
+the older "any active failure is red" headline rule below. Review and raw
+financial evidence remain separate and retain their original history.
+
 The November 5 [independent operational state contract](operational-state-contract.md)
 supersedes the page-build ownership and text-based workflow interpretation below.
 The selected colour, acknowledgement, original-clock and browser freshness rules

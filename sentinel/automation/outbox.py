@@ -27,8 +27,8 @@ _ALERT_COLUMNS = (
     "acknowledgement,created_at,updated_at,delivered_at"
 )
 # Every operator-visible non-success transition must be reconstructible after
-# the commit/notify crash boundary. RETRY_WAIT is the one amber state; the
-# remaining states are red terminal incidents.
+# the commit/notify crash boundary. Only a newly witnessed no-send missed
+# window can lower a terminal incident from critical to warning.
 _RECOVERABLE_CYCLE_STATES = frozenset({
     "RETRY_WAIT", "BLOCKED", "MISSED_STATE_ONLY", "SUPERSEDED",
 })
@@ -184,6 +184,26 @@ def _event_detail(raw_detail) -> dict[str, Any]:
     return dict(value)
 
 
+def _witnessed_missed_window(detail: Mapping[str, Any], *,
+                             state: str, cycle_id: Any) -> bool:
+    """Old or ambiguous SUPERSEDED events retain their critical severity."""
+    if (state != 'SUPERSEDED' or detail.get('failure_code') not in {
+            'CONTROL_GENERATION_SUPERSEDED', 'MISSED_EXECUTION_WINDOW',
+            'MAX_EXECUTION_LATENESS_EXCEEDED'}):
+        return False
+    proof = detail.get('missed_window_no_send')
+    return (isinstance(proof, Mapping) and set(proof) == {
+        'schema', 'cycle_id', 'from_state', 'attempt_count', 'journal'}
+        and proof.get('schema') == 'sentinel.missed-window-no-send/1'
+        and proof.get('cycle_id') == str(cycle_id)
+        and proof.get('from_state') in {
+            'DISCOVERED', 'REFRESHING_DATA', 'PREPARING',
+            'PLAN_READY', 'WAITING_OPEN'}
+        and type(proof.get('attempt_count')) is int
+        and proof['attempt_count'] == 0
+        and proof.get('journal') == 'NO_TRANSPORT_EVENT_OR_COMMAND')
+
+
 def _cycle_event_alert(row) -> dict[str, Any] | None:
     seq, cycle_id, to_state, control_generation, fence_token, raw_detail = row
     state = str(to_state)
@@ -248,11 +268,13 @@ def _cycle_event_alert(row) -> dict[str, Any] | None:
     if state != "RETRY_WAIT":
         payload["cycle_event_seq"] = int(seq)
         payload["fence_token"] = int(fence_token)
+    missed_window = _witnessed_missed_window(
+        detail, state=state, cycle_id=cycle_id)
     return {
         "idempotency_key": key,
         "event_type": f"AUTOMATION_{action}",
         "severity": (
-            "WARN" if state == "RETRY_WAIT" else "CRITICAL"),
+            "WARN" if state == "RETRY_WAIT" or missed_window else "CRITICAL"),
         "payload": payload,
     }
 
@@ -577,7 +599,7 @@ def _reconstruct_missing_transition_alerts(conn, *, completion=False) -> None:
     """Materialize alert deficits from committed immutable cycle events.
 
     The state transition is the durable fact. A crash can occur after that
-    commit and before the ordinary notifier enqueues its alert. Red transitions
+    commit and before the ordinary notifier enqueues its alert. Terminal transitions
     retain their event identity; retries converge by cycle, generation, phase,
     and failure fingerprint. The migration boundary prevents historical replay.
     """

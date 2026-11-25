@@ -2414,7 +2414,9 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                     cycle_view = dict(cycle or {})
                     cycle_view["schedule"] = model.opening_schedule(cycle_view, cycle_events)
                     if instance:
-                        if cycle_view.get("next_wake_at") is None:
+                        if (cycle_view.get("next_wake_at") is None
+                                and cycle_view.get("state") not in {
+                                    "SUCCEEDED", "SUPERSEDED", "MISSED_STATE_ONLY", "BLOCKED"}):
                             cycle_view["next_wake_at"] = instance["next_wake_at"]
                         if (not cycle_view.get("failure_detail")
                                 and instance.get("last_error")):
@@ -3052,6 +3054,140 @@ class RetiredPaperFailureEligibility:
     valid_until: datetime
 
 
+@dataclass(frozen=True)
+class MissedOpenUnattendedWait:
+    cycle_id: str
+    cycle_updated_at: datetime
+    next_decision_at: datetime
+    recovery: model.RecoveryEvidence
+
+
+def _recoverable_superseded_wait(conn, cycle) -> MissedOpenUnattendedWait | None:
+    """Prove an unsent missed opening has an owned, hazard-free next decision.
+
+    This is display evidence only. It never adopts a plan, grants execution
+    authority, or refreshes the saved full broker observation.
+    """
+    missed_codes = frozenset({
+        'CONTROL_GENERATION_SUPERSEDED', 'MISSED_EXECUTION_WINDOW',
+        'MAX_EXECUTION_LATENESS_EXCEEDED'})
+    if (not cycle or cycle.get('state') != 'SUPERSEDED'
+            or cycle.get('failure_code') not in missed_codes
+            or type(cycle.get('attempt_count')) is not int
+            or cycle['attempt_count'] != 0
+            or cycle.get('terminal_reason') is not None
+            or not isinstance(cycle.get('updated_at'), datetime)):
+        return None
+
+    from sentinel import local_paper
+    from sentinel.automation import env_config, schedule, store, unsent_recovery
+    from sentinel.automation.health import read_health
+    from sentinel.automation.model import AutomationRefused, CycleState
+    from sentinel.execution.target_reprojection import TargetProjectionRefused
+    from sentinel.feed import calendar
+
+    health = read_health(conn, include_alert_counts=False)
+    now = health.database_now
+    if (not local_paper.require_bound_account(conn)
+            or not health.healthy or not health.operational_ready
+            or health.policy_state != 'LEADER_ACTIVE'
+            or not health.leader_active or not health.service_heartbeat_fresh
+            or health.authority_verdict != 'PASS'
+            or health.authority_lifecycle_current is not True
+            or health.latest_cycle_id != cycle['cycle_id']
+            or health.latest_cycle_state != 'SUPERSEDED'
+            or health.latest_failure_code != cycle['failure_code']
+            or health.broker_outcome_unresolved != 0
+            or not isinstance(now, datetime) or now.utcoffset() != timedelta(0)
+            or cycle['updated_at'] > now + model.MAXIMUM_FUTURE_SKEW):
+        return None
+
+    control = store.load_control(conn)
+    previous = store.load_cycle(conn, cycle['cycle_id'])
+    try:
+        timing_config = env_config.config_from_env()
+    except (ValueError, TypeError, TargetProjectionRefused):
+        return None
+    if (control.binding is None or previous is None
+            or previous.state is not CycleState.SUPERSEDED
+            or previous.failure_code != cycle['failure_code']
+            or previous.attempt_count != 0
+            or previous.historical_state_only
+            or previous.updated_at != cycle['updated_at']
+            or control.generation != health.control_generation
+            or control.config_sha256 != timing_config.fingerprint
+            or health.config_sha256 != control.config_sha256
+            or not store.adoption_identity_matches(previous, control)
+            or (control.broker, control.broker_account_id, control.takeover_epoch)
+                != (health.broker, health.broker_account_id, health.takeover_epoch)):
+        return None
+    if cycle['failure_code'] == 'CONTROL_GENERATION_SUPERSEDED':
+        if (previous.control_generation >= control.generation
+                or previous.diagnostic.get('adopting_control_generation')
+                    != control.generation
+                or previous.diagnostic.get('originating_control_generation')
+                    != previous.control_generation):
+            return None
+    elif (previous.control_generation != control.generation
+            or previous.config_sha256 != control.config_sha256):
+        return None
+    try:
+        unsent_recovery.require_unsent(
+            conn, [previous], binding=control.binding,
+            effective_session=previous.effective_session)
+    except AutomationRefused:
+        return None
+    commands = _active_commands(conn)
+    observation = _latest_observation(conn)
+    if (commands['counts'] or observation is None
+            or observation['completeness'] != 'COMPLETE'
+            or observation['runtime_state'] != 'RUNNING'
+            or observation['observed_at'] is None
+            or observation['observed_at'] > now + model.MAXIMUM_FUTURE_SKEW
+            or any(not isinstance(order, Mapping)
+                   or str(order.get('state') or '').upper() not in {
+                       'FILLED', 'CANCELLED', 'REJECTED', 'EXPIRED', 'SUPERSEDED'}
+                   for order in observation['orders'])):
+        return None
+    account = _latest_account_evidence(conn)
+    if account is None:
+        return None
+    account_row = model.alpaca_account_row(
+        available=True, expected_account_id=health.broker_account_id,
+        valid_until=_account_valid_until(account.get('observed_at')), **account)
+    if (account_row.effective_status(now) != model.OK
+            or account_row.valid_until is None):
+        return None
+    instance = _latest_automation_instance(conn, holder=health.leader_holder)
+    poll = _discovery_poll_recovery(None, {
+        'active': health.leader_active, 'holder': health.leader_holder,
+        'expires_at': health.leader_expires_at}, instance, now=now)
+    if poll is None:
+        return None
+    try:
+        if (calendar.latest_closed_session(now) != str(previous.decision_session)
+                or calendar.next_session(previous.decision_session)
+                    != str(previous.effective_session)):
+            return None
+        next_decision = schedule.for_decision_session(
+            previous.effective_session, timing_config).prepare_at
+    except (ValueError, TypeError, RuntimeError):
+        return None
+    # The signed PAPER observer refreshes less often than the live worker
+    # heartbeat. Current leader/authority rows are read independently at each
+    # panel projection; this historical warning expires with its original
+    # account evidence or the next decision, whichever comes first.
+    deadline = min(account_row.valid_until, next_decision)
+    if not now < deadline <= next_decision:
+        return None
+    return MissedOpenUnattendedWait(
+        cycle_id=cycle['cycle_id'], cycle_updated_at=cycle['updated_at'],
+        next_decision_at=next_decision,
+        recovery=model.RecoveryEvidence(
+            phase='AWAITING_NEXT_DECISION', automatic=True,
+            next_attempt_at=poll.next_attempt_at, deadline=deadline))
+
+
 def _retired_local_paper_failure(conn) -> Optional[RetiredPaperFailureEligibility]:
     """A healthy new generation may display prior failure as history, never completion."""
     from sentinel import local_paper
@@ -3260,6 +3396,23 @@ def _dual_paper_row(conn, *, informational_paper_mirror, publication,
             state="PENDING", cycle_state=cycle_state,
             detail="activation waits for the next eligible session; no new order was sent")
     if cycle_state in {"BLOCKED", "MISSED_STATE_ONLY", "SUPERSEDED"}:
+        safe_wait = _recoverable_superseded_wait(conn, cycle)
+        if safe_wait is not None:
+            return model.Row(
+                'paper_reconciliation', 'Alpaca PAPER mirror',
+                'PAPER NOT VERIFIED · OPEN MISSED · NEXT DECISION SCHEDULED',
+                model.WARN,
+                'The scheduled opening was missed without sending an order; '
+                'the current worker owns the next scheduled decision. '
+                'The old PAPER result remains unverified.',
+                as_of=safe_wait.cycle_updated_at,
+                required_current=True,
+                valid_until=safe_wait.recovery.deadline,
+                recovery=safe_wait.recovery,
+                paper_alignment='MISSED_OPEN_UNATTENDED',
+                next_eligible_decision_at=safe_wait.next_decision_at,
+                operational_fact=model.OperationalFact(
+                    kind='PAPER_VERIFICATION', state='PENDING'))
         clean_skip = _clean_cash_supersession(conn, cycle)
         if clean_skip is not None:
             fact, observed, boundary, _ = clean_skip
@@ -4355,6 +4508,66 @@ def trading_environment_row(base_url: str) -> model.Row:
                      ' · URL selection alone does not authorize trading')
 
 
+def _project_missed_open_idle(
+        rows: list[model.Row], *, now: datetime,
+        source_errors: list[str]) -> list[model.Row]:
+    """Show one signed, proved old missed open as history, never a live halt.
+
+    The financial observer has already proved the original cycle was unsent and
+    the current generation owns the next decision. Other source rows must still
+    agree on current policy, authority, account and the dated broker snapshot.
+    """
+    if source_errors or len({row.key for row in rows}) != len(rows):
+        return rows
+    by_key = {row.key: row for row in rows}
+    paper, cycle, broker = (by_key.get(key) for key in (
+        'paper_reconciliation', 'automation_cycle', 'broker'))
+    if (paper is None or paper.paper_alignment != 'MISSED_OPEN_UNATTENDED'
+            or paper.effective_status(now) != model.WARN
+            or paper.recovery is None or paper.next_eligible_decision_at is None
+            or cycle is None or cycle.status != model.FAIL
+            or cycle.operational_fact is None
+            or cycle.operational_fact.kind != 'AUTOMATION_CYCLE'
+            or cycle.operational_fact.state != 'SUPERSEDED'
+            or cycle.as_of != paper.as_of
+            or broker is None or broker.status != model.OK
+            or broker.recovery is not None or broker.as_of is None
+            or broker.is_future(now)
+            or any(type(count) is not int or count != 0 for count in (
+                broker.broker_working_orders, broker.broker_active_commands,
+                broker.broker_uncertain_commands))
+            or any((row := by_key.get(key)) is None
+                   or row.effective_status(now) != model.OK
+                   for key in ('automation', 'automation_leader',
+                               'authority', 'alpaca_account'))
+            or (run := by_key.get('trading_run')) is not None
+                and run.status not in {model.PENDING, model.OK}):
+        return rows
+    steps = [by_key.get(key) for key in (
+        'automation_step_open', 'automation_step_complete')]
+    if any(row is None or row.status != model.FAIL or row.as_of != cycle.as_of
+           or row.operational_fact is None
+           or row.operational_fact.kind != 'AUTOMATION_CYCLE'
+           or row.operational_fact.state != 'SUPERSEDED'
+           for row in steps):
+        return rows
+    replacements = {
+        row.key: replace(row, status=model.WARN, recovery=paper.recovery,
+                         valid_until=paper.valid_until,
+                         detail=row.detail + ' · missed old opening; current worker owns next decision')
+        for row in (cycle, *steps)
+    }
+    if broker.is_stale(now):
+        replacements['broker'] = replace(
+            broker, status=model.WARN,
+            recovery=model.RecoveryEvidence(
+                phase='BROKER_NEXT_PREFLIGHT', automatic=True,
+                next_attempt_at=paper.recovery.next_attempt_at,
+                deadline=paper.recovery.deadline),
+            detail=broker.detail + ' · full snapshot is dated; next owned pre-open check must refresh it before any order')
+    return [replacements.get(row.key, row) for row in rows]
+
+
 def build_panel(*, state_dir: Path, database_url: str,
                 now: Optional[datetime] = None, shadow_observer=None) -> model.Panel:
     """Assemble the whole page.
@@ -4431,6 +4644,7 @@ def build_panel(*, state_dir: Path, database_url: str,
         *automation_rows[2:],
     ]
     completed_at = fixed_now or datetime.now(timezone.utc)
+    rows = _project_missed_open_idle(rows, now=completed_at, source_errors=errors)
     return model.Panel(rows=[_utc_row(row) for row in rows], now=completed_at,
                        source_errors=errors, financial_source_errors=financial_error_owners,
                        trial_details={**trial_details, **worker_diagnostics},

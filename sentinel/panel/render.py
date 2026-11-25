@@ -209,13 +209,18 @@ STATIC_ASSETS = {
 
 
 def _row_html(r: Row, now: datetime, *, refresh_pending: bool = False, current: bool = True,
-              activation_pending: bool = False) -> str:
+              activation_pending: bool = False, historical_warning: bool = False) -> str:
     st = r.effective_status(now)
     label, value, explanation = describe(r, st, now=now if current and not refresh_pending else None)
     # Retained HTML is presentation only. Mutating an OK required-current row
     # to WARN would make the authority classifier invent a failure.
     display_status = ('neutral' if not current or refresh_pending and st not in {FAIL, UNKNOWN, PENDING}
                       else PENDING if activation_pending else st)
+    if (historical_warning and current and not refresh_pending and not activation_pending
+            and st in {FAIL, UNKNOWN}):
+        # The exact continuity witness may classify an old failure as a current
+        # review warning. Keep the original verdict and clock in the row data.
+        display_status = WARN
     if activation_pending:
         value = 'Awaiting PAPER activation'
     detail = r.detail
@@ -467,7 +472,6 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
         health_until = datetime.fromisoformat(health['valid_until'])
         document_age = min(document_age, max(0, (health_until-now).total_seconds()))
     refresh_limit_ms = min(30, max(5, refresh_seconds)) * 1000
-    overall = panel.overall
     operational = panel.operational
     if health['color'] == 'neutral':
         headline_status = 'neutral'
@@ -493,26 +497,12 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     details = _detail_sections(panel)
     shadow = panel.row("shadow_verification")
     rendered_rows = panel.rows
+    historical_warning_keys = (frozenset(
+        (health.get('trading_continuity') or {}).get('warning_keys') or ())
+        if health['color'] == 'amber' else frozenset())
     if shadow is not None:
-        # A PAPER mismatch makes the overall operation red, but it must never
-        # relabel an independently current shadow result.  The green shadow row
-        # remains visible directly below the red operational badge.
-        shadow_status = shadow.effective_status(now)
-        if health['status'] == WARN and current_activation_fee_wait(panel) is not None:
-            trial_status = WARN
-            trial_headline = 'PAPER ACTIVATION PENDING'
-        elif overall in {FAIL, UNKNOWN}:
-            trial_status = FAIL
-            trial_headline = "OPERATIONAL RED — REVIEW REQUIRED"
-        elif overall == WARN:
-            trial_status = WARN
-            trial_headline = "OPERATIONAL AMBER — PAPER EVIDENCE PENDING"
-        elif shadow_status == OK:
-            trial_status = OK
-            trial_headline = "SHADOW VERIFIED · PAPER MONITORED"
-        else:
-            trial_status = FAIL
-            trial_headline = shadow.value
+        # The independent shadow verdict remains visible in its own row. The
+        # current trading headline comes from the continuity projection.
         page_name = "Caesar's Palace"
         footer_authority = (
             "Strategy results come from the checked simulated portfolio. Alpaca paper holdings are shown separately.")
@@ -543,12 +533,13 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
         page_name = "Caesar's Palace"
         footer_authority = (
             "Paper account results are shown as checked or unverified.")
-    stale_headline = "STATUS NOT CURRENT — LAST KNOWN VALUES"
+    stale_headline = "TRADING STATUS UNKNOWN — LAST KNOWN VALUES"
     if refresh_pending:
         headline_status = 'neutral'
         operational_headline = 'UPDATING STATUS — LAST KNOWN VALUES BELOW'
     rows = "".join(_row_html(r, now, refresh_pending=refresh_pending,
-        current=delivery.row_current(panel, r), activation_pending=activation_wait_withdraws(panel, r))
+        current=delivery.row_current(panel, r), activation_pending=activation_wait_withdraws(panel, r),
+        historical_warning=r.key in historical_warning_keys)
         for r in rendered_rows)
     overview = overview_html(panel, refresh_pending=refresh_pending)
     review_html = render_review(panel.operator_review,
@@ -559,7 +550,8 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
         if (status in {FAIL, UNKNOWN} and delivery.row_current(panel, row)
                 and not activation_wait_history(panel, row)):
             label, value, _ = describe(row, status)
-            reasons.append(f'<li><a href="#status-{_esc(row.key)}" '
+            kind = ' class="review-warning"' if row.key in historical_warning_keys else ''
+            reasons.append(f'<li{kind}><a href="#status-{_esc(row.key)}" '
                            'onclick="document.getElementById(\'system-details\').open=true">'
                            f'{_esc(label)}: {_esc(value)}</a></li>')
     reason_html = ('<section class="status-reasons" aria-label="Checks needing attention">'

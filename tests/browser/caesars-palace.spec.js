@@ -370,7 +370,7 @@ test.describe('App resume presentation', () => {
       await page.clock.runFor(2);
       await expect(page.locator('#operational-state')).toHaveClass('state neutral');
       await expect(page.locator('html')).toHaveClass('not-current');
-      await expect(page.locator('#operational-state')).toContainText('STATUS NOT CURRENT');
+      await expect(page.locator('#operational-state')).toContainText('TRADING STATUS UNKNOWN — LAST KNOWN VALUES');
       expect(fixture.requests).toHaveLength(1);
       expect(await page.locator('body').getAttribute('data-generated-at')).toBe(original);
     } finally { await fixture.close(); }
@@ -475,7 +475,7 @@ test.describe('App resume presentation', () => {
           await page.clock.runFor(15001);
           await expect(page.locator('#operational-state')).toHaveClass('state neutral');
           await expect(page.locator('html')).toHaveClass('not-current');
-          await expect(page.locator('#operational-state')).toContainText('STATUS NOT CURRENT');
+          await expect(page.locator('#operational-state')).toContainText('TRADING STATUS UNKNOWN — LAST KNOWN VALUES');
         } else {
           await page.evaluate(() => { Date.now = window.__resumeRealNow; });
           release();
@@ -584,7 +584,7 @@ test.describe("Caesar's Palace on iPhone WebKit", () => {
     await context.setOffline(true);
 
     await expect(page.locator("#dashboard-heartbeat")).toContainText("UNAVAILABLE");
-    await expect(page.locator("#operational-state")).toContainText("STATUS NOT CURRENT");
+    await expect(page.locator("#operational-state")).toContainText("TRADING STATUS UNKNOWN — LAST KNOWN VALUES");
     await context.setOffline(false);
   });
 });

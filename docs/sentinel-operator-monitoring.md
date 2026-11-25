@@ -68,6 +68,12 @@ unacknowledged incidents remain visible.
 
 ## 2. One recoverability policy
 
+[Trading continuity and panic status](dashboard-trading-continuity.md)
+supersedes the older mapping of every required-row failure to a red human
+headline, red push, or 503 operational response. The raw row and execution
+contract are unchanged; the current trading-continuity projection decides
+whether a condition is a present unattended stop or a warning/review item.
+
 Every operational fact is classified by the same pure policy. The rendering
 colors, `/panel.json`, `/operational-health`, and notification eligibility all
 consume this result.

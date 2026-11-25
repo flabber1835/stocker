@@ -1,5 +1,6 @@
 """Backed application roll preserves the legacy path and requires real proof."""
 from copy import deepcopy
+import hashlib
 import importlib
 import inspect
 import json
@@ -93,6 +94,67 @@ def test_exact_compose_guard_has_executed_falsifier(verifier_grace_host, monkeyp
     monkeypatch.setattr(patch, '_allowed_compose_change', lambda *_: True)
     with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
         test_backed_installer_refuses_unqualified_verifier_grace_changes(verifier_grace_host, 'other_change')
+
+
+def _verifier_config_pair():
+    name = 'docker-compose.sentinel-automation.yml'
+    candidate = (ROOT / name).read_bytes()
+    assert hashlib.sha256(candidate).hexdigest() == patch._VERIFIER_CONFIG_CANDIDATE_SHA256
+    assert candidate.count(patch._VERIFIER_CONFIG_FORWARDING) == 1
+    original = candidate.replace(patch._VERIFIER_CONFIG_FORWARDING, b'', 1)
+    assert hashlib.sha256(original).hexdigest() == patch._VERIFIER_CONFIG_PREDECESSOR_SHA256
+    return name, original, candidate
+
+
+def test_backed_installer_accepts_exact_verifier_config_forwarding(tmp_path):
+    host, name, original, candidate = _backed_compose_host(
+        tmp_path, *_verifier_config_pair())
+    assert patch._allowed_compose_change(name, original, candidate)
+    assert not patch._allowed_compose_change('docker-compose.sentinel.yml',
+                                             original, candidate)
+    host.verify_compose('predecessor')
+    host.install_compose()
+    host.install_compose()
+    host.verify_compose('candidate')
+    assert (host.deployment / name).read_bytes() == candidate
+
+
+@pytest.mark.parametrize('fault', [
+    'other_change', 'changed_config', 'broker_key', 'wrong_predecessor',
+    'unqualified', 'unapproved',
+])
+def test_backed_installer_refuses_other_verifier_config_changes(tmp_path, fault):
+    name, original, candidate = _verifier_config_pair()
+    if fault == 'other_change':
+        candidate += b'\n# unrelated Compose edit\n'
+    elif fault == 'changed_config':
+        candidate = candidate.replace(
+            b'SENTINEL_AUTOMATION_PUBLICATION_DELAY_SECONDS:-900',
+            b'SENTINEL_AUTOMATION_PUBLICATION_DELAY_SECONDS:-901', 1)
+    elif fault == 'broker_key':
+        candidate = candidate.replace(
+            patch._VERIFIER_CONFIG_FORWARDING,
+            patch._VERIFIER_CONFIG_FORWARDING + b'      ALPACA_API_KEY: injected\n', 1)
+    elif fault == 'wrong_predecessor':
+        original += b'\n# unrelated predecessor edit\n'
+    host, name, original, _ = _backed_compose_host(
+        tmp_path, name, original, candidate)
+    if fault == 'unqualified':
+        host.request['qualification']['source_files'][name] = '0' * 64
+    elif fault == 'unapproved':
+        host.request['allowed_delta'] = []
+    for action in (lambda: host.verify_compose('predecessor'), host.install_compose):
+        with pytest.raises(patch.DeliveryRefused,
+                           match='BACKED_COMPOSITION_CHANGE_REFUSED'):
+            action()
+    assert (host.deployment / name).read_bytes() == original
+
+
+def test_verifier_config_bytes_guard_has_executed_falsifier(tmp_path, monkeypatch):
+    monkeypatch.setattr(patch, '_allowed_compose_change', lambda *_: True)
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_backed_installer_refuses_other_verifier_config_changes(
+            tmp_path, 'other_change')
 
 
 def _automation_cpu_pair():

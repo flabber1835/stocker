@@ -467,6 +467,33 @@ def test_home_screen_heartbeat_and_service_worker_fail_closed() -> None:
     assert "OPERATIONAL RED — OFFLINE" not in SERVICE_WORKER
 
 
+def test_historical_warning_stays_visible_without_a_red_panic_row(monkeypatch) -> None:
+    module = importlib.import_module("sentinel.panel.render")
+    page = model.Panel(rows=[
+        model.Row("automation_cycle", "Missed cycle", "SUPERSEDED", FAIL),
+        model.Row("backup_restore", "Backup", "PROOF FAILED", FAIL),
+    ], now=NOW)
+    monkeypatch.setattr(module, "dashboard_health", lambda _page: {
+        "status": WARN, "color": "amber", "label": "Review missed session",
+        "valid_until": None,
+        "trading_continuity": {"warning_keys": ["automation_cycle"]},
+    })
+    html = module.render(page)
+    assert 'class="row warn" id="status-automation_cycle"' in html
+    assert 'data-key="automation_cycle" data-status="warn"' in html
+    assert 'data-original-status="fail"' in html
+    assert '<li class="review-warning"><a href="#status-automation_cycle"' in html
+    assert 'class="row fail" id="status-backup_restore"' in html
+    assert '<li><a href="#status-backup_restore"' in html
+    monkeypatch.setattr(module, "dashboard_health", lambda _page: {
+        "status": FAIL, "color": "red", "label": "Trading stopped",
+        "valid_until": None,
+        "trading_continuity": {"warning_keys": ["automation_cycle"]},
+    })
+    blocked = module.render(page)
+    assert 'class="row fail" id="status-automation_cycle"' in blocked
+
+
 def test_notification_permission_is_requested_only_inside_button_gesture() -> None:
     before_click, click_handler = PUSH_SCRIPT.split(
         'enable.addEventListener("click"', 1)

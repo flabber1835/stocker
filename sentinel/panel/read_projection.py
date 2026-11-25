@@ -128,7 +128,7 @@ def subject_for(database_url, include_paper):
 
 def _json_row(row):
     raw = observer_codec.pack([row], [], observed_at=datetime.now(timezone.utc))['rows'][0]
-    for key in ('as_of', 'valid_until'):
+    for key in ('as_of', 'valid_until', 'next_eligible_decision_at'):
         if raw.get(key) is not None:
             raw[key] = raw[key].isoformat()
     if raw.get('freshness') is not None:
@@ -142,7 +142,7 @@ def _json_row(row):
 
 def _decode_row(value):
     raw = dict(value)
-    for key in ('as_of','valid_until'):
+    for key in ('as_of','valid_until','next_eligible_decision_at'):
         if raw.get(key) is not None:
             raw[key] = datetime.fromisoformat(raw[key])
     if raw.get('freshness') is not None:

@@ -227,7 +227,10 @@ def test_machine_noncurrent_response_explains_signed_handoff_without_granting_he
         response = client.get('/operational-health')
     body = response.json()
     assert response.status_code == 503 and response.headers['retry-after'] == '2'
-    assert body['status'] == model.UNKNOWN and body['current'] is False
+    assert (body['status'], body['color'], body['current']) == ('pending', 'neutral', False)
+    assert (body['strict_operational'], body['strict_color']) == (model.UNKNOWN, 'neutral')
+    assert body['trading_continuity']['status'] == 'pending'
+    assert body['reason_codes'] == ['STATUS_UNKNOWN'] and body['next_action'] is None
     assert body['observation'] == {
         'display_current': not retained, 'retained': retained,
         'changed_scopes': list(changed), 'generated_at': NOW.isoformat(),

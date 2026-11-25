@@ -235,7 +235,9 @@ def test_history_human_health_json_does_not_rewrite_financial_or_machine_verdict
     with TestClient(app.app) as client:
         body = client.get('/panel.json').json()
     audit = next(row for row in body['rows'] if row['key']=='paper_reconciliation')
-    assert (body['overall'],body['operational'],body['color'])==('warn','warn','amber')
+    assert (body['overall'],body['operational'],body['color'],body['strict_color']) == (
+        'warn', 'warn', 'green', 'amber')
+    assert body['trading_continuity']['color'] == body['dashboard_health']['color']
     assert body['dashboard_health']['color']=='green'
     assert (audit['status'],audit['color'],audit['paper_alignment'])==('warn','amber','SCHEDULED_WITH_HISTORY')
     assert audit['value']==page.row('paper_reconciliation').value
