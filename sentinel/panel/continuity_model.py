@@ -27,7 +27,7 @@ class TradingContinuity(BaseModel):
     model_config = ConfigDict(extra='forbid', frozen=True)
 
     status: Literal['ok', 'warn', 'fail', 'pending']
-    color: Literal['green', 'amber', 'red', 'neutral']
+    color: Literal['green', 'amber', 'red', 'neutral', 'blue']
     reason_codes: tuple[ReasonCode, ...]
     blocking_keys: tuple[str, ...]
     warning_keys: tuple[str, ...]
@@ -38,8 +38,9 @@ class TradingContinuity(BaseModel):
 
     @model_validator(mode='after')
     def coherent(self):
-        if self.color != {'ok': 'green', 'warn': 'amber',
-                          'fail': 'red', 'pending': 'neutral'}[self.status]:
+        if (self.color not in {'neutral', 'blue'} if self.status == 'pending' else
+                self.color != {'ok': 'green', 'warn': 'amber',
+                               'fail': 'red'}[self.status]):
             raise ValueError('continuity status and color disagree')
         if any(clock.utcoffset() is None for clock in
                (*self.evidence_times.values(), self.valid_until,

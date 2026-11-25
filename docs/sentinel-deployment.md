@@ -1,5 +1,9 @@
 # Sentinel current operating contract
 
+[November 25 opening status](nov25-opening-status.md) distinguishes a proved
+missed BUY-only opening from an unconfirmed required sale and keeps routine
+refreshes outside the incident color and acknowledgement contract.
+
 [November 24 close efficiency](nov24-close-efficiency.md) records the proven
 expected-key sort fix and the separate costs that still require attribution.
 

@@ -694,6 +694,59 @@ def _opening_cutoff_diagnostic(conn, plan, clean):
     return clean, model.OPENING_CUTOFF, row[0] if row else None
 
 
+def _planned_buy_proven_unsent(conn, order, *, execute_at, completed_at):
+    """A PLANNED BUY is harmless only with its exact no-transport event chain."""
+    if (order.state != 'PLANNED' or order.side != 'BUY'
+            or order.broker_order_id is not None or order.filled_quantity != 0):
+        return False
+    events = conn.execute(
+        'SELECT from_state,to_state,filled_quantity,detail,at '
+        'FROM sentinel_command_events WHERE client_key=%s ORDER BY seq LIMIT 101',
+        (order.client_key,)).fetchall()
+    if not events or len(events) > 100:
+        return False
+    first = events[0]
+    if (first[0] is not None or first[1] != 'PLANNED' or first[2] != 0
+            or not isinstance(first[4], datetime)
+            or not execute_at <= first[4] <= completed_at):
+        return False
+    pending = False
+    previous_at = first[4]
+    for source, target, filled, detail, at in events[1:]:
+        if (filled != 0 or not isinstance(at, datetime)
+                or not previous_at <= at <= completed_at):
+            return False
+        if not pending and (source, target) == ('PLANNED', 'SEND_PENDING'):
+            pending = True
+        elif (pending and (source, target) == ('SEND_PENDING', 'PLANNED')
+              and isinstance(detail, str)
+              and detail.startswith('PRE_TRANSPORT_CHECKPOINT_RESTORED: ')):
+            pending = False
+        else:
+            return False
+        previous_at = at
+    return not pending
+
+
+def _no_planned_buy_native_match(payload, planned_keys):
+    """A restored checkpoint is not proof if native list or exact GET found it."""
+    if not planned_keys:
+        return True
+    orders, exact = payload.get('orders'), payload.get('exact_evidence')
+    if not isinstance(orders, list) or not isinstance(exact, list):
+        return False
+    if any(not isinstance(order, Mapping)
+           or not isinstance(order.get('client_key'), str)
+           or order['client_key'] in planned_keys for order in orders):
+        return False
+    return not any(not isinstance(item, Mapping)
+        or not isinstance(item.get('client_key'), str)
+        or item['client_key'] in planned_keys and item.get('order') is not None
+        or isinstance(item.get('order'), Mapping)
+            and item['order'].get('client_key') in planned_keys
+        for item in exact)
+
+
 def _opening_cutoff_progress(conn, plan, run, terminal, notional_by_security):
     """Read partial-run history only from exact terminal economics and clean journal proof."""
     from sentinel import local_paper
@@ -710,8 +763,7 @@ def _opening_cutoff_progress(conn, plan, run, terminal, notional_by_security):
             or not isinstance(diagnostic.get('expected'), dict)
             or not isinstance(clean, (int, str)) or isinstance(clean, bool)
             or not str(clean).isdigit() or not 0 < int(clean) < 2**63
-            or diagnostic.get('observation_id') != int(clean)
-            or any(CommandState(order.state) not in TERMINAL for order in run.orders)):
+            or diagnostic.get('observation_id') != int(clean)):
         return None
     raw = diagnostic.get('actionable_deltas')
     if not isinstance(raw, list) or not 0 < len(raw) <= 100:
@@ -741,6 +793,15 @@ def _opening_cutoff_progress(conn, plan, run, terminal, notional_by_security):
                 quantity=remaining.copy_abs() if remaining else None, notional=notional)
         except (ValueError, ArithmeticError):
             return None
+    if any(CommandState(order.state) not in TERMINAL and not (
+            order.security_id in unsent and unsent[order.security_id].side == 'BUY'
+            and (order.quantity, order.notional) == (
+                unsent[order.security_id].quantity,
+                unsent[order.security_id].notional)
+            and _planned_buy_proven_unsent(conn, order,
+                execute_at=run.intent.execute_at, completed_at=run.completed_at))
+            for order in run.orders):
+        return None
     observed = conn.execute('SELECT observed_at,runtime_state,completeness FROM sentinel_observations '
                             'WHERE seq=%s', (int(clean),)).fetchone()
     if (observed is None or observed[1:] != ('RUNNING', 'COMPLETE')
@@ -748,9 +809,11 @@ def _opening_cutoff_progress(conn, plan, run, terminal, notional_by_security):
             or run.updated_at > run.completed_at):
         return None
     payload = journal.load_observation_payload(conn, int(clean))
+    planned_keys = {order.client_key for order in run.orders if order.state == 'PLANNED'}
     if (payload.get('completeness') != 'COMPLETE'
             or (payload.get('broker'), payload.get('account_id')) != (plan['broker'], plan['broker_account_id'])
-            or any(CommandState(order['state']) not in TERMINAL for order in payload['orders'])):
+            or any(CommandState(order['state']) not in TERMINAL for order in payload['orders'])
+            or not _no_planned_buy_native_match(payload, planned_keys)):
         return None
     from sentinel.paper_plan_preview import quantity
     positions = {item['security_id']: quantity(item['quantity']) for item in payload['positions']}
@@ -3060,10 +3123,40 @@ class MissedOpenUnattendedWait:
     cycle_updated_at: datetime
     next_decision_at: datetime
     recovery: model.RecoveryEvidence
+    partial_buy_only: bool = False
+    opening: model.OpeningEvidence | None = None
+
+
+def _partial_buy_only_cutoff_run(conn, cycle, *, now):
+    """Return only a clean dated cutoff with no required sale left unfinished."""
+    row = _current_trading_run(conn)
+    if (row is None or row.status != model.FAIL or not row.has_opening_cutoff(now)
+            or row.as_of != cycle['updated_at']
+            or row.trading_run.intent.cycle_id != cycle['cycle_id']
+            or row.trading_run.intent.plan_id != cycle.get('plan_id')
+            or cycle.get('completed_at') != row.trading_run.completed_at
+            or any(delta.side != 'BUY' for delta in row.trading_run.unsent_at_cutoff.values())):
+        return None
+    return row if row.trading_run.required_sales_filled() else None
+
+
+def _cutoff_planned_buys_are_only_active_commands(conn, run, commands):
+    """Match the global active journal set to the no-transport BUY identities."""
+    planned = {order.client_key for order in run.orders if order.state == 'PLANNED'}
+    if commands['counts'] != ({'PLANNED': len(planned)} if planned else {}):
+        return False
+    if not planned:
+        return True
+    rows = conn.execute(
+        'SELECT client_key,state FROM sentinel_commands '
+        'WHERE state=ANY(%s) ORDER BY client_key LIMIT 101',
+        (list(_ACTIVE_COMMAND_STATES),)).fetchall()
+    return (len(rows) == len(planned)
+            and {key for key, state in rows if state == 'PLANNED'} == planned)
 
 
 def _recoverable_superseded_wait(conn, cycle) -> MissedOpenUnattendedWait | None:
-    """Prove an unsent missed opening has an owned, hazard-free next decision.
+    """Prove a no-send or clean partial BUY miss has a safe next decision.
 
     This is display evidence only. It never adopts a plan, grants execution
     authority, or refreshes the saved full broker observation.
@@ -3074,7 +3167,9 @@ def _recoverable_superseded_wait(conn, cycle) -> MissedOpenUnattendedWait | None
     if (not cycle or cycle.get('state') != 'SUPERSEDED'
             or cycle.get('failure_code') not in missed_codes
             or type(cycle.get('attempt_count')) is not int
-            or cycle['attempt_count'] != 0
+            or cycle['attempt_count'] < 0
+            or (cycle['attempt_count'] > 0
+                and cycle['failure_code'] != 'MAX_EXECUTION_LATENESS_EXCEEDED')
             or cycle.get('terminal_reason') is not None
             or not isinstance(cycle.get('updated_at'), datetime)):
         return None
@@ -3111,7 +3206,7 @@ def _recoverable_superseded_wait(conn, cycle) -> MissedOpenUnattendedWait | None
     if (control.binding is None or previous is None
             or previous.state is not CycleState.SUPERSEDED
             or previous.failure_code != cycle['failure_code']
-            or previous.attempt_count != 0
+            or previous.attempt_count != cycle['attempt_count']
             or previous.historical_state_only
             or previous.updated_at != cycle['updated_at']
             or control.generation != health.control_generation
@@ -3131,15 +3226,24 @@ def _recoverable_superseded_wait(conn, cycle) -> MissedOpenUnattendedWait | None
     elif (previous.control_generation != control.generation
             or previous.config_sha256 != control.config_sha256):
         return None
-    try:
-        unsent_recovery.require_unsent(
-            conn, [previous], binding=control.binding,
-            effective_session=previous.effective_session)
-    except AutomationRefused:
-        return None
+    partial_run = None
+    if cycle['attempt_count'] == 0:
+        try:
+            unsent_recovery.require_unsent(
+                conn, [previous], binding=control.binding,
+                effective_session=previous.effective_session)
+        except AutomationRefused:
+            return None
+    else:
+        partial_run = _partial_buy_only_cutoff_run(conn, cycle, now=now)
+        if partial_run is None:
+            return None
     commands = _active_commands(conn)
     observation = _latest_observation(conn)
-    if (commands['counts'] or observation is None
+    active_clear = (not commands['counts'] if partial_run is None else
+        _cutoff_planned_buys_are_only_active_commands(
+            conn, partial_run.trading_run, commands))
+    if (not active_clear or observation is None
             or observation['completeness'] != 'COMPLETE'
             or observation['runtime_state'] != 'RUNNING'
             or observation['observed_at'] is None
@@ -3149,6 +3253,21 @@ def _recoverable_superseded_wait(conn, cycle) -> MissedOpenUnattendedWait | None
                        'FILLED', 'CANCELLED', 'REJECTED', 'EXPIRED', 'SUPERSEDED'}
                    for order in observation['orders'])):
         return None
+    if partial_run is not None:
+        from sentinel.execution import journal
+
+        opening = partial_run.operational_fact.opening
+        if (observation['sequence'] < opening.observation_id
+                or observation['observed_at'] < opening.reconciled_at):
+            return None
+        latest_payload = journal.load_observation_payload(conn, observation['sequence'])
+        planned_keys = {item.client_key for item in partial_run.trading_run.orders
+                        if item.state == 'PLANNED'}
+        if (latest_payload.get('completeness') != 'COMPLETE'
+                or (latest_payload.get('broker'), latest_payload.get('account_id'))
+                    != (health.broker, health.broker_account_id)
+                or not _no_planned_buy_native_match(latest_payload, planned_keys)):
+            return None
     account = _latest_account_evidence(conn)
     if account is None:
         return None
@@ -3185,7 +3304,11 @@ def _recoverable_superseded_wait(conn, cycle) -> MissedOpenUnattendedWait | None
         next_decision_at=next_decision,
         recovery=model.RecoveryEvidence(
             phase='AWAITING_NEXT_DECISION', automatic=True,
-            next_attempt_at=poll.next_attempt_at, deadline=deadline))
+            next_attempt_at=poll.next_attempt_at, deadline=deadline),
+        partial_buy_only=partial_run is not None,
+        opening=(partial_run.operational_fact.opening.model_copy(update={
+            'terminal_reason': None, 'reconciled_at': None})
+            if partial_run is not None else None))
 
 
 def _retired_local_paper_failure(conn) -> Optional[RetiredPaperFailureEligibility]:
@@ -3400,19 +3523,27 @@ def _dual_paper_row(conn, *, informational_paper_mirror, publication,
         if safe_wait is not None:
             return model.Row(
                 'paper_reconciliation', 'Alpaca PAPER mirror',
-                'PAPER NOT VERIFIED · OPEN MISSED · NEXT DECISION SCHEDULED',
+                'PAPER NOT VERIFIED · BUY MISSED · NEXT DECISION SCHEDULED'
+                    if safe_wait.partial_buy_only else
+                    'PAPER NOT VERIFIED · OPEN MISSED · NEXT DECISION SCHEDULED',
                 model.WARN,
-                'The scheduled opening was missed without sending an order; '
+                ('The scheduled opening filled its required sales, but a purchase was missed; '
+                 if safe_wait.partial_buy_only else
+                 'The scheduled opening was missed without sending an order; ')
+                +
                 'the current worker owns the next scheduled decision. '
                 'The old PAPER result remains unverified.',
                 as_of=safe_wait.cycle_updated_at,
                 required_current=True,
                 valid_until=safe_wait.recovery.deadline,
                 recovery=safe_wait.recovery,
-                paper_alignment='MISSED_OPEN_UNATTENDED',
+                paper_alignment=('MISSED_OPEN_BUY_ONLY' if safe_wait.partial_buy_only
+                                 else 'MISSED_OPEN_UNATTENDED'),
                 next_eligible_decision_at=safe_wait.next_decision_at,
                 operational_fact=model.OperationalFact(
-                    kind='PAPER_VERIFICATION', state='PENDING'))
+                    kind='PAPER_VERIFICATION',
+                    state='AWAITING_NEXT_DECISION' if safe_wait.partial_buy_only else 'PENDING',
+                    opening=safe_wait.opening))
         clean_skip = _clean_cash_supersession(conn, cycle)
         if clean_skip is not None:
             fact, observed, boundary, _ = clean_skip
@@ -4511,18 +4642,36 @@ def trading_environment_row(base_url: str) -> model.Row:
 def _project_missed_open_idle(
         rows: list[model.Row], *, now: datetime,
         source_errors: list[str]) -> list[model.Row]:
-    """Show one signed, proved old missed open as history, never a live halt.
+    """Show one signed, proved missed open as history, never a live halt.
 
-    The financial observer has already proved the original cycle was unsent and
-    the current generation owns the next decision. Other source rows must still
-    agree on current policy, authority, account and the dated broker snapshot.
+    The financial observer proved either no send or a BUY-only cutoff and the
+    current worker owns the next decision. Other current rows must agree.
     """
     if source_errors or len({row.key for row in rows}) != len(rows):
         return rows
     by_key = {row.key: row for row in rows}
     paper, cycle, broker = (by_key.get(key) for key in (
         'paper_reconciliation', 'automation_cycle', 'broker'))
-    if (paper is None or paper.paper_alignment != 'MISSED_OPEN_UNATTENDED'
+    partial = paper is not None and paper.paper_alignment == 'MISSED_OPEN_BUY_ONLY'
+    run = by_key.get('trading_run')
+    paper_opening = (paper.operational_fact.opening if partial
+                     and paper.operational_fact is not None else None)
+    run_opening = (run.operational_fact.opening if partial and run is not None
+                   and run.operational_fact is not None else None)
+    planned = (sum(order.state == 'PLANNED' for order in run.trading_run.orders)
+               if partial and run is not None and run.trading_run is not None else 0)
+    partial_run_valid = bool(partial and run is not None and run.status == model.FAIL
+        and run.has_opening_cutoff(now) and run.as_of == paper.as_of
+        and paper.operational_fact is not None
+        and paper.operational_fact.kind == 'PAPER_VERIFICATION'
+        and paper.operational_fact.state == 'AWAITING_NEXT_DECISION'
+        and paper_opening is not None and run_opening is not None
+        and (paper_opening.cycle_id, paper_opening.plan_id, paper_opening.observation_id)
+            == (run_opening.cycle_id, run_opening.plan_id, run_opening.observation_id)
+        and all(delta.side == 'BUY' for delta in run.trading_run.unsent_at_cutoff.values())
+        and run.trading_run.required_sales_filled())
+    if (paper is None or paper.paper_alignment not in {
+                'MISSED_OPEN_UNATTENDED', 'MISSED_OPEN_BUY_ONLY'}
             or paper.effective_status(now) != model.WARN
             or paper.recovery is None or paper.next_eligible_decision_at is None
             or cycle is None or cycle.status != model.FAIL
@@ -4533,19 +4682,29 @@ def _project_missed_open_idle(
             or broker is None or broker.status != model.OK
             or broker.recovery is not None or broker.as_of is None
             or broker.is_future(now)
-            or any(type(count) is not int or count != 0 for count in (
-                broker.broker_working_orders, broker.broker_active_commands,
-                broker.broker_uncertain_commands))
+             or broker.broker_working_orders != 0
+             or broker.broker_active_commands != (planned if partial else 0)
+             or broker.broker_uncertain_commands != 0
             or any((row := by_key.get(key)) is None
                    or row.effective_status(now) != model.OK
                    for key in ('automation', 'automation_leader',
                                'authority', 'alpaca_account'))
-            or (run := by_key.get('trading_run')) is not None
-                and run.status not in {model.PENDING, model.OK}):
+             or (not partial and run is not None
+                 and run.status not in {model.PENDING, model.OK})
+             or partial and not partial_run_valid):
         return rows
     steps = [by_key.get(key) for key in (
-        'automation_step_open', 'automation_step_complete')]
-    if any(row is None or row.status != model.FAIL or row.as_of != cycle.as_of
+        ('automation_step_transport', 'automation_step_reconcile', 'automation_step_complete')
+        if partial else ('automation_step_open', 'automation_step_complete'))]
+    if partial:
+        if any(step is None for step in steps):
+            return rows
+        steps = [step for step in steps if step is not None and step.status == model.FAIL]
+        if not steps or not any(step.key == 'automation_step_complete' for step in steps):
+            return rows
+    if any(row is None or row.status != model.FAIL
+           or (row.as_of != cycle.as_of if not partial else row.as_of is None
+               or row.as_of > cycle.as_of)
            or row.operational_fact is None
            or row.operational_fact.kind != 'AUTOMATION_CYCLE'
            or row.operational_fact.state != 'SUPERSEDED'
@@ -4557,6 +4716,10 @@ def _project_missed_open_idle(
                          detail=row.detail + ' · missed old opening; current worker owns next decision')
         for row in (cycle, *steps)
     }
+    if partial:
+        replacements['trading_run'] = replace(
+            run, status=model.WARN, recovery=paper.recovery,
+            detail=run.detail + ' · required sales filled; unsent purchases missed the window')
     if broker.is_stale(now):
         replacements['broker'] = replace(
             broker, status=model.WARN,

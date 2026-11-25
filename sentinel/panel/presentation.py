@@ -1197,8 +1197,28 @@ def _missed_open_witness(panel) -> Row | None:
     paper = panel.row('paper_reconciliation')
     cycle = panel.row('automation_cycle')
     broker = panel.row('broker')
+    partial = paper is not None and paper.paper_alignment == 'MISSED_OPEN_BUY_ONLY'
+    trading = panel.row('trading_run')
+    paper_opening = (paper.operational_fact.opening if partial
+                     and paper.operational_fact is not None else None)
+    run_opening = (trading.operational_fact.opening if partial and trading is not None
+                   and trading.operational_fact is not None else None)
+    partial_run_valid = bool(partial and trading is not None
+        and trading.status == 'warn' and trading.has_opening_cutoff(panel.now)
+        and trading.as_of == paper.as_of and row_current(panel, trading)
+        and paper.operational_fact is not None
+        and paper.operational_fact.kind == 'PAPER_VERIFICATION'
+        and paper.operational_fact.state == 'AWAITING_NEXT_DECISION'
+        and paper_opening is not None and run_opening is not None
+        and (paper_opening.cycle_id, paper_opening.plan_id, paper_opening.observation_id)
+            == (run_opening.cycle_id, run_opening.plan_id, run_opening.observation_id)
+        and all(delta.side == 'BUY' for delta in trading.trading_run.unsent_at_cutoff.values())
+        and trading.trading_run.required_sales_filled())
+    planned = (sum(order.state == 'PLANNED' for order in trading.trading_run.orders)
+               if partial_run_valid else 0)
     if (not panel.local_paper_mode or paper is None or cycle is None
-            or paper.paper_alignment != 'MISSED_OPEN_UNATTENDED'
+            or paper.paper_alignment not in {'MISSED_OPEN_UNATTENDED', 'MISSED_OPEN_BUY_ONLY'}
+            or partial and not partial_run_valid
             or paper.effective_status(panel.now) != 'warn'
             or not row_current(panel, paper)
             or paper.recovery is None or not paper.recovery.active(panel.now)
@@ -1217,9 +1237,9 @@ def _missed_open_witness(panel) -> Row | None:
             or not _current_health_fact(panel, 'alpaca_account')
             or broker is None or not row_current(panel, broker)
             or broker.effective_status(panel.now) not in {'ok', 'warn'}
-            or any(type(count) is not int or count != 0 for count in (
-                broker.broker_working_orders, broker.broker_active_commands,
-                broker.broker_uncertain_commands))
+            or broker.broker_working_orders != 0
+            or broker.broker_active_commands != planned
+            or broker.broker_uncertain_commands != 0
             or (broker.status == 'warn' and (
                 broker.recovery is None
                 or broker.recovery.phase != 'BROKER_NEXT_PREFLIGHT'
@@ -1232,22 +1252,59 @@ def _missed_open_witness(panel) -> Row | None:
                    or step.operational_fact is None
                    or (step.operational_fact.kind, step.operational_fact.state)
                        != ('AUTOMATION_CYCLE', 'SUPERSEDED')
-                   for key in ('automation_step_open', 'automation_step_complete'))):
+                   for key in (('automation_step_complete',) if partial else
+                               ('automation_step_open', 'automation_step_complete')))
+            or partial and any((step := panel.row(key)) is None
+                   or not row_current(panel, step)
+                   or step.effective_status(panel.now) not in {'ok', 'warn'}
+                   or step.effective_status(panel.now) == 'warn'
+                       and not _missed_buy_history_warning(panel, step, paper)
+                   for key in ('automation_step_transport', 'automation_step_reconcile'))):
         return None
     return paper
+
+
+def _missed_buy_history_warning(panel, row: Row, paper: Row) -> bool:
+    """Only this exact terminal cycle's dated warning can be reviewed away."""
+    if row.status != 'warn':
+        return False
+    if row.key == 'paper_reconciliation':
+        return row is paper
+    if row.key == 'broker':
+        return (row.is_stale(panel.now) and row.recovery is not None
+                and row.recovery.phase == 'BROKER_NEXT_PREFLIGHT'
+                and row.recovery.active(panel.now))
+    if row.key == 'trading_run':
+        return (row.has_opening_cutoff(panel.now) and row.as_of == paper.as_of
+                and row.trading_run.required_sales_filled())
+    if row.key not in {'automation_cycle', 'automation_step_transport',
+                       'automation_step_reconcile', 'automation_step_complete'}:
+        return False
+    fact = row.operational_fact
+    return (fact is not None and (fact.kind, fact.state) == ('AUTOMATION_CYCLE', 'SUPERSEDED')
+            and row.recovery == paper.recovery and _aware(row.as_of)
+            and row.as_of <= paper.as_of
+            and (row.as_of == paper.as_of if row.key in {
+                'automation_cycle', 'automation_step_complete'} else True))
 
 
 def _health_facts(panel, classifications, *, boundaries) -> dict:
     active = ['backend_sources'] if panel.source_errors else []
     warnings = []
     missed_open = _missed_open_witness(panel)
+    missed_buy = (missed_open is not None
+                  and missed_open.paper_alignment == 'MISSED_OPEN_BUY_ONLY')
     for row, status, current, normal_warning in classifications:
         if not current:
+            continue
+        if (missed_buy and status == 'warn'
+                and _missed_buy_history_warning(panel, row, missed_open)):
             continue
         if (row.key == 'trial_verification' and status == 'fail'
                 and missed_open is not None
                 and row.trial_reason_codes in _MISSED_TRIAL_REASON_TUPLES):
-            warnings.append(row.key)
+            if not missed_buy:
+                warnings.append(row.key)
             continue
         if (row.key in {'automation_alerts', 'alert_dispatcher'}
                 and status == 'fail' and row.status == 'fail'
@@ -1285,13 +1342,19 @@ def _with_trading_continuity(panel, health: dict) -> dict:
     next_action = None
     if missed is not None:
         warning.add('paper_reconciliation')
-        for key in ('automation_cycle', 'automation_step_open',
-                    'automation_step_complete'):
+        keys = (('automation_cycle', 'automation_step_transport',
+                 'automation_step_reconcile', 'automation_step_complete', 'trading_run')
+                if missed.paper_alignment == 'MISSED_OPEN_BUY_ONLY' else
+                ('automation_cycle', 'automation_step_open', 'automation_step_complete'))
+        for key in keys:
             row = panel.row(key)
-            if (row is not None and row.as_of == missed.as_of
+            if (row is not None and (
+                    _missed_buy_history_warning(panel, row, missed)
+                    if missed.paper_alignment == 'MISSED_OPEN_BUY_ONLY' else
+                    row.status == 'warn' and row.as_of == missed.as_of
                     and row.operational_fact is not None
-                    and row.operational_fact.kind == 'AUTOMATION_CYCLE'
-                    and row.operational_fact.state == 'SUPERSEDED'):
+                    and (row.operational_fact.kind, row.operational_fact.state)
+                        == ('AUTOMATION_CYCLE', 'SUPERSEDED'))):
                 warning.add(key)
         broker = panel.row('broker')
         if broker is not None and broker.is_stale(panel.now) and broker.status == 'warn':
@@ -1300,17 +1363,23 @@ def _with_trading_continuity(panel, health: dict) -> dict:
         if (trial is not None and trial.effective_status(panel.now) == 'fail'
                 and trial.trial_reason_codes in _MISSED_TRIAL_REASON_TUPLES):
             warning.add('trial_verification')
-        if health['color'] == 'amber':
+        if health['color'] in {'amber', 'green'}:
             next_action = NextAction(kind='PREPARE_NEXT_PLAN',
                                      at=missed.next_eligible_decision_at,
                                      evidence_key='paper_reconciliation')
             shown = _pacific(missed.next_eligible_decision_at)
-            health['label'] = 'Missed opening trade · next plan '+(shown or 'scheduled')
+            health['label'] = (
+                ('Missed opening buy · review required · next plan '
+                 if missed.paper_alignment == 'MISSED_OPEN_BUY_ONLY' and health['color'] == 'amber'
+                 else 'Healthy · missed buy reviewed · next plan '
+                 if missed.paper_alignment == 'MISSED_OPEN_BUY_ONLY' else
+                 'Missed opening trade · next plan ')
+                + (shown or 'scheduled'))
 
     reasons = []
     if health['color'] == 'red':
         reasons.append('CURRENT_TRADING_STOP')
-    elif health['color'] == 'neutral':
+    elif health['color'] in {'neutral', 'blue'}:
         reasons.append('STATUS_UNKNOWN')
     else:
         if missed is not None:
@@ -1378,7 +1447,8 @@ def dashboard_health(panel) -> dict:
             boundaries.extend(t for t in clocks if _aware(t) and panel.now < t)
     facts = _health_facts(panel, classifications, boundaries=boundaries)
     negative = bool(facts['active'])
-    normal = (activation_wait is None and close_work_label is None
+    normal = (activation_wait is None and checking_until is None
+              and (close_work_label is None or preparing)
               and not negative and not facts['warnings']
               and _green_eligible(panel) and any(
         status == 'ok' or status == 'warn' and normal_warning
@@ -1395,6 +1465,11 @@ def dashboard_health(panel) -> dict:
              +(' · '+stage if stage else ''))
     if review is not None and review.status == 'UNAVAILABLE' and not negative:
         label = 'Review history unavailable'
+    if ((checking_until is not None or close_work_label == 'Checking strategy for the next open')
+            and not negative and not facts['warnings']
+            and review is not None and review.status == 'CLEAN'):
+        status = 'pending'
+        label = 'Checking strategy for the next open · last verified values dated'
     if not negative and status == 'warn':
         if review is None or review.status == 'UNAVAILABLE':
             label = 'Review history unavailable'
@@ -1478,21 +1553,22 @@ def dashboard_health(panel) -> dict:
         from sentinel.panel.delivery import closing_refresh_deadline, opening_refresh_deadline
         opening = opening_refresh_deadline(panel)
         if opening is not None:
-            return _with_trading_continuity(panel, dict(status='warn', color='amber', label='Refreshing opening evidence',
+            return _with_trading_continuity(panel, dict(status='pending', color='blue', label='Checking opening status · last verified values dated',
                         valid_until=opening.isoformat(), plan_readiness='unavailable',
                         active_conditions=facts['active'], review_conditions=facts['warnings'],
                         opening_refresh=True))
         closing = closing_refresh_deadline(panel)
         if closing is not None:
-            return _with_trading_continuity(panel, dict(status='warn', color='amber', label='Refreshing closing evidence',
+            return _with_trading_continuity(panel, dict(status='pending', color='blue', label='Checking closing status · last verified values dated',
                         valid_until=closing.isoformat(), plan_readiness='unavailable',
                         active_conditions=facts['active'], review_conditions=facts['warnings'],
                         closing_refresh=True))
-        return _with_trading_continuity(panel, dict(status='pending', color='neutral', label='Status not current · refreshing',
+        return _with_trading_continuity(panel, dict(status='pending', color='blue', label='Checking status · last verified values dated',
                     valid_until=boundary.isoformat() if boundary is not None else None,
                     plan_readiness='unavailable', active_conditions=facts['active'],
                     review_conditions=facts['warnings']))
-    return _with_trading_continuity(panel, dict(status=status, color={'ok': 'green', 'warn': 'amber', 'fail': 'red'}[status],
+    return _with_trading_continuity(panel, dict(status=status, color={
+        'ok': 'green', 'warn': 'amber', 'fail': 'red', 'pending': 'blue'}[status],
                 label=label, valid_until=boundary.isoformat() if boundary is not None else None,
                 plan_readiness=plan_readiness, active_conditions=facts['active'],
                 review_conditions=facts['warnings'],

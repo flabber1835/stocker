@@ -80,7 +80,7 @@ def row_from_observation(value):
     if (
             alignment not in {None, 'SCHEDULED', 'SCHEDULED_WITH_HISTORY',
                               'COMPLETED_WITH_HISTORY', 'PRIOR_CYCLE_FAILED',
-                              'MISSED_OPEN_UNATTENDED'}
+                              'MISSED_OPEN_UNATTENDED', 'MISSED_OPEN_BUY_ONLY'}
             or (alignment is not None and (
                 row.get('key') != 'paper_reconciliation'
                 or row.get('status') != (model.OK if alignment == 'SCHEDULED' else model.WARN)
@@ -97,15 +97,20 @@ def row_from_observation(value):
                 or (alignment == 'PRIOR_CYCLE_FAILED'
                     and (row.get('required_current', False)
                          or row.get('recovery') is not None))
-                or (alignment == 'MISSED_OPEN_UNATTENDED'
+                or (alignment in {'MISSED_OPEN_UNATTENDED', 'MISSED_OPEN_BUY_ONLY'}
                     and (row.get('required_current') is not True
                          or row.get('recovery') is None
                          or not isinstance(row.get('as_of'), datetime)
                          or row['as_of'].utcoffset() != timedelta(0)
                          or not isinstance(row.get('next_eligible_decision_at'), datetime)
-                         or row['next_eligible_decision_at'].utcoffset() != timedelta(0)))))
+                          or row['next_eligible_decision_at'].utcoffset() != timedelta(0)))
+                or (alignment == 'MISSED_OPEN_BUY_ONLY' and (
+                    row.get('operational_fact') is None
+                    or (row['operational_fact'].kind, row['operational_fact'].state)
+                        != ('PAPER_VERIFICATION', 'AWAITING_NEXT_DECISION')
+                    or row['operational_fact'].opening is None)))
             or (row.get('next_eligible_decision_at') is not None
-                and alignment != 'MISSED_OPEN_UNATTENDED')):
+                and alignment not in {'MISSED_OPEN_UNATTENDED', 'MISSED_OPEN_BUY_ONLY'}))):
         raise ValueError('observer alignment fact is malformed')
     for field in ('as_of', 'valid_until'):
         boundary = row.get(field)
@@ -127,7 +132,7 @@ def row_from_observation(value):
                        for clock in (recovery.next_attempt_at, recovery.deadline))):
             raise ValueError('observer recovery fields are malformed')
         row['recovery'] = recovery
-    if row.get('paper_alignment') == 'MISSED_OPEN_UNATTENDED' and (
+    if row.get('paper_alignment') in {'MISSED_OPEN_UNATTENDED', 'MISSED_OPEN_BUY_ONLY'} and (
             recovery.phase != 'AWAITING_NEXT_DECISION'
             or recovery.deadline != row['valid_until']):
         raise ValueError('missed-open recovery evidence is malformed')
