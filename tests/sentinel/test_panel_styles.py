@@ -87,7 +87,7 @@ def _matches(selector, target, theme):
         'body': {'body'}, 'footer': {'footer'}, 'row': {'.row'},
         'row-details': {'.row', '#system-details .row'},
         'value': {'.value'}, 'value-details': {'.value', '#system-details .value'},
-        'retained-prefix': {'.refreshing-status .row.ok .value::before'},
+        'retained-prefix': {'.checking-status .row.ok .value::before'},
     }
     return selector in selectors[target]
 

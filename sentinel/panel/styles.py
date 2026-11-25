@@ -24,9 +24,8 @@ header{display:block;padding:6px 0 0;margin:0 0 18px}
 body[data-health="green"] .brand{border-color:var(--ok)}
 body[data-health="amber"] .brand{border-color:var(--warn)}
 body[data-health="red"] .brand{border-color:var(--fail)}
-.not-current body .brand,.refreshing-status body .brand,
-body[data-observation-current="false"]:not([data-health="red"]):not([data-opening-refresh="true"]):not([data-closing-refresh="true"]) .brand,
-body[data-refresh-pending="true"] .brand{border-color:#8b8b93}
+body[data-health="blue"] .brand,.checking-status body:not([data-health="red"]) .brand{border-color:#54a8d8}
+.not-current body .brand{border-color:#8b8b93}
 .brand img{display:block;width:100%;max-width:100%;height:auto}
 #operational-state{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
 .brand-fallback{display:block;color:#e2c68c;font:1.2em/1.4 Georgia,serif;padding:10px 0}
@@ -34,11 +33,13 @@ body[data-refresh-pending="true"] .brand{border-color:#8b8b93}
 .state{display:block;border:1px solid currentColor;border-radius:12px;font-size:12px;font-weight:650;
  letter-spacing:.045em;padding:12px 14px;margin-top:19px;line-height:1.4;overflow-wrap:anywhere}
 .state.ok{background:var(--okbg);color:var(--ok)}.state.warn{background:var(--warnbg);color:var(--warn)}
+.state.checking{background:#103149;color:#8dd2fb}
 .state.fail,.state.unknown{background:var(--failbg);color:var(--fail)}.state.pending{background:var(--pendingbg);color:var(--pending)}
 .heartbeat{display:block;margin:9px 2px 0;color:var(--muted);font-size:11px;
  font-variant-numeric:tabular-nums;letter-spacing:0;line-height:1.5}
 .heartbeat::before{content:"\25CF";color:var(--ok);margin-right:7px}
 .not-current .heartbeat{color:var(--muted);font-weight:650}.not-current .heartbeat::before{color:var(--muted)}
+.expired-status .heartbeat{font-weight:650}
 .status-reasons{margin-top:12px;padding:0 3px;font-size:13px;line-height:1.5}
 .status-reasons ul{margin:6px 0;padding-left:19px}.status-reasons a{color:var(--fail)}
 .status-reasons .review-warning a{color:var(--warn)}
@@ -77,9 +78,9 @@ th{color:var(--muted);font-weight:600;letter-spacing:.04em}
 .review-recovered{font-weight:600}.review-card pre,.review-page pre{max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere}
 .review-page nav{margin-top:12px}.review-page a{color:var(--warn);text-underline-offset:2px}
 .row.neutral,.not-current .row.ok{border-color:var(--muted)}.not-current .dot.ok{color:var(--muted)}
-.refreshing-status .row.ok{border-color:var(--muted)}
-.refreshing-status .dot.ok,.refreshing-status .heartbeat{color:var(--muted)}.refreshing-status .heartbeat::before{color:var(--muted)}
-.refreshing-status .row.ok .value::before{content:"LAST KNOWN · ";color:var(--muted)}
+.checking-status .row.ok{border-color:var(--muted)}
+.checking-status .dot.ok,.checking-status .heartbeat{color:var(--muted)}.checking-status .heartbeat::before{color:#54a8d8}
+.checking-status .row.ok .value::before{content:"LAST KNOWN · ";color:var(--muted)}
 .push-card{background:linear-gradient(135deg,#222333f5,#171926f5);border:1px solid #494338;border-radius:14px;
  padding:13px 15px;margin:10px 0;box-shadow:var(--shadow)}
 .push-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
@@ -111,7 +112,7 @@ button.secondary{background:transparent;color:#f7d78c}button[hidden]{display:non
 .overview-note,.overview-evidence{font-size:11px;line-height:1.6;color:var(--muted);margin:9px 0 0;overflow-wrap:anywhere}
 .run-progress{font-size:12px;line-height:1.6;color:#e7d7b9;margin:8px 0}
 .not-current .run-progress{color:var(--muted)}
-.refreshing-status .run-progress,.retained-overview .run-progress{color:var(--muted)}
+.checking-status .run-progress,.retained-overview .run-progress{color:var(--muted)}
 .overview-evidence{font-size:10px}.overview-inline-details{background:none;border:0;border-radius:0;box-shadow:none;margin:4px 0 0}
 .overview-inline-details summary{padding:0;font-size:10px;font-weight:400;text-decoration:underline;color:inherit}
 .overview-inline-details .detail-body{padding:7px 0 0;color:var(--muted);font-size:10px;overflow-wrap:anywhere}
@@ -148,18 +149,18 @@ button.secondary{background:transparent;color:#f7d78c}button[hidden]{display:non
 .not-current .overview-card h2::after{content:" · LAST KNOWN";font:10px ui-sans-serif,sans-serif;color:var(--muted)}
 .not-current .plan-action,.not-current .plan-leg.buy .plan-action,.not-current .overview-tag,
  .not-current .slot-state,.not-current .slot-tile.ready .slot-main,.not-current .slot-counts span:first-child{color:var(--muted)}
-.refreshing-status .overview-withdrawn{display:block;color:var(--muted);background:var(--card)}
-.refreshing-status .overview-card{border-color:var(--muted)}
-.refreshing-status .overview-card h2::after{content:" · LAST KNOWN";font:10px ui-sans-serif,sans-serif;color:var(--muted)}
+.checking-status .overview-withdrawn{display:block;color:var(--muted);background:var(--card)}
+.checking-status .overview-card{border-color:var(--muted)}
+.checking-status .overview-card h2::after{content:" · LAST KNOWN";font:10px ui-sans-serif,sans-serif;color:var(--muted)}
 .retained-overview .overview-card{border-color:var(--muted)}
 .overview-card.scope-not-current{border-color:var(--muted)}
 .overview-card.scope-not-current h2::after{content:" · LAST KNOWN";font:10px ui-sans-serif,sans-serif;color:var(--muted)}
 .scope-not-current .overview-tag,.scope-not-current .run-progress{color:var(--muted)}
 .retained-overview .overview-card h2::after{content:" · LAST KNOWN";font:10px ui-sans-serif,sans-serif;color:var(--muted)}
-.refreshing-status .slot-tile,.refreshing-status .slot-tile.occupied,.refreshing-status .slot-tile.ready,
+.checking-status .slot-tile,.checking-status .slot-tile.occupied,.checking-status .slot-tile.ready,
  .retained-overview .slot-tile,.retained-overview .slot-tile.occupied,.retained-overview .slot-tile.ready{border-color:var(--muted)}
-.refreshing-status .plan-leg.buy .plan-action,.refreshing-status .slot-tile.ready .slot-main,
- .refreshing-status .slot-counts span:first-child,.retained-overview .plan-leg.buy .plan-action,
+.checking-status .plan-leg.buy .plan-action,.checking-status .slot-tile.ready .slot-main,
+ .checking-status .slot-counts span:first-child,.retained-overview .plan-leg.buy .plan-action,
  .retained-overview .slot-tile.ready .slot-main,.retained-overview .slot-counts span:first-child{color:var(--muted)}
 .not-current .slot-tile,.not-current .slot-tile.occupied,.not-current .slot-tile.ready{border-color:var(--muted)}
 .not-current .plan-leg.buy .plan-action,.not-current .slot-tile.ready .slot-main,

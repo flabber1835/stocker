@@ -473,9 +473,9 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
         document_age = min(document_age, max(0, (health_until-now).total_seconds()))
     refresh_limit_ms = min(30, max(5, refresh_seconds)) * 1000
     operational = panel.operational
-    if health['color'] == 'neutral':
-        headline_status = 'neutral'
-        operational_headline = 'PARTIAL CURRENT EVIDENCE — CHANGED SCOPES ARE REFRESHING'
+    if health['color'] in {'neutral', 'blue'}:
+        headline_status = 'checking' if health['color'] == 'blue' else 'neutral'
+        operational_headline = 'CHECKING CURRENT EVIDENCE — LAST VERIFIED VALUES ARE DATED'
     elif health['status'] == OK:
         headline_status = OK
         operational_headline = "SYSTEM HEALTH GREEN — NORMAL CURRENT OPERATION; PLAN READINESS IS SEPARATE"
@@ -499,7 +499,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     rendered_rows = panel.rows
     historical_warning_keys = (frozenset(
         (health.get('trading_continuity') or {}).get('warning_keys') or ())
-        if health['color'] == 'amber' else frozenset())
+         if health['color'] in {'amber', 'green'} else frozenset())
     if shadow is not None:
         # The independent shadow verdict remains visible in its own row. The
         # current trading headline comes from the continuity projection.
@@ -534,9 +534,14 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
         footer_authority = (
             "Paper account results are shown as checked or unverified.")
     stale_headline = "TRADING STATUS UNKNOWN — LAST KNOWN VALUES"
+    display_color = health['color']
     if refresh_pending:
-        headline_status = 'neutral'
-        operational_headline = 'UPDATING STATUS — LAST KNOWN VALUES BELOW'
+        if display_color == 'red':
+            operational_headline = 'LAST KNOWN TRADING STOP — CHECKING FOR AN UPDATE'
+        else:
+            display_color = 'blue'
+            headline_status = 'checking'
+            operational_headline = 'UPDATING STATUS — LAST KNOWN VALUES BELOW'
     rows = "".join(_row_html(r, now, refresh_pending=refresh_pending,
         current=delivery.row_current(panel, r), activation_pending=activation_wait_withdraws(panel, r),
         historical_warning=r.key in historical_warning_keys)
@@ -554,8 +559,13 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
             reasons.append(f'<li{kind}><a href="#status-{_esc(row.key)}" '
                            'onclick="document.getElementById(\'system-details\').open=true">'
                            f'{_esc(label)}: {_esc(value)}</a></li>')
-    reason_html = ('<section class="status-reasons" aria-label="Checks needing attention">'
-                   '<strong>Needs attention</strong><ul>'+''.join(reasons)+'</ul></section>'
+    history_only = health['color'] == 'green' and all(
+        row.key in historical_warning_keys for row in rendered_rows
+        if delivery.row_status(panel, row) in {FAIL, UNKNOWN}
+        and delivery.row_current(panel, row))
+    reason_label = 'Recorded history' if history_only else 'Needs attention'
+    reason_html = ('<section class="status-reasons" aria-label="'+reason_label+'">'
+                   '<strong>'+reason_label+'</strong><ul>'+''.join(reasons)+'</ul></section>'
                    if reasons else '')
     stamp = now.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
     generated = now.astimezone(timezone.utc).isoformat()
@@ -567,7 +577,8 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
                        'Refreshing closing evidence · last-known cards keep their original times'
                        if closing_refresh else 'DASHBOARD HEARTBEAT · UPDATED 0s AGO')
     if refresh_pending:
-        compact_headline = 'Refreshing status · last known values'
+        compact_headline = ('Last known trading stop · checking for an update'
+                            if display_color == 'red' else 'Refreshing status · last known values')
     return f"""<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
@@ -583,7 +594,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
 <title>{_esc(page_name)}</title>
 <style id="dashboard-stylesheet" data-source-href="/static/{STYLE_ASSET}">{CSS}</style>
 </head><body data-generated-at="{_esc(generated)}"
-             data-health="{_esc(health['color'])}"
+             data-health="{_esc(display_color)}"
              data-refresh-pending="{'true' if refresh_pending else 'false'}"
              data-opening-refresh="{str(opening_refresh).lower()}"
              data-closing-refresh="{str(closing_refresh).lower()}"
@@ -773,7 +784,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       invalidated = false; hardFailure = false; refreshDelayed = false;
       ordinaryStarted = null; ordinaryEligible = false; ordinaryDue = nextRefreshDue();
       resumeStarted = null; resumeExhausted = false; wentToBackground = false;
-      document.documentElement.classList.remove('not-current', 'refreshing-status');
+      document.documentElement.classList.remove('not-current', 'checking-status', 'expired-status');
       armRefresh();
       checkAge();
       armHeartbeat();
@@ -795,7 +806,8 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   }}
   function originalCurrent(){{
     var age = Date.now() - generated;
-    return Number.isFinite(age) && validBudget(budget) && age >= -5000 && age < budget && !clockReversed();
+    return document.body.dataset.refreshPending !== "true" &&
+      Number.isFinite(age) && validBudget(budget) && age >= -5000 && age < budget && !clockReversed();
   }}
   function clockReversed(){{
     return (ordinaryStarted !== null && Date.now() < ordinaryStarted) ||
@@ -804,9 +816,6 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   function pendingRefresh(){{
     withdrawPreparation();
     refreshDelayed = true;
-    document.documentElement.classList.add("refreshing-status");
-    badge.className = "state neutral";
-    badge.textContent = "STATUS REFRESHING — ORIGINAL CHECK TIMES RETAINED";
     heartbeat.textContent = "Refreshing status · last known observation " +
       new Date(generated).toISOString();
   }}
@@ -825,11 +834,14 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   }}
   function showResume(){{
     if (invalidated || hardFailure){{ return; }}
+    if (originalCurrent()){{ pendingRefresh(); return; }}
     withdrawPreparation();
     refreshDelayed = true;
-    document.documentElement.classList.add("refreshing-status");
-    badge.className = "state neutral";
-    badge.textContent = "REFRESHING STATUS — LAST KNOWN VALUES";
+    document.documentElement.classList.add("checking-status");
+    badge.className = document.body.dataset.health === "red" ? "state fail" : "state checking";
+    badge.textContent = document.body.dataset.health === "red"
+      ? "LAST KNOWN TRADING STOP — CHECKING FOR AN UPDATE"
+      : "REFRESHING STATUS — LAST KNOWN VALUES";
     heartbeat.textContent = "Refreshing status · checking connection · last known observation " +
       new Date(generated).toISOString();
   }}
@@ -849,20 +861,23 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     if (!resumeCurrent()){{ invalidate(true); return; }}
     if (invalidated){{
       invalidated = false;
-      document.documentElement.classList.remove("not-current");
+      document.documentElement.classList.remove("not-current", "expired-status");
     }}
     showResume();
     refreshDocument();
   }}
   function invalidate(andReload, hard){{
     hardFailure = hardFailure || hard === true || clockReversed();
-    if (!invalidated){{
+    var offline = !navigator.onLine;
+    if (!invalidated || document.documentElement.classList.contains("not-current") !== offline){{
       withdrawPreparation();
       invalidated = true;
-      document.documentElement.classList.remove("refreshing-status");
-      document.documentElement.classList.add("not-current");
-      badge.className = "state neutral";
-      badge.textContent = "{_esc(stale_headline)}";
+      document.documentElement.classList.remove("not-current", "checking-status", "expired-status");
+      if (offline){{ document.documentElement.classList.add("not-current"); }}
+      else {{ document.documentElement.classList.add("checking-status", "expired-status"); }}
+      var lastKnownStop = !offline && document.body.dataset.health === "red";
+      badge.className = offline ? "state neutral" : lastKnownStop ? "state fail" : "state checking";
+      badge.textContent = lastKnownStop ? "LAST KNOWN TRADING STOP — UPDATE UNAVAILABLE" : "{_esc(stale_headline)}";
       heartbeat.textContent = "DASHBOARD UPDATE UNAVAILABLE · LAST KNOWN VALUES";
     }}
     if (andReload){{ refreshDocument(); }}
@@ -882,6 +897,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       if (document.visibilityState === "visible"){{ resumeDocument(); }}
     }} else if (resumeStarted !== null){{
       if (!resumeCurrent()){{ invalidate(true); }}
+      else if (age >= budget){{ showResume(); }}
     }} else if (age >= budget){{
       if (scheduledBoundary === "expiry"){{ refreshDocument(); }}
       if (!invalidated && continuityCurrent()){{ showResume(); }}

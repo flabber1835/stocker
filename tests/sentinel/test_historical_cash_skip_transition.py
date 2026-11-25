@@ -64,9 +64,9 @@ def test_later_current_workflow_is_independent_of_the_retired_original_plan(prep
     assert (presentation._preparing_work_normal(page) if preparing else presentation._scheduled_work_normal(page))
     assert presentation.health_facts(page)=={'active':[],'warnings':[]}
     health = presentation.dashboard_health(page)
-    assert health['color'] == ('amber' if preparing else 'green')
+    assert health['color'] == 'green'
     if preparing:
-        assert health['label'] == 'Preparing plan for the next open'
+        assert health['label'].startswith('Healthy')
     assert page.row('trading_run').trading_run.intent.plan_id=='opening-plan'
     assert page.row('trading_run').trading_run.state=='SUPERSEDED'
     assert page.row('trading_run').recovery is None

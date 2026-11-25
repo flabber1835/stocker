@@ -352,7 +352,7 @@ def test_partial_close_reads_only_matching_committed_source_progress(metadata, m
     assert not delivery.display_current(refreshed) and not refreshed.observation_current
     health = presentation.dashboard_health(refreshed)
     assert (health['color'], health['label'], health['plan_readiness']) == (
-        'amber', 'Refreshing closing evidence', 'unavailable')
+        'blue', 'Checking closing status · last verified values dated', 'unavailable')
     assert serialization.public_payload(refreshed)['operator_review'] is None
     assert delivery.closing_refresh_deadline(replace(refreshed, now=until)) is None
 

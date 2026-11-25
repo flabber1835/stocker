@@ -41,6 +41,16 @@ test('grey headline or border on a healthy generation fails even after two refre
     assert.ok(assessCapture(report).findings.some(item=>item.code==='HEALTHY_REFRESH_FLICKER'));
   }
 });
+test('checking on a green document changes the verdict only before its proof expires',()=>{
+  for (const expired of [false,true]) {
+    const report=healthy();
+    const source=report.responses[0].document;
+    const boundary=Date.parse(source.generated_at)+source.max_age_seconds*1000;
+    report.events.push({type:'badge-transition',generated_at:source.generated_at,
+      headline_class:'state checking',wall_time_ms:boundary+(expired?0:-1)});
+    assert.equal(assessCapture(report).findings.some(item=>item.code==='HEALTHY_REFRESH_FLICKER'),!expired);
+  }
+});
 
 test('opening needs the same run before the bell, in execution and after both renewals',()=>{
   const progress={};

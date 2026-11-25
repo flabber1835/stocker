@@ -224,13 +224,13 @@ def test_partial_close_uses_original_progress_and_keeps_affected_rows_unavailabl
         observation_generated_at=now-timedelta(seconds=1), observation_valid_until=until)
     health = presentation.dashboard_health(panel)
     assert (health['color'], health['plan_readiness'], health['valid_until']) == (
-        'amber', 'unavailable', until.isoformat())
+        'blue', 'unavailable', until.isoformat())
     assert 'data-closing-refresh="true"' in render(panel)
     assert not delivery.display_current(panel) and not delivery.row_current(panel, plan)
     lost = replace(panel, rows=[replace(worker, status=model.FAIL), feed, plan])
     assert presentation.dashboard_health(lost)['color'] == 'red'
     lost = replace(panel, observation_changed_scopes=('SHADOW', 'PAPER'))
-    assert presentation.dashboard_health(lost)['color'] == 'neutral'
+    assert presentation.dashboard_health(lost)['color'] == 'blue'
     assert delivery.closing_refresh_deadline(replace(panel, now=until)) is None
     assert delivery.closing_refresh_deadline(replace(panel, rows=[worker, feed, plan])) is None
     for change in (dict(state='WAITING_OPEN'), dict(session='2026-11-10')):
@@ -309,7 +309,7 @@ def test_retry_wake_keeps_independent_close_ingest_visible_without_extending_ret
         observation_current=False, observation_retained=True, observation_generated_at=generated,
         observation_valid_until=deadline)
     assert delivery.closing_refresh_deadline(panel) == deadline
-    assert presentation.dashboard_health(panel)['label'] == 'Refreshing closing evidence'
+    assert presentation.dashboard_health(panel)['label'] == 'Checking closing status · last verified values dated'
     assert not delivery.row_current(panel, cycle) and not delivery.row_current(panel, plan)
     assert not cycle.recovery.active(now)
     for changed in (

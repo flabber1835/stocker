@@ -451,7 +451,7 @@ def test_home_screen_heartbeat_and_service_worker_fail_closed() -> None:
 
     assert "DASHBOARD HEARTBEAT · UPDATED 0s AGO" in html
     assert "DASHBOARD UPDATE UNAVAILABLE · LAST KNOWN VALUES" in html
-    assert 'badge.className = "state neutral"' in html
+    assert 'badge.className = offline ? "state neutral"' in html
     assert 'window.addEventListener("offline"' in html
     assert "if (wentOffline){ invalidate(false, true); }" in html
     assert "if (wentOffline){ invalidate(true); }" in html

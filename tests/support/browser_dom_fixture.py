@@ -39,7 +39,7 @@ negative = replace(page, rows=[*rows, model.Row('broker', 'Browser negative fixt
 partial = replace(page, observation_current=False,
     observation_changed_scopes=('PAPER',))
 assert dashboard_health(page)['color'] == 'green' and dashboard_health(negative)['color'] == 'red'
-assert dashboard_health(partial)['color'] == 'neutral'
+assert dashboard_health(partial)['color'] == 'blue'
 
 
 def publication(subject, at, end):

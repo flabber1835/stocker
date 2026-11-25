@@ -13,7 +13,7 @@ from tests.sentinel.test_panel_closing_preparation_health import verified_calcul
 @pytest.mark.parametrize('factory,color,label', [
     (healthy_history_panel, 'green', None),
     (completed_panel, 'green', None),
-    (verified_calculation_panel, 'amber', 'Preparing plan for the next open'),
+    (verified_calculation_panel, 'green', None),
 ])
 def test_all_typed_workflow_copy_can_change_without_changing_health(factory, color, label):
     page = factory()

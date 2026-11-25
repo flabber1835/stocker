@@ -138,8 +138,8 @@ def test_unproved_display_remains_partial_and_cannot_turn_green():
     payload=serialization.public_payload(page)
     assert payload['observation']['current'] is False
     assert payload['observation']['strict_current'] is False
-    assert payload['dashboard_health']['color']=='neutral'
-    assert _brand_border(render(page))=='#8b8b93'
+    assert payload['dashboard_health']['color']=='blue'
+    assert _brand_border(render(page))=='#54a8d8'
 
 
 def test_completed_run_stays_visible_during_independently_proved_account_change():
@@ -153,7 +153,7 @@ def test_completed_run_stays_visible_during_independently_proved_account_change(
     assert 'Last known account' not in html
 
 
-@pytest.mark.parametrize('browser_state',[None,'not-current','refreshing-status'])
+@pytest.mark.parametrize('browser_state',[None,'not-current','checking-status'])
 def test_partial_current_negative_is_red_until_browser_freshness_is_lost(browser_state,monkeypatch):
     page=display_page(current=False)
     failure=model.Row('paper_reconciliation','Paper','MISMATCH',model.FAIL,
@@ -164,22 +164,11 @@ def test_partial_current_negative_is_red_until_browser_freshness_is_lost(browser
     html=render(page)
     assert 'data-observation-current="false"' in html
     assert _brand_border(html,browser_state=browser_state)==(
-        'var(--fail)' if browser_state is None else '#8b8b93')
+        '#8b8b93' if browser_state == 'not-current' else 'var(--fail)')
     app=importlib.import_module('sentinel.panel.app')
     monkeypatch.setattr(app,'_read_panel',lambda:page)
     machine=app.operational_health()
     assert machine.status_code==503 and json.loads(machine.body)['color']=='red'
-
-
-def test_removed_current_negative_border_guard_is_detected():
-    page=display_page(current=False)
-    failure=model.Row('paper_reconciliation','Paper','MISMATCH',model.FAIL,as_of=page.now)
-    page=replace(page,rows=[*page.rows,failure],observation_revalidated_keys=('paper_reconciliation',))
-    guard=':not([data-health="red"])'
-    assert CSS.count(guard)==1
-    broken=CSS.replace(guard,'')
-    with pytest.raises(AssertionError):
-        assert _brand_border(render(page),css=broken)=='var(--fail)'
 
 
 def test_json_reuses_one_human_health_computation(monkeypatch):
@@ -234,7 +223,7 @@ def test_reintroduced_global_countdown_gate_is_detected():
 
 
 @pytest.mark.parametrize('cutoff', ['market', 'execution'])
-def test_signed_opening_boundary_shows_amber_without_current_plan_or_machine_readiness(cutoff, monkeypatch):
+def test_signed_opening_boundary_shows_checking_without_current_plan_or_machine_readiness(cutoff, monkeypatch):
     page = display_page(current=False)
     plan_row = page.row('paper_plan')
     opened = page.now if cutoff == 'market' else page.now - timedelta(minutes=1)
@@ -248,9 +237,9 @@ def test_signed_opening_boundary_shows_amber_without_current_plan_or_machine_rea
         observation_changed_scopes=changed, observation_retained=True, observation_display_keys=(),
         rows=[row for row in page.rows if row.key not in {'paper_plan','automation_cycle'}] + [plan_row, cycle])
     health = dashboard_health(page)
-    assert health['color'] == 'amber' and health['opening_refresh'] is True
+    assert health['color'] == 'blue' and health['opening_refresh'] is True
     assert health['plan_readiness'] == 'unavailable'
-    assert _brand_border(render(page)) == 'var(--warn)'
+    assert _brand_border(render(page)) == '#54a8d8'
     assert _brand_border(render(page), browser_state='not-current') == '#8b8b93'
     module = importlib.import_module('sentinel.panel.app')
     monkeypatch.setattr(module,'_read_panel',lambda:page)
@@ -258,8 +247,8 @@ def test_signed_opening_boundary_shows_amber_without_current_plan_or_machine_rea
     machine = module.operational_health()
     assert machine.status_code==503 and json.loads(machine.body)['color']=='neutral'
 
-    assert dashboard_health(replace(page, observation_changed_scopes=('SHADOW',)))['color']=='neutral'
-    assert dashboard_health(replace(page, now=page.observation_valid_until))['color']=='neutral'
+    assert dashboard_health(replace(page, observation_changed_scopes=('SHADOW',)))['color']=='blue'
+    assert dashboard_health(replace(page, now=page.observation_valid_until))['color']=='blue'
     failure = model.Row('backup_restore', 'Backup', 'Proof failed', model.FAIL)
     adverse = replace(page, rows=[row for row in page.rows if row.key != 'backup_restore'] + [failure])
     assert dashboard_health(adverse)['color']=='red'
@@ -279,10 +268,90 @@ def test_partial_execution_refresh_requires_original_finite_callback():
     base = [row for row in page.rows if row.key not in {'broker','automation_cycle','trading_run'}]
     page = replace(page, observation_generated_at=page.now-timedelta(seconds=1),
         observation_display_keys=(), rows=base + [broker, cycle, trading])
-    assert dashboard_health(page)['color'] == 'neutral'
+    assert dashboard_health(page)['color'] == 'blue'
 
     deadline = page.now+timedelta(seconds=5)
     broker = replace(broker, recovery=replace(recovery, deadline=deadline))
     page = replace(page, rows=base + [broker, cycle, trading])
     assert dashboard_health(page)['opening_refresh'] is True
-    assert dashboard_health(replace(page, now=deadline))['color'] == 'neutral'
+    assert dashboard_health(replace(page, now=deadline))['color'] == 'blue'
+
+
+@pytest.mark.parametrize('action,online,health_color,current,expected_class,expected_badge', [
+    ('pendingRefresh', True, 'green', True, '', 'state ok'),
+    ('showResume', True, 'green', True, '', 'state ok'),
+    ('showResume', True, 'green', False, 'checking-status', 'state checking'),
+    ('invalidate', True, 'green', False, 'checking-status', 'state checking'),
+    ('invalidate', False, 'green', False, 'not-current', 'state neutral'),
+    ('pendingRefresh', True, 'red', True, '', 'state fail'),
+    ('showResume', True, 'red', True, '', 'state fail'),
+    ('showResume', True, 'red', False, 'checking-status', 'state fail'),
+    ('invalidate', True, 'red', False, 'checking-status', 'state fail'),
+    ('invalidate', False, 'red', False, 'not-current', 'state neutral'),
+])
+def test_browser_refresh_preserves_valid_color_then_distinguishes_checking_from_offline(
+        action, online, health_color, current, expected_class, expected_badge):
+    page = display_page()
+    if health_color == 'red':
+        failed = model.Row('backup_restore', 'Backup', 'FAILED', model.FAIL)
+        page = replace(page, rows=[row for row in page.rows
+                                   if row.key != 'backup_restore'] + [failed])
+    html = render(page)
+    functions = []
+    for name in ('pendingRefresh', 'showResume', 'invalidate'):
+        start = html.index('  function '+name+'(')
+        end = html.index('\n  function ', start+2)
+        functions.append(html[start:end])
+    node = shutil.which('node')
+    assert node is not None
+    harness = r'''const vm=require('node:vm'),fs=require('node:fs');
+const p=JSON.parse(fs.readFileSync(0,'utf8'));
+const classes=new Set(p.online?[]:['checking-status']);
+const badge={className:p.health==='red'?'state fail':'state ok',textContent:'Current status'};
+const heartbeat={textContent:''};
+const context={document:{body:{dataset:{health:p.health}},documentElement:{classList:{
+  add:(...values)=>values.forEach(value=>classes.add(value)), remove:(...values)=>values.forEach(value=>classes.delete(value)),
+  contains:(value)=>classes.has(value)}}},
+  navigator:{onLine:p.online},badge,heartbeat,generated:Date.now(),
+  invalidated:!p.online,hardFailure:false,refreshDelayed:false,originalCurrent:()=>p.current,
+  withdrawPreparation:()=>{},clockReversed:()=>false,refreshDocument:()=>{}};
+vm.runInNewContext(p.script+';'+p.action+'(false,false);',context);
+process.stdout.write(JSON.stringify({classes:[...classes],badge:badge.className,text:badge.textContent}));'''
+    result = subprocess.run([node, '-e', harness], input=json.dumps({
+        'script':'\n'.join(functions), 'action':action, 'online':online,
+        'health':health_color, 'current':current}),
+        text=True, capture_output=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    state = json.loads(result.stdout)
+    expected_classes = [expected_class] if expected_class else []
+    if action == 'invalidate' and online:
+        expected_classes.append('expired-status')
+    assert state['classes'] == expected_classes
+    assert state['badge'] == expected_badge
+    if current:
+        assert state['text'] == 'Current status'
+    assert _brand_border(html, browser_state=expected_class or None) == (
+        '#8b8b93' if not online else 'var(--fail)' if health_color == 'red'
+        else '#54a8d8' if expected_class else 'var(--ok)')
+    if not online:
+        assert _brand_border(render(page, refresh_pending=True),
+                             browser_state='not-current') == '#8b8b93'
+
+
+def test_refresh_styles_cannot_repaint_active_red_as_checking_blue():
+    page = display_page()
+    retained = render(page, refresh_pending=True)
+    assert _brand_border(retained) == '#54a8d8'
+    assert 'id="operational-state" class="state checking"' in retained
+    failed = model.Row('backup_restore', 'Backup', 'FAILED', model.FAIL)
+    page = replace(page, rows=[row for row in page.rows
+                               if row.key != 'backup_restore'] + [failed])
+    html = render(page, refresh_pending=True)
+    assert 'id="operational-state" class="state fail"' in html
+    assert 'Last known trading stop · checking for an update' in html
+    assert _brand_border(html, browser_state='checking-status') == 'var(--fail)'
+    selector = '.checking-status body:not([data-health="red"]) .brand'
+    broken = CSS.replace(selector, '.checking-status body .brand')
+    assert broken != CSS
+    with pytest.raises(AssertionError):
+        assert _brand_border(html, browser_state='checking-status', css=broken) == 'var(--fail)'

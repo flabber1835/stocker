@@ -38,9 +38,9 @@ def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None, pan
     elif mutation == 'failed-withdrawal':
         script = script.replace('invalidate(false, !transportDelay);\n        heartbeat.textContent', 'heartbeat.textContent')
     elif mutation == 'expired-red':
-        guard = 'document.documentElement.classList.add("not-current");\n      badge.className = "state neutral";'
+        guard = 'badge.className = offline ? "state neutral" : lastKnownStop ? "state fail" : "state checking";'
         assert script.count(guard) == 1
-        script = script.replace(guard, guard.replace('state neutral', 'state fail'))
+        script = script.replace(guard, 'badge.className = "state fail";')
     elif mutation == 'age-withdrawal':
         script = script.replace('age >= budget', 'false')
     elif mutation == 'known-negative':

@@ -274,6 +274,13 @@ def _check_and_remove_opening_projection_delta(node):
                   [ast.dump(item) for item in expected_owner.items]]
         assert len(owners) == 1, 'opening projection scope parent changed'
         statements = owners[0].body
+        readiness, frontier = ast.parse(
+            '_readiness_or_refuse(conn, now_et=now_et)\n'
+            'frontier = feed_inputs.frontier(conn, pinned)').body
+        assert [ast.dump(statement) for statement in statements[1:3]] == [
+            ast.dump(readiness), ast.dump(frontier)], (
+            'opening frontier must use the current pin immediately after readiness')
+        statements[2] = ast.parse('frontier = feed_inputs.frontier(conn)').body[0]
         for index, stage in ((41, 'initial'), (51, 'final')):
             expected = ast.parse(
                 f'with opening_diagnostics.projection({stage!r}):\n    pass'
@@ -317,6 +324,19 @@ def test_opening_projection_equivalence_witness_rejects_other_deltas(defect):
                      and ast.unparse(item.items[0].context_expr.func) == 'feed_inputs.pinned')
         owner.body[41].items[0].context_expr.args[0].value = 'unexpected'
     with pytest.raises(AssertionError, match='opening projection'):
+        _check_and_remove_opening_projection_delta(node)
+
+
+@pytest.mark.parametrize('arguments', ['conn', 'conn, unrelated'])
+def test_opening_frontier_witness_rejects_repeat_or_unrelated_lookup(arguments):
+    source = (PACKAGE / 'execution.py').read_text(encoding='utf-8')
+    original = 'frontier = feed_inputs.frontier(conn, pinned)'
+    assert source.count(original) == 1
+    changed = source.replace(original, f'frontier = feed_inputs.frontier({arguments})', 1)
+    node = next(item for item in ast.parse(changed).body
+                if isinstance(item, ast.AsyncFunctionDef)
+                and item.name == '_execute_current_paper_plan')
+    with pytest.raises(AssertionError, match='opening frontier must use the current pin'):
         _check_and_remove_opening_projection_delta(node)
 
 

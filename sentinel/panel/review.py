@@ -284,7 +284,7 @@ class Recorder:
 
     def observe_owned(self, conn, panel, database_url):
         """Caller owns fencing, transaction and commit; never open another session."""
-        from sentinel.panel.presentation import health_facts
+        from sentinel.panel.presentation import _missed_open_witness, health_facts
         facts = health_facts(panel)
         required = {'runtime_identity', 'automation', 'automation_leader', 'authority',
                     'feed', 'broker', 'alpaca_account', 'backup_restore',
@@ -329,6 +329,15 @@ class Recorder:
             store.append(conn, key, state, kind='RECOVERED', event_key='recovered:'+str(state['head']+1),
                 details={'conditions':[], 'previous':resolved, 'transition':'RESOLVED',
                          'evidence':condition_evidence(panel, resolved)}, now=now)
+        missed = _missed_open_witness(panel)
+        if missed is not None and missed.paper_alignment == 'MISSED_OPEN_BUY_ONLY':
+            opening = missed.operational_fact.opening
+            identity = dict(cycle_id=opening.cycle_id, plan_id=opening.plan_id,
+                            terminal_at=opening.started_at.isoformat())
+            event_key = 'missed-buy:'+hashlib.sha256(store.canonical(identity)).hexdigest()
+            if not store.has_event(conn, key, event_key):
+                store.append(conn, key, state, kind='REVIEW', event_key=event_key,
+                    details={'conditions':['MISSED_BUY_ONLY'], 'identity':identity}, now=now)
         notices = _notices(conn)
         unseen = sorted(set(notices) - set(state['incidents']))
         if unseen:

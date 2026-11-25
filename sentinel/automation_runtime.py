@@ -702,10 +702,11 @@ def _observe_idle_control_authority(
         conn.read_only = True
         idle_authority.set_progress(progress,
             backend_pid=getattr(getattr(conn, "info", None), "backend_pid", None))
-        control, certificate, publication_version = runtime._validate_control_authority(
-            conn, permit, include_publication_version=True,
-            progress=lambda stage: idle_authority.set_progress(progress, stage=stage),
-            retain_subject=retain_subject)
+        with opening_stage_log.idle_authority_phases():
+            control, certificate, publication_version = runtime._validate_control_authority(
+                conn, permit, include_publication_version=True,
+                progress=lambda stage: idle_authority.set_progress(progress, stage=stage),
+                retain_subject=retain_subject)
         idle_authority.set_progress(progress, stage=6)
         bound = control.binding
         assert bound is not None
@@ -895,14 +896,17 @@ class ProductionAutomation:
         if progress is not None:
             progress(3)
         rollout = load_rollout_state(conn)
-        current = feed_inputs.require_current(conn)
+        with opening_stage_log.guard_phase("current_publication"):
+            current = feed_inputs.require_current(conn)
         if retain_subject is not None:
             retain_subject(control, rollout, current)
         if progress is not None:
             progress(4)
         started = time.monotonic()
-        _controller, strategy = production_strategy()
-        runtime_identity = system_identity.rehearsal_identity()
+        with opening_stage_log.guard_phase("strategy_identity"):
+            _controller, strategy = production_strategy()
+        with opening_stage_log.guard_phase("runtime_identity"):
+            runtime_identity = system_identity.rehearsal_identity()
         self._warn_slow_authority_stage("runtime-source-packages", started)
         if progress is not None:
             progress(5)

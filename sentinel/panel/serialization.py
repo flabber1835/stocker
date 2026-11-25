@@ -62,7 +62,7 @@ def public_payload(panel):
              'feed_readiness': row.feed_readiness, 'paper_alignment': row.paper_alignment,
              'valid_until': row.valid_until.isoformat() if row.valid_until else None,
              'recovery': row.recovery.to_dict(panel.now) if row.recovery else None,
-             'color': ('amber' if health['color'] == 'amber'
+              'color': ('amber' if health['color'] in {'amber', 'green'}
                        and row.key in health['trading_continuity']['warning_keys']
                        and delivery.row_color(panel, row) == 'red'
                        else delivery.row_color(panel, row)),

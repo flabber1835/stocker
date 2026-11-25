@@ -50,7 +50,7 @@ function makeDocument(meta){
 const document=makeDocument(input.initial),classes=new Set();
 liveBody=document.body;
 document.visibilityState='visible';document.addEventListener=(name,fn)=>{listeners[name]=fn;};
-document.documentElement={classList:{add:value=>classes.add(value),remove:(...values)=>values.forEach(v=>classes.delete(v))}};
+document.documentElement={classList:{add:(...values)=>values.forEach(v=>classes.add(v)),remove:(...values)=>values.forEach(v=>classes.delete(v)),contains:value=>classes.has(value)}};
 const detail=document.querySelector('.wrap').childNodes[2];detail.open=true;
 let scrollCalls=0;
 function schedule(fn,delay){const id=++sequence;timers.set(id,{fn,delay,due:now+delay,age:fn.name==='heartbeatTick'});return id;}
@@ -110,7 +110,7 @@ function ageTick(){const entry=[...timers.entries()].find(([,t])=>t.age);assert(
    await accept(.8);
    await advance(19679);
    assert.equal(reads.length,2,'moving deadlines cannot cause a rapid polling loop');
-   assert(classes.has('not-current'),'rate limiting cannot extend genuine proof');
+   assert(classes.has('expired-status'),'rate limiting cannot extend genuine proof');
    await advance(19680);
    assert.equal(reads.length,3);
   }else{
@@ -119,9 +119,9 @@ function ageTick(){const entry=[...timers.entries()].find(([,t])=>t.age);assert(
    await advance(16359);assert.equal(reads.length,2);assert(!classes.has('not-current'));
    await advance(16360);
    assert.equal(reads.length,3,'same evidence deadline receives one follow-up');
-   assert(classes.has('refreshing-status')&&!classes.has('not-current'),'an owned boundary check is visibly last known');
+   assert(classes.has('checking-status')&&!classes.has('expired-status'),'an owned boundary check is visibly last known');
    await advance(17000);await accept(22);
-   assert(!classes.has('refreshing-status')&&!classes.has('not-current'));
+   assert(!classes.has('checking-status')&&!classes.has('expired-status'));
    assert.equal(document.getElementById('operational-state').className,'state ok');
    assert.equal(timers.size,2);
   }
@@ -134,7 +134,7 @@ function ageTick(){const entry=[...timers.entries()].find(([,t])=>t.age);assert(
  }else if(input.scenario==='monotonic-visual'){
   setClock(3000,3000);ageTick();assert(document.getElementById('dashboard-heartbeat').textContent.includes('UPDATED 3s'));
   setClock(1000,4000);ageTick();assert(document.getElementById('dashboard-heartbeat').textContent.includes('UPDATED 4s'),'visual elapsed progression must use monotonic time');
-  setClock(30000,5000);ageTick();assert(classes.has('not-current'),'monotonic display cannot renew the UTC evidence deadline');
+  setClock(30000,5000);ageTick();assert(classes.has('expired-status'),'monotonic display cannot renew the UTC evidence deadline');
  }else if(input.scenario==='owned-heartbeat'){
   await advance(13000);heartbeatWrites.length=0;await accept(8,1900);
   assert(!heartbeatWrites.some(v=>v.text.includes('UPDATED 0s')),'server DOM must not reset the client heartbeat to zero');

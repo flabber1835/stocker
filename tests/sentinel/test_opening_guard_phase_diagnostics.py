@@ -90,11 +90,12 @@ def test_fresh_guard_phases_are_fixed_and_aggregated_inside_broker_trace(
 
     phases = [message for message in caplog.messages
               if message.startswith("paper_guard_phase ")]
-    assert len(phases) == 11
+    assert len(phases) == 17
     assert {message.split(" phase=")[1].split(" count=")[0]
             for message in phases} == {
         "connection_setup", "read_only_setup", "grant_structural",
         "publication_rollout", "signed_authority", "result_evidence",
+        "current_publication", "runtime_identity", "strategy_identity",
     }
     assert {message.split(" part=")[1].split(" phase=")[0]
             for message in phases} == {"before_read", "after_read"}
@@ -109,6 +110,42 @@ def test_fresh_guard_phases_are_fixed_and_aggregated_inside_broker_trace(
     assert events.count("PREPARE_READ") == 3
     assert events.count("close") == 3
     assert events.count("commit") == 3
+
+
+def test_idle_authority_phases_are_per_request_and_preserve_refusal(caplog):
+    refusal = AuthorityRefused("private certificate detail")
+    with caplog.at_level(logging.INFO, logger=opening_stage_log.LOGGER_NAME):
+        with pytest.raises(AuthorityRefused) as caught:
+            with opening_stage_log.idle_authority_phases():
+                with opening_stage_log.guard_phase("current_publication"):
+                    pass
+                with opening_stage_log.guard_phase("certificate_bindings"):
+                    raise refusal
+        with opening_stage_log.idle_authority_phases():
+            with opening_stage_log.guard_phase("current_publication"):
+                pass
+            with opening_stage_log.guard_phase("private certificate detail"):
+                pass
+            opening_stage_log.authority_rows("publication_rows", 3)
+    assert caught.value is refusal
+    phases = [message for message in caplog.messages
+              if message.startswith("automation_idle_authority_phase ")]
+    assert len(phases) == 3
+    assert sum("phase=current_publication count=1" in message for message in phases) == 2
+    assert sum("phase=certificate_bindings count=1" in message for message in phases) == 1
+    assert "automation_idle_authority_rows kind=publication_rows count=1 rows=3" in caplog.messages
+    assert "private certificate detail" not in caplog.text
+
+
+def test_publication_row_count_is_aggregated_without_values(caplog):
+    with caplog.at_level(logging.INFO, logger=opening_stage_log.LOGGER_NAME):
+        with opening_stage_log.broker_reads():
+            with opening_stage_log.broker_read("observe", "before_read"):
+                opening_stage_log.authority_rows("publication_rows", 2)
+                opening_stage_log.authority_rows("publication_rows", 3)
+                opening_stage_log.authority_rows("private account", 99)
+    assert "paper_guard_rows operation=observe part=before_read kind=publication_rows count=2 rows=5" in caplog.messages
+    assert "private account" not in caplog.text
 
 
 def test_timing_failure_cannot_replace_original_authority_refusal(monkeypatch):

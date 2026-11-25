@@ -1985,6 +1985,28 @@ is not. The bound is a cycle count, not a timeout — a sale still working after
 it is a sale whose proceeds are not arriving this session, and waiting longer
 converts a visible deferral into a hang.
 
+**Current PAPER single-sale continuation (2026-11-25).** The fractional
+market-order PAPER path has a narrower bounded settlement option when exactly
+one required sale remains acknowledged or partially filled after one clean,
+complete reconciliation. It uses guarded, account-bound exact-key reads only
+as a *hint* that the sale has positively filled. It waits between hints and
+stops at a short monotonic deadline or the original increase cutoff. An absent,
+partial, rejected, cancelled, replaced, mismatched or uncertain order never
+opens the buy phase. A positive exact-key FILLED result triggers one new full
+reconciliation; only that reconciliation may establish the complete, clean,
+durable full fill and fresh book used for cash authority and purchase sizing.
+The exact-key read alone is never a settlement or spending certificate.
+
+This option replaces repeated full settlement reconciliations while waiting
+for that one sale; it does not extend the ten-minute increase window or weaken
+the final quote, cash, clock, issuer, signed-authority and broker checks. The
+wait remains inside the existing financial writer scope and is strictly
+bounded. Multiple required sales and all other execution profiles retain the
+original cycle-count behavior. If the hint or final reconciliation fails, the
+purchase is deferred for ordinary durable recovery. A later change may move
+the wait outside the writer scope or reuse version-bound immutable economic
+proof across callbacks, but neither change is granted by this option.
+
 ### 13.2 The orchestrator, and its durable pointer
 
 §13 described the sequence; nothing produced it. `sentinel/core/catchup.py` is

@@ -284,7 +284,7 @@ async def _execute_current_paper_plan(
         with feed_inputs.pinned(conn, commit=False) as pinned, structural_verification.callback(conn) as proof_scope:
             feed_inputs.require_shadow_mode(pinned, dual_mode)
             _readiness_or_refuse(conn, now_et=now_et)
-            frontier = feed_inputs.frontier(conn)
+            frontier = feed_inputs.frontier(conn, pinned)
             dual_result = None
             if dual_mode:
                 plan = _latest_plan_or_refuse(conn)
