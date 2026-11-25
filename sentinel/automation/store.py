@@ -760,6 +760,38 @@ def _missed_window_alert_witness(conn, cycle: CycleRecord,
     }
 
 
+def _missed_buy_alert_witness(conn, cycle: CycleRecord, *,
+                              diagnostic: Mapping[str, Any],
+                              clean_id: str | None) -> dict[str, Any] | None:
+    """Optional notifier proof cannot abort the mandatory terminal transition."""
+    from sentinel.automation import missed_buy_alert
+
+    try:
+        with conn.transaction():
+            timeout = conn.execute("SHOW statement_timeout").fetchone()[0]
+            setting, unit = conn.execute(
+                "SELECT setting::bigint,unit FROM pg_settings "
+                "WHERE name='statement_timeout'").fetchone()
+            if unit != 'ms' or setting < 0:
+                return None
+            if setting == 0 or setting > 1500:
+                conn.execute("SELECT set_config('statement_timeout','1500ms',true)")
+            try:
+                control = load_control(conn)
+                result = missed_buy_alert.prove(
+                    conn, cycle, control, diagnostic=diagnostic,
+                    clean_id=clean_id)
+            finally:
+                # A failed read rolls the savepoint back, including this local
+                # setting. A successful read must restore the caller's budget.
+                conn.execute(
+                    "SELECT set_config('statement_timeout',%s,true)",
+                    (timeout,))
+            return result
+    except Exception:
+        return None
+
+
 def _immutable_cycle(record: CycleRecord) -> dict[str, Any]:
     return {
         key: getattr(record, key)
@@ -1109,6 +1141,16 @@ def transition_cycle(
                 conn, current, control, failure_code=failure_code)
             if missed is not None:
                 detail['missed_window_no_send'] = missed
+        if (to_state is CycleState.SUPERSEDED
+                and failure_code == 'MAX_EXECUTION_LATENESS_EXCEEDED'
+                and current.attempt_count > 0
+                and diagnostic is not _UNSET
+                and last_clean_reconciliation_id is not _UNSET):
+            missed_buy = _missed_buy_alert_witness(
+                conn, current, diagnostic=diagnostic,
+                clean_id=last_clean_reconciliation_id)
+            if missed_buy is not None:
+                detail['missed_window_buy_only'] = missed_buy
         if opening_cutoffs is not None:
             if current.state is not CycleState.PLAN_READY or to_state is not CycleState.WAITING_OPEN:
                 raise InvalidCycleTransition("opening cutoffs belong to the scheduled plan")
