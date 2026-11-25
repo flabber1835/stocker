@@ -969,3 +969,18 @@ after broker acceptance. An execution-only simulator can verify order order,
 amounts, and recovery time. It cannot establish the full opening deadline
 unless the run also exercises the production-sized strategy/sizing and real
 guard checks in an isolated gateway.
+
+The private executor rehearsal ran with a disposable PostgreSQL instance and
+a synthetic broker in a network-disabled container. Broker latency modeled
+the November 25 observed averages: 1.1 seconds per full observation and 0.86
+seconds per exact order lookup. Submission delay was modeled at 0.35 seconds;
+visibility delays were fixtures (42 seconds for the mixed basket's sale and
+1.5 seconds per other fill). The worker exited after broker acceptance of the
+first sale or eleventh sale respectively, before recording the acknowledgement.
+After a four-second modeled downtime, fresh workers continued from the same
+PostgreSQL and simulated broker. Each case confirmed exactly the requested
+orders with zero duplicate submissions, and both buys followed the sell fill.
+From first broker read through final journal confirmation the one-sale/two-buy
+case took 58.021 seconds and the twenty-sale case took 26.759 seconds. The
+rehearsal covers restart and execution only. It does not measure the cold
+strategy verifier, sizing speedup, production broker guards, or native fills.
