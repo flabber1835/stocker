@@ -948,3 +948,24 @@ fingerprints must still match. Reject both a duplicate lookup and an unrelated
 publication argument. This removes one known repeat read. The longer shadow,
 sizing and account stages still require a timed private run to establish how
 much work can move off the opening path.
+
+## Reuse the verified strategy state during sizing
+
+The opening worker already verifies the canonical strategy state before
+re-deriving the saved plan. The sizing record repeats that state as JSON. If
+the exact JSON hashes to the same state commitment as the verified in-memory
+state and the saved plan, use that verified state for sizing. Use the same
+canonical JSON hash as the state validator so values of different JSON types
+cannot compare equal by accident. Maintain the full sizing record digest,
+record and runtime authority comparisons, authenticated account and marks,
+and the canonical re-derivation of the economic plan. Keep the normal full
+decode if no verified state is supplied or a legacy representation differs.
+No result is saved or reused across opening callbacks.
+
+Qualify the state reuse against the full decode, including different record
+identity, digest-consistent tampering of the stored state, and legacy input.
+Time a one-sale/two-buy replay and a twenty-sale replay with an interruption
+after broker acceptance. An execution-only simulator can verify order order,
+amounts, and recovery time. It cannot establish the full opening deadline
+unless the run also exercises the production-sized strategy/sizing and real
+guard checks in an isolated gateway.

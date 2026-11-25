@@ -28,6 +28,7 @@ from typing import Any, Mapping
 
 from sentinel.core.decision import _shadow_equity, build_execution_plan
 from sentinel.core.production import SessionState
+from sentinel.core.session import _hash as _session_state_hash
 from sentinel.execution.contract import (
     BrokerAccountIdentity,
     BrokerAccountSnapshot,
@@ -621,19 +622,34 @@ def _rederive_plan(conn, *, plan, binding, rollout_state, expected_shadow_result
     if authority["plan_fingerprint"] != plan.fingerprint():
         raise DualPlanAuthorityRefused(
             "the retained sizing authority names different plan economics")
+    expected_state = getattr(expected_shadow_result, "state", None)
+    expected_sha256 = (expected_state.state_hash
+                       if expected_state is not None else None)
+    retained_state = authority["shadow_state"]
+    already_verified = False
+    if (type(expected_state) is SessionState
+            and expected_sha256 == plan.shadow_snapshot_hash):
+        try:
+            already_verified = _session_state_hash(retained_state) == expected_sha256
+        except (TypeError, ValueError):
+            # Keep canonical restoration as the authority for legacy input.
+            pass
     try:
-        state = SessionState.from_dict(authority["shadow_state"])
+        if already_verified:
+            # The canonical sizing adapter still validates its read-only state.
+            state, state_sha256 = expected_state, expected_sha256
+        else:
+            state = SessionState.from_dict(retained_state)
+            state_sha256 = state.state_hash
     except Exception as exc:  # noqa: BLE001 - convert canonical state refusal
         raise DualPlanAuthorityRefused(
             "retained shadow state is not canonical") from exc
-    state_sha256 = state.state_hash
     if state_sha256 != plan.shadow_snapshot_hash:
         raise DualPlanAuthorityRefused(
             "retained shadow state differs from the plan commitment")
     if expected_shadow_result is not None:
-        expected_state = getattr(expected_shadow_result, "state", None)
         if (expected_state is None
-                or expected_state.state_hash != state_sha256
+                or expected_sha256 != state_sha256
                 or str(getattr(expected_shadow_result, "record_sha256", ""))
                 != authority["shadow_record_sha256"]
                 or str(getattr(

@@ -1,9 +1,11 @@
 """Canonical dual sizing must return its exact detached equity commitment."""
+from copy import deepcopy
 from decimal import Decimal as D
 from pathlib import Path
 from types import SimpleNamespace
 
 import psycopg
+from psycopg.types.json import Jsonb
 import pytest
 
 from sentinel import dual_plan_authority as sizing, schema
@@ -86,6 +88,50 @@ def test_missing_numeric_import_falsifier_reaches_real_return_statement(conn):
         traceback = traceback.tb_next
     assert traceback.tb_frame.f_code.co_name == "_rederive_plan"
     assert traceback.tb_frame.f_locals["derived"].plan.to_dict() == fixture[0].to_dict()
+
+
+def test_exact_verified_state_avoids_a_second_decode(conn, monkeypatch):
+    fixture = canonical_authority(conn, "100000.125")
+    plan, bound, rollout, verified, _ = fixture
+    kwargs = dict(plan=plan, binding=bound, rollout_state=rollout)
+    full = sizing._rederive_plan(conn, expected_shadow_result=None, **kwargs)
+    decodes = []
+    original = sizing.SessionState.from_dict
+
+    def restore(cls, raw, **kwargs):
+        decodes.append(raw)
+        return original(raw, **kwargs)
+
+    monkeypatch.setattr(sizing.SessionState, 'from_dict', classmethod(restore))
+    assert sizing._rederive_plan(conn, expected_shadow_result=verified, **kwargs) == full
+    assert len(decodes) == 1  # The canonical sizing adapter still decodes.
+    assert verified.state.state_hash == plan.shadow_snapshot_hash
+
+
+@pytest.mark.parametrize('case', ['legacy', 'changed_state', 'changed_record'])
+def test_state_reuse_keeps_legacy_restore_and_exact_commitments(conn, case):
+    from sentinel.core.session import LEGACY_ENVELOPE_VERSIONS
+
+    plan, bound, rollout, verified, authority = canonical_authority(conn, "100000.125")
+    changes = deepcopy(authority)
+    if case == 'legacy':
+        changes['shadow_state']['version'] = max(LEGACY_ENVELOPE_VERSIONS)
+    elif case == 'changed_state':
+        changes['shadow_state']['last_evidence']['wealth_core']['estimated_equity'] = '90000'
+    else:
+        changes['shadow_record_sha256'] = 'd' * 64
+    changes.pop('authority_sha256')
+    changes['authority_sha256'] = sizing._sha256(changes)
+    conn.execute('UPDATE sentinel_processed_sessions SET state=%s WHERE cursor_name=%s',
+                 (Jsonb(changes), sizing.CURSOR_PREFIX + plan.plan_id))
+    kwargs = dict(plan=plan, binding=bound, rollout_state=rollout, expected_shadow_result=verified)
+    if case == 'legacy':
+        assert sizing._rederive_plan(conn, **kwargs)['state_sha256'] == plan.shadow_snapshot_hash
+    else:
+        reason = ('differs from the plan commitment' if case == 'changed_state'
+                  else 'differs from the plan input')
+        with pytest.raises(sizing.DualPlanAuthorityRefused, match=reason):
+            sizing._rederive_plan(conn, **kwargs)
 
 
 def test_new_transport_refuses_cross_policy_plan_reuse_but_preserves_historical_replay(conn, monkeypatch):
