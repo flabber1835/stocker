@@ -166,6 +166,10 @@ ALPACA_NORMALIZATION_HISTORICAL = (
     "sentinel.alpaca-openfigi-dividend-current-window/3",
 )
 ALPACA_NORMALIZATION = "sentinel.alpaca-openfigi-dividend-current-window/4"
+ALPACA_EXPECTED_KEYS_DDL = (
+    'CREATE TEMP TABLE alpaca_expected_keys(session date,'
+    'security_id text COLLATE "C",PRIMARY KEY(session,security_id)) ON COMMIT DROP'
+)
 MIN_ADMITTED_COMMON_STOCKS = 500
 MIN_ALPACA_ADMITTED_PERCENT = 95
 
@@ -300,8 +304,7 @@ def build_alpaca(conn, lease, request, source):
         with cur.copy("COPY alpaca_admitted(ticker,security_id,first_session) FROM STDIN") as copy:
             for symbol in sorted(admitted):
                 copy.write_row((symbol, selected[symbol]["asset_id"], admitted[symbol]))
-        cur.execute("CREATE TEMP TABLE alpaca_expected_keys("
-                    "session date,security_id text,PRIMARY KEY(session,security_id)) ON COMMIT DROP")
+        cur.execute(ALPACA_EXPECTED_KEYS_DDL)
         cur.execute("INSERT INTO alpaca_expected_keys "
                     "SELECT p.session,a.security_id FROM sentinel_acquisition_bindings b "
                     "LEFT JOIN sentinel_acquisition_price_links l USING(part_id) "

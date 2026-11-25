@@ -1,5 +1,8 @@
 # Sentinel current operating contract
 
+[November 24 close efficiency](nov24-close-efficiency.md) records the proven
+expected-key sort fix and the separate costs that still require attribution.
+
 [Dashboard trading continuity](dashboard-trading-continuity.md) defines the
 owner's November 24 red panic meaning and the separation of a present trading
 stop from missed historical work and review warnings. It is a presentation and

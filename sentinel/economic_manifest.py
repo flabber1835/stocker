@@ -15,7 +15,7 @@ from pathlib import Path
 import re
 from functools import lru_cache
 
-MANIFEST_SHA256 = 'ba837af106288f25742059133fd846042ccdb361a2866aa6ed196eb8aaaaef54'
+MANIFEST_SHA256 = '01cadaf5e48658079c30a15bad353afd0217b9537e63e06ca84580ce03fb6c11'
 MANIFEST = Path(__file__).with_name('economic-implementation-v2.json')
 PREDECESSOR = 'b2e308bb664718da373175f1a7d988d07b159ae2'
 PREDECESSOR_DATA_SEMANTICS_SHA256 = '38c750bd9bb244bc71600aaeba8c4aad22d2095747f4199e9ac4e0bd433425cb'
@@ -26,6 +26,8 @@ SNAPSHOT_ADMISSION_SHA256 = '8b7cba0d389fa93aa597c4cf95923b359ae414c01cf91e1457c
 SNAPSHOT_RECOVERY_SHA256 = '2adb723c2dd51972540bb0f0009ff2fc8da3b6ffafc3621003d6f231ed50a4f1'
 SNAPSHOT_RETIRED_EDGE_SHA256 = '9c05134de105a65f1e68e3f2c81bff5d244e3dc2c73c39dc0c9cec1c1d6d4ff1'
 SNAPSHOT_RECOVERY_PREDECESSOR_SHA256 = '25540d4a498868db32bdb7ed5326fb0115129ead3b1bc5aebdbe4917ad4a1b32'
+ALPACA_EXPECTED_KEY_LAYOUT_BEFORE_SHA256 = '783673e2d2733492c699034414295aa3e528b717eb82507ef03ef7d7fb6db0cd'
+ALPACA_EXPECTED_KEY_LAYOUT_AFTER_SHA256 = 'f65ad0ebe82921cb280b446ac792bbb3079f7fa3021ce155ae365f15b2dc524d'
 CLOSE_READINESS_COMPILERS = {
     'sentinel.core.rolling_inputs': '1c8984cf51bb8b02e6861e5494b11d6a022a4e6f39e2670985710deab755ee3a',
     'sentinel.feed.operational_snapshot': 'ff56fcc3ae0e98207bb2d0347afe74a8e09d5550a67bdd99ed207df9ddbc3d93',
@@ -239,7 +241,8 @@ def page_contribution(module, raw, profile=None):
             return _sha(raw)
     prior = previous_source(module, raw, profile)
     witness = predecessor._profile()
-    if witness is None or _sha(prior) != witness['alpaca_page']['after']:
+    index_layout_only = _sha(raw) == ALPACA_EXPECTED_KEY_LAYOUT_AFTER_SHA256
+    if witness is None or (not index_layout_only and _sha(prior) != witness['alpaca_page']['after']):
         return _sha(raw)
     approved = profile['page_reads']
     for path, digest in witness['alpaca_page']['read_files'].items():
@@ -247,7 +250,8 @@ def page_contribution(module, raw, profile=None):
         observed = _sha(Path(__file__).parent.joinpath(path).read_bytes())
         if transition['before'] != digest or observed not in (digest, transition['after']):
             return _sha(raw)
-    return witness['alpaca_page']['before']
+    return (ALPACA_EXPECTED_KEY_LAYOUT_BEFORE_SHA256 if index_layout_only
+            else witness['alpaca_page']['before'])
 
 
 def identity(*, schema):
