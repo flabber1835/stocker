@@ -1,5 +1,9 @@
 # Sentinel current operating contract
 
+[Opening and idle authority proof attribution](open-authority-proof-attribution.md)
+specifies the November 25 timing breakdown while retaining fresh signed and
+publication proof at every broker operation.
+
 [November 24 close efficiency](nov24-close-efficiency.md) records the proven
 expected-key sort fix and the separate costs that still require attribution.
 

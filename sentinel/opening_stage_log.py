@@ -24,18 +24,27 @@ _TEMPLATES = frozenset({
     "automation_idle_authority_stage outcome=%s stage=%s "
     "elapsed_ms=%d budget_ms=%d backend_pid=%d",
     "automation_idle_authority_parent outcome=%s stage=%s elapsed_ms=%d",
+    "automation_idle_authority_phase phase=%s count=%d elapsed_ms=%d",
+    "automation_idle_authority_rows kind=%s count=%d rows=%d",
     "automation_callback_startup stage=%s event=begin",
     "automation_callback_startup stage=%s event=end elapsed_ms=%d",
     "paper_broker_read_timing operation=%s part=%s count=%d elapsed_ms=%d",
     "paper_guard_phase operation=%s part=%s phase=%s count=%d elapsed_ms=%d",
+    "paper_guard_rows operation=%s part=%s kind=%s count=%d rows=%d",
     "paper_projection_phase stage=%s phase=%s elapsed_ms=%d",
 })
 _BROKER_READS = ContextVar("opening_broker_reads", default=None)
 _GUARD_PHASES = ContextVar("opening_guard_phases", default=None)
+_GUARD_ROWS = ContextVar("opening_guard_rows", default=None)
+_IDLE_AUTHORITY_PHASES = ContextVar("idle_authority_phases", default=None)
+_IDLE_AUTHORITY_ROWS = ContextVar("idle_authority_rows", default=None)
 _ACTIVE_BROKER_READ = ContextVar("opening_active_broker_read", default=None)
 _GUARD_PHASE_NAMES = frozenset({
     "connection_setup", "read_only_setup", "grant_structural",
     "publication_rollout", "signed_authority", "result_evidence",
+    "current_publication", "strategy_identity", "runtime_identity",
+    "certificate_preliminary", "publication_rows", "publication_receipts",
+    "publication_policy_sources", "certificate_bindings",
 })
 _GUARD_READ_PARTS = frozenset({"before_read", "after_read"})
 _GUARD_READ_OPERATIONS = frozenset({
@@ -120,11 +129,14 @@ def callback_startup(phase: str, stage: str):
 def broker_reads():
     counts = {}
     guard_counts = {}
+    guard_rows = {}
     token = _BROKER_READS.set(counts)
     guard_token = _GUARD_PHASES.set(guard_counts)
+    rows_token = _GUARD_ROWS.set(guard_rows)
     try:
         yield
     finally:
+        _GUARD_ROWS.reset(rows_token)
         _GUARD_PHASES.reset(guard_token)
         _BROKER_READS.reset(token)
         for (operation, part), (count, elapsed) in counts.items():
@@ -133,6 +145,51 @@ def broker_reads():
         for (operation, part, phase), (count, elapsed) in guard_counts.items():
             info("paper_guard_phase operation=%s part=%s phase=%s count=%d elapsed_ms=%d",
                  operation, part, phase, count, elapsed // 1_000_000)
+        for (operation, part, kind), (count, rows) in guard_rows.items():
+            info("paper_guard_rows operation=%s part=%s kind=%s count=%d rows=%d",
+                 operation, part, kind, count, rows)
+
+
+@contextmanager
+def idle_authority_phases():
+    """Attribute one isolated observer request without carrying a proof forward."""
+    counts = {}
+    rows = {}
+    token = _IDLE_AUTHORITY_PHASES.set(counts)
+    rows_token = _IDLE_AUTHORITY_ROWS.set(rows)
+    try:
+        yield
+    finally:
+        _IDLE_AUTHORITY_ROWS.reset(rows_token)
+        _IDLE_AUTHORITY_PHASES.reset(token)
+        for phase, (count, elapsed) in counts.items():
+            info("automation_idle_authority_phase phase=%s count=%d elapsed_ms=%d",
+                 phase, count, elapsed // 1_000_000)
+        for kind, (count, total) in rows.items():
+            info("automation_idle_authority_rows kind=%s count=%d rows=%d",
+                 kind, count, total)
+
+
+def authority_rows(kind: str, rows: int) -> None:
+    """Count an already fetched proof result, without inspecting its values."""
+    if kind != "publication_rows" or type(rows) is not int or rows < 0:
+        return
+    try:
+        guard_counts = _GUARD_ROWS.get()
+        active = _ACTIVE_BROKER_READ.get()
+        if guard_counts is not None and active is not None:
+            key = (*active, kind)
+            count, total = guard_counts.get(key, (0, 0))
+            guard_counts[key] = (min(_MAX_PHASE_COUNT, count + 1),
+                                 min(_MAX_PHASE_COUNT, total + rows))
+        idle_counts = _IDLE_AUTHORITY_ROWS.get()
+        if idle_counts is not None:
+            count, total = idle_counts.get(kind, (0, 0))
+            idle_counts[kind] = (min(_MAX_PHASE_COUNT, count + 1),
+                                min(_MAX_PHASE_COUNT, total + rows))
+    except Exception:
+        # A diagnostic cannot replace an authority refusal.
+        pass
 
 
 @contextmanager
@@ -157,11 +214,12 @@ def broker_read(operation: str, part: str):
 
 @contextmanager
 def guard_phase(phase: str, *, enabled: bool = True):
-    """Aggregate only fixed timing names within an owned broker-read trace."""
+    """Aggregate fixed timing names in a broker read or idle observer proof."""
     counts = _GUARD_PHASES.get()
     active = _ACTIVE_BROKER_READ.get()
-    if (not enabled or counts is None or active is None
-            or phase not in _GUARD_PHASE_NAMES):
+    idle_counts = _IDLE_AUTHORITY_PHASES.get()
+    if (not enabled or phase not in _GUARD_PHASE_NAMES
+            or (idle_counts is None and (counts is None or active is None))):
         yield
         return
     try:
@@ -173,13 +231,20 @@ def guard_phase(phase: str, *, enabled: bool = True):
         yield
     finally:
         try:
-            key = (*active, phase)
-            key_count, elapsed = counts.get(key, (0, 0))
-            counts[key] = (
-                min(_MAX_PHASE_COUNT, key_count + 1),
-                min(_MAX_PHASE_NS,
-                    elapsed + max(0, perf_counter_ns() - start)),
-            )
+            duration = max(0, perf_counter_ns() - start)
+            if counts is not None and active is not None:
+                key = (*active, phase)
+                key_count, elapsed = counts.get(key, (0, 0))
+                counts[key] = (
+                    min(_MAX_PHASE_COUNT, key_count + 1),
+                    min(_MAX_PHASE_NS, elapsed + duration),
+                )
+            if idle_counts is not None:
+                key_count, elapsed = idle_counts.get(phase, (0, 0))
+                idle_counts[phase] = (
+                    min(_MAX_PHASE_COUNT, key_count + 1),
+                    min(_MAX_PHASE_NS, elapsed + duration),
+                )
         except Exception:
             # Timing must not replace an authorization refusal or broker result.
             pass
