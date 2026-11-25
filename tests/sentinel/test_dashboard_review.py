@@ -17,6 +17,7 @@ import pytest
 from sentinel import schema
 from sentinel.panel import model, presentation, review, review_schema, review_store as store
 from tests.support.postgres import _EphemeralPostgres
+from tests.sentinel.test_dashboard_trading_continuity import _partial_buy_panel
 
 
 @pytest.fixture(scope='module')
@@ -80,6 +81,40 @@ def test_planned_restart_is_amber_until_explicit_acknowledgement(conn):
     assert owner.observe(panel(),conn.info.dsn).status == 'CLEAN'
     successor = review.Recorder().observe(panel(),conn.info.dsn)
     assert successor.status == 'REVIEW' and successor.token
+
+
+def test_partial_buy_review_latches_once_and_ack_is_durable(conn):
+    owner = review.Recorder()
+    clean(owner, conn)
+    partial = _partial_buy_panel()
+    required = {'runtime_identity', 'feed', 'backup_restore',
+                'automation_alerts', 'alert_dispatcher'}
+    baseline = panel()
+    partial = replace(partial, rows=[*partial.rows,
+        *(replace(row, as_of=partial.now, freshness=None,
+                  valid_until=partial.now+timedelta(seconds=20))
+          for row in baseline.rows if row.key in required)])
+    assert presentation.health_facts(partial) == {'active': [], 'warnings': []}
+
+    first = owner.observe(partial, conn.info.dsn)
+    assert first.status == 'REVIEW' and first.token
+    assert presentation.dashboard_health(replace(partial, operator_review=first))['color'] == 'amber'
+    assert sum(event['details'].get('conditions') == ['MISSED_BUY_ONLY']
+               for event in first.events) == 1
+    assert owner.observe(partial, conn.info.dsn).head == first.head
+
+    acknowledged = owner.acknowledge(partial, conn.info.dsn, first.token,
+                                    actor='qualification operator')
+    assert acknowledged.status == 'CLEAN'
+    refreshed = owner.observe(partial, conn.info.dsn)
+    assert refreshed.status == 'CLEAN' and refreshed.head == acknowledged.head
+    assert presentation.dashboard_health(replace(partial, operator_review=refreshed))['color'] == 'green'
+
+    # A process restart has its own review event, but never recreates the miss.
+    restarted = review.Recorder().observe(partial, conn.info.dsn)
+    assert restarted.status == 'REVIEW'
+    assert sum(event['details'].get('conditions') == ['MISSED_BUY_ONLY']
+               for event in restarted.events) == 1
 
 
 def test_dashboard_links_to_all_outstanding_signed_entries_and_refuses_stale_pages(conn, monkeypatch):

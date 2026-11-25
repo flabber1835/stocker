@@ -506,6 +506,21 @@ class TradingRun(BaseModel):
     below_whole_share: dict[str, OpeningEstimate] = Field(default_factory=dict, max_length=100)
     unsent_at_cutoff: dict[str, UnsentOpeningDelta] = Field(default_factory=dict, max_length=100)
 
+    def required_sales_filled(self) -> bool:
+        """Every saved sale must have its complete, confirmed command fills."""
+        for leg in self.intent.legs:
+            if leg.action != 'SELL':
+                continue
+            orders = [order for order in self.orders
+                      if order.security_id == leg.security_id and order.side == 'SELL']
+            if (leg.change_quantity is None or leg.change_quantity >= 0 or not orders
+                    or any(order.state != 'FILLED' or order.quantity is None
+                           or order.filled_quantity != order.quantity for order in orders)
+                    or sum((order.filled_quantity for order in orders), Decimal(0))
+                        != -leg.change_quantity):
+                return False
+        return True
+
     @model_validator(mode='after')
     def coherent_progress(self):
         if any(value is not None and value.utcoffset() is None
@@ -530,6 +545,11 @@ class TradingRun(BaseModel):
                 self.state != 'SUPERSEDED' or self.completed_at is None
                 or not self.unsent_at_cutoff.keys() <= {leg.security_id for leg in self.intent.legs}
                 or any(order.state not in {'FILLED', 'CANCELLED', 'REJECTED', 'SUPERSEDED'}
+                       and not (order.state == 'PLANNED' and order.side == 'BUY'
+                           and order.security_id in self.unsent_at_cutoff
+                           and self.unsent_at_cutoff[order.security_id].side == 'BUY'
+                           and order.broker_order_id is None
+                           and order.filled_quantity == 0)
                        for order in self.orders)):
             raise ValueError('unsent opening deltas lack a matching terminal run')
         return self
@@ -735,9 +755,14 @@ class Row:
                     or self.is_future(now) or self.is_stale(now)):
                 return FAIL
             return WARN
-        if self.paper_alignment == 'MISSED_OPEN_UNATTENDED':
+        if self.paper_alignment in {'MISSED_OPEN_UNATTENDED', 'MISSED_OPEN_BUY_ONLY'}:
             recovery = self.recovery
             if (self.key != 'paper_reconciliation' or self.status != WARN
+                    or self.paper_alignment == 'MISSED_OPEN_BUY_ONLY' and (
+                        self.operational_fact is None
+                        or (self.operational_fact.kind, self.operational_fact.state)
+                            != ('PAPER_VERIFICATION', 'AWAITING_NEXT_DECISION')
+                        or self.operational_fact.opening is None)
                     or not self.required_current or recovery is None
                     or recovery.phase != 'AWAITING_NEXT_DECISION'
                     or not recovery.active(now) or self.valid_until != recovery.deadline

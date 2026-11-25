@@ -98,9 +98,9 @@ def test_normal_cycle_transitions_do_not_reintroduce_review(state,checking):
                 phase='FINANCIAL_VERIFICATION',automatic=True,deadline=deadline))
     assert presentation.health_facts(page)=={'active':[],'warnings':[]}
     health = presentation.dashboard_health(page)
-    assert health['color'] == ('amber' if state == 'PREPARING' else 'green')
+    assert health['color'] == 'green'
     if state == 'PREPARING':
-        assert (health['label'], health['plan_readiness']) == ('Preparing plan for the next open', 'pending')
+        assert health['label'].startswith('Healthy') and health['plan_readiness'] == 'pending'
 
 
 @pytest.mark.parametrize('key',presentation._HISTORY_CURRENT_FACTS)
@@ -202,8 +202,8 @@ def test_native_unadopted_decision_is_expected_only_during_verified_calculation(
     assert page.row('exposure').effective_status(NOW)==model.FAIL
     assert presentation.health_facts(page)=={'active':[],'warnings':[]}
     health = presentation.dashboard_health(page)
-    assert (health['color'], health['label'], health['plan_readiness']) == (
-        'amber', 'Preparing plan for the next open', 'pending')
+    assert health['color'] == 'green' and health['label'].startswith('Healthy')
+    assert health['plan_readiness'] == 'pending'
     assert page==before and page.row('exposure').value=='0.55 NOT ADOPTED'
 
 
@@ -280,8 +280,8 @@ def test_authenticated_bounded_shadow_work_preserves_unknown_readiness(monkeypat
     assert health['plan_readiness'] == 'pending'
     if fault is None:
         assert facts == {'active':[], 'warnings':[]}
-        assert health['label'] == 'Checking strategy for the next open'
-        assert health['color'] == 'amber'
+        assert health['label'] == 'Checking strategy for the next open · last verified values dated'
+        assert health['color'] == 'blue'
         assert page.row('shadow_verification').value == 'CHECK IN PROGRESS'
         assert page.row('book').shadow_book is None
     else:
@@ -303,7 +303,7 @@ def test_only_a_complete_current_receipt_rollover_keeps_the_matching_strategy_ch
         observation_display_keys=delivery.display_keys(panel), observation_valid_until=NOW+timedelta(seconds=15))
     assert presentation.health_facts(rolled) == {'active': [], 'warnings': []}
     payload = serialization.public_payload(rolled)
-    assert payload['dashboard_health']['label'] == 'Checking strategy for the next open'
+    assert payload['dashboard_health']['label'] == 'Checking strategy for the next open · last verified values dated'
     assert payload['dashboard_health']['plan_readiness'] == 'pending'
     assert payload['observation']['display_current'] and not payload['observation']['strict_current']
     assert payload['operator_review']['status'] == 'CLEAN' and payload['operator_review']['token'] is None
@@ -331,7 +331,7 @@ def test_friday_published_market_data_cannot_make_pending_monday_plan_green():
     panel = model.Panel(rows=[feed, worker, plan], now=now, local_paper_mode=True, operator_review=review)
     health = presentation.dashboard_health(panel)
     assert (health['color'], health['label'], health['plan_readiness'], health['valid_until']) == (
-        'amber', 'Checking strategy for the next open', 'pending', until.isoformat())
+        'blue', 'Checking strategy for the next open · last verified values dated', 'pending', until.isoformat())
     assert not health['active_conditions'] and not health['review_conditions']
     failed = changed_history_panel(panel, 'shadow_worker', status=model.FAIL)
     assert presentation.dashboard_health(failed)['color'] == 'red'
@@ -392,7 +392,7 @@ def test_attestation_retry_owns_only_current_published_check_and_matching_step(m
         assert until == wake
         assert {'automation_cycle','automation_step_data','book','exposure','shadow_verification','terminals'} <= keys
         assert facts == {'active':[], 'warnings':[]}
-        assert presentation.dashboard_health(page)['label'] == 'Checking strategy for the next open'
+        assert presentation.dashboard_health(page)['label'] == 'Checking strategy for the next open · last verified values dated'
         assert page.row('feed').feed_readiness == 'AWAITING_VERDICT' and page.row('book').shadow_book is None
     else:
         assert until is None and not keys and (facts['active'] or facts['warnings'])

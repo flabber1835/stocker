@@ -9,6 +9,7 @@ import pytest
 
 from sentinel.automation.model import AutomationRefused, CycleState
 from sentinel.panel import model, observer_codec, sources
+from tests.sentinel.test_dashboard_trading_continuity import _partial_buy_panel
 
 
 NOW = datetime(2026, 11, 24, 16, tzinfo=timezone.utc)
@@ -306,6 +307,69 @@ def test_same_generation_unsent_missed_window_has_bounded_next_decision(
     previous.broker_account_id = control.broker_account_id
     previous.attempt_count = 1
     assert sources._recoverable_superseded_wait(object(), cycle) is None
+
+
+def test_partial_buy_cutoff_requires_exact_cycle_and_all_sales_filled(monkeypatch):
+    raw = replace(_partial_buy_panel().row('trading_run'), status=model.FAIL)
+    cycle = dict(cycle_id='partial-cycle', plan_id='partial-plan',
+                 updated_at=OLD, completed_at=OLD)
+    monkeypatch.setattr(sources, '_current_trading_run', lambda _conn: raw)
+    assert sources._partial_buy_only_cutoff_run(object(), cycle, now=NOW) == raw
+    assert sources._partial_buy_only_cutoff_run(object(),
+        {**cycle, 'plan_id':'other-plan'}, now=NOW) is None
+    orders = [order.model_copy(update={'state':'REJECTED'})
+              if order.side == 'SELL' else order for order in raw.trading_run.orders]
+    broken = replace(raw, trading_run=raw.trading_run.model_copy(update={'orders':orders}))
+    monkeypatch.setattr(sources, '_current_trading_run', lambda _conn: broken)
+    assert sources._partial_buy_only_cutoff_run(object(), cycle, now=NOW) is None
+
+
+def test_partial_buy_wait_requires_only_its_planned_command_and_latest_clean_broker(monkeypatch):
+    from sentinel.automation import store
+    from sentinel.execution import journal
+
+    cycle, current = _safe_case(monkeypatch)
+    control = store.load_control(object())
+    previous = store.load_cycle(object(), cycle['cycle_id'])
+    cycle.update(cycle_id='partial-cycle', failure_code='MAX_EXECUTION_LATENESS_EXCEEDED', attempt_count=1,
+                 plan_id='partial-plan', completed_at=OLD)
+    current.latest_cycle_id = 'partial-cycle'
+    previous.cycle_id = 'partial-cycle'
+    current.latest_failure_code = cycle['failure_code']
+    previous.failure_code = cycle['failure_code']
+    previous.attempt_count = 1
+    previous.control_generation = control.generation
+    previous.diagnostic = {}
+    raw = replace(_partial_buy_panel().row('trading_run'), status=model.FAIL)
+    monkeypatch.setattr(sources, '_partial_buy_only_cutoff_run',
+                        lambda *_args, **_kwargs: raw)
+    monkeypatch.setattr(sources, '_active_commands',
+                        lambda _conn: {'counts': {'PLANNED':1}})
+    latest = dict(completeness='COMPLETE', runtime_state='RUNNING',
+                  observed_at=OLD, sequence=529,
+                  orders=[{'state':'FILLED','key':'sell-command'}])
+    latest_payload = dict(completeness='COMPLETE', broker='alpaca',
+        account_id='paper-1', orders=[{'state':'FILLED','client_key':'sell-command'}],
+        exact_evidence=[])
+    monkeypatch.setattr(sources, '_latest_observation', lambda _conn: latest)
+    monkeypatch.setattr(journal, 'load_observation_payload',
+                        lambda _conn, _seq: latest_payload)
+    conn = SimpleNamespace(execute=lambda *_args: SimpleNamespace(
+        fetchall=lambda: [('buy-command','PLANNED')]))
+    wait = sources._recoverable_superseded_wait(conn, cycle)
+    assert wait is not None and wait.partial_buy_only
+    assert (wait.opening.cycle_id, wait.opening.plan_id, wait.opening.observation_id) == (
+        'partial-cycle', 'partial-plan', 528)
+    latest_payload['orders'].append({'state':'FILLED','client_key':'buy-command'})
+    assert sources._recoverable_superseded_wait(conn, cycle) is None
+    latest_payload['orders'].pop()
+    latest_payload['exact_evidence'].append({
+        'client_key':'buy-command','order':{'client_key':'buy-command'}})
+    assert sources._recoverable_superseded_wait(conn, cycle) is None
+    latest_payload['exact_evidence'].pop()
+    monkeypatch.setattr(sources, '_active_commands',
+                        lambda _conn: {'counts': {'UNKNOWN':1}})
+    assert sources._recoverable_superseded_wait(conn, cycle) is None
 
 
 @pytest.mark.parametrize('fault,guard', [

@@ -93,6 +93,41 @@ def test_unproved_unsent_outcome_cannot_be_rendered_as_a_clean_cutoff(terminal, 
     assert proof(terminal) is None
 
 
+@pytest.mark.parametrize('fault', [None, 'missing_restore', 'wrong_restore',
+    'same_client_native_order', 'native_order_without_key', 'exact_get_native_order'])
+def test_planned_buy_needs_exact_no_transport_chain_and_no_native_order(terminal, fault):
+    conn, plan, recorded, diagnostic, observation = terminal
+    planned = model.RunOrder(security_id='crl', ticker='CRL', client_key='crl-command',
+        broker_order_id=None, side='BUY', quantity=None, notional=Decimal('1337.66'),
+        filled_quantity=Decimal(0), state='PLANNED', observed_at=ENDED,
+        order_terms=OrderTerms(order_type='market').to_dict())
+    run = recorded.model_copy(update={'orders': [*recorded.orders, planned]})
+    events = [(None, 'PLANNED', Decimal(0), None, plan['execute_at']),
+              ('PLANNED', 'SEND_PENDING', Decimal(0), None, ENDED-timedelta(seconds=2)),
+              ('SEND_PENDING', 'PLANNED', Decimal(0),
+               'PRE_TRANSPORT_CHECKPOINT_RESTORED: cutoff', ENDED-timedelta(seconds=1))]
+    observation['orders'][0]['client_key'] = 'mtd-command'
+    observation['exact_evidence'] = []
+    if fault == 'missing_restore':
+        events.pop()
+    elif fault == 'wrong_restore':
+        events[-1] = (*events[-1][:3], 'unproved reset', events[-1][4])
+    elif fault == 'same_client_native_order':
+        observation['orders'].append({'state': 'FILLED', 'client_key': 'crl-command'})
+    elif fault == 'native_order_without_key':
+        observation['orders'].append({'state': 'FILLED'})
+    elif fault == 'exact_get_native_order':
+        observation['exact_evidence'].append({
+            'client_key':'crl-command', 'order':{'client_key':'crl-command'}})
+    saved = conn.execute
+    conn.execute = lambda sql, *args: (SimpleNamespace(fetchall=lambda: events)
+        if 'sentinel_command_events' in sql else saved(sql, *args))
+    value = sources._opening_cutoff_progress(conn, plan, run,
+        ('528', model.OPENING_CUTOFF, diagnostic),
+        {'crl': Decimal('1337.66')})
+    assert (value is not None) is (fault is None)
+
+
 @pytest.mark.parametrize('verified', [False, True])
 def test_dated_cutoff_is_a_negative_outcome_not_a_failed_observer(terminal, verified):
     _, fact = proof(terminal)
