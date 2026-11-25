@@ -928,3 +928,23 @@ reconciliation must make a falsifier fail. A private production-sized gateway
 and full-basket timing result remain required before claiming opening
 readiness; this narrow repair alone cannot certify a many-sale zero-exposure
 exit or guarantee Alpaca fills.
+
+## November 25 opening frontier lookup
+
+The execution gateway authenticates and pins the active corpus, then runs the
+ordinary current readiness check before deriving the plan frontier. For a
+rolling corpus with that same pin still held, derive the frontier directly
+from the authenticated pinned publication. This removes the independent
+current-publication lookup made solely to retrieve the already known window
+end. For legacy data, continue reading the visible session from the database.
+The full readiness check, pinned-source and plan assertions, and independent
+broker-operation guards retain their existing roles and run at the same
+boundaries.
+
+The package equivalence test must require that the frontier consumes the exact
+publication from the enclosing pin, immediately after readiness. After restoring
+the former lookup in the test's copy of the syntax tree, all existing lifecycle
+fingerprints must still match. Reject both a duplicate lookup and an unrelated
+publication argument. This removes one known repeat read. The longer shadow,
+sizing and account stages still require a timed private run to establish how
+much work can move off the opening path.
