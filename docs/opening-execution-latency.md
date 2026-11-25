@@ -897,3 +897,34 @@ existing reviewed AST fingerprint. Missing, duplicated, moved or changed
 timing nodes, and any other change to either canonical body, must refuse. This
 comparison is a source-integrity witness for diagnostics, not a new financial
 result or release qualification.
+
+## November 25 single-sale fill continuation
+
+The observed PAPER sale filled just after the executor's final settlement read.
+The next attempt repeated recovery and the complete opening gateway before
+reaching the remaining purchases. A late fill must not itself authorize a buy,
+but repeated full reconciliations are an expensive way to wait for a single
+known order to fill.
+
+Select the narrow positive-hint option in the execution contract §13.1a for
+the currently selected fractional market PAPER path. After one ordinary clean
+settlement read sees the single required sale still pending, guarded exact-key
+reads may wait for a positive full-fill hint within a 75-second monotonic bound
+and only while the original buy window remains open. Space these reads by five
+seconds, and take one fresh complete reconciliation after a positive hint.
+The executor recognizes the existing PAPER-only account namespace, fractional
+policy, current-book mode and opening-window callback; the canonical PAPER
+gateway body and its reviewed source fingerprint do not change for this option.
+Nothing about a missing or uncertain lookup establishes settlement. Failed
+lookup authority stops the continuation. Preserve the writer lock and all
+existing per-buy guards; this is a bounded same-callback improvement, not
+cross-callback economic-proof reuse or a new authorization result.
+
+Adversarial qualification must cover a fill just after the old sixth check,
+no fill, partial fill, missing exact key, wrong account/order identity,
+rejection, incomplete final reconciliation, a cutoff crossed during the wait,
+and restart with an existing working sale. Removing the final full
+reconciliation must make a falsifier fail. A private production-sized gateway
+and full-basket timing result remain required before claiming opening
+readiness; this narrow repair alone cannot certify a many-sale zero-exposure
+exit or guarantee Alpaca fills.

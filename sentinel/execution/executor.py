@@ -35,8 +35,10 @@ Do not chase missed recovery buys intraday because a server came back.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import inspect
+import time
 from dataclasses import dataclass, field, replace
 from datetime import date
 from decimal import Decimal
@@ -45,7 +47,8 @@ from typing import Callable, Mapping, Optional, Sequence
 from sentinel.execution import commands as C
 from sentinel.execution import journal, reconcile as R, recovery
 from sentinel.execution.contract import Completeness, ExecutionBroker, Side
-from sentinel.execution.identity import CommandIdentity, DeploymentIdentity
+from sentinel.execution.identity import (
+    ALPACA_PAPER_BROKER, CommandIdentity, DeploymentIdentity)
 from sentinel.execution.guarded import BrokerAuthorityRefused
 from sentinel.execution.plan import ExecutionPlan
 from sentinel.execution.target_reprojection import (
@@ -243,6 +246,20 @@ def is_execution_window_open(plan: ExecutionPlan, today: date) -> bool:
 #: has not completed after this many reads is a sale whose proceeds are not
 #: arriving in this session, and waiting longer converts a deferral into a hang.
 DEFAULT_SETTLE_CYCLES = 6
+MAX_SINGLE_SALE_HINT_WAIT_SECONDS = 75
+SINGLE_SALE_HINT_INTERVAL_SECONDS = 5
+
+
+def _single_sale_hint_budget(*, deployment: DeploymentIdentity,
+                             fractional: bool, informational_current_book: bool,
+                             market_buy_window_open: Callable[[], bool] | None
+                             ) -> int:
+    """Select only the installed fractional PAPER opening path."""
+    return (MAX_SINGLE_SALE_HINT_WAIT_SECONDS
+            if deployment.broker == ALPACA_PAPER_BROKER
+            and fractional and informational_current_book
+            and callable(market_buy_window_open) else 0)
+
 
 # Adapter-specific restore fences register here instead of replacing this
 # public function. Keeping ``execute_session`` concrete preserves its audited
@@ -425,6 +442,10 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
     market = selected_market is not None
     from sentinel.execution import fractional_progress
     fractional = selected_market is not None and selected_market.fractional
+    single_sale_hint_wait_seconds = _single_sale_hint_budget(
+        deployment=deployment, fractional=fractional,
+        informational_current_book=informational_current_book,
+        market_buy_window_open=market_buy_window_open)
     if market or (target_projection is not None
                   and market_buy_sizing.is_market_projection(target_projection)):
         market_buy_sizing.validate_projection(
@@ -777,7 +798,9 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                 plan_id=plan.plan_id,
                 client_keys=sorted(outstanding_reduction_keys),
                 cycles=settle_cycles, actions=actions,
-                informational_current_book=informational_current_book)
+                informational_current_book=informational_current_book,
+                single_sale_hint_wait_seconds=single_sale_hint_wait_seconds,
+                buy_window_open=market_buy_window_open)
             if settled_rec is not None:
                 rec = settled_rec
                 runtime = rec.runtime_state
@@ -788,7 +811,7 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                 increases = []
                 settle_note = (
                     f"{len(deferred)} increase(s) DEFERRED — the reductions "
-                    f"did not settle safely within {settle_cycles} cycles "
+                    "did not settle safely "
                     f"({settle_reason}). Their proceeds do not exist unless a "
                     f"fresh COMPLETE, RUNNING, clean reconciliation observes "
                     f"every required reduction FILLED. Buying without that "
@@ -964,7 +987,9 @@ async def _settle_reductions(*, broker: ExecutionBroker, conn,
                              deployment: DeploymentIdentity, plan_id: str,
                              client_keys, cycles: int,
                              actions: Optional[R.ActionLookup],
-                             informational_current_book: bool = False) -> tuple:
+                             informational_current_book: bool = False,
+                             single_sale_hint_wait_seconds: int = 0,
+                             buy_window_open: Callable[[], bool] | None = None) -> tuple:
     """Prove every reduction FILLED through a fresh clean reconciliation.
 
     "Not working" is not settlement. A rejected, cancelled, never-landed or
@@ -978,32 +1003,27 @@ async def _settle_reductions(*, broker: ExecutionBroker, conn,
     only by a COMPLETE observation whose reconciliation is RUNNING and clean,
     with every named command durably FILLED for its full quantity.
 
-    Bounded rather than open-ended. A sale not proven filled after ``cycles``
-    reads is a sale whose proceeds are not available to this session; deferring
-    the increases is safe and visible, while waiting forever is neither.
+    The selected single-sale PAPER path may wait for a positive exact-key fill
+    hint instead of repeatedly reconciling a still-working sale. The hint is
+    never settlement: one new complete reconciliation must prove the fill.
+    Other paths retain the bounded ``cycles`` behavior.
     """
     required = set(client_keys)
     latest = None
     reason = "no reconciliation completed"
-    for _ in range(max(1, cycles)):
-        latest = await R.reconcile(
-            broker=broker, conn=conn, binding=None,
-            deployment=deployment, actions=actions,
-            informational_current_book=informational_current_book)
-        observation = latest.observation
-        if latest.runtime_state is not RuntimeState.RUNNING:
-            reason = (f"reconciliation is {latest.runtime_state.value}: "
-                      f"{latest.detail}")
-            continue
+
+    def assess(result):
+        observation = result.observation
+        if result.runtime_state is not RuntimeState.RUNNING:
+            return False, (f"reconciliation is {result.runtime_state.value}: "
+                           f"{result.detail}"), None
         if (observation is None
                 or observation.completeness is not Completeness.COMPLETE):
             completeness = (observation.completeness.value
                             if observation is not None else "ABSENT")
-            reason = f"reconciliation observation is {completeness}"
-            continue
-        if not latest.transport_ready:
-            reason = f"reconciliation is not clean: {latest.detail}"
-            continue
+            return False, f"reconciliation observation is {completeness}", None
+        if not result.transport_ready:
+            return False, f"reconciliation is not clean: {result.detail}", None
 
         commands = {
             command.client_key: command
@@ -1012,12 +1032,10 @@ async def _settle_reductions(*, broker: ExecutionBroker, conn,
         }
         missing = sorted(required - set(commands))
         if missing:
-            reason = f"reduction command(s) absent from the journal: {missing}"
-            continue
-        if any(command.security_id in latest.restricted_securities
+            return False, f"reduction command(s) absent from the journal: {missing}", commands
+        if any(command.security_id in result.restricted_securities
                for command in commands.values()):
-            reason = "required sale has an unresolved corporate action"
-            continue
+            return False, "required sale has an unresolved corporate action", commands
         not_filled = sorted(
             f"{key}={command.state.value} "
             f"({command.filled_quantity}/{command.quantity})"
@@ -1026,10 +1044,105 @@ async def _settle_reductions(*, broker: ExecutionBroker, conn,
                 or command.filled_quantity != command.quantity)
         )
         if not_filled:
-            reason = "reduction command(s) not FILLED: " + ", ".join(not_filled)
+            return False, "reduction command(s) not FILLED: " + ", ".join(not_filled), commands
+        return True, "all required reductions reconciled FILLED", commands
+
+    for attempt in range(max(1, cycles)):
+        if (attempt and single_sale_hint_wait_seconds > 0
+                and buy_window_open is not None and not buy_window_open()):
+            return False, latest, "single-sale buy window expired"
+        latest = await R.reconcile(
+            broker=broker, conn=conn, binding=None,
+            deployment=deployment, actions=actions,
+            informational_current_book=informational_current_book)
+        settled, reason, commands = assess(latest)
+        if settled:
+            return True, latest, reason
+        if (attempt != 0 or single_sale_hint_wait_seconds <= 0
+                or len(required) != 1 or commands is None
+                or buy_window_open is None):
             continue
-        return True, latest, "all required reductions reconciled FILLED"
+        if not buy_window_open():
+            return False, latest, "single-sale buy window expired"
+        key = next(iter(required))
+        command = commands.get(key)
+        observed_order = latest.observation.by_client_key(key)
+        if (command is None or command.identity.plan_id != plan_id
+                or command.side is not Side.SELL
+                or command.state not in {CommandState.ACKNOWLEDGED,
+                                         CommandState.PARTIALLY_FILLED}
+                or not command.broker_order_id or command.quantity is None
+                or observed_order is None or not observed_order.is_working
+                or observed_order.broker_order_id != command.broker_order_id):
+            continue
+        signaled, hint_reason = await _wait_for_single_sale_fill_hint(
+            broker=broker, command=command, deployment=deployment,
+            seconds=single_sale_hint_wait_seconds,
+            buy_window_open=buy_window_open)
+        if not signaled:
+            return False, latest, hint_reason
+        # An exact-key result is only a wake hint. Reconcile the whole account
+        # afresh, including UNKNOWN, foreign activity, fill quantities and
+        # native cash, before allowing phase two to size or authorize a BUY.
+        latest = await R.reconcile(
+            broker=broker, conn=conn, binding=None,
+            deployment=deployment, actions=actions,
+            informational_current_book=informational_current_book)
+        settled, reason, _ = assess(latest)
+        return settled, latest, reason
     return False, latest, reason
+
+
+async def _wait_for_single_sale_fill_hint(*, broker: ExecutionBroker,
+                                          command: C.Command,
+                                          deployment: DeploymentIdentity,
+                                          seconds: int,
+                                          buy_window_open: Callable[[], bool]
+                                          ) -> tuple[bool, str]:
+    """Wait only for positive exact-order evidence; never certify settlement."""
+    deadline = time.monotonic() + seconds
+    reason = "single-sale exact fill has not been observed"
+    while buy_window_open() and time.monotonic() < deadline:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        try:
+            # Alpaca's guarded lookup has three separately timed account/order
+            # reads. Bound their aggregate by the wait budget, including a
+            # stalled transport call, rather than only bounding the sleeps.
+            lookup = await asyncio.wait_for(
+                broker.find_by_client_key(command.client_key),
+                timeout=remaining)
+        except TimeoutError:
+            return False, "single-sale exact lookup exceeded its deadline"
+        if not buy_window_open():
+            return False, "single-sale buy window expired"
+        if (lookup.client_key != command.client_key
+                or not deployment.matches_account(lookup.stable_identity)):
+            return False, "single-sale exact lookup changed account or client key"
+        order = lookup.order
+        if order is not None:
+            if (order.broker_order_id != command.broker_order_id
+                    or order.instrument != command.instrument
+                    or order.side is not Side.SELL
+                    or order.quantity != command.quantity
+                    or order.notional != command.notional
+                    or order.order_terms != command.order_terms
+                    or order.external_replacement or order.replaced_by or order.replaces):
+                return False, "single-sale exact lookup changed order identity or economics"
+            if (order.state is CommandState.FILLED
+                    and order.filled_quantity == command.quantity):
+                return True, "single-sale exact full-fill hint"
+            if order.state in {CommandState.REJECTED, CommandState.CANCELLED,
+                               CommandState.UNKNOWN, CommandState.SUPERSEDED}:
+                return False, f"single-sale exact order is {order.state.value}"
+            reason = f"single-sale exact order is {order.state.value}"
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or not buy_window_open():
+            break
+        await asyncio.sleep(min(SINGLE_SALE_HINT_INTERVAL_SECONDS, remaining))
+    return False, ("single-sale buy window expired" if not buy_window_open()
+                   else reason)
 
 
 def _same_command_economics(left: C.Command, right: C.Command) -> bool:
