@@ -17,6 +17,7 @@ RETRY_SECONDS = 30
 FRESH_SECONDS = 600
 REFRESH_SECONDS = FRESH_SECONDS - DEADLINE_SECONDS
 RESERVED_REFRESH_LEAD_SECONDS = 150
+CHANGED_SUBJECT_POLL_MARGIN_SECONDS = 15
 ACTIVATION_FEE_REFRESH_LEAD_SECONDS = 150
 CORPUS_LOCK_RETRY_SECONDS = 20
 CORPUS_LOCK_POLL_SECONDS = 0.5
@@ -136,6 +137,8 @@ class Reader:
         self.retained = None
         self.negative_result = None
         self.configuration = None
+        self.deferred_from_subject = None
+        self.deferred_until = None
         self.last_attempt = float('-inf')
         self.pending_key = None
         self.pending_at = None
@@ -327,12 +330,14 @@ class Reader:
 
     def read(self, database_url, *, include_paper=True, allow_start=True,
              awaiting_until=None, awaiting_since=None, defer_refresh_until=None,
-             scan_occupied=False):
+             scan_occupied=False, changed_subject_wait=None):
         try:
             key = self.key_factory(database_url, include_paper,
                                    self.evidence_reader(database_url, include_paper))
         except Exception as exc:
             with self.lock:
+                self.deferred_until = None
+                self.deferred_from_subject = None
                 self.identity_failure = observer_failure.classify(exc)
                 self.identity_failed_at = self.wall_clock()
                 detail = 'current financial identity unreadable: '+self.identity_failure.safe_detail()
@@ -341,11 +346,16 @@ class Reader:
             if key != self.configuration:
                 healthy_change = (self.completed is not None and self.failure is None
                     and self.pending is None and self.supersession_at is None)
+                previous_key = self.configuration
                 if self.configuration is not None:
                     self._start_supersession(from_attempt=self.pending is not None or self.answer is not None)
                 self.check_reason = ('SUBJECT_CHANGED' if self.configuration is not None
                                      else 'NO_COMPLETED_PROOF')
                 self.configuration = key
+                self.deferred_from_subject = (previous_key if healthy_change
+                    and changed_subject_wait is not None
+                    and previous_key == changed_subject_wait.previous_subject
+                    and key == changed_subject_wait.current_subject else None)
                 self.retained = None
                 self.completed = None
                 self.last_result_at = None
@@ -530,6 +540,21 @@ class Reader:
                     allow_start = allow_start and instant >= min(
                         defer_refresh_until,
                         proof_until - timedelta(seconds=RESERVED_REFRESH_LEAD_SECONDS))
+            if (changed_subject_wait is not None and not include_paper
+                    and self.deferred_from_subject == changed_subject_wait.previous_subject
+                    and key == changed_subject_wait.current_subject
+                    and self.completed is None and self.pending is None and self.answer is None
+                    and self.failure is None and self.identity_failure is None
+                    and self.supersession_at is not None and not self.supersession_failed):
+                instant = self.wall_clock()
+                boundary = min(changed_subject_wait.until,
+                    self.supersession_at + timedelta(
+                        seconds=observer_failure.SUPERSESSION_SECONDS-DEADLINE_SECONDS
+                            -CHANGED_SUBJECT_POLL_MARGIN_SECONDS))
+                self.deferred_until = boundary if instant < boundary else None
+                allow_start = allow_start and self.deferred_until is None
+            else:
+                self.deferred_until = None
             if (allow_start and refresh_due and self.pending is None
                     and (not self.retain_failed_attempt or self._failed_attempt_handoff is None)
                     and (coalesced is not None or self.clock()-self.last_attempt >= RETRY_SECONDS)):

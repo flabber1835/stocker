@@ -359,13 +359,13 @@ def test_unfresh_unsigned_foreign_or_changed_worker_evidence_cannot_earn_quiet(w
 
 
 def test_current_worker_start_gate_has_a_falsifier(worker_env, monkeypatch):
-    source = inspect.getsource(waiting._worker)
+    source = inspect.getsource(waiting._worker_evidence)
     guard = 'closed <= started <= observed <= now < deadline'
     assert source.count(guard) == 1
     namespace = {}
     exec(compile(source.replace(guard, 'started <= observed <= now < deadline'),
         '<missing-current-worker-start>', 'exec'), vars(waiting), namespace)
-    monkeypatch.setattr(waiting, '_worker', namespace['_worker'])
+    monkeypatch.setattr(waiting, '_worker_evidence', namespace['_worker_evidence'])
     with pytest.raises(pytest.fail.Exception):
         test_unfresh_unsigned_foreign_or_changed_worker_evidence_cannot_earn_quiet(
             worker_env, monkeypatch, 'earlier_close')

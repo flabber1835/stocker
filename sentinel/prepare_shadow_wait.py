@@ -32,7 +32,7 @@ def _now():
     return datetime.now(timezone.utc)
 
 
-def _worker(state_dir, database_url, *, closed, now):
+def _worker_evidence(state_dir, database_url, *, closed, now):
     snapshot = shadow_service_probe.read(Path(state_dir))
     value = shadow_service_status.decode_probe(snapshot, database_url)
     # The legacy unsigned pending shape cannot prove this current attempt.
@@ -51,7 +51,11 @@ def _worker(state_dir, database_url, *, closed, now):
     if (not closed <= started <= observed <= now < deadline
             or now - observed > timedelta(seconds=shadow_service_status.MAX_AGE_SECONDS)):
         raise ValueError('shadow worker evidence is stale or belongs to an earlier close')
-    return deadline
+    return started, observed, deadline
+
+
+def _worker(state_dir, database_url, *, closed, now):
+    return _worker_evidence(state_dir, database_url, closed=closed, now=now)[2]
 
 
 def _published_job(conn, pub, binding, *, closed, now):

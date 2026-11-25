@@ -59,6 +59,10 @@ class _ObserverSlot:
             self.occupied = False
             self.condition.notify_all()
 
+    def busy(self):
+        with self.condition:
+            return self.occupied or bool(self.waiting)
+
 
 def _queued_subject(database_url, include_paper, owner_id):
     """Fresh exact subject and owner after resource grant; no proof or renewal."""
@@ -182,7 +186,7 @@ def snapshot(reader, result, *, scope, now):
     """Preserve original completed or pending clocks, including negative results."""
     with reader.lock:
         key = reader.configuration
-        if key is None:
+        if key is None or getattr(reader, 'deferred_until', None) is not None:
             return None
         if reader.completed is not None:
             rows, errors, observed = reader.completed
@@ -511,7 +515,7 @@ def _financial_publication(conn, database_url, scope, value, previous, *, now):
 def _refresh_readers(conn, readers, database_url, owner_id, previous, stopped, deadline,
                      *, on_publication=None):
     from sentinel import local_paper, snapshot_scan_admission
-    from sentinel.panel import attempt_store
+    from sentinel.panel import attempt_store, shadow_admission_wait
     for scope, reader in readers.items():
         if stopped.is_set():
             break
@@ -523,18 +527,35 @@ def _refresh_readers(conn, readers, database_url, owner_id, previous, stopped, d
         options = {}
         if local_paper.enabled():
             with conn.transaction(force_rollback=True):
+                conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
                 now = datetime.now(timezone.utc)
                 # A long observation may finish between polls and be due for
                 # a retry as soon as read() consumes it. Sample before admission
                 # even on the first completed result. Reader owns eligibility.
-                if snapshot_scan_admission.occupied(conn):
+                occupied = snapshot_scan_admission.occupied(conn)
+                if occupied:
                     options.update(scan_occupied=True,
                                    defer_refresh_until=now+timedelta(seconds=OWNER_POLL_SECONDS))
-                elif reader.completed is not None:
-                    reserve = _opening_scan_reserve(conn, now) if scope == 'SHADOW' else None
-                    reserve = reserve or _closing_scan_reserve(conn, now)
-                    if reserve is not None:
-                        options['defer_refresh_until'] = reserve
+                else:
+                    if (scope == 'SHADOW' and previous.get(scope) is not None
+                            and reader.pending is None and reader.answer is None
+                            and reader.execution_slot is not None
+                            and callable(getattr(reader.execution_slot, 'busy', None))
+                            and not reader.execution_slot.busy()
+                            and (reader.completed is not None
+                                 or reader.deferred_from_subject is not None)):
+                        try:
+                            hint = shadow_admission_wait.observe(
+                                conn, database_url, previous[scope], now=now)
+                        except Exception:
+                            hint = None
+                        if hint is not None:
+                            options['changed_subject_wait'] = hint
+                    if reader.completed is not None:
+                        reserve = _opening_scan_reserve(conn, now) if scope == 'SHADOW' else None
+                        reserve = reserve or _closing_scan_reserve(conn, now)
+                        if reserve is not None:
+                            options['defer_refresh_until'] = reserve
         result = reader.read(database_url, include_paper=scope == 'PAPER', **options)
         if stopped.is_set():
             conn.rollback()
