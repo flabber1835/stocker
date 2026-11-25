@@ -824,3 +824,60 @@ class TestNothingIsSubmittedTwice:
             cur.execute("SELECT security_id, COUNT(*) FROM sentinel_commands"
                         " WHERE plan_id = %s GROUP BY security_id", ("plan-1",))
             assert all(n == 1 for _, n in cur.fetchall())
+
+
+class TestTwentyReductionExit:
+    """The full-exit sequence has twenty independent, durable sale identities."""
+
+    @staticmethod
+    def scenario(conn, *, faults=()):
+        instruments = tuple(BrokerInstrument(
+            security_id=f"SEC-EXIT-{index:02d}", symbol=f"EXIT{index:02d}")
+            for index in range(20))
+        sim = broker(submit_faults=list(faults))
+        for instrument in instruments:
+            seed_held(conn, sim, instrument, 1)
+        plan = ExecutionPlan(plan_id="full-exit", decision_session=TODAY,
+            effective_session=TODAY, target_exposure=D(0),
+            target_basket={instrument.security_id: D(0) for instrument in instruments},
+            data_version=1)
+        E.adopt_plan(conn, plan)
+        result = asyncio.run(E.execute_session(
+            broker=sim, conn=conn, deployment=DEPLOY, plan=plan,
+            instruments={instrument.security_id: instrument for instrument in instruments},
+            today=TODAY))
+        return sim, plan, instruments, result
+
+    def test_all_twenty_sales_are_independently_acknowledged_and_retry_is_idempotent(self, conn, pg):
+        sim, plan, instruments, result = self.scenario(conn)
+        expected = [instrument.security_id for instrument in instruments]
+        assert [(command.security_id, command.side, command.quantity,
+                 command.state) for command in result.submitted] == [
+            (security_id, Side.SELL, D(1), CS.ACKNOWLEDGED) for security_id in expected]
+        assert len({command.client_key for command in result.submitted}) == 20
+        assert submits(sim) == [(security_id, "1") for security_id in expected]
+        assert result.refused == {} and result.deferred == ()
+
+        for command in result.submitted:
+            sim.fill(command.client_key)
+        sim.calls.clear()
+        retried = restart_run(pg, sim, plan)
+        assert retried.submitted == ()
+        assert not any(call.startswith("submit:") for call in sim.calls)
+        stored = journal.load_commands(conn, DEPLOY, plan_id=plan.plan_id)
+        assert {(command.security_id, command.side, command.quantity,
+                 command.state) for command in stored} == {
+            (security_id, Side.SELL, D(1), CS.FILLED) for security_id in expected}
+
+    def test_unknown_eleventh_sale_stops_all_later_sends(self, conn):
+        sim, plan, instruments, result = self.scenario(
+            conn, faults=(None,) * 10 + (FaultKind.NEVER_RECEIVED,))
+        assert [command.security_id for command in result.submitted] == [
+            instrument.security_id for instrument in instruments[:11]]
+        assert result.submitted[-1].state is CS.UNKNOWN
+        assert sum(call.startswith("submit:") for call in sim.calls) == 11
+        assert set(result.deferred) == {
+            instrument.security_id for instrument in instruments[11:]}
+        stored = journal.load_commands(conn, DEPLOY, plan_id=plan.plan_id)
+        assert len(stored) == 11
+        assert sum(command.state is CS.UNKNOWN for command in stored) == 1
