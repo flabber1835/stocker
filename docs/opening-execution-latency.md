@@ -971,16 +971,26 @@ unless the run also exercises the production-sized strategy/sizing and real
 guard checks in an isolated gateway.
 
 The private executor rehearsal ran with a disposable PostgreSQL instance and
-a synthetic broker in a network-disabled container. Broker latency modeled
-the November 25 observed averages: 1.1 seconds per full observation and 0.86
-seconds per exact order lookup. Submission delay was modeled at 0.35 seconds;
-visibility delays were fixtures (42 seconds for the mixed basket's sale and
-1.5 seconds per other fill). The worker exited after broker acceptance of the
-first sale or eleventh sale respectively, before recording the acknowledgement.
-After a four-second modeled downtime, fresh workers continued from the same
-PostgreSQL and simulated broker. Each case confirmed exactly the requested
-orders with zero duplicate submissions, and both buys followed the sell fill.
-From first broker read through final journal confirmation the one-sale/two-buy
-case took 58.021 seconds and the twenty-sale case took 26.759 seconds. The
-rehearsal covers restart and execution only. It does not measure the cold
-strategy verifier, sizing speedup, production broker guards, or native fills.
+a synthetic broker in a network-disabled container. Simulated reads used the
+November 25 averages of 1.1 seconds per full observation and 0.86 seconds per
+exact lookup. The model used 0.35 seconds per submission. A worker exited
+after the broker accepted the first or eleventh sale, before recording the
+acknowledgement. A fresh worker used the same database and simulated broker.
+Each case confirmed every intended order with zero duplicate submissions.
+
+From the first broker read through final journal confirmation, the synthetic
+one-sale/two-buy case took 56.107 seconds, with a 42-second sale visibility
+delay and four seconds of downtime. Both buys followed the sell fill. The
+20-sale exit took 26.939 seconds with 1.5-second fill visibility and four
+seconds of downtime. With 42-second sale visibility and 15 seconds of
+downtime, the 20-sale exit took 80.716 seconds. The first recovery pass of
+that run submitted the remaining nine sales while the first eleven were
+still working. An initial rehearsal had a simulator argument error on
+exact order lookup. The corrected runs explicitly checked for broker-degraded
+outcomes on each recovery invocation.
+
+For the sizing change alone, a synthetic state with 2,000 securities and
+127 observations per security took a median of 0.843 seconds to restore and
+hash, compared with 0.310 seconds to hash the retained payload directly.
+Full qualification still needs a private production-sized run covering the
+cold strategy verifier, actual sizing, and the complete gateway checks.
