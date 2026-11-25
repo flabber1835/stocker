@@ -52,6 +52,91 @@ def proof(terminal):
         {'crl': fractional_progress.purchase_notional(Decimal('1338.66'))})
 
 
+@pytest.fixture
+def retired_buy(historical_run_db, monkeypatch):
+    conn, _ = historical_run_db
+    observed = datetime(2026, 11, 25, 21, 21, tzinfo=timezone.utc)
+    market_open = datetime(2026, 11, 27, 14, 30, tzinfo=timezone.utc)
+    cycle = dict(cycle_id='new-cycle', plan_id='new-plan', state='WAITING_OPEN',
+                 next_wake_at=market_open+timedelta(minutes=1))
+    observation = dict(sequence=644, observed_at=observed,
+                       completeness='COMPLETE', runtime_state='RUNNING')
+    conn.execute("ALTER TABLE sentinel_automation_control ADD COLUMN authority_verdict text DEFAULT 'PASS'")
+    conn.execute('ALTER TABLE sentinel_automation_cycles ADD COLUMN next_wake_at timestamptz, '
+                 'ADD COLUMN execution_open_at timestamptz')
+    conn.execute("""CREATE TEMP TABLE sentinel_observations (
+        seq bigint PRIMARY KEY,observed_at timestamptz,runtime_state text,completeness text);
+        CREATE TEMP TABLE sentinel_commands (
+        client_key text,plan_id text,state text,side text,filled_quantity numeric,broker_order_id text,
+        deployment_id text,broker text,broker_account_id text,takeover_epoch bigint);
+        CREATE TEMP TABLE sentinel_command_events (
+        seq bigint,client_key text,from_state text,to_state text,filled_quantity numeric,
+        detail text,at timestamptz)""")
+    conn.execute("UPDATE sentinel_execution_plans SET decision_session='2026-11-24',effective_session='2026-11-25'")
+    conn.execute("""UPDATE sentinel_automation_cycles SET state='SUPERSEDED',
+        decision_session='2026-11-24',effective_session='2026-11-25',control_generation=86,
+        execute_at='2026-11-25T14:31Z',completed_at='2026-11-25T14:43Z',
+        failure_code=%s,last_clean_reconciliation_id='641',diagnostic=%s""",
+        (model.OPENING_CUTOFF, Jsonb(dict(clean=True, unresolved=[], foreign_orders=[],
+               foreign_positions=[], restricted_securities={}, expected={}, observed={}))))
+    conn.execute("""INSERT INTO sentinel_execution_plans VALUES(
+        'new-plan',%s,'2026-11-25','2026-11-27','{}','alpaca','paper','deployment',1,NULL)""",
+        (observed,))
+    conn.execute("""INSERT INTO sentinel_automation_cycles (
+        cycle_id,state,execute_at,next_wake_at,execution_open_at,plan_id,
+        decision_session,effective_session,control_generation,deployment_id,broker,broker_account_id,
+        takeover_epoch,certificate_sha256,config_sha256,historical_state_only,last_clean_reconciliation_id)
+        VALUES ('new-cycle','WAITING_OPEN',%s,%s,%s,'new-plan',
+        '2026-11-25','2026-11-27',86,'deployment','alpaca','paper',1,'new-cert','new-config',false,'644')""",
+        (cycle['next_wake_at'], cycle['next_wake_at'], market_open))
+    conn.execute("""INSERT INTO sentinel_observations VALUES
+        (641,'2026-11-25T14:42Z','RUNNING','COMPLETE'),(644,%s,'RUNNING','COMPLETE')""",
+        (observed,))
+    conn.execute("""INSERT INTO sentinel_commands VALUES
+        ('buy','old-plan','PLANNED','BUY',0,NULL,'deployment','alpaca','paper',1);
+        INSERT INTO sentinel_command_events VALUES
+        (1,'buy',NULL,'PLANNED',0,NULL,'2026-11-25T14:31Z'),
+        (2,'buy','PLANNED','SEND_PENDING',0,NULL,'2026-11-25T14:39Z'),
+        (3,'buy','SEND_PENDING','PLANNED',0,'PRE_TRANSPORT_CHECKPOINT_RESTORED: cutoff','2026-11-25T14:40Z')""")
+    accounts = {}
+    for seq in (641, 644):
+        accounts[seq] = dict(completeness='COMPLETE', broker='alpaca', account_id='paper',
+                             orders=[], exact_evidence=[])
+    monkeypatch.setattr(journal, 'load_observation_payload', lambda _conn, seq: accounts[seq])
+    return conn, cycle, observation, accounts, market_open
+
+
+@pytest.mark.parametrize('fault', [None, 'current-plan', 'wrong-successor', 'killed', 'wrong-epoch',
+    'no-restore', 'native-prior', 'native-newest', 'foreign-account', 'sell', 'unknown',
+    'other-planned', 'new-observation', 'expired'])
+def test_only_proven_retired_buys_keep_broker_observation_valid(retired_buy, fault):
+    conn, cycle, observation, accounts, market_open = retired_buy
+    sql = {
+        'current-plan': "UPDATE sentinel_commands SET plan_id='new-plan'",
+        'wrong-successor': "UPDATE sentinel_execution_plans SET superseded_by='different' WHERE plan_id='old-plan'",
+        'killed': 'UPDATE sentinel_automation_control SET kill_switch_engaged=true',
+        'wrong-epoch': 'UPDATE sentinel_commands SET takeover_epoch=2',
+        'no-restore': 'DELETE FROM sentinel_command_events WHERE seq=3',
+        'sell': "UPDATE sentinel_commands SET side='SELL'",
+        'unknown': "INSERT INTO sentinel_commands(client_key,state) VALUES ('other','UNKNOWN')",
+        'other-planned': "INSERT INTO sentinel_commands(client_key,state) VALUES ('other','PLANNED')",
+        'new-observation': "INSERT INTO sentinel_observations VALUES (645,'2026-11-25T22:00Z','RUNNING','COMPLETE')",
+    }
+    if fault in sql:
+        conn.execute(sql[fault])
+    if fault == 'native-prior':
+        accounts[641]['orders'] = [dict(client_key='buy',state='FILLED')]
+    elif fault == 'native-newest':
+        accounts[644]['exact_evidence'] = [dict(client_key='buy',order={'state':'FILLED'})]
+    elif fault == 'foreign-account':
+        accounts[644]['account_id'] = 'different'
+    now = market_open if fault == 'expired' else market_open-timedelta(days=1)
+    # The production reader has its own earlier count. A concurrent extra order
+    # still has to fail the proof inside this database read.
+    assert sources._only_retired_unsent_buys(
+        conn, cycle, observation, {'PLANNED': 1}, now=now) is (fault is None)
+
+
 @pytest.mark.parametrize('typed', [False, True])
 def test_legacy_and_current_proof_show_filled_and_unsent_notional(terminal, typed):
     conn, plan, recorded, diagnostic, _ = terminal
