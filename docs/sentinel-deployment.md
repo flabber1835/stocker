@@ -103,6 +103,10 @@ records the trace fixes and the backed local PAPER delivery boundary.
 reserves the existing heavy snapshot slot for bounded close work while a
 current verified result covers any deferred optional refresh.
 
+[November 24 close SHADOW verifier admission](nov24-close-shadow-verifier.md)
+defines a bounded changed-subject admission wait during an authenticated
+rolling SHADOW worker, without treating the worker as financial proof.
+
 [Whole-share PAPER market buys](paper-market-buys.md) defines an opt-in
 policy for regular-session buys with serial cash reconciliation. Selection
 requires a separate qualified PAPER activation on a fresh plan.

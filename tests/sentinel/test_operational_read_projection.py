@@ -327,16 +327,16 @@ def test_bounded_subject_never_decodes_the_lifetime_journal():
     assert 'SELECT cursor_name,session::text,tableoid::text,xmin::text,ctid::text' in inventory
 
 
-def assert_physical_subject_bound(conn):
+def assert_physical_subject_bound(conn,scope='SHADOW'):
     install_projection(conn)
-    original=projection.subject(conn,conn.info.dsn,'SHADOW')
+    original=projection.subject(conn,conn.info.dsn,scope)
     physical=conn.execute('SELECT system_identifier::text,current_database() FROM pg_control_system()').fetchone()
     class Replacement:
         def execute(self,statement,*args):
             if statement=='SELECT system_identifier::text,current_database() FROM pg_control_system()':
                 return SimpleNamespace(fetchone=lambda:(physical[0]+'0',physical[1]))
             return conn.execute(statement,*args)
-    changed=projection.subject(Replacement(),conn.info.dsn,'SHADOW')
+    changed=projection.subject(Replacement(),conn.info.dsn,scope)
     assert changed!=original,'physical database replacement reused a current read proof'
     conn.rollback()
 
@@ -345,14 +345,18 @@ def test_same_url_cannot_reuse_proof_after_physical_database_replacement(conn):
     assert_physical_subject_bound(conn)
 
 
-def test_removing_physical_subject_binding_has_a_falsifier(conn,monkeypatch):
-    source=inspect.getsource(projection._subject_for_revision)
-    assert source.count('list(physical)')==2
+@pytest.mark.parametrize('scope,function_name',[
+    ('SHADOW','_shadow_subject'),
+    ('PAPER','_subject_for_revision'),
+])
+def test_removing_physical_subject_binding_has_a_falsifier(conn,monkeypatch,scope,function_name):
+    source=inspect.getsource(getattr(projection,function_name))
+    assert source.count('list(physical)')==1
     namespace=dict(projection.__dict__)
     exec(compile(source.replace('list(physical)',"'removed-physical-scope'"),'unguarded physical subject','exec'),namespace)
-    monkeypatch.setattr(projection,'_subject_for_revision',namespace['_subject_for_revision'])
+    monkeypatch.setattr(projection,function_name,namespace[function_name])
     with pytest.raises(AssertionError,match='physical database replacement'):
-        assert_physical_subject_bound(conn)
+        assert_physical_subject_bound(conn,scope)
 
 
 def test_authenticated_installation_identity_is_part_of_subject(conn,monkeypatch):

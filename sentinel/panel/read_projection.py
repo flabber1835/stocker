@@ -77,10 +77,8 @@ def _subject_for_revision(conn, database_url, scope, row, *, facts=None):
     if scope == 'SHADOW':
         # Plan/rollout are projected fresh by the consumer. Include every
         # non-PAPER cursor, including unknown namespaces, without decoding state.
-        return _digest([SCHEMA, 'SHADOW_CONTENT_AND_FRESH_EXECUTION_V1', database_url,
-            row[0], list(physical), _shadow_inventory(conn),
-            installation['installation_id'] if installation is not None else None,
-            epoch, environment])
+        return _shadow_subject(database_url, row,
+            (physical,installation,epoch,environment), _shadow_inventory(conn))
     if scope == 'PAPER':
         # This compatibility scope contains account evidence. URL changes must
         # invalidate it without invalidating broker-independent SHADOW facts.
@@ -94,6 +92,36 @@ def _subject_for_revision(conn, database_url, scope, row, *, facts=None):
     return _digest([SCHEMA, database_url, scope, list(row),list(physical),
                     installation['installation_id'] if installation is not None else None,
                     epoch,environment])
+
+
+def _shadow_subject(database_url, revision, facts, inventory):
+    physical, installation, epoch, environment = facts
+    return _digest([SCHEMA, 'SHADOW_CONTENT_AND_FRESH_EXECUTION_V1', database_url,
+        revision[0], list(physical), inventory,
+        installation['installation_id'] if installation is not None else None,
+        epoch, environment])
+
+
+def shadow_publication_subjects(conn, database_url, *, version, previous_version):
+    """Current subject and exact hypothetical predecessor from one inventory.
+
+    Removing only the newly published row must reproduce the old signed
+    subject. Any other invalidation makes the old receipt ineligible to wait.
+    """
+    schema.require_schema(conn)
+    row = conn.execute(f'SELECT incarnation::text,revision,xmin::text FROM {schema.REVISION} '
+        'WHERE scope=%s', ('SHADOW',)).fetchone()
+    if row is None:
+        raise ValueError('verification invalidation state unavailable')
+    facts = _subject_facts(conn)
+    inventory = _shadow_inventory(conn)
+    publications = inventory[2]
+    if (len(publications) < 2 or publications[-1][0] != version
+            or publications[-2][0] != previous_version):
+        raise ValueError('publication-only subject transition unavailable')
+    return (_shadow_subject(database_url, row, facts, inventory),
+        _shadow_subject(database_url, row, facts,
+            [inventory[0], inventory[1], publications[:-1]]))
 
 
 def _shadow_inventory(conn):
