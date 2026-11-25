@@ -151,11 +151,14 @@ def test_absent_partial_rejected_or_mismatched_hint_cannot_settle(monkeypatch, h
     assert reads == 1
 
 
-def test_unknown_command_retains_conservative_reconciliation(monkeypatch):
+@pytest.mark.parametrize("open_window", [True, False])
+def test_unknown_command_retains_conservative_reconciliation(
+        monkeypatch, open_window):
     settled, _, _, reads, hints = settlement(
         monkeypatch, after_hint=result(order()),
         final_command=command(), lookups=[lookup(order(CS.FILLED))],
-        first_command=command(CS.UNKNOWN), cycles=6)
+        first_command=command(CS.UNKNOWN), cycles=6,
+        window=lambda: open_window)
     assert not settled
     assert reads == 6
     assert hints == 0
@@ -202,17 +205,26 @@ def test_stalled_guarded_lookup_cannot_extend_the_wait_deadline():
     assert "deadline" in reason
 
 
-def test_multiple_required_sales_keep_the_original_reconciliation_cycles(monkeypatch):
+@pytest.mark.parametrize("open_window", [True, False])
+def test_multiple_required_sales_keep_the_original_reconciliation_cycles(
+        monkeypatch, open_window):
     second_instrument = BrokerInstrument(security_id="SEC-BBB", symbol="BBB")
     second_command = replace(
         command(), identity=CommandIdentity(DEPLOY, "plan-1", "SEC-BBB"),
         instrument=second_instrument, broker_order_id="order-2")
+    second_order = replace(
+        order(), broker_order_id="order-2",
+        client_key=second_command.client_key, instrument=second_instrument)
     reads = []
     hints = []
 
     async def reconcile(**_kwargs):
         reads.append(True)
-        return result(order())
+        return ReconciliationResult(
+            runtime_state=RuntimeState.RUNNING,
+            observation=BrokerObservation(
+                observed_at=NOW, orders=(order(), second_order),
+                account_identity=ACCOUNT))
 
     class Broker:
         async def find_by_client_key(self, _key):
@@ -227,7 +239,8 @@ def test_multiple_required_sales_keep_the_original_reconciliation_cycles(monkeyp
         broker=Broker(), conn=object(), deployment=DEPLOY, plan_id="plan-1",
         client_keys=(command().client_key, second_command.client_key),
         cycles=3, actions=None, informational_current_book=True,
-        single_sale_hint_wait_seconds=1, buy_window_open=lambda: True))
+        single_sale_hint_wait_seconds=1,
+        buy_window_open=lambda: open_window))
     assert not settled
     assert len(reads) == 3
     assert hints == []

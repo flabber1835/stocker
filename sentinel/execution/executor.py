@@ -1048,9 +1048,6 @@ async def _settle_reductions(*, broker: ExecutionBroker, conn,
         return True, "all required reductions reconciled FILLED", commands
 
     for attempt in range(max(1, cycles)):
-        if (attempt and single_sale_hint_wait_seconds > 0
-                and buy_window_open is not None and not buy_window_open()):
-            return False, latest, "single-sale buy window expired"
         latest = await R.reconcile(
             broker=broker, conn=conn, binding=None,
             deployment=deployment, actions=actions,
@@ -1062,8 +1059,6 @@ async def _settle_reductions(*, broker: ExecutionBroker, conn,
                 or len(required) != 1 or commands is None
                 or buy_window_open is None):
             continue
-        if not buy_window_open():
-            return False, latest, "single-sale buy window expired"
         key = next(iter(required))
         command = commands.get(key)
         observed_order = latest.observation.by_client_key(key)
@@ -1075,6 +1070,8 @@ async def _settle_reductions(*, broker: ExecutionBroker, conn,
                 or observed_order is None or not observed_order.is_working
                 or observed_order.broker_order_id != command.broker_order_id):
             continue
+        if not buy_window_open():
+            return False, latest, "single-sale buy window expired"
         signaled, hint_reason = await _wait_for_single_sale_fill_hint(
             broker=broker, command=command, deployment=deployment,
             seconds=single_sale_hint_wait_seconds,
