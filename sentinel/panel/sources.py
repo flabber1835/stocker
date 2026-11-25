@@ -699,10 +699,15 @@ def _planned_buy_proven_unsent(conn, order, *, execute_at, completed_at):
     if (order.state != 'PLANNED' or order.side != 'BUY'
             or order.broker_order_id is not None or order.filled_quantity != 0):
         return False
+    return _no_transport_chain(
+        conn, order.client_key, execute_at=execute_at, completed_at=completed_at)
+
+
+def _no_transport_chain(conn, key, *, execute_at, completed_at):
     events = conn.execute(
         'SELECT from_state,to_state,filled_quantity,detail,at '
         'FROM sentinel_command_events WHERE client_key=%s ORDER BY seq LIMIT 101',
-        (order.client_key,)).fetchall()
+        (key,)).fetchall()
     if not events or len(events) > 100:
         return False
     first = events[0]
@@ -745,6 +750,100 @@ def _no_planned_buy_native_match(payload, planned_keys):
         or isinstance(item.get('order'), Mapping)
             and item['order'].get('client_key') in planned_keys
         for item in exact)
+
+
+def _only_retired_unsent_buys(conn, cycle, observation, counts, *, now):
+    """Prove the global PLANNED set cannot require broker reconciliation."""
+    from sentinel.execution import journal
+    from sentinel.execution.states import TERMINAL
+
+    planned_count = counts.get('PLANNED', 0)
+    if (not cycle or cycle.get('state') != 'WAITING_OPEN'
+            or not 0 < planned_count <= 100
+            or counts != {'PLANNED': planned_count}
+            or observation['completeness'] != 'COMPLETE'
+            or observation['runtime_state'] != 'RUNNING'):
+        return False
+
+    rows = conn.execute("""
+        SELECT cmd.client_key, old.execute_at, old.completed_at, prior.seq,
+               waiting.broker, waiting.broker_account_id
+        FROM sentinel_automation_cycles waiting
+        JOIN sentinel_automation_control control ON control.id=1
+          AND waiting.control_generation=control.generation
+          AND waiting.certificate_sha256=control.certificate_sha256
+          AND waiting.config_sha256=control.config_sha256
+          AND (waiting.deployment_id,waiting.broker,waiting.broker_account_id,waiting.takeover_epoch)
+             =(control.deployment_id,control.broker,control.broker_account_id,control.takeover_epoch)
+        JOIN sentinel_account_binding binding ON binding.id=1
+          AND binding.ownership_state='SENTINEL_OWNED'
+          AND (binding.deployment_id,binding.broker,binding.broker_account_id,binding.takeover_epoch)
+             =(waiting.deployment_id,waiting.broker,waiting.broker_account_id,waiting.takeover_epoch)
+        JOIN sentinel_execution_plans current ON current.plan_id=waiting.plan_id
+          AND current.superseded_by IS NULL
+          AND (current.decision_session,current.effective_session)
+             =(waiting.decision_session,waiting.effective_session)
+          AND (current.deployment_id,current.broker,current.broker_account_id,current.takeover_epoch)
+             =(waiting.deployment_id,waiting.broker,waiting.broker_account_id,waiting.takeover_epoch)
+        JOIN sentinel_execution_plans expired ON expired.superseded_by=current.plan_id
+          AND expired.effective_session=current.decision_session
+          AND (expired.deployment_id,expired.broker,expired.broker_account_id,expired.takeover_epoch)
+             =(waiting.deployment_id,waiting.broker,waiting.broker_account_id,waiting.takeover_epoch)
+        JOIN sentinel_automation_cycles old ON old.plan_id=expired.plan_id
+          AND old.control_generation=waiting.control_generation
+          AND (old.decision_session,old.effective_session)
+             =(expired.decision_session,expired.effective_session)
+          AND (old.deployment_id,old.broker,old.broker_account_id,old.takeover_epoch)
+             =(waiting.deployment_id,waiting.broker,waiting.broker_account_id,waiting.takeover_epoch)
+        JOIN sentinel_observations newest ON newest.seq=(SELECT max(seq) FROM sentinel_observations)
+          AND newest.seq::text=waiting.last_clean_reconciliation_id
+        JOIN sentinel_observations prior ON prior.seq::text=old.last_clean_reconciliation_id
+          AND prior.seq<newest.seq AND prior.observed_at BETWEEN old.execute_at AND old.completed_at
+        JOIN sentinel_commands cmd ON cmd.plan_id=expired.plan_id AND cmd.state='PLANNED'
+          AND (cmd.deployment_id,cmd.broker,cmd.broker_account_id,cmd.takeover_epoch)
+             =(waiting.deployment_id,waiting.broker,waiting.broker_account_id,waiting.takeover_epoch)
+        WHERE waiting.cycle_id=%s AND waiting.plan_id=%s AND waiting.state='WAITING_OPEN'
+          AND waiting.broker='alpaca' AND control.enabled AND NOT control.kill_switch_engaged
+          AND control.authority_verdict='PASS'
+          AND NOT waiting.historical_state_only AND NOT old.historical_state_only
+          AND waiting.failure_code IS NULL AND waiting.next_wake_at=waiting.execute_at
+          AND waiting.next_wake_at=%s
+          AND %s<waiting.execution_open_at
+          AND old.state='SUPERSEDED' AND old.failure_code=%s
+          AND old.completed_at<=newest.observed_at
+          AND old.diagnostic->'clean'='true'::jsonb AND old.diagnostic->>'terminal_reason' IS NULL
+          AND old.diagnostic->'unresolved'='[]'::jsonb
+          AND old.diagnostic->'foreign_orders'='[]'::jsonb
+          AND old.diagnostic->'foreign_positions'='[]'::jsonb
+          AND old.diagnostic->'restricted_securities'='{}'::jsonb
+          AND old.diagnostic->'expected'=old.diagnostic->'observed'
+          AND newest.seq=%s AND newest.observed_at=%s
+          AND newest.completeness='COMPLETE' AND newest.runtime_state='RUNNING'
+          AND prior.completeness='COMPLETE' AND prior.runtime_state='RUNNING'
+          AND cmd.side='BUY' AND cmd.filled_quantity=0 AND cmd.broker_order_id IS NULL
+          AND (SELECT count(*) FROM sentinel_commands WHERE state=ANY(%s))=%s
+        LIMIT 101
+        """, (cycle['cycle_id'], cycle.get('plan_id'), cycle.get('next_wake_at'), now,
+              model.OPENING_CUTOFF, observation['sequence'], observation['observed_at'],
+              list(_ACTIVE_COMMAND_STATES), planned_count)).fetchall()
+    keys = {row[0] for row in rows}
+    anchor = {(row[3], row[4], row[5]) for row in rows}
+    if len(rows) != planned_count or len(keys) != planned_count or len(anchor) != 1:
+        return False
+    prior, broker, account = anchor.pop()
+    if not all(_no_transport_chain(conn, key, execute_at=opened, completed_at=completed)
+               for key, opened, completed, *_ in rows):
+        return False
+
+    terminal = {state.value for state in TERMINAL}
+    for sequence in (prior, observation['sequence']):
+        payload = journal.load_observation_payload(conn, sequence)
+        if (payload.get('completeness') != 'COMPLETE'
+                or (payload.get('broker'), payload.get('account_id')) != (broker, account)
+                or not _no_planned_buy_native_match(payload, keys)
+                or any(order.get('state') not in terminal for order in payload['orders'])):
+            return False
+    return True
 
 
 def _opening_cutoff_progress(conn, plan, run, terminal, notional_by_security):
@@ -4409,10 +4508,17 @@ def _runtime_projection(database_url: str, *, include_book=True,
                 observed_at = observation['observed_at']
                 if observed_at is None:
                     raise ValueError('broker observation clock is missing')
+                if active and not working_orders and not uncertain:
+                    clear, _ = _read(conn, lambda c: _only_retired_unsent_buys(
+                        c, recovery_cycle, observation, counts,
+                        now=now or datetime.now(timezone.utc)),
+                        STATEMENT_TIMEOUT_MS, default=False)
+                    if clear:
+                        active = 0
                 confirmed = None
                 if (recovery_cycle is not None and recovery_cycle.get('state') in {'WAITING_OPEN', 'EXECUTING'}
                         and recovery_cycle.get('plan_id') and recovery_cycle.get('execute_at')
-                        and not (working_orders or active or uncertain)
+                        and not (working_orders or counts or uncertain)
                         and observation['completeness'] == 'COMPLETE'
                         and observation['runtime_state'] == 'RUNNING'):
                     from sentinel.execution import opening_display

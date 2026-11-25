@@ -43,6 +43,25 @@ cycle, trial verdict, missed purchase, and alert history remain visible.
 Any other current warning or safety failure continues to block acknowledgement
 or produce red as appropriate. A new miss requires a new review event.
 
+## Broker readiness after the next plan is saved
+
+The ordinary idle broker observation may remain valid until its scheduled
+wake when the only journal entries still marked PLANNED are expired buys
+proved unsent. Require a current enabled PAPER cycle waiting for its future
+open and the same owned account and control generation as the completed
+cutoff. Require the expired plan to name that exact successor. The successor
+must name the current complete, reconciled broker observation. The old
+cutoff must name its own earlier clean observation. Check both native order
+lists and exact lookup evidence for the retired buys, and verify the complete
+no-transport event chain for each buy. An incomplete result leaves the
+existing short broker-observation expiry in effect.
+
+Keep the original observation time, the journal entries, the missed-buy
+record and the independently collected account status visible. The broker row
+uses its existing idle deadline bounded by the successor's scheduled wake.
+The display proof grants no transport authority. Final installation
+validation still checks the actual PAPER holdings and open orders.
+
 ## Ordinary opening and closing refresh
 
 Market-clock and verified-source handoffs are routine, not incidents. Retain a
