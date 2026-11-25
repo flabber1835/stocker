@@ -180,8 +180,21 @@ def test_unknown_batch_storage_or_sql_cannot_inherit_original_compiler_identity(
 def test_alpaca_page_mapping_requires_exact_compiler_and_read_dependencies(name, monkeypatch):
     path = Path(importlib.import_module(basis.ALPACA_PAGE_COMPILER).__file__)
     raw = path.read_bytes()
-    assert hashlib.sha256(raw).hexdigest() == '783673e2d2733492c699034414295aa3e528b717eb82507ef03ef7d7fb6db0cd'
-    assert economic_manifest.page_contribution(basis.ALPACA_PAGE_COMPILER, raw) == hashlib.sha256(raw).hexdigest()
+    assert hashlib.sha256(raw).hexdigest() == 'f65ad0ebe82921cb280b446ac792bbb3079f7fa3021ce155ae365f15b2dc524d'
+    new_ddl = (b'ALPACA_EXPECTED_KEYS_DDL = (\n'
+               b"    'CREATE TEMP TABLE alpaca_expected_keys(session date,'\n"
+               b"    'security_id text COLLATE \"C\",PRIMARY KEY(session,security_id)) ON COMMIT DROP'\n"
+               b')\n')
+    new_call = b'        cur.execute(ALPACA_EXPECTED_KEYS_DDL)\n'
+    old_call = (b'        cur.execute("CREATE TEMP TABLE alpaca_expected_keys("\n'
+                b'                    "session date,security_id text,PRIMARY KEY(session,security_id)) ON COMMIT DROP")\n')
+    assert raw.count(new_ddl) == raw.count(new_call) == 1
+    previous = raw.replace(new_ddl, b'', 1).replace(new_call, old_call, 1)
+    assert hashlib.sha256(previous).hexdigest() == '783673e2d2733492c699034414295aa3e528b717eb82507ef03ef7d7fb6db0cd'
+    assert economic_manifest.page_contribution(basis.ALPACA_PAGE_COMPILER, raw) == hashlib.sha256(previous).hexdigest()
+    unknown = raw.replace(b'security_id text COLLATE "C"', b'security_id text COLLATE "POSIX"', 1)
+    assert unknown != raw
+    assert economic_manifest.page_contribution(basis.ALPACA_PAGE_COMPILER, unknown) == hashlib.sha256(unknown).hexdigest()
 
     current_policy = (b'ALPACA_NORMALIZATION_HISTORICAL = (\n'
                       b'    "sentinel.alpaca-openfigi-dividend-current-window/2",\n'
@@ -191,8 +204,8 @@ def test_alpaca_page_mapping_requires_exact_compiler_and_read_dependencies(name,
     previous_policy = (b'ALPACA_NORMALIZATION_HISTORICAL = '
                        b'("sentinel.alpaca-openfigi-dividend-current-window/2",)\n'
                        b'ALPACA_NORMALIZATION = "sentinel.alpaca-openfigi-dividend-current-window/3"')
-    assert raw.count(current_policy) == 1
-    historical = raw.replace(current_policy, previous_policy)
+    assert previous.count(current_policy) == 1
+    historical = previous.replace(current_policy, previous_policy)
     predecessor = economic_manifest._retired_source_profile()['reverse'][basis.ALPACA_PAGE_COMPILER]['after']
     assert hashlib.sha256(historical).hexdigest() == predecessor
     assert economic_manifest.page_contribution(basis.ALPACA_PAGE_COMPILER, historical) == basis.ALPACA_PAGE_BEFORE
@@ -206,6 +219,22 @@ def test_alpaca_page_mapping_requires_exact_compiler_and_read_dependencies(name,
     monkeypatch.setattr(Path, 'read_bytes',
                         lambda self: read(self) + b'\n# unknown read change\n' if self == dependency else read(self))
     assert economic_manifest.page_contribution(basis.ALPACA_PAGE_COMPILER, historical) == hashlib.sha256(historical).hexdigest()
+    assert economic_manifest.page_contribution(basis.ALPACA_PAGE_COMPILER, raw) == hashlib.sha256(raw).hexdigest()
+
+
+def test_unknown_alpaca_index_layout_changes_complete_economic_identity(monkeypatch):
+    before = economic_manifest.identity(schema='qualification-economic-boundary')
+    read = economic_manifest._module_raw
+    raw = read(basis.ALPACA_PAGE_COMPILER)
+    changed = raw.replace(b'security_id text COLLATE "C"',
+                          b'security_id text COLLATE "POSIX"', 1)
+    assert changed != raw
+    monkeypatch.setattr(economic_manifest, '_module_raw',
+                        lambda name: changed if name == basis.ALPACA_PAGE_COMPILER else read(name))
+    after = economic_manifest.identity(schema='qualification-economic-boundary')
+    contribution = {row['module']: row['sha256'] for row in after['files']}
+    assert contribution[basis.ALPACA_PAGE_COMPILER] == hashlib.sha256(changed).hexdigest()
+    assert after['sha256'] != before['sha256']
 
 
 def test_other_modules_never_gain_physical_mapping():
