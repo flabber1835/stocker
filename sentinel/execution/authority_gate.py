@@ -47,7 +47,7 @@ from sentinel.execution.guarded import (
     PaperPreparationGrant,
 )
 from sentinel.feed import publication
-from sentinel.opening_stage_log import guard_phase
+from sentinel.opening_stage_log import authority_rows, guard_phase
 from sentinel.standing_observation_authority import (
     require_standing_observation_authority,
 )
@@ -160,41 +160,44 @@ def require_publication_chain(
             or any(ch not in "0123456789abcdef"
                    for ch in expected_root_sha256)):
         raise AuthorityRefused("signed publication-chain root is malformed")
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT version,previous_version,run_id,published_at,window_start,"
-            " window_end,evidence FROM sentinel_corpus_publications"
-            " ORDER BY version")
-        rows = cur.fetchall()
-    if not rows:
-        raise AuthorityRefused("the operational corpus has no publication chain")
-    if current_version is None:
-        current_version = int(rows[-1][0])
-    through = [row for row in rows if int(row[0]) <= int(current_version)]
-    if not through or int(through[-1][0]) != int(current_version):
-        raise AuthorityRefused(
-            "the pinned publication is absent from the durable chain")
-    matches = [index for index, row in enumerate(through)
-               if publication_row_sha256(row) == expected_root_sha256]
-    if len(matches) != 1:
-        raise AuthorityRefused(
-            "the signed publication-chain root does not identify exactly one "
-            "durable publication row")
-    rooted = through[matches[0]:]
-    previous = None
-    for index, row in enumerate(rooted):
-        version = int(row[0])
-        claimed_previous = int(row[1]) if row[1] is not None else None
-        if index:
-            if version <= previous or claimed_previous != previous:
-                raise AuthorityRefused(
-                    "the operational publication chain has a gap after its "
-                    "signed certification root")
-        previous = version
+    with guard_phase("publication_rows"):
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT version,previous_version,run_id,published_at,window_start,"
+                " window_end,evidence FROM sentinel_corpus_publications"
+                " ORDER BY version")
+            rows = cur.fetchall()
+        authority_rows("publication_rows", len(rows))
+        if not rows:
+            raise AuthorityRefused("the operational corpus has no publication chain")
+        if current_version is None:
+            current_version = int(rows[-1][0])
+        through = [row for row in rows if int(row[0]) <= int(current_version)]
+        if not through or int(through[-1][0]) != int(current_version):
+            raise AuthorityRefused(
+                "the pinned publication is absent from the durable chain")
+        matches = [index for index, row in enumerate(through)
+                   if publication_row_sha256(row) == expected_root_sha256]
+        if len(matches) != 1:
+            raise AuthorityRefused(
+                "the signed publication-chain root does not identify exactly one "
+                "durable publication row")
+        rooted = through[matches[0]:]
+        previous = None
+        for index, row in enumerate(rooted):
+            version = int(row[0])
+            claimed_previous = int(row[1]) if row[1] is not None else None
+            if index:
+                if version <= previous or claimed_previous != previous:
+                    raise AuthorityRefused(
+                        "the operational publication chain has a gap after its "
+                        "signed certification root")
+            previous = version
     try:
-        publication._verify_receipt_chain(
-            conn, through_version=int(current_version),
-            required_after_version=int(rooted[0][0]))
+        with guard_phase("publication_receipts"):
+            publication._verify_receipt_chain(
+                conn, through_version=int(current_version),
+                required_after_version=int(rooted[0][0]))
     except publication.CorpusIncoherent as exc:
         raise AuthorityRefused(
             "the operational publication validation chain is invalid: "
@@ -240,15 +243,17 @@ def require_current_authority(
     assert_paper_url(paper_base_url)
     # This loader flag bypasses expiry only for PAPER_OBSERVATION_ONLY; ordinary
     # historical certificates remain time-bounded inside authority.validation.
-    preliminary = load_active_signed_certificate(
-        conn, now=now, allow_expired_observation_safety=True)
+    with guard_phase("certificate_preliminary"):
+        preliminary = load_active_signed_certificate(
+            conn, now=now, allow_expired_observation_safety=True)
     policy = preliminary.claims["bindings"]["publication_policy"]
     root = require_publication_chain(
         conn, expected_root_sha256=policy["chain_root_sha256"],
         current_version=current_publication_version)
     execution_config_sha = canonical_sha256(
         execution_config_identity(paper_base_url=paper_base_url))
-    implementation_sha = publication_policy_implementation_sha256()
+    with guard_phase("publication_policy_sources"):
+        implementation_sha = publication_policy_implementation_sha256()
     bindings = dict(
         runtime_identity=runtime_identity, strategy_identity=strategy_identity,
         required_mode=required_mode,
@@ -258,17 +263,18 @@ def require_current_authority(
         current_publication_version=current_publication_version,
         automation_config_sha256=automation_config_sha256,
         now=now)
-    if preliminary.authorization_mode == PAPER_OBSERVATION_ONLY:
-        certificate = require_standing_observation_authority(
-            conn, required_operation=required_operation, **bindings)
-    else:
-        certificate = preliminary
-        for operation in operations:
-            checked = require_execution_authority(
-                conn, required_operation=operation, **bindings)
-            if len(operations) > 1 and checked.certificate_sha256 != certificate.certificate_sha256:
-                raise AuthorityRefused("automation and operation authority differ")
-            certificate = checked
+    with guard_phase("certificate_bindings"):
+        if preliminary.authorization_mode == PAPER_OBSERVATION_ONLY:
+            certificate = require_standing_observation_authority(
+                conn, required_operation=required_operation, **bindings)
+        else:
+            certificate = preliminary
+            for operation in operations:
+                checked = require_execution_authority(
+                    conn, required_operation=operation, **bindings)
+                if len(operations) > 1 and checked.certificate_sha256 != certificate.certificate_sha256:
+                    raise AuthorityRefused("automation and operation authority differ")
+                certificate = checked
     if len(operations) > 1 and certificate.certificate_sha256 != preliminary.certificate_sha256:
         raise AuthorityRefused("automation and operation authority differ")
     return certificate
@@ -403,7 +409,8 @@ def build_fresh_execution_check(
                                 or backup_proof.get("backup_state") == "DEGRADED"
                                 or backup_proof.get("independent_archive_current", True) is not True):
                             raise AuthorityRefused("LIVE mutations require enabled qualified backups and current independent archive")
-                    strategy = dict(strategy_identity()) if bind_strategy_to_grant else None
+                    with guard_phase("strategy_identity", enabled=bind_strategy_to_grant):
+                        strategy = dict(strategy_identity()) if bind_strategy_to_grant else None
                     if strategy is None:
                         validate_grant(conn, grant, operation, result)
                     else:
@@ -413,12 +420,17 @@ def build_fresh_execution_check(
                     # This observation-only recovery runs before the new GO
                     # publication and admits no fresh plan or submission. Its
                     # signed safety certificate is independent of corpus drift.
-                    current = (None if isinstance(grant, FencedPaperRecoveryGrant)
-                               else feed_inputs.require_current(conn))
+                    with guard_phase("current_publication", enabled=not isinstance(grant, FencedPaperRecoveryGrant)):
+                        current = (None if isinstance(grant, FencedPaperRecoveryGrant)
+                                   else feed_inputs.require_current(conn))
                     concrete = _authority_operation(grant, operation)
+                    with guard_phase("runtime_identity"):
+                        runtime = runtime_identity()
+                    with guard_phase("strategy_identity", enabled=strategy is None):
+                        current_strategy = strategy if strategy is not None else strategy_identity()
                     kwargs = dict(
-                        runtime_identity=runtime_identity(),
-                        strategy_identity=strategy if strategy is not None else strategy_identity(),
+                        runtime_identity=runtime,
+                        strategy_identity=current_strategy,
                         required_mode=rollout.mode,
                         paper_base_url=paper_base_url,
                         current_publication_version=(current.version if current is not None else None),
