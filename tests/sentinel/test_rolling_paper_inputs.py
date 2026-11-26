@@ -422,6 +422,8 @@ def test_full_exit_recovers_the_eleventh_order_before_buy_cutoff(
         conn, gateway, operational_source, monkeypatch, tmp_path, starting_exposure):
     """Use the real strategy, scheduler and guarded PAPER gateway in private."""
     from datetime import datetime, timezone
+    from decimal import ROUND_DOWN
+    from fractions import Fraction
     from multiprocessing import get_context
     from multiprocessing.managers import BaseManager
     import os
@@ -435,7 +437,8 @@ def test_full_exit_recovers_the_eleventh_order_before_buy_cutoff(
     from sentinel.execution.commands import Command
     from sentinel.execution.contract import BrokerInstrument, Side
     from sentinel.execution.identity import CommandIdentity
-    from sentinel.execution.market_buy_policy import FRACTIONAL_MODE, MarketBuyPolicy
+    from sentinel.execution.market_buy_policy import FRACTIONAL_MODE
+    from sentinel.execution.numeric import exact_decimal
     from sentinel.execution.states import CommandState
     from tests.sentinel.test_market_buy_policy import MARKET_ENV
     from tests.sentinel.test_rolling_daily import refresh
@@ -448,8 +451,9 @@ def test_full_exit_recovers_the_eleventh_order_before_buy_cutoff(
     through = refresh(conn, operational_source, monkeypatch, publish=False)
     for row in operational_source["SEP"]:
         if row["date"] == through:
-            for field in ("open", "close", "closeunadj"):
-                row[field] = str(Decimal(row[field]) * Decimal("0.70"))
+            for field in ("open", "close"):
+                row[field] = str((Decimal(row[field]) * Decimal("0.70")).quantize(Decimal("0.01")))
+            row["closeunadj"] = str(Decimal(row["close"]) * 2)
             row["volume"] = "3000000"
     for row in operational_source["SFP"]:
         if row["date"] == through and row["ticker"] == "SPY":
@@ -460,6 +464,9 @@ def test_full_exit_recovers_the_eleventh_order_before_buy_cutoff(
     snapshots.prepare(conn, published)
     shadow = rolling_runtime.advance(conn, through=through, observation_id=OBS, starting_cash=100000)
     assert Decimal(str(shadow.state.last_decision["target_core_exposure"])) == 0, shadow.state.last_decision
+    with feed_inputs.pinned(conn, commit=False) as pinned:
+        marks, _ = feed_inputs.marks(conn, pinned, session=through, security_ids=tuple(held), tickers=held)
+    conn.rollback()
 
     for key, value in {**MARKET_ENV, "SENTINEL_PAPER_BUY_POLICY": FRACTIONAL_MODE,
             "SENTINEL_LOCAL_PAPER_ACCOUNT_ID": bound.broker_account_id,
@@ -473,7 +480,8 @@ def test_full_exit_recovers_the_eleventh_order_before_buy_cutoff(
     monkeypatch.setattr(automation_runtime, 'require_current_authority', signed)
     monkeypatch.setattr(backup_runtime_authority, 'require', lambda *args, **kwargs: {'fixture': True})
     monkeypatch.setattr(preparation, '_guard_broker', validation._guard_broker)
-    cfg = model.AutomationConfig(market_buy_policy_sha256=MarketBuyPolicy.from_env().fingerprint())
+    cfg = automation_runtime.config_from_env()
+    assert cfg.maximum_execution_lateness_seconds == 540
     timing = schedule.for_decision_session(through, cfg)
     sentinel_cfg = SentinelConfig(database_url=conn.info.dsn, base_url=DEFAULT_BASE_URL,
         alpaca_key='simulation-key', alpaca_secret='simulation-secret', state_dir=tmp_path,
@@ -487,7 +495,7 @@ def test_full_exit_recovers_the_eleventh_order_before_buy_cutoff(
             assert body['side'] == 'buy'
             assert all(order['status'] == 'filled' for order in self.orders.values())
             assert Decimal(notional) < self.cash
-            response = super()._submit({**body, 'qty': str(Decimal(notional) / Decimal(100))})
+            response = super()._submit({**body, 'qty': str(Decimal(notional) / self.prices['BIL'])})
             assert response.status_code == 200, response.text
             return response
 
@@ -516,29 +524,40 @@ def test_full_exit_recovers_the_eleventh_order_before_buy_cutoff(
         def evidence(self):
             return self.requests, self.positions
 
-    world = ExitBroker(cash='250000')
+    exposure = Decimal(starting_exposure)
+    quantity = Decimal(125) * exposure
+    equity_value = sum(Fraction(marks[sid]) * Fraction(quantity) for sid in held)
+    bil_mark = marks['SENTINEL:BIL']
+    starting_bil = (Decimal(equity_value.numerator) / Decimal(equity_value.denominator)
+        * (1 - exposure) / exposure / bil_mark).quantize(Decimal('0.000000001'), rounding=ROUND_DOWN)
+    initial_cash = exact_decimal(equity_value + Fraction(bil_mark) * Fraction(starting_bil))
+    world = ExitBroker(cash=str(initial_cash))
     world.account_id = bound.broker_account_id
     world.account_overrides['created_at'] = '2026-02-12T00:00:00Z'
     opened, _ = calendar.session_window(through)
     world.now = opened + timedelta(minutes=2)
     conn.execute("UPDATE sentinel_account_binding SET established_at='2026-02-12T00:00:00Z' WHERE id=1")
     conn.commit()
-    quantity = Decimal(125) * Decimal(starting_exposure)
-    for sid, ticker in held.items():
+    holdings = [(sid, ticker, quantity) for sid, ticker in held.items()]
+    if starting_bil:
+        holdings.append(('SENTINEL:BIL', 'BIL', starting_bil))
+    for sid, ticker, quantity in holdings:
         if ticker not in world.assets:
             world.add_asset(ticker)
+        world.prices[ticker] = marks[sid]
         instrument = BrokerInstrument(sid, ticker, world.assets[ticker]['id'])
         identity = CommandIdentity(bound.identity, 'prior-position-fixture', sid)
         order = world._submit(dict(symbol=ticker, side='buy', qty=str(quantity),
                                    client_order_id=identity.client_key, type='market', time_in_force='day')).json()
         world.fill(order['id'])
         journal.save_command(conn, Command(identity, instrument, Side.BUY, quantity,
-            broker_order_id=order['id'], filled_quantity=quantity, filled_average_price=Decimal(100),
+            broker_order_id=order['id'], filled_quantity=quantity, filled_average_price=marks[sid],
             state=CommandState.FILLED))
-    world.add_asset('BIL')
+    if 'BIL' not in world.assets:
+        world.add_asset('BIL')
     for asset in world.assets.values():
         asset['fractionable'] = True
-    assert world.cash == Decimal(250000) * (1 - Decimal(starting_exposure))
+    assert world.cash == 0
     conn.commit()
 
     peer = None
@@ -638,6 +657,7 @@ def test_full_exit_recovers_the_eleventh_order_before_buy_cutoff(
         raise httpx.ReadTimeout('accepted sale response lost', request=request)
 
     world.fault('POST', '/v2/orders', lost_response, occurrence=11, after_effect=True)
+    world.prices['BIL'] = Decimal(50)
 
     async def tick(runtime):
         with runtime.connect() as connection:
@@ -682,6 +702,11 @@ def test_full_exit_recovers_the_eleventh_order_before_buy_cutoff(
             result = asyncio.run(tick(after))
             peer.fill_working(clock())
             assert result.cycle is not None, result
+            requests, _ = peer.evidence()
+            sent = sum(request['method'] == 'POST' for request in requests)
+            print(f'exit {starting_exposure} at {(clock() - timing.execute_at).total_seconds():.2f}s '
+                  f'{result.cycle.state.value}, {sent} sends, {result.cycle.failure_code}, '
+                  f'{result.cycle.failure_detail or result.reason}', flush=True)
             if result.cycle.state is model.CycleState.SUCCEEDED:
                 break
             assert not result.cycle.state.terminal, result
@@ -696,7 +721,7 @@ def test_full_exit_recovers_the_eleventh_order_before_buy_cutoff(
     assert len(accepted) == 21
     assert [request['body']['side'] for request in accepted] == ['sell'] * 20 + ['buy']
     assert len({request['body']['client_order_id'] for request in accepted}) == 21
-    assert positions['BIL'] > 0 and all(not positions[ticker] for ticker in held.values())
+    assert positions['BIL'] > starting_bil and all(not positions[ticker] for ticker in held.values())
     assert any(request['path'].endswith(':by_client_order_id')
                and request['params'].get('client_order_id') == uncertain.client_key
                for request in requests)
