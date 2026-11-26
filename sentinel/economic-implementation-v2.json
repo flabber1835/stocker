@@ -458,10 +458,7 @@
       "sentinel.core.window_material",
       "sentinel.feed",
       "sentinel.feed.calendar",
-      "sentinel.feed.normalized_layout",
-      "sentinel.feed.rolling_contract",
-      "sentinel.feed.rolling_store",
-      "sentinel.feed.store"
+      "sentinel.feed.rolling_store"
     ],
     "sentinel.core.window_material": [
       "sentinel",
@@ -1242,7 +1239,7 @@
     "stock_strategy_shared.wealth_core": "fd8bed82bbb9d18481f7422216933a6b5a85066688c770ebad7dbfe1a6abe2fa",
     "stock_strategy_shared.wealth_core.sharadar_domains": "4bebd224c7597913280dc731fcd04db10102f6b85250e8d74003754b53b550ba"
   },
-  "module_sha256":"b3885cd20391ab8ea58ecdc762647cc405ab159ce0d464863c51d72b5698d67e",
+  "module_sha256":"71d25d81ab0f40bfde9a9d6965275dd051586e889a5466f293c1bbf38e593a91",
   "operational_ports": {
     "sentinel.backup_runtime_authority": "RECOVERY",
     "sentinel.binding": "EXECUTION_ONLY",

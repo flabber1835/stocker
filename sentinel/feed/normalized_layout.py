@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import date
+from contextlib import closing, contextmanager
+from datetime import date, timedelta
 from typing import Literal
 
 from sentinel.feed.rolling_contract import CanonicalBar, CanonicalBenchmark, canonical_json, digest
@@ -193,10 +194,33 @@ _PREDECESSOR_BATCH = (
     'WHERE candidate_id=%s AND session<%s AND security_id=ANY(%s) ORDER BY session')
 
 
-def predecessor_prices(conn, candidate_id, coordinates, *, query):
-    """Resolve strictly earlier prices for all action days in one ordered scan."""
+@contextmanager
+def _predecessor_stream(conn, candidate_id, before, securities, *, query):
     from sentinel.feed import store
 
+    statement = query(_PREDECESSOR_BATCH)
+    if statement == _PREDECESSOR_BATCH:
+        with store.streaming_cursor(conn, statement, (candidate_id, before, securities)) as rows:
+            yield rows
+        return
+
+    # The shared view expands one JSON block per stored day. Order the days
+    # using their small index rather than sorting all expanded price rows.
+    daily = query(_PREDECESSOR_BATCH.replace('session<%s', 'session=%s'))
+
+    def rows_by_day():
+        days = stored_sessions(conn, candidate_id, 'BARS', end=before - timedelta(days=1))
+        for day in days:
+            rolling_work.checkpoint()
+            with store.streaming_cursor(conn, daily, (candidate_id, day, securities)) as rows:
+                yield from rows
+
+    with closing(rows_by_day()) as rows:
+        yield rows
+
+
+def predecessor_prices(conn, candidate_id, coordinates, *, query):
+    """Resolve strictly earlier prices for all action days in one ordered scan."""
     days = sorted((date.fromisoformat(day), ids) for day, ids in coordinates.items() if ids)
     if not days:
         return {}
@@ -204,8 +228,7 @@ def predecessor_prices(conn, candidate_id, coordinates, *, query):
     latest = {}
     result = {}
     rolling_work.checkpoint()
-    with store.streaming_cursor(conn, query(_PREDECESSOR_BATCH),
-                                (candidate_id, days[-1][0], securities)) as prices:
+    with _predecessor_stream(conn, candidate_id, days[-1][0], securities, query=query) as prices:
         prices = iter(prices)
         price = next(prices, None)
         consumed = 0

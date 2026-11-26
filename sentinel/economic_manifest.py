@@ -15,7 +15,7 @@ from pathlib import Path
 import re
 from functools import lru_cache
 
-MANIFEST_SHA256 = '01cadaf5e48658079c30a15bad353afd0217b9537e63e06ca84580ce03fb6c11'
+MANIFEST_SHA256 = 'e4d1a365dd8737f52ef0f1a87cd82eae96711b5b9fd66e458c9a832af0c2dbdd'
 MANIFEST = Path(__file__).with_name('economic-implementation-v2.json')
 PREDECESSOR = 'b2e308bb664718da373175f1a7d988d07b159ae2'
 PREDECESSOR_DATA_SEMANTICS_SHA256 = '38c750bd9bb244bc71600aaeba8c4aad22d2095747f4199e9ac4e0bd433425cb'
@@ -32,6 +32,17 @@ CLOSE_READINESS_COMPILERS = {
     'sentinel.core.rolling_inputs': '1c8984cf51bb8b02e6861e5494b11d6a022a4e6f39e2670985710deab755ee3a',
     'sentinel.feed.operational_snapshot': 'ff56fcc3ae0e98207bb2d0347afe74a8e09d5550a67bdd99ed207df9ddbc3d93',
     'sentinel.feed.rolling_store': 'bd5c1916d7f677454486299bdcc5835f9bda556fe203fa61e8b2e111b26b7a43',
+}
+DAILY_SESSION_COMPILERS = {
+    'sentinel.core.window_features': ('4df17be5e45f22c2c52fe35d3b5f27ab545e11a632b91091efc02353c4aed90b',
+        '48e94251d4b2df7f6f9876ba5699b28a71a84844f2715fc2290a6f7524550661'),
+    'sentinel.core.window_material': ('a536881db1952fe479703bd53bbbb06ab5e0b6ff1a9275d008fccf3a28db585f',
+        '3bd34707705bc97bd815d5da82d59ef2bcbd32e36a7e203851d7f5fff3361d76'),
+}
+DAILY_SESSION_STORAGE = {
+    'sentinel.feed.rolling_store': 'bd5c1916d7f677454486299bdcc5835f9bda556fe203fa61e8b2e111b26b7a43',
+    'sentinel.feed.normalized_layout': '8ba563c4bc749174ce631c125aa59360b046545770b34438234995fdb311ce25',
+    'sentinel.feed.read_contract': 'ac6a4c2b407f9f437b837c394fa1e25fdc3b5dd0849edaed9c2c4ed460567c01',
 }
 
 
@@ -268,10 +279,15 @@ def identity(*, schema):
         for name in CLOSE_READINESS_COMPILERS}
     exact_close_readiness = all(_sha(raw) == CLOSE_READINESS_COMPILERS[name]
                                 for name, raw in close_compilers.items())
+    daily_compilers = {name: _module_raw(name) for name in DAILY_SESSION_COMPILERS}
+    exact_daily_session_reads = (
+        all(_sha(raw) == DAILY_SESSION_COMPILERS[name][0] for name, raw in daily_compilers.items())
+        and all(_sha(_module_raw(name)) == checksum for name, checksum in DAILY_SESSION_STORAGE.items()))
     for name in sorted(expected):
         transition = retirement.get(name)
         installed = transition['module'] if transition else name
-        raw = close_compilers[name] if name in close_compilers else _module_raw(installed)
+        raw = (close_compilers.get(name) or daily_compilers.get(name)
+               or _module_raw(installed))
         dependencies = local_imports(raw, module_name=installed)
         approved_edges = transition['dependencies'] if transition else value['dependencies'][name]
         if dependencies != approved_edges:
@@ -286,6 +302,9 @@ def identity(*, schema):
             continue
         if exact_close_readiness and name in close_compilers:
             actual[name] = expected[name]
+            continue
+        if exact_daily_session_reads and name in daily_compilers:
+            actual[name] = DAILY_SESSION_COMPILERS[name][1]
             continue
         if transition:
             if name in profile['reverse']:

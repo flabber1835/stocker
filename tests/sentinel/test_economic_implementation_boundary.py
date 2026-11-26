@@ -239,10 +239,24 @@ def test_cached_formation_formulas_preserve_exact_predecessor_body():
 def test_sql_adapter_uses_the_shared_compiler_and_preserves_order():
     from sentinel.core import window_features
     source = inspect.getsource(window_features.load)
-    assert 'ORDER BY security_id COLLATE "C",session' in source
+    assert 'rolling_store.read_bars(conn, refs.candidate_id, start=axis[0], end=axis[-1])' in source
     assert 'return compile_rows(' in source
-    assert 'CanonicalBar.model_validate(dict(zip(columns, row)))' in source
+    assert 'ORDER BY' not in source
     assert 'series.append' not in source
+
+
+@pytest.mark.parametrize('changed', ['sentinel.core.window_material', 'sentinel.feed.normalized_layout'])
+def test_daily_session_reads_bind_exact_compiler_and_storage(changed, monkeypatch):
+    installed = '4e0527eb06780b744fefeadc47e2b18c2cdaacfa77ffa24946a569c5e59b0b1b'
+    assert economic.identity(schema='daily-session-test')['sha256'] == installed
+    original = economic._module_raw
+
+    def modified(name):
+        raw = original(name)
+        return raw + b'\n# altered source\n' if name == changed else raw
+
+    monkeypatch.setattr(economic, '_module_raw', modified)
+    assert economic.identity(schema='daily-session-test')['sha256'] != installed
 
 
 def test_current_exact_economic_implementation_records_new_source_identity():

@@ -828,6 +828,17 @@ class AutomationService:
                     retry_at = min(retry_at, now + timedelta(seconds=BUSY_RETRY_MAX_SECONDS))
                 retry_at = max(retry_at, now + timedelta(
                     seconds=getattr(exc, "retry_after_seconds", 0)))
+                if (phase == 'REFRESH' and type(exc) is ClosingDataPending
+                        and source_completion_hint is not None
+                        and source_completion_hint.attestation_row is None
+                        and cycle.prepare_at <= now < cycle.execution_open_at):
+                    # The pointer poll can wake these retries early; a timer
+                    # still bounds discovery when the producer stops advancing.
+                    check_at = now + timedelta(seconds=min(60, self.config.retry_max_seconds))
+                    deadlines = (cycle.execution_open_at, exc.publisher_deadline_at,
+                                 exc.worker_deadline_at)
+                    if all(deadline is None or check_at < deadline for deadline in deadlines):
+                        retry_at = max(retry_at, check_at)
             diagnostic = {
                 **(result_diagnostic or {}), **classified,
                 "next_retry_at": retry_at.isoformat() if retry_at else None,

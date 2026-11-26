@@ -95,6 +95,35 @@ def material_spy(monkeypatch):
     return seen,mismatches
 
 
+@pytest.mark.parametrize('limit', [1, 2])
+def test_due_plan_authenticates_its_own_write_within_the_same_budget(conn, monkeypatch, limit):
+    plan, _ = stamp(conn)
+    publish(conn, 1)
+    install(conn, monkeypatch)
+    seen, _ = material_spy(monkeypatch)
+    bootstrap(conn)
+
+    def advance():
+        result = mirror_projection.advance(conn, checked_through='2026-08-21',
+                                           publication_version=1, limit=limit)
+        conn.commit()
+        return result
+
+    result = advance()
+    assert seen == [plan.plan_id]
+    if limit == 1:
+        with pytest.raises(mirror.InformationalPaperMirrorPending, match='EVIDENCE_COVERAGE_ADVANCE_REQUIRED'):
+            mirror.require_transport_permitted(conn, current_frontier='2026-08-21',
+                                               current_publication_version=1)
+        conn.rollback()
+        result = advance()
+
+    assert result['through'] == coverage.head(conn, 'MIRROR')[1]
+    assert mirror.require_transport_permitted(conn, current_frontier='2026-08-21',
+        current_publication_version=1)['status'] == mirror.NO_UNIT_CHANGE
+    assert seen == [plan.plan_id]
+
+
 def test_more_than_370_immutable_stamps_migrate_in_bounded_pages_without_cross_product(conn,monkeypatch):
     records=[stamp(conn,index)[1] for index in range(371)]
     publish(conn,1);install(conn,monkeypatch)

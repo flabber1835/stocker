@@ -81,19 +81,29 @@ def test_compact_window_matches_full_series_and_keeps_exact_owned_history(monkey
             open_unadjusted=40, volume=1_000_000, split_ratio=2 if index == 200 else 1,
             dividend_per_share=0)
         rows.append(item)
-    inputs = dict(prior=prior, manifest=manifest, metadata={'1': meta},
-        resolve_identity=lambda label, day: '1', publication_version=2, session=DAY, rows=rows)
-    expected = reference.compile_rows(**inputs)
-    actual = compile_rows(**inputs)
+    extra = [row.model_copy(update={'security_id': '2', 'ticker': 'ALT', 'volume': None}) for row in rows]
+    extra += [row.model_copy(update={'security_id': '3', 'ticker': 'DEL'}) for row in rows[:-1]]
+    metadata = {'1': meta,
+                '2': SecurityMeta('2', 'ALT', 'Domestic Common Stock', '2', first_session='2024-01-01'),
+                '3': SecurityMeta('3', 'DEL', 'Domestic Common Stock', '3', first_session='2024-01-01')}
+    inputs = dict(prior=prior, manifest=manifest, metadata=metadata,
+        resolve_identity=lambda label, day: {'ALT': '2', 'DEL': '3'}.get(label, '1'),
+        publication_version=2, session=DAY)
+    expected = reference.compile_rows(**inputs, rows=rows + extra)
+    by_session = sorted(rows + extra, key=lambda row: (row.session, row.security_id))
+    actual = compile_rows(**inputs, rows=by_session)
     assert actual.model_dump(mode='json', by_alias=True) == expected.model_dump(mode='json', by_alias=True)
     assert actual.sha256 == expected.sha256
     assert actual.histories['1'] == tuple(row for row in rows if days[39] <= str(row.session) < days[-1])
     assert actual.signals[0].eligible == (missing != 180)
+    assert [signal.security_id for signal in actual.signals] == ['1', '2']
+    with pytest.raises(ValueError, match='CURRENT_WINDOW_PRICE_ORDER_CHANGED'):
+        compile_rows(**inputs, rows=[by_session[0], *by_session])
 
     rows[0] = rows[0].model_copy(update={'close_signal': None})
     for compiler in (reference.compile_rows, compile_rows):
         with pytest.raises(ValueError, match='requires a published signal-domain close'):
-            compiler(**inputs)
+            compiler(**inputs, rows=rows + extra)
 
 
 def input_pair():

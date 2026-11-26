@@ -6,7 +6,7 @@ import pytest
 
 from sentinel.automation import source_completion
 from sentinel.automation.model import (
-    CycleState, NonRetryableCallbackRefused, SourceDataPending, TickAction,
+    ClosingDataPending, CycleState, NonRetryableCallbackRefused, SourceDataPending, TickAction,
 )
 from sentinel.feed import store as feed_store
 from sentinel.rolling_authority import name
@@ -61,6 +61,36 @@ def worker(cfg, database_url, callback):
     result.source_completion_hint = lambda cycle: read_hint(
         database_url, decision_session=cycle.decision_session)
     return result
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('deadline_seconds', [None, 30])
+async def test_close_pending_uses_cheap_wakes_and_a_bounded_full_retry(publications, pg, deadline_seconds):
+    cfg = config().model_copy(update={'retry_max_seconds': 900})
+    enable(publications, cfg)
+    now = AFTER_WEDNESDAY_CLOSE
+    deadline = now + timedelta(seconds=deadline_seconds) if deadline_seconds else None
+    calls = []
+
+    def refresh(context):
+        hint = read_hint(pg.sync_dsn)
+        calls.append(hint)
+        if hint.attestation_row is None:
+            raise ClosingDataPending('waiting for the dedicated producer', publisher_deadline_at=deadline)
+        return refresh_result(context)
+
+    running = worker(cfg, pg.sync_dsn, refresh)
+    await running.tick(publications, now=now)
+    first = await running.tick(publications, now=now)
+    assert first.cycle.next_wake_at == now + timedelta(seconds=5 if deadline_seconds else 60)
+    assert (await running.tick(publications, now=now + timedelta(seconds=1))).action is TickAction.WAITING
+    assert len(calls) == 1
+    publish(publications)
+    assert (await running.tick(publications, now=now + timedelta(seconds=2))).action is TickAction.RETRY_SCHEDULED
+    assert len(calls) == 2 and calls[-1].publication_frontier == DECISION
+    attest(publications)
+    assert (await running.tick(publications, now=now + timedelta(seconds=3))).action is TickAction.REFRESHED
+    assert len(calls) == 3
 
 
 def test_hint_reads_both_handoffs_without_loading_state(publications, pg):
