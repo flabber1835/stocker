@@ -1880,15 +1880,16 @@ def test_local_sync_adapter_awaits_its_result_without_production_process_authori
     assert not context.cancellation.cancelled
 
 
-def resting_recovery(monkeypatch, *, proof='current'):
+def resting_recovery(monkeypatch, *, proof='current', config=None, broker=None):
     """Only the callback/store edges are doubles; wait validation stays real."""
     from decimal import Decimal
     from sentinel.execution.contract import OrderTerms
     from sentinel.feed import calendar
 
-    config = AutomationConfig(control_poll_seconds=3)
+    config = config or AutomationConfig(control_poll_seconds=3)
     cycle, permit = scheduled_record(config, module.CycleState.RECONCILING)
     cycle = cycle.model_copy(update={'plan_id': 'retained-protected-plan',
+        'broker': broker or cycle.broker,
         'diagnostic': {'retry_phase': 'RECOVER', 'phase_attempt_count': 999}})
     _, closed = calendar.session_window(cycle.effective_session)
     deadline = closed + timedelta(minutes=10)
@@ -2032,9 +2033,12 @@ def test_positive_cohort_readiness_preserves_original_cutoff_without_failure(mon
             seconds=case.service.config.maximum_execution_lateness_seconds)).isoformat()}
 
 
-def crossing_cohort_recovery(monkeypatch, *, proof='current'):
-    case = resting_recovery(monkeypatch)
-    cutoff = case.service._latest_new_execution_at(case.cycle)
+def crossing_cohort_recovery(monkeypatch, *, proof='current', regular_purchase_cutoff=False):
+    config = AutomationConfig(control_poll_seconds=3, maximum_execution_lateness_seconds=900)
+    case = (resting_recovery(monkeypatch, config=config, broker='alpaca')
+            if regular_purchase_cutoff else resting_recovery(monkeypatch))
+    cutoff = (case.cycle.execution_open_at + timedelta(minutes=10)
+              if regular_purchase_cutoff else case.service._latest_new_execution_at(case.cycle))
     case.started = cutoff - timedelta(seconds=1)
     case.completed = cutoff + timedelta(seconds=1)
     case.clock[0] = case.started
@@ -2090,6 +2094,18 @@ def test_ready_cohort_crossing_cutoff_keeps_working_orders_in_read_only_recovery
     assert result.cycle.execution_close_at == case.cycle.execution_close_at
     assert result.cycle.diagnostic['protected_day_wait']['deadline'] == case.deadline.isoformat()
     assert case.calls == ['read-only recovery']
+    assert case.transitions == [module.CycleState.RETRY_WAIT]
+
+
+def test_ready_cohort_crossing_regular_purchase_cutoff_keeps_working_orders(monkeypatch):
+    case = crossing_cohort_recovery(monkeypatch, regular_purchase_cutoff=True)
+    assert case.completed < case.service._latest_new_execution_at(case.cycle)
+
+    result = run_resting_recovery(case)
+
+    assert result.action is module.TickAction.WAITING, 'working DAY cohort was terminalized at cutoff'
+    assert result.cycle.diagnostic['new_submission_cutoff_expired'] is True
+    assert result.cycle.diagnostic['retry_phase'] == 'RECOVER'
     assert case.transitions == [module.CycleState.RETRY_WAIT]
 
 

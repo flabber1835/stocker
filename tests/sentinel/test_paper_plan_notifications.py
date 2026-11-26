@@ -99,6 +99,8 @@ def idle_hold_case(conn, monkeypatch, *, completion=False, removed=False):
     alert = outbox.enqueue(conn, idempotency_key='preserved-critical',event_type='CRITICAL_INCIDENT',
                            severity='CRITICAL',payload={'reason':'preserved'})
     assert outbox.claim_next(conn, holder_id='private').alert_id == alert.alert_id
+    assert len(calls) == 1
+    outbox.recover_notifications(conn)
     assert len(calls) == 2
 
 
@@ -188,3 +190,52 @@ def test_queued_plan_is_revalidated_before_push_fanout(conn, pg, monkeypatch, fa
         payload=dict(execute_at=execute.isoformat(),cycle_id='c'*64,plan_id='saved-plan'))
     adapter.deliver(alert,'key')
     assert called == ([] if fault else ['PAPER_PLAN_READY'])
+
+
+def test_live_preview_does_not_publish_a_paper_notification(conn, monkeypatch):
+    from sentinel.panel import sources
+
+    saved_plan(conn)
+    for table in ('sentinel_automation_control', 'sentinel_execution_plans',
+                  'sentinel_automation_cycles', 'sentinel_observation_provenance'):
+        conn.execute(f"UPDATE {table} SET broker='alpaca-live'")
+    conn.commit()
+    monkeypatch.setenv('ALPACA_BASE_URL', 'https://paper-api.alpaca.markets')
+    outbox.recover_notifications(conn)
+    assert conn.execute('SELECT count(*) FROM sentinel_alert_outbox').fetchone() == (0,)
+    conn.rollback()
+    monkeypatch.setenv('ALPACA_BASE_URL', 'https://api.alpaca.markets')
+    monkeypatch.delenv('SENTINEL_REVIEWED_DEPLOYMENT_MODE', raising=False)
+    outbox.recover_notifications(conn)
+    alert = outbox.claim_next(conn, holder_id='live-plan-observer')
+    assert alert.event_type == 'LIVE_PLAN_READY'
+    assert web_push.notification_payload(alert)['title'].startswith('Live trading plan')
+    display, _ = sources._runtime_rows(conn.info.dsn)
+    row = next(row for row in display if row.key == 'paper_plan')
+    assert row.label == 'Next live plan' and row.paper_plan.trades == 1
+
+
+def test_supersession_between_devices_retires_only_unsent_plan_receipts(conn, pg):
+    from sentinel.automation.outbox import dispatch_once
+    from tests.sentinel.test_notification_recovery import push_adapter
+    from tests.sentinel.test_worker_notification_push import _add_subscription
+    import asyncio
+
+    saved_plan(conn)
+    _add_subscription(conn, 'first-device')
+    _add_subscription(conn, 'second-device', material=19)
+    outbox.recover_notifications(conn)
+    calls = []
+
+    def send(endpoint, body, headers, timeout):
+        calls.append(endpoint)
+        with store.connect(pg.sync_dsn) as other:
+            other.execute("UPDATE sentinel_execution_plans SET superseded_by='newer-plan'")
+        return 201
+
+    result = asyncio.run(dispatch_once(conn, adapter=push_adapter(pg, send), holder_id='first'))
+    assert result.delivered and len(calls) == 1
+    assert conn.execute('SELECT state,COUNT(*) FROM sentinel_web_push_deliveries GROUP BY state '
+                        'ORDER BY state').fetchall() == [('DELIVERED', 1), ('RETIRED', 1)]
+    assert conn.execute('SELECT count(*) FROM sentinel_web_push_subscriptions '
+                        'WHERE retired_at IS NOT NULL').fetchone() == (0,)

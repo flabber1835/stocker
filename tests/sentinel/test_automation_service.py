@@ -142,14 +142,15 @@ def service_for(cfg, *, holder="worker-a", refresh=refresh_result,
 
 
 @pytest.mark.asyncio
-async def test_idle_wait_reuses_only_unchanged_cycle_and_never_delays_execution(conn, monkeypatch):
+@pytest.mark.parametrize('broker', ['alpaca', 'alpaca-live'])
+async def test_idle_wait_reuses_only_unchanged_cycle_and_never_delays_execution(conn, monkeypatch, broker):
     from sentinel import operational_ddl_epoch
 
     cfg = config()
     tomorrow = datetime.now(UTC) + timedelta(days=7)
     obligation = schedule.for_clock(tomorrow, cfg)
     now = obligation.prepare_at + timedelta(seconds=1)
-    expected = binding(cfg).model_copy(update={'broker': 'alpaca'})
+    expected = binding(cfg).model_copy(update={'broker': broker})
     store.activate(conn, binding=expected, actor='operator', reason='test activation')
     store.release_kill(conn, expected_binding=expected, actor='operator', reason='test authority')
     runtime = service_for(cfg)
@@ -191,6 +192,9 @@ async def test_idle_wait_reuses_only_unchanged_cycle_and_never_delays_execution(
     finally:
         conn.rollback()
         conn.execute('DROP EVENT TRIGGER IF EXISTS sentinel_operational_evidence_ddl_changed')
+        conn.execute('DROP TABLE sentinel_operational_ddl_epoch')
+        conn.execute('DROP FUNCTION sentinel_operational_evidence_ddl_changed()')
+        conn.execute('DROP FUNCTION sentinel_operational_ddl_epoch_guard()')
         conn.commit()
 
 
@@ -224,18 +228,21 @@ async def test_paper_debug_window_wait_does_not_use_idle_reuse(conn, monkeypatch
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("remaining_work", ["sell", "buy", "closed"])
-async def test_late_transport_continues_only_with_same_session_sell_recovery(conn, remaining_work):
+@pytest.mark.parametrize("broker", ["alpaca", "alpaca-live"])
+@pytest.mark.parametrize("first_wake_late", [False, True])
+async def test_late_transport_continues_only_with_same_session_sell_recovery(
+        conn, remaining_work, broker, first_wake_late):
     from sentinel.automation_runtime import _grant
 
     cfg = config()
-    expected = binding(cfg).model_copy(update={"broker": "alpaca"})
+    expected = binding(cfg).model_copy(update={"broker": broker})
     store.activate(conn, binding=expected, actor="operator", reason="test activation")
     store.release_kill(conn, expected_binding=expected, actor="operator", reason="test authority")
     grants = []
 
     def execute(context):
         grants.append(_grant(context, "EXECUTE"))
-        if len(grants) == 1:
+        if not first_wake_late and len(grants) == 1:
             return {"disposition": "RECONCILE", "failure_code": "COMMANDS_IN_FLIGHT"}
         return execution_success(context)
 
@@ -253,10 +260,11 @@ async def test_late_transport_continues_only_with_same_session_sell_recovery(con
     svc = service_for(cfg, execute=execute, recover=recover)
     for _ in range(3):
         ready = await svc.tick(conn, now=THURSDAY_BEFORE_OPEN)
-    active = await svc.tick(conn, now=THURSDAY_AFTER_OPEN)
-    assert active.cycle.state is CycleState.RECONCILING
-    assert grants[0].reduction_only_reconciliation_id is None
-    now = (active.cycle.execution_close_at if remaining_work == "closed" else
+    if not first_wake_late:
+        active = await svc.tick(conn, now=THURSDAY_AFTER_OPEN)
+        assert active.cycle.state is CycleState.RECONCILING
+        assert grants[0].reduction_only_reconciliation_id is None
+    now = (ready.cycle.execution_close_at if remaining_work == "closed" else
            ready.cycle.execute_at + timedelta(seconds=cfg.maximum_execution_lateness_seconds + 1))
     recovered = await svc.tick(conn, now=now)
     if remaining_work == "sell":
@@ -264,11 +272,11 @@ async def test_late_transport_continues_only_with_same_session_sell_recovery(con
         assert recovered.cycle.diagnostic["reduction_only_reconciliation_id"] == "fresh-book"
         done = await svc.tick(conn, now=now)
         assert done.cycle.state is CycleState.SUCCEEDED
-        assert grants[1].reduction_only_reconciliation_id == "fresh-book"
-        assert recovered.cycle.plan_fingerprint == active.cycle.plan_fingerprint
+        assert grants[-1].reduction_only_reconciliation_id == "fresh-book"
+        assert recovered.cycle.plan_fingerprint == ready.cycle.plan_fingerprint
     else:
         assert recovered.cycle.state is CycleState.SUPERSEDED
-        assert len(grants) == 1
+        assert len(grants) == (0 if first_wake_late else 1)
 
 
 @pytest.mark.asyncio
@@ -330,9 +338,17 @@ async def test_native_fee_at_execution_restarts_via_read_only_recovery(conn, con
         assert outbox.enqueue_cycle_transition_alert(conn, cycle_id=resumed.cycle.cycle_id,
             state=CycleState.RETRY_WAIT.value).idempotency_key == alert.idempotency_key
         missed = await replacement.tick(conn, now=cutoff + timedelta(seconds=1))
-        terminal = CycleState.BLOCKED if convergence == "absent" else CycleState.SUPERSEDED
-        assert missed.cycle.state is terminal
-        assert missed.cycle.next_wake_at is None and sent == []
+        if convergence == "absent":
+            assert missed.cycle.state is CycleState.RETRY_WAIT
+            assert missed.cycle.next_wake_at > cutoff + timedelta(seconds=1)
+            assert missed.cycle.diagnostic["retry_phase"] == "RECOVER"
+            assert missed.cycle.diagnostic["native_fee_posting_deadline_at"] == cutoff.isoformat()
+            still_waiting = await replacement.tick(conn, now=cutoff + timedelta(seconds=1))
+            assert still_waiting.action is TickAction.WAITING
+        else:
+            assert missed.cycle.state is CycleState.SUPERSEDED
+            assert missed.cycle.next_wake_at is None
+        assert sent == []
         assert calls == ["execute", "recover", "recover"]
 
 
@@ -365,6 +381,39 @@ async def test_native_fee_preparation_retries_its_original_phase_before_open(con
     else:
         assert attempts == [CycleState.PREPARING, CycleState.PREPARING]
         assert resumed.cycle.state is CycleState.PLAN_READY
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("callback_crosses_open", [False, True])
+async def test_native_fee_preparation_uses_read_only_recovery_at_open(conn, callback_crosses_open):
+    cfg = config()
+    enable(conn, cfg)
+    calls = []
+    clock_now = THURSDAY_BEFORE_OPEN
+
+    def prepare(context):
+        nonlocal clock_now
+        calls.append("prepare")
+        if callback_crosses_open:
+            clock_now = context.cycle.execution_open_at
+        raise NativeFeePostingWait("provider still reports pre-fee cash")
+
+    service = service_for(cfg, prepare=prepare,
+        recover=lambda context: calls.append("recover") or recovery_success(context))
+    for _ in range(3):
+        pending = await service.tick(conn, now=THURSDAY_BEFORE_OPEN, clock=lambda: clock_now)
+    assert pending.cycle.state is CycleState.RETRY_WAIT
+    opened = pending.cycle.execution_open_at
+    if callback_crosses_open:
+        assert pending.cycle.diagnostic["retry_phase"] == "PREFLIGHT_RECOVER"
+        assert pending.cycle.next_wake_at > opened
+        assert (await service.tick(conn, now=opened)).action is TickAction.WAITING
+        assert calls == ["recover", "prepare"]
+    else:
+        assert pending.cycle.diagnostic["retry_phase"] == "PREPARE"
+    resumed = await service.tick(conn, now=max(opened, pending.cycle.next_wake_at))
+    assert resumed.cycle.state is CycleState.SUPERSEDED
+    assert calls == ["recover", "prepare", "recover"]
 
 
 @pytest.fixture
@@ -771,7 +820,8 @@ async def test_unresolved_journal_preflight_blocks_publication(conn) -> None:
 
 
 @pytest.mark.asyncio
-async def test_stale_preflight_recovery_supersedes_planless_cycle(conn) -> None:
+@pytest.mark.parametrize("cooldown", [False, True])
+async def test_stale_preflight_recovery_supersedes_planless_cycle(conn, cooldown) -> None:
     cfg = config()
     enable(conn, cfg)
     calls = []
@@ -779,6 +829,8 @@ async def test_stale_preflight_recovery_supersedes_planless_cycle(conn) -> None:
     def incomplete(context):
         calls.append(("incomplete", context.cycle.decision_session.isoformat(),
                       context.cycle.plan_id))
+        if cooldown:
+            raise TransientInfrastructureFailure("provider cooldown", retry_after_seconds=86_460)
         return {
             "disposition": "RECONCILE",
             "failure_code": "OPEN_COMMANDS",
@@ -808,7 +860,15 @@ async def test_stale_preflight_recovery_supersedes_planless_cycle(conn) -> None:
             "a stale preflight cycle must terminalize before refresh"),
         execute=lambda context: pytest.fail(
             "a planless preflight cycle must never execute"))
-    stale = await replacement.tick(conn, now=THURSDAY_AFTER_CLOSE)
+    wake = THURSDAY_AFTER_CLOSE
+    if cooldown:
+        waiting = await replacement.tick(conn, now=wake)
+        assert waiting.action is TickAction.WAITING
+        assert waiting.cycle == pending.cycle
+        assert waiting.cycle.next_wake_at == wake + timedelta(minutes=1)
+        assert calls == [("incomplete", "2026-08-12", None)]
+        wake = pending.cycle.next_wake_at
+    stale = await replacement.tick(conn, now=wake)
 
     assert stale.action is TickAction.SUPERSEDED
     assert stale.cycle.cycle_id == pending.cycle.cycle_id
@@ -822,7 +882,7 @@ async def test_stale_preflight_recovery_supersedes_planless_cycle(conn) -> None:
     ]
 
     current = service_for(cfg, recover=clean)
-    progressed = await current.tick(conn, now=THURSDAY_AFTER_CLOSE)
+    progressed = await current.tick(conn, now=wake)
     assert progressed.action is TickAction.RECOVERED
     assert progressed.cycle.state is CycleState.REFRESHING_DATA
     assert progressed.cycle.decision_session.isoformat() == "2026-08-13"
@@ -1130,6 +1190,34 @@ async def test_persistent_run_recomputes_boundaries_across_connections(
 
 
 @pytest.mark.asyncio
+async def test_worker_handles_unchanged_terminal_revision_once(conn, pg, frozen_clock_sample):
+    cfg = config()
+    enable(conn, cfg)
+    def refusal(_context):
+        raise NonRetryableCallbackRefused("a genuine source integrity refusal")
+
+    service = service_for(cfg, refresh=refusal)
+    await service.tick(conn, now=AFTER_WEDNESDAY_CLOSE)
+    blocked = await service.tick(conn, now=AFTER_WEDNESDAY_CLOSE)
+    assert blocked.cycle.state is CycleState.BLOCKED
+    seen = []
+    service.terminal = lambda _conn, result: seen.append(result.cycle.cycle_id)
+
+    async def no_wait(_seconds):
+        pass
+
+    async def run():
+        return await service.run(lambda: feed_store.connect(pg.sync_dsn),
+            stop=SimpleNamespace(is_set=lambda: False), clock=lambda: AFTER_WEDNESDAY_CLOSE,
+            sleep=no_wait, max_ticks=3)
+
+    assert await run() == 3
+    assert seen == [blocked.cycle.cycle_id]
+    assert await run() == 3
+    assert seen == [blocked.cycle.cycle_id] * 2
+
+
+@pytest.mark.asyncio
 async def test_generation_change_supersedes_pretransport_cycle_without_execute(
         conn) -> None:
     cfg = config()
@@ -1380,6 +1468,43 @@ async def test_provider_retry_after_survives_durable_scheduling(conn):
     retry = await service.tick(conn, now=AFTER_WEDNESDAY_CLOSE)
     assert retry.action is TickAction.RETRY_SCHEDULED
     assert retry.cycle.next_wake_at == AFTER_WEDNESDAY_CLOSE + timedelta(hours=1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("new_generation", [False, True])
+async def test_old_recovery_respects_durable_provider_cooldown(conn, new_generation):
+    cfg = config()
+    enable(conn, cfg)
+    calls = []
+    service = service_for(cfg, execute=lambda _context: {
+        "disposition": "RECONCILE", "failure_code": "UNKNOWN_SUBMIT"})
+    for _ in range(3):
+        await service.tick(conn, now=THURSDAY_BEFORE_OPEN)
+    started = await service.tick(conn, now=THURSDAY_AFTER_OPEN)
+    when = THURSDAY_AFTER_OPEN if new_generation else THURSDAY_AFTER_CLOSE
+
+    def recover(context):
+        calls.append(context.cycle.cycle_id)
+        if len(calls) == 1:
+            raise TransientInfrastructureFailure("broker cooldown", retry_after_seconds=60)
+        return recovery_success(context)
+
+    worker = service_for(cfg, recover=recover)
+    retry = await worker.tick(conn, now=when)
+    assert retry.cycle.state is CycleState.RETRY_WAIT
+    assert retry.cycle.next_wake_at == when + timedelta(seconds=60)
+    if new_generation:
+        store.engage_kill(conn, actor="operator", reason="test restart")
+        store.release_kill(conn, expected_binding=binding(cfg), actor="operator", reason="restart")
+        worker = service_for(cfg, holder="worker-b", recover=recover)
+
+    waiting = await worker.tick(conn, now=when + timedelta(seconds=1))
+    assert waiting.action is TickAction.WAITING
+    assert waiting.cycle.next_wake_at == retry.cycle.next_wake_at
+    assert calls == [started.cycle.cycle_id]
+    done = await worker.tick(conn, now=retry.cycle.next_wake_at)
+    assert done.action is TickAction.RECOVERED
+    assert calls == [started.cycle.cycle_id] * 2
 
 
 @pytest.mark.asyncio

@@ -78,6 +78,7 @@ from sentinel.execution.states import RuntimeState
 from sentinel.feed import calendar, publication, readiness, store as feed_store
 
 from .model import (
+    NativeFeePostingPending,
     PaperActivationRefused,
     PaperExecutionEntryBackupBusy,
     PaperRetryableRefused,
@@ -263,8 +264,6 @@ async def _execute_current_paper_plan(
         raise PaperActivationRefused(str(exc)) from exc
     reductions_only = (isinstance(grant, AutomationExecutionGrant)
                        and grant.reduction_only_reconciliation_id is not None)
-    if reductions_only and not (dual_mode and market_policy is not None and market_policy.fractional):
-        raise PaperActivationRefused("reductions-only continuation requires fractional dual PAPER execution")
     real_clock = today is None
     now_et = _execution_observation_time(today)
     today = now_et.date()
@@ -505,6 +504,15 @@ async def _execute_current_paper_plan(
                 evaluated_at=clock(), actions=actions,
                 target_actions=target_actions)
             target_projection = None
+            if (reductions_only and opening_prices is None and plan.opening_intents
+                    and plan.target_exposure > 0
+                    and not (market_policy is not None and market_policy.fractional)
+                    and protected_limits.ProtectedLimitPolicy.from_env() is None):
+                from sentinel.execution import target_reprojection
+                from sentinel.execution.opening_prices import OpeningPriceUnavailability
+                if target_reprojection.load_projection(conn, plan_id=plan.plan_id) is None:
+                    opening_prices = OpeningPriceUnavailability(
+                        plan.effective_session, "purchase sizing suppressed during sale-only recovery", {}, {})
             if opening_prices is None:
                 opening_prices = await _opening_prices_or_retry(
                     conn, state=state, plan=plan, broker=broker)
@@ -526,6 +534,7 @@ async def _execute_current_paper_plan(
                 _dual_mutation_observation_or_refuse(preflight)
                 if dual_mode else
                 _transport_observation_or_refuse(preflight))
+            pending_native_fee = None
             if _account_evidence_is_quiescent(
                     conn, deployment=binding.identity,
                     observation=observation):
@@ -547,10 +556,13 @@ async def _execute_current_paper_plan(
                     activity_state = await _broker_cash_state_or_refuse(
                         conn, broker=broker, binding=binding, through=cash_evidence_at)
                 if reserve is None:
-                    _cash_authority_or_refuse(
-                        conn, plan=plan, deployment=binding.identity, account=account,
-                        observation=observation, activity_state=activity_state,
-                        endpoint_lag_observed_at=cash_evidence_at, allow_native_fee_wait=preflight.clean)
+                    try:
+                        _cash_authority_or_refuse(
+                            conn, plan=plan, deployment=binding.identity, account=account,
+                            observation=observation, activity_state=activity_state,
+                            endpoint_lag_observed_at=cash_evidence_at, allow_native_fee_wait=preflight.clean)
+                    except NativeFeePostingPending as exc:
+                        pending_native_fee = exc
             current_commands = journal.load_commands(conn, binding.identity)
             opening_diagnostics.mark("broker_reconciliation")
             _revalidate_preopen_authority_or_refuse(
@@ -616,12 +628,11 @@ async def _execute_current_paper_plan(
                 restricted_security_ids=restrictions,
                 fulfillment=fulfillment)
             opening_diagnostics.mark("final_projection")
-            if issuer_admission is not None and any(
-                    delta.is_increase and delta.classification is not execution_commands.DeltaClass.NONE
-                    and delta.security_id != DEFENSIVE_SECURITY_ID for delta in projected_deltas):
-                issuer_admission.prepare_for_transport(
-                    publication=pinned, state=state, plan=plan,
-                    projection=target_projection, reconciliation=preflight)
+            if pending_native_fee is not None and not any(
+                    delta.remaining < 0 and delta.security_id not in restrictions
+                    and delta.classification is execution_commands.DeltaClass.ACTIONABLE
+                    for delta in projected_deltas):
+                raise pending_native_fee
             unfinished = fulfillment.blocked if fulfillment is not None else {}
             if (not restrictions and not unfinished and not unavailable_opening_intents(target_projection)
                     and all(delta.classification is execution_commands.DeltaClass.NONE
@@ -637,8 +648,19 @@ async def _execute_current_paper_plan(
                     target_basket=(
                         plan.target_basket if target_projection is None
                         else target_projection.target_basket),
-                    restricted_security_ids=restrictions, buy_deferrals=buy_deferrals,
-                    reductions_only=reductions_only)
+                    restricted_security_ids=restrictions, reductions_only=True)
+
+                async def prepare_increases(candidates, fresh_reconciliation):
+                    security_ids = {delta.security_id for delta in candidates}
+                    instruments.update(await _instrument_map(
+                        conn, broker, state, plan, fresh_reconciliation.observation,
+                        target_basket=target_projection.target_basket,
+                        restricted_security_ids=restrictions.keys() | fresh_reconciliation.restricted_securities.keys(),
+                        buy_deferrals=buy_deferrals, increase_security_ids=security_ids))
+                    if issuer_admission is not None and security_ids - {DEFENSIVE_SECURITY_ID}:
+                        issuer_admission.prepare_for_transport(
+                            publication=pinned, state=state, plan=plan,
+                            projection=target_projection, reconciliation=fresh_reconciliation)
 
                 async def authorize_increases(fresh_observation, fresh_reconciliation=None):
                     nonlocal market_settled
@@ -738,6 +760,7 @@ async def _execute_current_paper_plan(
                     security_restrictions=restrictions,
                     buy_deferrals=buy_deferrals,
                     buy_admission=(issuer_admission.check_buy if issuer_admission else None),
+                    prepare_increases=prepare_increases,
                     informational_current_book=dual_mode,
                     reductions_only=reductions_only,
                     market_buy_window_open=(market_buy_window_open if dual_mode

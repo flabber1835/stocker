@@ -5,6 +5,7 @@ import json
 from urllib.parse import urlencode
 
 from sentinel.panel.presentation import _pacific
+from sentinel.panel.pwa import REQUEST_DEADLINE_SCRIPT
 from sentinel.panel.review_history import condition_label, summarize
 from sentinel.panel.review_model import PAGE_SIZE
 
@@ -207,6 +208,7 @@ def render(review, *, current=True):
 
 SCRIPT = """<script>
 (function(){
+""" + REQUEST_DEADLINE_SCRIPT + """
   var pending = false;
   var spent = new Set();
   window.syncReviewControl = function() {
@@ -223,15 +225,16 @@ SCRIPT = """<script>
     var result = document.getElementById('review-result');
     result.textContent = 'Checking the current state…';
     var controller = new AbortController();
-    var timeout = setTimeout(function(){ controller.abort(); }, 15000);
     try {
-      var response = await fetch('/review/acknowledge', {
-        method:'POST', cache:'no-store', credentials:'same-origin',
-        headers:{'Content-Type':'application/json'}, signal:controller.signal,
-        body:JSON.stringify({token:token})
+      var reviewed = await dashboardDeadline(controller, async function() {
+        var response = await fetch('/review/acknowledge', {
+          method:'POST', cache:'no-store', credentials:'same-origin',
+          headers:{'Content-Type':'application/json'}, signal:controller.signal,
+          body:JSON.stringify({token:token})
+        });
+        if (!response.ok) { throw new Error('changed'); }
+        return response.json();
       });
-      if (!response.ok) { throw new Error('changed'); }
-      var reviewed = await response.json();
       if (reviewed.status !== 'CLEAN' || reviewed.head !== reviewed.reviewed_head) {
         throw new Error('acknowledgement not established');
       }
@@ -240,7 +243,6 @@ SCRIPT = """<script>
     } catch (_error) {
       result.textContent = 'State changed or is unavailable. Refresh and review again.';
     } finally {
-      clearTimeout(timeout);
       pending = false;
       window.syncReviewControl();
     }

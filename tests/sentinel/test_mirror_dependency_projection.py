@@ -185,8 +185,8 @@ def test_unchanged_retained_action_publication_does_not_recheck_old_plans(conn,m
     conn.execute('INSERT INTO sentinel_action_coverage(publication_version,basis,through,payload_sha256,payload) '
         'VALUES(3,%s,%s,%s,%s::jsonb)',('2026-08-01','2026-08-21',coverage.digest(payload),json.dumps(payload)))
     publish(conn,3,evidence={'rolling_snapshot':{'schema':'test-generation'},'action_history':coverage.digest(payload)})
-    settle(conn,3,1)
-    assert set(seen)=={a.plan_id} and b.plan_id not in seen
+    settle(conn,3)
+    assert seen == [a.plan_id] and b.plan_id not in seen
 
 
 @pytest.mark.parametrize('damage',['row-hmac','deleted-index','missing-prefix','old-stamp-update'])

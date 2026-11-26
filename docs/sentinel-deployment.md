@@ -253,6 +253,10 @@ request for environment selection and isolated LIVE execution authority. It is
 development intent, not activation of the installed PAPER deployment or proof
 that native live-account qualification has passed.
 
+[LIVE automation lifecycle and closing-data continuity](live-control-continuity.md)
+defines the public certificate checks, closing-data waits and standby wiring
+for an explicitly qualified LIVE deployment.
+
 [Completed PAPER mirror readiness](postopen-paper-mirror-readiness.md) keeps
 authenticated earlier-plan warnings visible after a proved current cycle
 completes, while its ordinary post-close verification remains pending.

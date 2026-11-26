@@ -986,7 +986,7 @@ async def test_informational_green_outbox_rows_are_consumed_without_push(
     result = await outbox.dispatch_once(
         db, adapter=adapter, holder_id="quiet-dispatcher")
 
-    assert result.delivered is True
+    assert result.skipped and not result.delivered and result.alert.delivered_at is None
     assert result.alert.alert_id == alert.alert_id
     with db.cursor() as cur:
         cur.execute("SELECT COUNT(*) FROM sentinel_web_push_fanouts")
@@ -1133,6 +1133,7 @@ def test_fill_commit_crash_reconstructs_one_alert_per_partial_fill(db) -> None:
         db, broker_order_id="order-1", fill_key="native-fill-1",
         client_key=client_key, quantity="1", price="189.25")
 
+    outbox.recover_notifications(db)
     first = outbox.claim_next(db, holder_id="fill-dispatcher")
     assert first is not None
     assert first.event_type == "BROKER_FILL"
@@ -1148,6 +1149,7 @@ def test_fill_commit_crash_reconstructs_one_alert_per_partial_fill(db) -> None:
     _insert_fill(
         db, broker_order_id="order-1", fill_key="native-fill-2",
         client_key=client_key, quantity="1", price="189.50")
+    outbox.recover_notifications(db)
     second = outbox.claim_next(db, holder_id="fill-dispatcher")
     assert second is not None
     assert second.idempotency_key == "fill:order-1:native-fill-2"
@@ -1167,6 +1169,7 @@ def test_unbound_fill_emits_red_integrity_alert_not_a_fabricated_trade(db) -> No
         db, broker_order_id="unknown-order", fill_key="native-orphan",
         client_key=None, quantity="1", price="10")
 
+    outbox.recover_notifications(db)
     alert = outbox.claim_next(db, holder_id="integrity-dispatcher")
 
     assert alert is not None
@@ -1183,6 +1186,7 @@ def test_contradictory_fill_command_identity_emits_red_integrity_alert(db) -> No
         db, broker_order_id="bound-order", fill_key="contradictory-fill",
         client_key="a-different-client-key", quantity="1", price="10")
 
+    outbox.recover_notifications(db)
     alert = outbox.claim_next(db, holder_id="integrity-dispatcher")
 
     assert alert is not None

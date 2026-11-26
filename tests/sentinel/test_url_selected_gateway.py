@@ -375,7 +375,7 @@ def test_live_execution_reaches_same_executor_with_strict_reconciliation_and_iss
     actions, projected_actions = object(), object()
     target_actions = object()
     projection, observation, publication = object(), object(), object()
-    preflight = SimpleNamespace(restricted_securities={})
+    preflight = SimpleNamespace(restricted_securities={}, observation=observation)
     captured = {}
     monkeypatch.setattr(trading, '_schema', lambda _c: None)
     monkeypatch.setattr(trading.ProtectedLimitPolicy, 'from_env', lambda: object())
@@ -418,7 +418,10 @@ def test_live_execution_reaches_same_executor_with_strict_reconciliation_and_iss
     session = SimpleNamespace(runtime_state=RuntimeState.RUNNING, submitted=(), refused=(), deferred=())
     async def execute(**kwargs):
         captured['executor'] = kwargs
+        assert 'issuer' not in captured
         await kwargs['mutation_authority'](preflight)
+        await kwargs['prepare_increases'](
+            [SimpleNamespace(security_id='SEC-AAA')], preflight)
         return session
     monkeypatch.setattr(trading.executor, 'execute_session', execute)
     grant = LiveExecutionGrant(subject=fixture.subject, operation_scope='EXECUTE',

@@ -467,7 +467,9 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
                           preparation: bool = False,
                           buy_deferrals: dict[str, str] | None = None,
                           reductions_only: bool = False,
+                          increase_security_ids: set[str] | None = None,
                           ) -> dict[str, BrokerInstrument]:
+    import httpx
     from sentinel.execution.contract import BrokerInstrumentUnavailable
     from sentinel.execution.market_buy_policy import MarketBuyPolicy
 
@@ -551,9 +553,6 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
         != effective_current[security_id]
     }
     dollar_increases = set()
-    if preparation and plan.target_exposure != 0:
-        dollar_increases = {item.security_id for item in plan.opening_intents}
-        needed.update(dollar_increases)
     if fractional_projection is not None:
         from sentinel.execution.identity import DeploymentIdentity
         identity = DeploymentIdentity(plan.deployment_id, plan.broker, plan.broker_account_id, plan.takeover_epoch)
@@ -561,8 +560,6 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
             minimum_quantity_increment=broker.capabilities.minimum_quantity_increment,
             conn=conn, deployment=identity, projection=fractional_projection,
             restricted_security_ids=restricted_security_ids)
-        if reductions_only:
-            deltas = [delta for delta in deltas if not delta.is_increase]
         dollar_increases = {d.security_id for d in deltas if d.is_increase
                             and d.classification is execution_commands.DeltaClass.ACTIONABLE}
         needed = {d.security_id for d in deltas if d.classification is not execution_commands.DeltaClass.NONE
@@ -572,6 +569,9 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
         current = instruments.get(security_id)
         increasing = security_id in dollar_increases or (desired.get(security_id, Decimal(0))
                       > effective_current[security_id])
+        if (((preparation or reductions_only) and increasing) or (increase_security_ids is not None
+                and (not increasing or security_id not in increase_security_ids))):
+            continue
         if increasing and protected_projection is not None:
             try:
                 protected_limits.order_terms_for(protected_projection, security_id)
@@ -606,6 +606,10 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
             raise PaperActivationRefused(
                 f"invalid broker instrument identity {security_id}/{symbol}: {exc}") from exc
         except Exception as exc:                              # noqa: BLE001
+            if (increasing and buy_deferrals is not None
+                    and isinstance(exc, (httpx.TransportError, TimeoutError))):
+                buy_deferrals[security_id] = f"BUY_INSTRUMENT_UNAVAILABLE: {type(exc).__name__}: {exc}"
+                continue
             raise PaperRetryableRefused(
                 f"cannot resolve broker instrument {security_id}/{symbol}: "
                 f"{type(exc).__name__}: {exc}") from exc
@@ -627,9 +631,7 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
                 and resolved.broker_id != opening_prices.broker_ids[security_id]):
             raise PaperActivationRefused("submission instrument differs from opening broker asset identity")
         if unavailable is not None:
-            if (market_policy is None or not market_policy.fractional or not increasing
-                    or (not preparation and buy_deferrals is None)
-                    or resolved.symbol != symbol):
+            if not increasing or buy_deferrals is None or resolved.symbol != symbol:
                 raise PaperActivationRefused(
                     f"invalid broker instrument identity {security_id}/{symbol}: {unavailable}") from unavailable
             if buy_deferrals is not None:

@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import math
 import re
 import secrets
 import time
@@ -267,8 +268,8 @@ def notification_payload(alert) -> dict:
     elif alert.event_type == "PUSH_ENROLLMENT_TEST":
         title = "Caesar's Palace notifications enabled"
         body = "Test notification requested from this device."
-    elif alert.event_type == 'PAPER_PLAN_READY':
-        title = 'Paper trading plan for ' + str(details.get('effective_session') or 'next open')
+    elif alert.event_type in _PLAN_READY:
+        title = _PLAN_READY[alert.event_type][0] + ' trading plan for ' + str(details.get('effective_session') or 'next open')
         body = str(details.get('reason') or 'Open the dashboard to review proposed trades.')[:240]
     elif (alert.event_type == "SHADOW_DEPENDENCY_UNAVAILABLE"
           and str(alert.severity).upper() == "WARN"):
@@ -336,6 +337,9 @@ def notification_payload(alert) -> dict:
         "icon": "/static/caesars-palace-192.png",
         "badge": "/static/caesars-palace-192.png",
     }
+
+
+_PLAN_READY = {'PAPER_PLAN_READY': ('Paper', 'alpaca'), 'LIVE_PLAN_READY': ('Live', 'alpaca-live')}
 
 
 class WebPushAlertAdapter:
@@ -433,8 +437,10 @@ class WebPushAlertAdapter:
                             "SELECT created_at FROM sentinel_alert_outbox"
                             " WHERE alert_id=%s"
                             " AND event_type='SHADOW_DEPENDENCY_UNAVAILABLE'"
-                            " AND severity='WARN' AND state='DELIVERED'"
-                            " AND created_at<=%s", (warning_id, alert.created_at))
+                            " AND severity='WARN'"
+                            " AND ((state='DELIVERED' AND delivered_at<=%s)"
+                            "      OR (state<>'DELIVERED' AND delivered_at IS NULL))"
+                            " AND created_at<=%s", (warning_id, alert.created_at, alert.created_at))
                         warning = cur.fetchone()
                         if warning is None:
                             raise WebPushDeliveryFailure(
@@ -442,8 +448,8 @@ class WebPushAlertAdapter:
                         cur.execute(
                             "SELECT subscription_id FROM sentinel_web_push_deliveries"
                             " WHERE alert_id=%s AND state='DELIVERED'"
-                            " AND delivered_at<=%s ORDER BY subscription_id",
-                            (warning_id, alert.created_at))
+                            " AND delivered_at BETWEEN %s AND %s ORDER BY subscription_id",
+                            (warning_id, warning[0], alert.created_at))
                         warned = list(cur.fetchall())
                         recipients = set()
                         for (sub_id,) in warned:
@@ -545,21 +551,54 @@ class WebPushAlertAdapter:
                 conn.rollback()
                 raise
 
-    def _fanout_counts(self, alert_id: str) -> dict[str, int]:
+    def _last_accepted(self, alert_id: str) -> datetime | None:
         with closing(self._connection_factory()) as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT state,COUNT(*) FROM sentinel_web_push_deliveries"
-                    " WHERE alert_id=%s GROUP BY state", (alert_id,))
-                return {str(state): int(count) for state, count in cur.fetchall()}
+                    "SELECT MAX(delivered_at) FROM sentinel_web_push_deliveries"
+                    " WHERE alert_id=%s AND state='DELIVERED'", (alert_id,))
+                return cur.fetchone()[0]
 
     def deliver_fenced(self, alert, idempotency_key: str, *, claim_seconds: int):
         if claim_seconds <= self._timeout:
             raise ValueError('alert claim must exceed one bounded push request')
         return self.deliver(alert, idempotency_key, claim_seconds=claim_seconds, claimed=True)
 
-    def deliver(self, alert, idempotency_key: str, *, claim_seconds=60, claimed=False) -> None:
+    def _plan_delivery_current(self, alert, execute_at):
+        from sentinel.paper_plan_preview import still_current
+
+        if datetime.now(timezone.utc) >= execute_at:
+            return False
+        with closing(self._connection_factory()) as conn:
+            return still_current(conn, cycle_id=alert.payload.get('cycle_id'),
+                                 plan_id=alert.payload.get('plan_id'),
+                                 broker=_PLAN_READY[alert.event_type][1], execute_at=execute_at)
+
+    def _close_pending_recipients(self, alert, *, claimed, claim_seconds, reason):
+        from sentinel.automation.outbox import DeliveryAccepted, DeliverySkipped, renew_claim
+
+        with closing(self._connection_factory()) as conn:
+            if claimed:
+                renew_claim(conn, alert=alert, claim_seconds=claim_seconds)
+            conn.execute("UPDATE sentinel_web_push_deliveries SET state='RETIRED',"
+                         " last_error=%s, updated_at=clock_timestamp()"
+                         " WHERE alert_id=%s AND state='PENDING'", (reason, alert.alert_id))
+            conn.commit()
+        accepted = self._last_accepted(alert.alert_id)
+        return DeliveryAccepted(accepted) if accepted is not None else DeliverySkipped(reason)
+
+    def _dependency_already_recovered(self, alert):
+        from sentinel.shadow_dependency_notifications import recovery_key
+
+        with closing(self._connection_factory()) as conn:
+            return conn.execute("SELECT EXISTS (SELECT 1 FROM sentinel_alert_outbox"
+                                " WHERE idempotency_key=%s AND event_type='SHADOW_DEPENDENCY_RECOVERED'"
+                                " AND severity='INFO' AND payload->>'warning_alert_id'=%s)",
+                                (recovery_key(alert.alert_id), alert.alert_id)).fetchone()[0]
+
+    def deliver(self, alert, idempotency_key: str, *, claim_seconds=60, claimed=False):
         del idempotency_key  # alert_id is the immutable notification tag
+        from sentinel.automation.outbox import DeliveryAccepted, DeliverySkipped
         from sentinel.notification_policy import removed_by_device, TestNotificationCancelled
         with closing(self._connection_factory()) as conn:
             if removed_by_device(conn, alert):
@@ -567,37 +606,39 @@ class WebPushAlertAdapter:
         def record(**kwargs):
             self._record(**kwargs, claim=alert if claimed else None, claim_seconds=claim_seconds,
                          created_at=alert.created_at, recipient=recipient)
+        def close_remaining(reason):
+            return self._close_pending_recipients(
+                alert, claimed=claimed, claim_seconds=claim_seconds, reason=reason)
+
+        plan_obsolete = 'saved plan expired or superseded'
         if (str(alert.severity).upper() == "INFO"
-                and alert.event_type not in {"PUSH_ENROLLMENT_TEST", "PAPER_PLAN_READY",
-                                             "SHADOW_DEPENDENCY_RECOVERED"}):
+                and alert.event_type not in {"PUSH_ENROLLMENT_TEST", "SHADOW_DEPENDENCY_RECOVERED", *_PLAN_READY}):
             # Webhook-era informational rows may still exist in the durable
             # outbox. Consume them successfully without initializing fan-out:
             # quiet green must not become either a push or a dead letter.
-            return
-        if alert.event_type == 'PAPER_PLAN_READY':
+            return DeliverySkipped('informational event has no push policy')
+        execute_at = None
+        if alert.event_type in _PLAN_READY:
             try:
                 execute_at = datetime.fromisoformat(str(alert.payload.get('execute_at') or ''))
             except ValueError as exc:
                 raise WebPushDeliveryFailure('planned-trade notification time is malformed',retryable=False) from exc
             if execute_at.utcoffset() is None:
                 raise WebPushDeliveryFailure('planned-trade notification has no timezone',retryable=False)
-            if datetime.now(timezone.utc) >= execute_at:
-                return  # A delayed delivery must not announce a past open.
-            from sentinel.paper_plan_preview import still_current
-            with closing(self._connection_factory()) as conn:
-                try:
-                    current = still_current(conn, cycle_id=alert.payload.get('cycle_id'),
-                                            plan_id=alert.payload.get('plan_id'))
-                finally:
-                    conn.rollback()
-            if not current:
-                return
+            if not self._plan_delivery_current(alert, execute_at):
+                # Direct diagnostic callers can check an unclaimed stale plan
+                # without opening fan-out or changing any durable recipients.
+                return close_remaining(plan_obsolete) if claimed else DeliverySkipped(plan_obsolete)
+        dependency_warning = (alert.event_type == 'SHADOW_DEPENDENCY_UNAVAILABLE'
+                              and str(alert.severity).upper() == 'WARN')
+        if dependency_warning and self._dependency_already_recovered(alert):
+            return close_remaining('strategy update independently verified')
         recipient_count, delivery_required = self._initialize_fanout(alert)
         if not delivery_required:
             # The migration boundary is durable. Quietly close historical
             # webhook-era rows instead of replaying them to a newly enrolled
             # Home Screen app.
-            return
+            return DeliverySkipped('alert predates Web Push activation')
         if recipient_count == 0:
             raise WebPushDeliveryFailure(
                 "no active Web Push subscriptions", retryable=False)
@@ -621,8 +662,18 @@ class WebPushAlertAdapter:
                 body, headers = request_parts(
                     endpoint=recipient.endpoint, p256dh=recipient.p256dh, auth=recipient.auth,
                     payload=payload, credentials=self._credentials)
-                status = self._sender(
-                    recipient.endpoint, body, headers, self._timeout)
+                timeout = self._timeout
+                if execute_at is not None:
+                    if not self._plan_delivery_current(alert, execute_at):
+                        return close_remaining(plan_obsolete)
+                    remaining = (execute_at - datetime.now(timezone.utc)).total_seconds()
+                    if remaining < 1:
+                        return close_remaining(plan_obsolete)
+                    timeout = min(timeout, remaining / 2)
+                    headers['TTL'] = str(min(86400, math.floor(remaining - timeout)))
+                if dependency_warning and self._dependency_already_recovered(alert):
+                    return close_remaining('strategy update independently verified')
+                status = self._sender(recipient.endpoint, body, headers, timeout)
                 if isinstance(status, bool) or not isinstance(status, int):
                     raise ValueError("Web Push sender returned no HTTP status")
             except ValueError:
@@ -660,14 +711,15 @@ class WebPushAlertAdapter:
             raise WebPushDeliveryFailure(
                 f"{len(failures)} Web Push recipient(s) failed",
                 retryable=retryable)
-        counts = self._fanout_counts(alert.alert_id)
-        if counts.get("DELIVERED", 0) == 0:
+        accepted = self._last_accepted(alert.alert_id)
+        if accepted is None:
             with closing(self._connection_factory()) as conn:
                 if removed_by_device(conn, alert):
                     raise TestNotificationCancelled("test cancelled by this device")
             raise WebPushDeliveryFailure(
                 "all captured Web Push subscriptions were retired",
                 retryable=False)
+        return DeliveryAccepted(accepted)
 
 
 __all__ = [

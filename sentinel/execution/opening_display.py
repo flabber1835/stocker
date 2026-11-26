@@ -1,7 +1,8 @@
-"""One GET-only broker observation for the current PAPER opening display."""
+"""One GET-only broker observation for the current opening display."""
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
 from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -10,9 +11,11 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from sentinel import local_paper
+from sentinel.authority.model import AuthorityRefused
 from sentinel.execution import journal
 from sentinel.execution.alpaca import AlpacaCredentialsRefused, UnmappedBrokerStatus
 from sentinel.execution.contract import MalformedBrokerEvidence
+from sentinel.execution.retired_unsent import only_retired_unsent_buys
 from sentinel.execution.states import IN_FLIGHT, CommandState
 
 
@@ -55,7 +58,9 @@ def _scope(conn, bound, *, collecting):
     states = ('WAITING_OPEN',) if collecting else ('WAITING_OPEN', 'EXECUTING')
     row = conn.execute("""
         SELECT x.cycle_id,x.plan_id,x.plan_fingerprint,
-               c.generation,l.fence_token,o.seq,x.execute_at,clock_timestamp()
+               c.generation,l.fence_token,o.seq,x.execute_at,clock_timestamp(),
+               x.state,x.next_wake_at,o.observed_at,
+               ARRAY(SELECT state FROM sentinel_commands WHERE state=ANY(%s) LIMIT 101)
         FROM sentinel_automation_control c
         JOIN sentinel_automation_lease l ON l.id=1 AND l.control_generation=c.generation
         JOIN sentinel_automation_cycles x ON x.control_generation=c.generation
@@ -64,7 +69,7 @@ def _scope(conn, bound, *, collecting):
         JOIN sentinel_execution_plans p ON p.plan_id=x.plan_id
           AND (p.deployment_id,p.broker,p.broker_account_id,p.takeover_epoch)=
               (x.deployment_id,x.broker,x.broker_account_id,x.takeover_epoch)
-        JOIN LATERAL (SELECT seq,completeness,runtime_state,orders
+        JOIN LATERAL (SELECT seq,completeness,runtime_state,orders,observed_at
                        FROM sentinel_observations ORDER BY seq DESC LIMIT 1) o
           ON o.seq::text=x.last_clean_reconciliation_id
         WHERE c.id=1 AND c.enabled AND NOT c.kill_switch_engaged AND c.authority_verdict='PASS'
@@ -81,19 +86,26 @@ def _scope(conn, bound, *, collecting):
           AND p.publication_fingerprint=x.publication_fingerprint
           AND p.effective_session=x.effective_session AND p.decision_session=x.decision_session
           AND p.rollout_mode=c.rollout_mode AND p.rollout_version=c.rollout_version
-          AND p.rollout_certificate_sha256=c.certificate_sha256
+          AND (p.rollout_certificate_sha256=c.certificate_sha256
+               OR c.broker='alpaca-live' AND c.rollout_mode='PINNED_1_00'
+                   AND p.rollout_certificate_sha256 IS NULL)
           AND o.completeness='COMPLETE' AND o.runtime_state='RUNNING'
           AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(o.orders) AS item
                           WHERE item->>'state' IS NULL OR item->>'state' NOT IN
                             ('FILLED','CANCELLED','REJECTED','SUPERSEDED','EXPIRED'))
-          AND NOT EXISTS (SELECT 1 FROM sentinel_commands WHERE state=ANY(%s))
           AND clock_timestamp()>=x.execute_at-%s
           AND clock_timestamp()<x.execute_at+%s
         LIMIT 2
-    """, (*bound, list(states), _ACTIVE, START_LEAD, timedelta(0) if collecting else FRESHNESS)).fetchall()
+    """, (_ACTIVE, *bound, list(states), START_LEAD, timedelta(0) if collecting else FRESHNESS)).fetchall()
     if len(row) != 1:
         return None
-    cycle, plan, fingerprint, generation, fence, reconciliation, execute, now = row[0]
+    (cycle, plan, fingerprint, generation, fence, reconciliation, execute, now,
+     state, wake, observed, active) = row[0]
+    if active and not only_retired_unsent_buys(conn,
+            dict(cycle_id=cycle, plan_id=plan, state=state, next_wake_at=wake),
+            dict(sequence=reconciliation, observed_at=observed,
+                 completeness='COMPLETE', runtime_state='RUNNING'), Counter(active), now=now):
+        return None
     return Scope(cycle_id=cycle, plan_id=plan, plan_fingerprint=fingerprint,
                  generation=generation, fence=fence, reconciliation=reconciliation,
                  execute_at=execute.astimezone(timezone.utc)), now
@@ -149,9 +161,10 @@ async def collect(conn, *, reader, bound):
     # identity checks around each phase. This collector grants no write port.
     import httpx
     try:
-        observation = await asyncio.wait_for(reader.observe(), TIMEOUT_SECONDS)
+        observe = reader.opening_snapshot if bound[1] == 'alpaca-live' else reader.observe
+        observation = await asyncio.wait_for(observe(), TIMEOUT_SECONDS)
     except (TimeoutError, httpx.HTTPError, MalformedBrokerEvidence,
-            AlpacaCredentialsRefused, UnmappedBrokerStatus):
+            AlpacaCredentialsRefused, UnmappedBrokerStatus, AuthorityRefused):
         return None
     account = observation.account_identity
     if (not observation.is_complete or observation.orders or account is None
@@ -171,10 +184,15 @@ def confirm(conn, bound, receipt):
     return None
 
 
-def observed_at(conn, *, cycle_id, plan_id, reconciliation=None, waiting=False):
+def observed_at(conn, *, cycle_id, plan_id, reconciliation=None, waiting=False,
+                broker='alpaca'):
     """Use only a fresh matching display observation while its clean anchor survives."""
-    owner = local_paper.bound_account(conn)
-    if owner is None:
+    if broker == 'alpaca-live':
+        from sentinel import binding
+        owner = binding.load(conn)
+    else:
+        owner = local_paper.bound_account(conn)
+    if owner is None or not owner.is_owned or owner.broker != broker:
         return None
     bound = (owner.deployment_id, owner.broker, owner.broker_account_id, owner.takeover_epoch)
     current = _scope(conn, bound, collecting=waiting)

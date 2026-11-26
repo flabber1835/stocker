@@ -14,13 +14,16 @@ call with no intervening await.
 """
 from __future__ import annotations
 
+import asyncio
 import re
 import inspect
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from enum import Enum
 from typing import Awaitable, Callable, Sequence, TypeAlias
+from zoneinfo import ZoneInfo
 
 from sentinel.execution.contract import (
     BrokerAccountIdentity,
@@ -34,6 +37,7 @@ from sentinel.execution.contract import (
     BrokerOrder,
     CommandOutcome,
     ExecutionBroker,
+    MalformedBrokerEvidence,
     OrderTerms,
     Side,
 )
@@ -74,6 +78,37 @@ class OrderFundingNotReady(RuntimeError):
 
 class OrderEvidenceNotReady(PreTransportAuthorityRefused):
     """This security lacks a fresh quote/funding; its transport was prevented."""
+
+
+@dataclass
+class _PaperReductionWindow:
+    adapter: object
+    client_key: str
+    window: tuple[datetime, datetime]
+    task: object
+    refusal: OrderEvidenceNotReady | None = None
+
+
+_PAPER_REDUCTION_WINDOW: ContextVar[_PaperReductionWindow | None] = ContextVar(
+    "_PAPER_REDUCTION_WINDOW", default=None)
+
+
+def require_paper_reduction_window(adapter, *, client_key):
+    """At native dispatch, retain exact proof if the recovery sale never posts."""
+    scope = _PAPER_REDUCTION_WINDOW.get()
+    if scope is None:
+        return
+    if (scope.adapter is not adapter or scope.client_key != client_key
+            or scope.task is not asyncio.current_task()):
+        raise PreTransportAuthorityRefused("PAPER reduction window belongs to a different order")
+    opened, closed = scope.window
+    try:
+        now = adapter._now()
+    except (MalformedBrokerEvidence, TypeError, ValueError):
+        now = None
+    if not isinstance(now, datetime) or now.utcoffset() is None or not opened <= now < closed:
+        scope.refusal = OrderEvidenceNotReady("PAPER reduction is outside the plan's regular session")
+        raise scope.refusal
 
 
 class InsufficientPurchaseCash(OrderEvidenceNotReady):
@@ -614,7 +649,7 @@ class GuardedExecutionBroker(ExecutionBroker):
         # It cannot survive a later attempt that might cross transport.
         self._unsent_proofs.clear()
         try:
-            live_permit = await self._prepare_submit(client_key=client_key,
+            live_permit, paper_reduction_window = await self._prepare_submit(client_key=client_key,
                                        instrument=instrument, side=side,
                                        quantity=quantity, order_terms=order_terms, notional=notional)
         except PreTransportAuthorityRefused as exc:
@@ -642,6 +677,20 @@ class GuardedExecutionBroker(ExecutionBroker):
                     self._unsent_proofs[nonce] = (client_key, instrument, side, quantity, order_terms, notional)
                     exc._not_transported = nonce
                 raise
+        if paper_reduction_window is not None:
+            scope = _PaperReductionWindow(
+                self._inner, client_key, paper_reduction_window, asyncio.current_task())
+            token = _PAPER_REDUCTION_WINDOW.set(scope)
+            try:
+                return await self._inner.submit(**kwargs)
+            except OrderEvidenceNotReady as exc:
+                if scope.refusal is exc:
+                    nonce = object()
+                    self._unsent_proofs[nonce] = (client_key, instrument, side, quantity, order_terms, notional)
+                    exc._not_transported = nonce
+                raise
+            finally:
+                _PAPER_REDUCTION_WINDOW.reset(token)
         return await self._inner.submit(**kwargs)
 
     def consume_not_transported(self, exc, command) -> None:
@@ -713,6 +762,18 @@ class GuardedExecutionBroker(ExecutionBroker):
                 and side is not Side.SELL):
             raise PreTransportAuthorityRefused("reductions-only execution requires a SELL")
         live_permit = None
+        paper_reduction_window = None
+        if (not self._live and isinstance(self._grant, AutomationExecutionGrant)
+                and self._grant.reduction_only_reconciliation_id is not None):
+            from sentinel.feed import calendar
+            now_reader = getattr(self._inner, "_now", None)
+            if not callable(now_reader):
+                raise PreTransportAuthorityRefused("PAPER sale-only recovery requires a fresh broker clock")
+            now = now_reader()
+            if not isinstance(now, datetime) or now.utcoffset() is None:
+                raise PreTransportAuthorityRefused("PAPER sale-only recovery requires a fresh aware broker clock")
+            now = now.astimezone(ZoneInfo(calendar.EXCHANGE_TZ))
+            paper_reduction_window = calendar.session_window(now.date())
         try:
             if not isinstance(order_terms, OrderTerms):
                 raise TypeError("submission requires typed immutable order terms")
@@ -943,6 +1004,11 @@ class GuardedExecutionBroker(ExecutionBroker):
             opened, closed = calendar.session_window(now.date())
             if not opened <= now < closed:
                 raise OrderEvidenceNotReady("fractional market reductions require the regular session")
+        if paper_reduction_window is not None:
+            opened, closed = paper_reduction_window
+            now = self._inner._now()
+            if not isinstance(now, datetime) or now.utcoffset() is None or not opened <= now < closed:
+                raise OrderEvidenceNotReady("PAPER reduction is outside the plan's regular session")
         if side is Side.BUY and self.supports_market_clock:
             try:
                 now_reader = getattr(self._inner, "_now", None)
@@ -975,10 +1041,11 @@ class GuardedExecutionBroker(ExecutionBroker):
                     else:
                         earliest = opened + timedelta(seconds=60 if protected or market is not None else 0)
                         latest = min(closed, opened + timedelta(seconds=600))
-                        if config is not None and not self._live:
+                        if config is not None:
                             execute_at = opened + timedelta(seconds=config.execution_delay_seconds)
                             scheduled_cutoff = execute_at + timedelta(
                                 seconds=config.maximum_execution_lateness_seconds)
+                            earliest = max(earliest, execute_at)
                             latest = min(latest, scheduled_cutoff)
                 if market is not None and notional is None and (quote is None or now.date() != quote.session):
                     raise ValueError("market BUY quote is outside the final regular session")
@@ -1015,7 +1082,7 @@ class GuardedExecutionBroker(ExecutionBroker):
                     raise PreTransportAuthorityRefused("market BUY policy changed during submission checks")
             except TargetProjectionRefused as exc:
                 raise PreTransportAuthorityRefused("market BUY policy became invalid") from exc
-        return live_permit
+        return live_permit, paper_reduction_window
 
     async def asset_rules(self, *, instrument):
         async def read():

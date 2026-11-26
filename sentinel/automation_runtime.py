@@ -761,6 +761,7 @@ class ProductionAutomation:
         # inject only an already-constructed typed adapter; there is no
         # environment import-string loader that can execute arbitrary code.
         self.alert_adapter = alert_adapter or outbox.LogAlertAdapter()
+        self._alert_history_repair = outbox.NotificationHistoryRepair()
         (self._shadow_observation_enabled,
          self._shadow_observation_id,
          self._shadow_starting_cash) = shadow_config_from_env()
@@ -821,7 +822,7 @@ class ProductionAutomation:
 
     def source_completion_hint(self, cycle):
         """A producer-change hint wakes verification; it grants no authority."""
-        if not self._dual_run_enabled or getattr(self, "_live_run_enabled", False):
+        if not (self._dual_run_enabled or getattr(self, "_live_run_enabled", False)):
             return None
         from sentinel.automation import source_completion
         conn = feed_store.connect(self.sentinel_config.database_url,
@@ -1075,6 +1076,13 @@ class ProductionAutomation:
                 or control.config_sha256 != self.automation_config.fingerprint):
             raise StaleLeaderRefused("idle authority control changed")
         self._require_idle_foreground_budget()
+        if getattr(self, "_live_run_enabled", False):
+            from sentinel.authority.live_runtime import require_live_control_lifecycle
+
+            certificate = require_live_control_lifecycle(
+                conn, control, base_url=self.sentinel_config.base_url)
+            self._require_idle_foreground_budget()
+            return control, certificate
         certificate = self._idle_certificate_identity(
             conn, expected_sha256=bound.certificate_sha256)
         self._require_idle_foreground_budget()
@@ -1416,16 +1424,16 @@ class ProductionAutomation:
             self.sentinel_config, resolve_security_id=resolver, **kwargs)
 
     def _recovery_identity_session(self, cycle):
-        """Observe the present session before refresh; never project two ahead."""
+        """Resolve today's broker positions independently of the plan's session."""
         preflight = (cycle.plan_id is None and (
             cycle.state.value == "DISCOVERED"
             or store.cycle_preflight_recovery_pending(cycle)))
-        if not preflight:
-            return cycle.effective_session.isoformat(), False
         observed_day = _now_utc().astimezone(
             ZoneInfo(calendar.EXCHANGE_TZ)).date()
-        observed_session = calendar.session_on_or_after(observed_day)
-        return min(observed_session, cycle.effective_session.isoformat()), True
+        if preflight:
+            observed_session = calendar.session_on_or_after(observed_day)
+            return min(observed_session, cycle.effective_session.isoformat()), True
+        return calendar.previous_sessions(observed_day, 1)[0], False
 
     def _require_operational_inputs(self, conn, *, current=None):
         """Recheck source authority when a persisted cycle skips refresh."""
@@ -1567,8 +1575,8 @@ class ProductionAutomation:
                 current, self._dual_run_enabled or getattr(self, "_live_run_enabled", False))
         return current
 
-    def _closing_refresh_wait(self, conn, cycle, frontier, *, closing_paper):
-        if (closing_paper and isinstance(frontier, str)
+    def _closing_refresh_wait(self, conn, cycle, frontier, *, dedicated_close):
+        if (dedicated_close and isinstance(frontier, str)
                 and frontier < str(cycle.decision_session)
                 and _current_close_refresh(cycle, self.automation_config, _now_utc())):
             before_close = cycle.decision_close_at - timedelta(microseconds=1)
@@ -1596,9 +1604,9 @@ class ProductionAutomation:
     async def refresh(self, context: CycleContext) -> RefreshResult:
         conn = None
         cycle = getattr(context, 'cycle', None)
-        closing_paper = (getattr(self, "_operational_source_only", False)
-                         and getattr(self, "_dual_run_enabled", False)
-                         and not getattr(self, "_live_run_enabled", False))
+        live = getattr(self, "_live_run_enabled", False)
+        dedicated_close = (getattr(self, "_operational_source_only", False)
+                           and (getattr(self, "_dual_run_enabled", False) or live))
         try:
             conn = self.connect()
             require_execution_schemas(conn)
@@ -1608,27 +1616,32 @@ class ProductionAutomation:
             current = self._refresh_inputs(conn)
             if feed_inputs.is_rolling(current):
                 frontier = getattr(current, 'window_end', None)
-                wait = self._closing_refresh_wait(conn, cycle, frontier, closing_paper=closing_paper)
+                wait = self._closing_refresh_wait(conn, cycle, frontier, dedicated_close=dedicated_close)
                 if wait is not None:
                     raise wait
-                from sentinel import dual_reconciliation
-                try:
-                    if getattr(self, "_live_run_enabled", False):
-                        from sentinel import trading
+                if live:
+                    from sentinel import shadow_runtime, trading
+
+                    try:
                         trading._shadow(conn, session=cycle.decision_session,
                             observation_id=self._shadow_observation_id,
                             starting_cash=self._shadow_starting_cash)
-                    else:
+                    except (trading.TradingGatewayRefused, shadow_runtime.ShadowRuntimeRefused) as exc:
+                        raise NonRetryableCallbackRefused(str(exc)) from exc
+                else:
+                    from sentinel import dual_reconciliation
+
+                    try:
                         dual_reconciliation.verified_shadow_intent(
                             conn, decision_session=cycle.decision_session,
                             observation_id=self._shadow_observation_id,
                             starting_cash=self._shadow_starting_cash)
-                except dual_reconciliation.DualReconciliationPending as exc:
-                    raise _closing_frontier_wait(exc,
-                        frontier=frontier,
-                        decision_session=cycle.decision_session) from exc
-                except dual_reconciliation.DualReconciliationRefused as exc:
-                    raise NonRetryableCallbackRefused(str(exc)) from exc
+                    except dual_reconciliation.DualReconciliationPending as exc:
+                        raise _closing_frontier_wait(exc,
+                            frontier=frontier,
+                            decision_session=cycle.decision_session) from exc
+                    except dual_reconciliation.DualReconciliationRefused as exc:
+                        raise NonRetryableCallbackRefused(str(exc)) from exc
                 return RefreshResult(already_published=True, data_version=str(current.version),
                     publication_fingerprint=publication_fingerprint(current),
                     diagnostic={"frontier": current.window_end, "scope": "ROLLING_VERIFIED_SHADOW"})
@@ -1646,7 +1659,7 @@ class ProductionAutomation:
                     already_published=True, data_version=str(current.version),
                     publication_fingerprint=publication_fingerprint(current),
                     diagnostic={"frontier": visible})
-            if self._dual_run_enabled or getattr(self, "_live_run_enabled", False):
+            if self._dual_run_enabled or live:
                 # The dedicated broker-free shadow service is the sole
                 # market-data publisher in dual mode. Two writers that both saw a
                 # stale frontier can serialize yet still publish the same
@@ -1692,7 +1705,7 @@ class ProductionAutomation:
                     database_url=self.sentinel_config.database_url, cycle=cycle)
                 if publication_wait is not None:
                     raise publication_wait from exc
-                if closing_paper and _current_close_refresh(cycle, self.automation_config, _now_utc()):
+                if dedicated_close and _current_close_refresh(cycle, self.automation_config, _now_utc()):
                     mapped_pin = classify_dependency_failure(native_pin)
                     raise RefreshPublicationPinUnavailable(str(mapped_pin)) from exc
             mapped = classify_dependency_failure(exc)
@@ -1847,10 +1860,12 @@ class ProductionAutomation:
                 with opening_stage_log.preflight('recovery_broker_identity'):
                     broker = self._broker(conn, identity_session)
             except feed_inputs.ExecutionInputsRefused as exc:
-                if preflight and str(exc) == "ROLLING_IDENTITY_BEYOND_NEXT_SESSION":
+                if (str(exc) == "ROLLING_IDENTITY_BEYOND_NEXT_SESSION"
+                        and (preflight or identity_session != str(cycle.effective_session))):
                     raise SourceDataPending(
-                        "preflight broker observation awaits current-session identity inputs") from exc
+                        "broker recovery awaits authenticated current-session identity inputs") from exc
                 raise
+            fee_pending = None
             try:
                 context.require_active()
                 from sentinel import trading
@@ -1883,7 +1898,10 @@ class ProductionAutomation:
                             cycle.effective_session.isoformat(),
                     })
             except NativeFeePostingPending as exc:
-                raise NativeFeePostingWait(str(exc)) from exc
+                if exc.reconciliation is None:
+                    raise NativeFeePostingWait(str(exc)) from exc
+                result = exc.reconciliation
+                fee_pending = exc
             except PaperDataIntegrityRefused as exc:
                 raise DataIntegrityFailure(str(exc)) from exc
             except paper.PaperRetryableRefused as exc:
@@ -2040,15 +2058,30 @@ class ProductionAutomation:
                                 "name the durable current plan"),
                             diagnostic=result_diagnostic)
                     try:
+                        from sentinel.execution.contract import Side
                         from sentinel.execution import opening_sizing
+                        reductions_allowed = (
+                            result.clean and cycle.broker in {"alpaca", "alpaca-live"}
+                            and self.automation_config.debug_window_for(cycle) is None)
+                        now = _now_utc()
+                        cutoff = min(cycle.execution_close_at,
+                                     cycle.execution_open_at + timedelta(minutes=10),
+                                     cycle.execute_at + timedelta(seconds=
+                                         self.automation_config.maximum_execution_lateness_seconds))
                         if opening_sizing.requires_initial_projection(
                                 conn, plan=plan, deployment=deployment,
-                                active_security_ids=result.observation.positions_by_security()):
-                            closed = _now_utc() >= cycle.execution_close_at
+                                active_security_ids=result.observation.positions_by_security()) and (
+                                (fee_pending is None and now < cutoff)
+                                or target_reprojection.load_projection(conn, plan_id=plan.plan_id) is None):
+                            closed = now >= cycle.execution_close_at
+                            if fee_pending is not None and (closed or not reductions_allowed):
+                                raise NativeFeePostingWait(str(fee_pending)) from fee_pending
                             return ExecuteResult(
                                 disposition=(ExecuteDisposition.SUPERSEDED if closed
                                              else ExecuteDisposition.READY_TO_EXECUTE),
                                 **evidence,
+                                reduction_only_continuation=reductions_allowed and not closed,
+                                reduction_only_required=fee_pending is not None,
                                 failure_code=("EXECUTION_WINDOW_CLOSED" if closed
                                               else "OPENING_SIZING_REQUIRED"),
                                 failure_detail=("unsent opening plan execution window closed"
@@ -2071,7 +2104,6 @@ class ProductionAutomation:
                             conn, deployment, plan_id=cycle.plan_id,
                             states=(CommandState.CANCELLED,
                                     CommandState.REJECTED))
-                        from sentinel.execution.contract import Side
                         from sentinel.execution.fractional_progress import is_fractional
                         fractional_projection = is_fractional(target_reprojection.load_projection(
                             conn, plan_id=cycle.plan_id))
@@ -2080,6 +2112,28 @@ class ProductionAutomation:
                                                   if delta.side is Side.SELL}
                             terminal_refusals = tuple(c for c in terminal_refusals
                                 if c.side is Side.SELL and c.security_id in pending_reductions)
+                        refused_sales = {command.security_id for command in terminal_refusals
+                                         if command.side is Side.SELL}
+                        unrelated_sales = any(delta.side is Side.SELL
+                                              and delta.security_id not in refused_sales
+                                              for delta in actionable)
+                        if (terminal_refusals or fee_pending is not None) and unrelated_sales and (
+                                reductions_allowed and _now_utc() < cycle.execution_close_at):
+                            return ExecuteResult(
+                                disposition=ExecuteDisposition.READY_TO_EXECUTE,
+                                **evidence,
+                                reduction_only_continuation=True,
+                                reduction_only_required=True,
+                                failure_code=("TERMINAL_COMMAND_REFUSAL" if terminal_refusals
+                                              else "NATIVE_FEE_POSTING_PENDING"),
+                                failure_detail=("clean recovery permits independent sales "
+                                                "while a refused order or native fee blocks purchases"),
+                                diagnostic={**result_diagnostic,
+                                    "terminal_commands": [command.client_key for command in terminal_refusals],
+                                    "actionable_deltas": [_actionable_delta_evidence(delta)
+                                                          for delta in actionable]})
+                        if fee_pending is not None:
+                            raise NativeFeePostingWait(str(fee_pending)) from fee_pending
                         if terminal_refusals:
                             return ExecuteResult(
                                 disposition=ExecuteDisposition.SUPERSEDED,
@@ -2109,9 +2163,7 @@ class ProductionAutomation:
                             disposition=ExecuteDisposition.READY_TO_EXECUTE,
                             **evidence,
                             reduction_only_continuation=(
-                                result.clean and self._dual_run_enabled
-                                and not getattr(self, "_live_run_enabled", False)
-                                and cycle.broker == "alpaca" and fractional_projection
+                                reductions_allowed
                                 and any(delta.side is Side.SELL for delta in actionable)),
                             failure_code="READY_FOR_FRESH_EXECUTION",
                             failure_detail=(
@@ -2151,6 +2203,8 @@ class ProductionAutomation:
                     failure_code="CORPORATE_ACTION_PENDING",
                     failure_detail="affected securities await current broker/source reconciliation",
                     diagnostic=result_diagnostic)
+            if fee_pending is not None:
+                raise NativeFeePostingWait(str(fee_pending)) from fee_pending
             return ExecuteResult(
                 disposition=ExecuteDisposition.SUCCEEDED,
                 **evidence,
@@ -2188,10 +2242,8 @@ class ProductionAutomation:
                 cycle, control = self._assert_cycle_authority(
                     conn, context, operation_scope="EXECUTE")
             source_only = getattr(self, '_operational_source_only', False)
-            paper_pin = (source_only and self._dual_run_enabled
-                         and not getattr(self, '_live_run_enabled', False))
             with opening_stage_log.preflight("operational_inputs"):
-                if paper_pin:
+                if source_only:
                     pinned = input_scope.enter_context(feed_inputs.pinned(conn, commit=False))
                     self._require_operational_inputs(conn, current=pinned)
                 else:
@@ -2205,9 +2257,7 @@ class ProductionAutomation:
                             != cycle.plan_fingerprint):
                         raise NonRetryableCallbackRefused(
                             "automation execution cycle does not name the durable "
-                            "current PAPER plan")
-                if source_only and not paper_pin:
-                    input_scope.enter_context(feed_inputs.pinned(conn, commit=False))
+                            "current account plan")
             with opening_stage_log.preflight("broker_adapter"):
                 broker = self._broker(conn, cycle.effective_session.isoformat())
             gateway_started_ns = time.perf_counter_ns()
@@ -2485,12 +2535,13 @@ class ProductionAutomation:
         # A successful open-time execution cannot yet prove full-session
         # performance.  Its immutable account evidence is captured by the
         # execution gateway and finalized after that session's close publishes.
-        if result.cycle.state.value == "SUCCEEDED":
+        if result.cycle.state.value == "SUCCEEDED" or result.cycle.broker == "alpaca-live":
             return None
         try:
+            proven_miss = outbox.cycle_has_proven_opening_miss(conn, result.cycle)
             verification = trial.record_cycle_verification(
                 conn, cycle_id=result.cycle.cycle_id)
-            if verification["verdict"] == "VERIFIED":
+            if verification["verdict"] == "VERIFIED" or proven_miss:
                 return verification
             detail = ",".join(verification["reason_codes"])
             payload = {"cycle_id": result.cycle.cycle_id,
@@ -2519,6 +2570,7 @@ class ProductionAutomation:
 
     async def alert_wake(self, conn):
         await self.dispatch_alert(conn)
+        self._alert_history_repair.run_if_due(conn)
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT MIN(next_attempt_at) FROM sentinel_alert_outbox"
@@ -2542,6 +2594,8 @@ class ProductionAutomation:
         next_wake = now + timedelta(seconds=self._fenced_data_poll_seconds)
         self._fenced_data_next_wake = next_wake
         target = schedule.for_clock(now, self.automation_config).decision_session.isoformat()
+        live = getattr(self, "_live_run_enabled", False)
+        dedicated_publisher = getattr(self, "_dual_run_enabled", False) or live
         try:
             feed_store.require_feed_schema(conn)
             schema.require_runtime_schema(conn)
@@ -2554,15 +2608,21 @@ class ProductionAutomation:
                 from sentinel.feed import operational_snapshot
                 operational_snapshot.require_alpaca_openfigi(conn, current)
             if feed_inputs.is_rolling(current):
-                feed_inputs.require_shadow_mode(current, getattr(self, "_dual_run_enabled", False))
-                from sentinel import dual_reconciliation
-                dual_reconciliation.verified_shadow_intent(
-                    conn, decision_session=target, observation_id=self._shadow_observation_id,
-                    starting_cash=self._shadow_starting_cash)
+                feed_inputs.require_shadow_mode(current, dedicated_publisher)
+                if live:
+                    from sentinel import trading
+
+                    trading._shadow(conn, session=target, observation_id=self._shadow_observation_id,
+                                    starting_cash=self._shadow_starting_cash)
+                else:
+                    from sentinel import dual_reconciliation
+
+                    dual_reconciliation.verified_shadow_intent(
+                        conn, decision_session=target, observation_id=self._shadow_observation_id,
+                        starting_cash=self._shadow_starting_cash)
                 return next_wake
             visible = feed_inputs.frontier(conn)
-            if (visible != target
-                    and not getattr(self, "_dual_run_enabled", False)):
+            if visible != target and not dedicated_publisher:
                 ingest.daily(conn, today=target)
                 visible = feed_inputs.frontier(conn)
             report = readiness.check_readiness(

@@ -1588,12 +1588,26 @@ def dashboard_health(panel) -> dict:
                 **({'close_preparation_pending': True} if close_work_label == label else {})))
 
 
-def describe(row: Row, status: str, *, now: datetime | None = None) -> tuple[str, str, str]:
+_LIVE_COPY = {
+    'paper_plan': ('Next live plan', 'Saved estimates for scheduled live trading.'),
+    'alpaca_account': ('Recorded Alpaca live account', 'Shows the last recorded account check and when Alpaca was reached.'),
+    'broker': ('Live holdings and orders', 'Recorded live account holdings and order state, separate from the simulated strategy portfolio.'),
+    'automation': ('Automatic live trading', 'Shows whether scheduled live trading is enabled.'),
+    'authority': ('Permission to trade', 'Shows whether this software and account have permission to submit live orders.'),
+    'automation_step_transport': ('Place live orders', 'Sends approved live orders to Alpaca.'),
+    'automation_step_execute': ('Place live orders', 'Sends approved live orders to Alpaca.'),
+}
+
+
+def describe(row: Row, status: str, *, now: datetime | None = None,
+             live: bool = False) -> tuple[str, str, str]:
     """Return display copy; caller retains row keys, raw evidence and status."""
     key = row.key
     copy = _COPY.get(key)
     if key.startswith('automation_step_'):
         copy = _STEPS.get(key.removeprefix('automation_step_'))
+    if live:
+        copy = _LIVE_COPY.get(key, copy)
     label, explanation = copy or (row.label, row.detail)
     value = row.value
     if key == 'broker' and row.recovery is not None and row.recovery.phase == 'BROKER_FILL_SNAPSHOT':

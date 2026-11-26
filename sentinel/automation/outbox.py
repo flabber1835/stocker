@@ -5,7 +5,11 @@ import hashlib
 import inspect
 import json
 import logging
+import os
 import re
+import time
+from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, Mapping, Protocol
@@ -39,6 +43,18 @@ _CYCLE_STATE_ACTION = {
     "SUPERSEDED": "SUPERSEDED",
     "BLOCKED": "BLOCKED",
 }
+
+
+@dataclass(frozen=True)
+class DeliverySkipped:
+    """A terminal decision to close the alert without provider acceptance."""
+
+    reason: str
+
+
+@dataclass(frozen=True)
+class DeliveryAccepted:
+    provider_accepted_at: datetime
 
 
 class AlertAdapter(Protocol):
@@ -204,6 +220,32 @@ def _witnessed_missed_window(detail: Mapping[str, Any], *,
         and proof.get('journal') == 'NO_TRANSPORT_EVENT_OR_COMMAND')
 
 
+def _proven_opening_miss(detail: Mapping[str, Any], *, state: str, cycle_id: Any) -> bool:
+    from sentinel.automation.missed_buy_alert import validates_terminal_proof
+
+    return (_witnessed_missed_window(detail, state=state, cycle_id=cycle_id)
+            or validates_terminal_proof(detail, state=state, cycle_id=cycle_id))
+
+
+def cycle_has_proven_opening_miss(conn, cycle) -> bool:
+    if cycle.state.value != 'SUPERSEDED':
+        return False
+    event = conn.execute(
+        "SELECT to_state,control_generation,fence_token,detail"
+        " FROM sentinel_automation_cycle_events WHERE cycle_id=%s"
+        " ORDER BY seq DESC LIMIT 1", (cycle.cycle_id,)).fetchone()
+    if event is None or event[0] != cycle.state.value or event[2] != cycle.last_fence_token:
+        return False
+    detail = _event_detail(event[3])
+    if event[1] != cycle.control_generation and not (
+            detail.get('adoption') is True
+            and detail.get('originating_control_generation') == cycle.control_generation
+            and detail.get('identity_matches_current_authority') is True):
+        return False
+    return (detail.get('failure_code') == cycle.failure_code
+            and _proven_opening_miss(detail, state=event[0], cycle_id=cycle.cycle_id))
+
+
 def _cycle_event_alert(row) -> dict[str, Any] | None:
     seq, cycle_id, to_state, control_generation, fence_token, raw_detail = row
     state = str(to_state)
@@ -268,17 +310,12 @@ def _cycle_event_alert(row) -> dict[str, Any] | None:
     if state != "RETRY_WAIT":
         payload["cycle_event_seq"] = int(seq)
         payload["fence_token"] = int(fence_token)
-    missed_window = _witnessed_missed_window(
-        detail, state=state, cycle_id=cycle_id)
-    from sentinel.automation.missed_buy_alert import validates_terminal_proof
-
-    missed_buy = validates_terminal_proof(
-        detail, state=state, cycle_id=cycle_id)
+    missed_opening = _proven_opening_miss(detail, state=state, cycle_id=cycle_id)
     return {
         "idempotency_key": key,
         "event_type": f"AUTOMATION_{action}",
         "severity": (
-            "WARN" if state == "RETRY_WAIT" or missed_window or missed_buy
+            "WARN" if state == "RETRY_WAIT" or missed_opening
             else "CRITICAL"),
         "payload": payload,
     }
@@ -469,6 +506,7 @@ def _reconstruct_backup_renewal_warning(cur) -> None:
 
 
 _NOTIFICATION_BATCH = 32
+_FILL_REPAIR_BATCH = 64
 _NOTIFIABLE_RETRY = (
     "COALESCE(e.detail->'diagnostic'->>'notifier_action',"
     "e.detail->>'notifier_action') = 'RETRY_SCHEDULED'"
@@ -507,7 +545,19 @@ def _insert_fill_receipt(cur, alert):
         raise ImmutableAlertChanged("stored native and journal fill receipts disagree")
 
 
-def _complete_cycle_control_batch(cur):
+@contextmanager
+def _isolated_reconstruction(cur, source, report_error):
+    if report_error is None:
+        yield
+        return
+    try:
+        with cur.connection.transaction():
+            yield
+    except (AutomationRefused, ValueError, TypeError, KeyError, ArithmeticError) as exc:
+        report_error(source, exc)
+
+
+def _complete_cycle_control_batch(cur, *, report_error=None):
     from sentinel.automation.notification_completion import TABLE
 
     streams = (
@@ -537,18 +587,19 @@ def _complete_cycle_control_batch(cur):
         )
         for row in cur.fetchall():
             event, should_classify, physical = row[:6], row[6], row[7:]
-            alert = classify(event) if should_classify else None
-            if alert is not None:
-                _insert_recovered_alert(cur, alert)
-            cur.execute(
-                f"INSERT INTO public.{TABLE}"
-                f" (source,seq,relation_oid,file_oid,tuple_xmin,tuple_location,alert_key)"
-                f" VALUES (%s,%s,%s,%s,%s,%s::tid,%s) ON CONFLICT DO NOTHING",
-                (source, event[0], *physical, alert["idempotency_key"] if alert else None),
-            )
+            with _isolated_reconstruction(cur, source, report_error):
+                alert = classify(event) if should_classify else None
+                if alert is not None:
+                    _insert_recovered_alert(cur, alert)
+                cur.execute(
+                    f"INSERT INTO public.{TABLE}"
+                    f" (source,seq,relation_oid,file_oid,tuple_xmin,tuple_location,alert_key)"
+                    f" VALUES (%s,%s,%s,%s,%s,%s::tid,%s) ON CONFLICT DO NOTHING",
+                    (source, event[0], *physical, alert["idempotency_key"] if alert else None),
+                )
 
 
-def _legacy_cycle_control_recovery(cur):
+def _legacy_cycle_control_recovery(cur, *, report_error=None):
     cur.execute(
         "SELECT e.seq,e.cycle_id,e.to_state,e.control_generation,"
         " e.fence_token,e.detail"
@@ -593,14 +644,17 @@ def _legacy_cycle_control_recovery(cur):
         " WHERE a.idempotency_key = 'control-event:' || e.seq) ORDER BY e.seq")
     control_events = list(cur.fetchall())
     for row in events:
-        alert = _cycle_event_alert(row)
-        if alert is not None:
-            _insert_recovered_alert(cur, alert)
+        with _isolated_reconstruction(cur, 'CYCLE', report_error):
+            alert = _cycle_event_alert(row)
+            if alert is not None:
+                _insert_recovered_alert(cur, alert)
     for row in control_events:
-        _insert_recovered_alert(cur, _control_event_alert(row))
+        with _isolated_reconstruction(cur, 'CONTROL', report_error):
+            _insert_recovered_alert(cur, _control_event_alert(row))
 
 
-def _reconstruct_missing_transition_alerts(conn, *, completion=False) -> None:
+def _reconstruct_missing_transition_alerts(conn, *, completion=False, fill_after=None,
+                                           report_error=None) -> tuple[str, str] | None:
     """Materialize alert deficits from committed immutable cycle events.
 
     The state transition is the durable fact. A crash can occur after that
@@ -609,44 +663,63 @@ def _reconstruct_missing_transition_alerts(conn, *, completion=False) -> None:
     and failure fingerprint. The migration boundary prevents historical replay.
     """
     with conn.cursor() as cur:
-        _reconstruct_backup_renewal_warning(cur)
+        with _isolated_reconstruction(cur, 'BACKUP', report_error):
+            _reconstruct_backup_renewal_warning(cur)
         if completion:
-            _complete_cycle_control_batch(cur)
+            _complete_cycle_control_batch(cur, report_error=report_error)
         else:
-            _legacy_cycle_control_recovery(cur)
-        cur.execute(
-            "SELECT f.broker_order_id,f.fill_key,f.client_key,c.client_key,"
-            " f.quantity,f.price,f.filled_at,"
-            " c.side,c.security_id,c.symbol,c.identity_count"
-            " FROM sentinel_fills f"
-            " CROSS JOIN sentinel_notification_policy p"
-            " LEFT JOIN LATERAL ("
-            "   SELECT client_key,side,security_id,symbol,"
-            "          COUNT(*) OVER () AS identity_count"
-            "   FROM sentinel_commands c"
-            "   WHERE (f.client_key IS NOT NULL AND c.client_key=f.client_key)"
-            "      OR c.broker_order_id=f.broker_order_id"
-            "   ORDER BY (c.client_key=f.client_key) DESC,c.updated_at DESC"
-            "   LIMIT 1"
-            " ) c ON TRUE"
-            " WHERE p.id=1 AND f.filled_at>=p.web_push_activated_at"
-            " AND NOT EXISTS (SELECT 1 FROM sentinel_alert_outbox a WHERE a.idempotency_key ="
-            " CASE WHEN c.identity_count=1 AND NULLIF(c.client_key,'') IS NOT NULL"
-            " AND (f.client_key IS NULL OR f.client_key=c.client_key)"
-            " AND NULLIF(c.side,'') IS NOT NULL AND NULLIF(c.security_id,'') IS NOT NULL"
-            " AND NULLIF(c.symbol,'') IS NOT NULL"
-            " THEN 'fill:' ELSE 'fill-integrity:' END || f.broker_order_id || ':' || f.fill_key)"
-            " ORDER BY f.filled_at,f.broker_order_id,f.fill_key")
-        fills = list(cur.fetchall())
-
-        for fill in fills:
-            _insert_recovered_alert(cur, _fill_alert(fill))
+            _legacy_cycle_control_recovery(cur, report_error=report_error)
+        after = '' if fill_after is None else 'WHERE (broker_order_id,fill_key)>(%s,%s)'
+        cur.execute('SELECT broker_order_id,fill_key FROM sentinel_fills '
+                    f'{after} ORDER BY broker_order_id,fill_key LIMIT %s',
+                    (*(() if fill_after is None else fill_after), _FILL_REPAIR_BATCH))
+        keys = cur.fetchall()
+        if keys:
+            native_ids, fill_ids = map(list, zip(*keys, strict=True))
+            cur.execute("""
+            WITH fills AS MATERIALIZED (
+                SELECT f.* FROM unnest(%s::text[],%s::text[]) AS k(broker_order_id,fill_key)
+                JOIN sentinel_fills f USING(broker_order_id,fill_key)
+                CROSS JOIN sentinel_notification_policy p
+                WHERE p.id=1 AND f.filled_at>=p.web_push_activated_at
+            ), matches AS (
+                SELECT f.broker_order_id,f.fill_key,c.client_key,c.side,c.security_id,
+                       c.symbol,c.updated_at,TRUE AS exact_client
+                FROM fills f JOIN sentinel_commands c ON c.client_key=f.client_key
+                UNION ALL
+                SELECT f.broker_order_id,f.fill_key,c.client_key,c.side,c.security_id,
+                       c.symbol,c.updated_at,FALSE
+                FROM fills f JOIN sentinel_commands c ON c.broker_order_id=f.broker_order_id
+                WHERE c.client_key IS DISTINCT FROM f.client_key
+            ), owners AS (
+                SELECT DISTINCT ON (broker_order_id,fill_key)
+                       broker_order_id,fill_key,client_key,side,security_id,symbol,
+                       COUNT(*) OVER (PARTITION BY broker_order_id,fill_key) AS identity_count
+                FROM matches ORDER BY broker_order_id,fill_key,exact_client DESC,updated_at DESC
+            )
+            SELECT f.broker_order_id,f.fill_key,f.client_key,c.client_key,
+                   f.quantity,f.price,f.filled_at,c.side,c.security_id,c.symbol,c.identity_count
+            FROM fills f LEFT JOIN owners c USING (broker_order_id,fill_key)
+            WHERE NOT EXISTS (SELECT 1 FROM sentinel_alert_outbox a WHERE a.idempotency_key =
+                CASE WHEN c.identity_count=1 AND NULLIF(c.client_key,'') IS NOT NULL
+                    AND (f.client_key IS NULL OR f.client_key=c.client_key)
+                    AND NULLIF(c.side,'') IS NOT NULL AND NULLIF(c.security_id,'') IS NOT NULL
+                    AND NULLIF(c.symbol,'') IS NOT NULL
+                    THEN 'fill:' ELSE 'fill-integrity:' END || f.broker_order_id || ':' || f.fill_key)
+            ORDER BY f.filled_at,f.broker_order_id,f.fill_key
+        """, (native_ids, fill_ids))
+            for fill in cur.fetchall():
+                with _isolated_reconstruction(cur, 'FILL', report_error):
+                    _insert_recovered_alert(cur, _fill_alert(fill))
 
         from sentinel import paper_plan_preview
+        from sentinel.config import DEFAULT_BASE_URL, trading_endpoint
         from sentinel.dual_plan_authority import DualPlanAuthorityRefused
         from sentinel.panel.intent_memo import read as dated_intent
         try:
-            preview = paper_plan_preview.read(conn, unnotified=True, authority_loader=dated_intent)
+            endpoint = trading_endpoint(os.environ.get('ALPACA_BASE_URL', DEFAULT_BASE_URL))
+            preview = paper_plan_preview.read(conn, unnotified=True, authority_loader=dated_intent,
+                                             expected_broker=endpoint.broker_namespace)
         except (ValueError, TypeError, ArithmeticError, DualPlanAuthorityRefused):
             # Optional presentation corruption cannot strand critical delivery.
             # SQL/schema failures still fail the dispatcher through its owner.
@@ -656,6 +729,8 @@ def _reconstruct_missing_transition_alerts(conn, *, completion=False) -> None:
                 and all(leg.action != 'UNAVAILABLE' or leg.opening_dollars is not None
                         for leg in preview.legs)):
             key = 'next-open-plan:' + preview.cycle_id + ':' + preview.plan_id
+            environment = endpoint.environment.name
+            mode_label = environment.capitalize()
             summary = f'{preview.buys} estimated buys, {preview.sells} estimated sells.'
             if preview.skips:
                 summary += f' {preview.skips} opening proposals below one share.'
@@ -666,24 +741,60 @@ def _reconstruct_missing_transition_alerts(conn, *, completion=False) -> None:
                 buys=preview.buys,sells=preview.sells,proposed_only=True,
                 below_whole_share=preview.skips,
                 observation_at=preview.observation_at.isoformat(),
-                reason=f'Paper plan for {preview.effective_session}. {summary} Final quantities are checked at the open.')
-            _insert_pending_alert(cur, idempotency_key=key, event_type='PAPER_PLAN_READY',
+                reason=f'{mode_label} plan for {preview.effective_session}. {summary} Final quantities are checked at the open.')
+            _insert_pending_alert(cur, idempotency_key=key, event_type=f'{environment}_PLAN_READY',
                 severity='INFO', payload_json=_json(payload))
+        return keys[-1] if len(keys) == _FILL_REPAIR_BATCH else None
+
+
+def recover_notifications(conn, *, fill_after=None, report_error=None) -> tuple[str, str] | None:
+    """Commit one bounded notification-reconstruction batch independently of delivery."""
+    from sentinel.automation import notification_completion
+
+    try:
+        completion = notification_completion.require_schema(conn, allow_absent=True)
+        next_fill = _reconstruct_missing_transition_alerts(
+            conn, completion=completion, fill_after=fill_after, report_error=report_error)
+        conn.commit()
+        return next_fill
+    except BaseException:
+        conn.rollback()
+        raise
+
+
+class NotificationHistoryRepair:
+    """Paced, restart-safe repair state owned by one dispatcher process."""
+
+    def __init__(self, *, poll_seconds=10.0):
+        self._poll_seconds = max(10.0, poll_seconds)
+        self._next_at = 0.0
+        self._next_fill_key = None
+
+    def run_if_due(self, conn):
+        now = time.monotonic()
+        if now < self._next_at:
+            return
+        self._next_at = now + self._poll_seconds
+        try:
+            self._next_fill_key = recover_notifications(
+                conn, fill_after=self._next_fill_key, report_error=self._report_error)
+        except Exception as exc:                                 # noqa: BLE001
+            self._report_error('TRANSACTION', exc)
+
+    @staticmethod
+    def _report_error(source, exc):
+        logging.getLogger('sentinel.automation.alert').critical(
+            'ALERT_HISTORY_REPAIR_FAILURE %s: %s: %s', source, type(exc).__name__, exc)
 
 
 def claim_next(
         conn, *, holder_id: str, claim_seconds: int = 60) -> AlertRecord | None:
-    """Recover transition alerts/expired claims, then claim one due alert."""
+    """Recover expired claims, then claim an already durable due alert."""
     if not holder_id:
         raise ValueError("holder_id must be non-empty")
     if claim_seconds < 1:
         raise ValueError("claim_seconds must be positive")
-    from sentinel.automation import notification_completion
     try:
-        completion = notification_completion.require_schema(conn, allow_absent=True)
-        _reconstruct_missing_transition_alerts(conn, completion=completion)
-        if completion:
-            conn.commit()
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE sentinel_alert_outbox SET state='PENDING',"
@@ -713,6 +824,9 @@ def claim_next(
                 " AND NOT EXISTS (SELECT 1 FROM sentinel_alert_outbox p"
                 " WHERE p.state IN ('PENDING','DELIVERING')"
                 " AND (p.created_at,p.alert_id)<(a.created_at,a.alert_id)"
+                " AND NOT (a.event_type='SHADOW_DEPENDENCY_RECOVERED' AND a.severity='INFO'"
+                "          AND p.event_type='SHADOW_DEPENDENCY_UNAVAILABLE' AND p.severity='WARN'"
+                "          AND a.payload->>'warning_alert_id' IS NOT DISTINCT FROM p.alert_id)"
                 " AND COALESCE(p.payload->>'incident_id',p.payload->>'cycle_id',p.payload->>'warning_alert_id',p.alert_id)"
                 " =COALESCE(a.payload->>'incident_id',a.payload->>'cycle_id',a.payload->>'warning_alert_id',a.alert_id))"
                 " ORDER BY CASE WHEN %s<3 AND a.severity='CRITICAL' THEN 0 ELSE 1 END,"
@@ -759,24 +873,27 @@ def renew_claim(conn, *, alert: AlertRecord, claim_seconds: int):
 
 
 def mark_delivered(
-        conn, *, alert_id: str, holder_id: str, attempt: int) -> AlertRecord:
+        conn, *, alert_id: str, holder_id: str, attempt: int,
+        skipped: DeliverySkipped | None = None, accepted_at: datetime | None = None) -> AlertRecord:
     try:
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE sentinel_alert_outbox SET state='DELIVERED',"
                 " delivery_holder=NULL,delivery_expires_at=NULL,last_error=NULL,"
-                " delivered_at=clock_timestamp(),updated_at=clock_timestamp()"
+                " delivered_at=CASE WHEN %s THEN NULL ELSE COALESCE(%s,clock_timestamp()) END,"
+                " updated_at=clock_timestamp()"
                 " WHERE alert_id=%s AND state='DELIVERING'"
                 " AND delivery_holder=%s AND attempt_count=%s"
                 " AND delivery_expires_at>clock_timestamp() RETURNING attempt_count",
-                (alert_id, holder_id, attempt))
+                (skipped is not None, accepted_at, alert_id, holder_id, attempt))
             row = cur.fetchone()
             if row is None:
                 raise AutomationRefused(
                     "alert delivery result does not own the active claim")
             _append_event(
                 cur, alert_id=alert_id, attempt=row[0], action="DELIVERED",
-                holder_id=holder_id)
+                holder_id=holder_id,
+                error=f"delivery skipped: {skipped.reason}" if skipped else None)
         conn.commit()
         return load_alert(conn, alert_id)
     except BaseException:
@@ -887,7 +1004,7 @@ async def dispatch_once(
         result = (fenced(alert, alert.idempotency_key, claim_seconds=claim_seconds)
                   if fenced is not None else adapter.deliver(alert, alert.idempotency_key))
         if inspect.isawaitable(result):
-            await result
+            result = await result
     except Exception as exc:                                  # noqa: BLE001
         from sentinel.notification_policy import (
             ACTOR, REASON, TestNotificationCancelled)
@@ -909,10 +1026,13 @@ async def dispatch_once(
             alert=failed,
             dead_lettered=failed.state is AlertState.DEAD_LETTER,
             error=failed.last_error)
+    skipped = result if isinstance(result, DeliverySkipped) else None
+    accepted_at = result.provider_accepted_at if isinstance(result, DeliveryAccepted) else None
     delivered = mark_delivered(
         conn, alert_id=alert.alert_id, holder_id=holder_id,
-        attempt=alert.attempt_count)
-    return DispatchResult(alert=delivered, delivered=True)
+        attempt=alert.attempt_count, skipped=skipped, accepted_at=accepted_at)
+    return DispatchResult(alert=delivered, delivered=skipped is None, skipped=skipped is not None,
+                          newly_delivered=skipped is None and (accepted_at is None or accepted_at >= alert.updated_at))
 
 
 __all__ = [

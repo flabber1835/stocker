@@ -298,7 +298,7 @@ def _check_and_remove_opening_projection_delta(node):
             ast.dump(readiness), ast.dump(frontier)], (
             'opening frontier must use the current pin immediately after readiness')
         statements[2] = ast.parse('frontier = feed_inputs.frontier(conn)').body[0]
-        for index, stage in ((41, 'initial'), (51, 'final')):
+        for index, stage in ((42, 'initial'), (53, 'final')):
             expected = ast.parse(
                 f'with opening_diagnostics.projection({stage!r}):\n    pass'
             ).body[0].items[0]
@@ -317,7 +317,7 @@ def _check_and_remove_opening_projection_delta(node):
                     and ast.dump(assignment.value.func) == ast.dump(
                         ast.Name(id='_target_projection_or_refuse', ctx=ast.Load()))), (
                 f'opening projection call changed: {stage}')
-        for index in (51, 41):
+        for index in (53, 42):
             statements[index:index + 1] = statements[index].body
 
 
@@ -339,7 +339,7 @@ def test_opening_projection_equivalence_witness_rejects_other_deltas(defect):
                      if isinstance(item, ast.With) and len(item.items) == 2
                      and isinstance(item.items[0].context_expr, ast.Call)
                      and ast.unparse(item.items[0].context_expr.func) == 'feed_inputs.pinned')
-        owner.body[41].items[0].context_expr.args[0].value = 'unexpected'
+        owner.body[42].items[0].context_expr.args[0].value = 'unexpected'
     with pytest.raises(AssertionError, match='opening projection'):
         _check_and_remove_opening_projection_delta(node)
 

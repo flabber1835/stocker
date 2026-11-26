@@ -6,6 +6,7 @@ import hashlib
 import os
 from pathlib import Path
 import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -27,6 +28,27 @@ REQUEST_KEYS = {'schema', 'mode', 'installation_receipt', 'installation_sha256',
 
 def digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def _is_digest(value):
+    return isinstance(value, str) and re.fullmatch('[0-9a-f]{64}', value) is not None
+
+
+def configuration_digests(path, requested):
+    checkpoint = Path(path).parent / 'activation-checkpoint.json'
+    if not checkpoint.exists():
+        return (requested,)
+    owned = read_document(checkpoint)
+    if owned.get('request_sha256') == digest(path):
+        if (set(owned) == {'schema', 'request_sha256', 'env_sha256'}
+                and owned['schema'] == 'sentinel.activation-checkpoint/1'
+                and _is_digest(owned['env_sha256'])):
+            return (owned['env_sha256'],)
+        if (set(owned) == {'schema', 'request_sha256', 'previous_env_sha256', 'env_sha256'}
+                and owned['schema'] == 'sentinel.activation-checkpoint/2'
+                and _is_digest(owned['env_sha256']) and _is_digest(owned['previous_env_sha256'])):
+            return (owned['previous_env_sha256'], owned['env_sha256'])
+    raise core.DeployRefused('activation configuration checkpoint is malformed')
 
 
 def validate_request(path):
@@ -84,18 +106,7 @@ def validate_request(path):
             or receipt.get('automation_enabled') is not False
             or receipt.get('kill_switch_engaged') is not True):
         raise core.DeployRefused('installation receipt is not exact and safely fenced')
-    expected_env = request['env_sha256']
-    checkpoint = Path(path).parent / 'activation-checkpoint.json'
-    if checkpoint.exists():
-        owned = read_document(checkpoint)
-        if (set(owned) != {'schema', 'request_sha256', 'env_sha256'}
-                or owned['schema'] != 'sentinel.activation-checkpoint/1'
-                or owned['request_sha256'] != digest(path)
-                or not isinstance(owned['env_sha256'], str)
-                or re.fullmatch('[0-9a-f]{64}', owned['env_sha256']) is None):
-            raise core.DeployRefused('activation configuration checkpoint is malformed')
-        expected_env = owned['env_sha256']
-    if digest(checkout / '.env') != expected_env:
+    if digest(checkout / '.env') not in configuration_digests(path, request['env_sha256']):
         raise core.DeployRefused('activation configuration changed; request a new reviewed activation')
     if (request['bundle'] is None) != (request['bundle_sha256'] is None):
         raise core.DeployRefused('activation bundle/confirmation is incomplete')
@@ -124,6 +135,8 @@ STATUS_REASONS = {
         'Review the retained command journal and recovery evidence.'),
     'FINANCIAL_GO_REFUSED': ('FINANCIAL_GO', 'Financial validation failed. Review the private GO evidence.'),
     'ACTIVATION_READINESS_PENDING': ('ACTIVATION', 'Waiting for activation readiness. Check the private attempt log.'),
+    'ACTIVATION_CONTROL_CHANGED': ('ACTIVATION', 'Trading control changed after the interrupted request. '
+        'Review the current state before requesting a new activation.'),
     'ACTIVATION_REQUEST_INVALID': ('REQUEST', 'Verify the installation receipt and activation request.'),
     'ACTIVATION_REFUSED': ('ACTIVATION', 'Activation failed. Review the private activation attempt log.'),
 }
@@ -149,21 +162,33 @@ def owned_configuration(request_path, writer):
     """Bind this attempt's canonical writer to its exact configuration checkpoint."""
     request_sha256 = digest(request_path)
     expected = digest(core.ENV_PATH)
+    requested = read_document(request_path)['env_sha256']
+    if expected not in configuration_digests(request_path, requested):
+        raise core.DeployRefused('environment changed outside the activation owner')
+    checkpoint = Path(request_path).parent / 'activation-checkpoint.json'
+
     def write(path, updates):
         nonlocal expected
         if Path(path).resolve() != core.ENV_PATH.resolve():
             raise core.DeployRefused('activation writer targets another environment')
         if digest(path) != expected:
             raise core.DeployRefused('environment changed outside the activation owner')
-        if digest(request_path) != request_sha256:
-            raise core.DeployRefused('activation request changed during configuration write')
-        from sentinel_env_writer import _render
-        intended = hashlib.sha256(_render(Path(path).read_bytes(), updates)).hexdigest()
-        writer(path, updates)
-        if digest(path) != intended:
+        def record_intent(original, payload):
+            if original is None or hashlib.sha256(original).hexdigest() != expected:
+                raise core.DeployRefused('environment changed outside the activation owner')
+            if digest(request_path) != request_sha256:
+                raise core.DeployRefused('activation request changed during configuration write')
+            intended = hashlib.sha256(payload).hexdigest()
+            write_document(checkpoint, {'schema': 'sentinel.activation-checkpoint/2',
+                'request_sha256': request_sha256, 'previous_env_sha256': expected,
+                'env_sha256': intended})
+
+        writer(path, updates, record_intent=record_intent)
+        intended = read_document(checkpoint)['env_sha256']
+        if digest(path) != intended or digest(request_path) != request_sha256:
             raise core.DeployRefused('activation configuration changed during publication')
         expected = intended
-        write_document(Path(request_path).parent / 'activation-checkpoint.json', {
+        write_document(checkpoint, {
             'schema': 'sentinel.activation-checkpoint/1',
             'request_sha256': request_sha256, 'env_sha256': expected})
     return write
@@ -447,6 +472,10 @@ def attempt(path, request, receipt, *, environment_writer=None):
     select_certified_runtime(obj)
     if obj.runtime_repo_digest != receipt['runtime_image']:
         raise core.DeployRefused('activation runtime differs from installed software')
+    activation_receipt = directory.resolve() / 'activation-receipt.json'
+    write_document(Path(path).parent / 'activation-attempt.json', {
+        'schema': 'sentinel.activation-attempt/1', 'request_sha256': digest(path),
+        'runtime_image': receipt['runtime_image'], 'receipt': str(activation_receipt)})
     # Readiness waits begin only after installed state exists. No competing source writer.
     with obj.activation_transition():
         # Supplied bundles need only byte parsing here. run_activation owns the
@@ -473,18 +502,105 @@ def attempt(path, request, receipt, *, environment_writer=None):
             raise core.DeployRefused('financial bundle selects different installed software')
         obj.reviewed_validation = reviewed
         obj.run_activation()
+    _publish_result(path, request, activation_receipt)
+
+
+def _publish_result(path, request, activation_receipt):
     publish_immutable(Path(path).parent / 'activation-result.json', {
         'schema': 'sentinel.activation-result/1', 'activation_state': 'ACTIVE',
-        'mode': request['mode'], 'source_commit': obj.commit,
+        'mode': request['mode'], 'source_commit': request['source_commit'],
         'installation_sha256': request['installation_sha256'],
-        'receipt': str(directory / 'activation-receipt.json')})
+        'receipt': str(activation_receipt)})
 
 
-def completed_request(path, request):
+def observe_activation_control(request, installation):
+    """Read the current durable control using the already installed image."""
+    code = (
+        'import json, os; from sentinel.automation import store; from sentinel.feed import store as feed; '
+        'c=feed.connect(os.environ["SENTINEL_DATABASE_URL"], connect_timeout=3, statement_timeout_ms=5000); '
+        'c.execute("SET TRANSACTION READ ONLY"); control=store.load_control(c); bound=control.binding; '
+        'print(json.dumps(dict(enabled=control.enabled, kill_switch_engaged=control.kill_switch_engaged, '
+        'generation=control.generation, certificate=bound.certificate_sha256 if bound else None, '
+        'deployment=bound.deployment_id if bound else None, account=bound.broker_account_id if bound else None))); '
+        'c.rollback(); c.close()')
+    env = dict(core.merged_environment(), SENTINEL_RUNTIME_IMAGE_REF=installation['runtime_image'])
+    options = dict(cwd=request['checkout'], env=env, capture_output=True, text=True, timeout=30)
+    try:
+        graph = subprocess.run(['bash', 'scripts/sentinel-compose.sh', '--explain'], **options)
+        if graph.returncode:
+            raise OSError('activation control Compose graph unavailable')
+        args = shlex.split(graph.stdout)
+        if '-f' not in args:
+            raise core.DeployRefused('activation control Compose graph differs')
+        result = subprocess.run(['docker', 'compose', *args, '--profile', 'cli', 'run', '--rm', '-T',
+            '--no-deps', '--pull', 'never', '--entrypoint', 'python', 'sentinel', '-c', code], **options)
+        if result.returncode:
+            raise OSError('activation control database unavailable')
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise core.ActivationPending('activation completion awaits current control',
+                                     public_reason='ACTIVATION_READINESS_PENDING') from exc
+    return core._json_output(result, label='interrupted activation control')
+
+
+def _recover_completed_attempt(path, request, installation, authority):
+    intent = Path(path).parent / 'activation-attempt.json'
+    if not intent.exists():
+        return False
+    record = read_document(intent)
+    if (installation is None or authority is None
+            or set(record) != {'schema', 'request_sha256', 'runtime_image', 'receipt'}
+            or record['schema'] != 'sentinel.activation-attempt/1'
+            or record['request_sha256'] != digest(path)
+            or record['runtime_image'] != installation['runtime_image']
+            or not isinstance(record['receipt'], str)):
+        raise core.DeployRefused('activation attempt identity is malformed')
+    receipt = Path(record['receipt'])
+    if (receipt.resolve() != receipt or receipt.name != 'activation-receipt.json'
+            or receipt.parent.parent != (authority / 'deployments').resolve()
+            or re.fullmatch(r'[0-9]{8}T[0-9]{6}Z-' + request['source_commit'][:12] + r'(-[0-9]+)?',
+                            receipt.parent.name) is None):
+        raise core.DeployRefused('activation attempt receipt path differs')
+    if not receipt.exists():
+        return False
+    activation = read_document(receipt)
+    if request['mode'] == 'shadow':
+        ready = (activation.get('operational_state') == 'SHADOW_OBSERVATION'
+                 and activation.get('automation_enabled') is False
+                 and activation.get('kill_switch_engaged') is True
+                 and activation.get('broker_mutations_authorized') is False)
+    else:
+        generation = activation.get('control_generation')
+        ready = (activation.get('policy_state') == 'LEADER_ACTIVE'
+                 and activation.get('operational_ready') is True
+                 and _is_digest(activation.get('certificate_sha256'))
+                 and type(generation) is int and generation > 0)
+    if (activation.get('schema') != 'sentinel.activation-receipt/1'
+            or activation.get('git_commit') != request['source_commit']
+            or activation.get('activation_mode') != request['mode']
+            or activation.get('runtime_image') != installation['runtime_image']
+            or not ready):
+        raise core.DeployRefused('activation attempt receipt disagrees')
+    control = observe_activation_control(request, installation)
+    if request['mode'] == 'shadow':
+        still_current = control.get('enabled') is False and control.get('kill_switch_engaged') is True
+    else:
+        still_current = (control.get('enabled') is True and control.get('kill_switch_engaged') is False
+                         and control.get('generation') == activation['control_generation']
+                         and control.get('certificate') == activation['certificate_sha256']
+                         and control.get('deployment') == activation.get('deployment_id')
+                         and control.get('account') == activation.get('paper_account_id'))
+    if not still_current:
+        raise core.DeployRefused('activation attempt receipt no longer matches current control',
+                                 public_reason='ACTIVATION_CONTROL_CHANGED')
+    _publish_result(path, request, receipt)
+    return True
+
+
+def completed_request(path, request, installation=None, *, authority=None):
     """A completed one-shot request never repeats authority or broker work."""
     result_path = Path(path).parent / 'activation-result.json'
     if not result_path.exists():
-        return False
+        return _recover_completed_attempt(path, request, installation, authority)
     result = read_document(result_path)
     if (set(result) != {'schema', 'activation_state', 'mode', 'source_commit',
                        'installation_sha256', 'receipt'}
@@ -610,11 +726,12 @@ def main(argv=None):
             while True:
                 with host_lifecycle_lock():
                     request, receipt = validate_request(args.request)
-                    if completed_request(args.request, request):
-                        print('activation request already completed; no financial work repeated')
-                        return 0
-                    status(args.request, 'PREPARING')
                     try:
+                        if completed_request(args.request, request, receipt, authority=authority):
+                            status(args.request, 'ACTIVE')
+                            print('activation request already completed; no financial work repeated')
+                            return 0
+                        status(args.request, 'PREPARING')
                         with core.DeploymentLock(authority / 'autonomous-deploy.lock'), \
                                 core.deploy_progress.reporting(authority, 'activate'):
                             writer = owned_configuration(args.request, roles._deploy_writer)

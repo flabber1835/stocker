@@ -185,14 +185,16 @@ def completed_account_row(conn, panel, *, now):
     try:
         account = sources._latest_account_evidence(conn)
         bound = sources._bound_account_id(conn)
+        broker = sources._selected_trading_endpoint().broker_namespace
         row = model.alpaca_account_row(available=account is not None,
-                                      expected_account_id=bound, **(account or {}))
+                                      expected_account_id=bound, expected_broker=broker, **(account or {}))
         if (row.effective_status(now) != model.OK or row.as_of is None or row.as_of > now
                 or prior.as_of is None or row.as_of < prior.as_of):
             return None
         # This overlay refreshes only native valuation. Preserve the separate
         # posting observation and its original reconciliation time.
         overview = overview_data.account_overview(account, expected_account_id=bound,
+            expected_broker=broker,
             cash_posting=prior.paper_account.cash_posting if prior.paper_account else None)
         return replace(row, paper_account=overview) if overview is not None else None
     except (ValueError, TypeError, KeyError, InvalidOperation, OverflowError):
@@ -325,9 +327,11 @@ def current_account_negative(conn, panel, *, now):
     try:
         account = sources._latest_account_evidence(conn)
         bound = sources._bound_account_id(conn)
+        broker = sources._selected_trading_endpoint().broker_namespace
         row = model.alpaca_account_row(available=account is not None,
-            expected_account_id=bound, **(account or {}))
-        overview = overview_data.account_overview(account, expected_account_id=bound)
+            expected_account_id=bound, expected_broker=broker, **(account or {}))
+        overview = overview_data.account_overview(account, expected_account_id=bound,
+            expected_broker=broker)
         effective = row.effective_status(now)
         if row.status == model.OK and overview is None:
             raise ValueError('current account overview unavailable')
@@ -341,7 +345,8 @@ def current_account_negative(conn, panel, *, now):
             if (cash is not None and power is not None and cash.is_finite() and power.is_finite()
                     and 0 <= power < cash and cash-power > Decimal('1')):
                 without_hold = model.alpaca_account_row(available=True,
-                    expected_account_id=bound, **{**account, 'buying_power':cash})
+                    expected_account_id=bound, expected_broker=broker,
+                    **{**account, 'buying_power':cash})
                 if without_hold.effective_status(now) == model.OK and overview is not None:
                     return None
         return replace(row, status=effective) if effective != row.status else row

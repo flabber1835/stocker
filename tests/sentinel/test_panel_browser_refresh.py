@@ -454,7 +454,7 @@ def run_push(scenario, *, remove_guard=False):
 @pytest.mark.parametrize('scenario', [
     'unsupported-insecure', 'unsupported-worker', 'unsupported-manager',
     'unsupported-notification', 'status-unavailable', 'permission-denied',
-    'config-failed', 'subscribe-failed', 'save-failed', 'enrollment-null-error',
+    'config-failed', 'subscribe-failed', 'save-failed', 'enrollment-null-error', 'body-timeout',
     'new-accepted', 'existing-accepted', 'new-failed', 'new-cancelled',
     'poll-accepted', 'poll-cancelled', 'poll-network-failed', 'poll-refused',
     'poll-json-failed', 'queued-no-id', 'queued-expired', 'sender-unavailable',

@@ -333,9 +333,12 @@ def test_optional_proof_timeout_or_refusal_restores_caller_budget(
     assert conn.execute("SELECT 1").fetchone() == (1,)
 
 
-def test_terminal_writer_persists_witness_for_reconstructed_alert(
-        automation_conn, monkeypatch):
-    from sentinel.automation.model import AutomationConfig, CycleState
+@pytest.mark.asyncio
+@pytest.mark.parametrize("attempted", [True, False])
+async def test_terminal_writer_persists_witness_for_reconstructed_alert(
+        automation_conn, monkeypatch, attempted):
+    from sentinel import automation_runtime
+    from sentinel.automation.model import AutomationConfig, CycleState, TickAction, TickResult
     from tests.sentinel.test_automation_store import cycle_spec, enable
 
     connection = automation_conn
@@ -352,7 +355,7 @@ def test_terminal_writer_persists_witness_for_reconstructed_alert(
                     if state is CycleState.PLAN_READY else {})
         cycle = store.transition_cycle(
             connection, permit=permit, cycle_id=cycle.cycle_id,
-            to_state=state, increment_attempt=state is CycleState.RECONCILING, **prepared)
+            to_state=state, increment_attempt=attempted and state is CycleState.RECONCILING, **prepared)
     diagnostic = {
         "clean": True, "runtime_state": "RUNNING", "observation_id": 1,
         "terminal_reason": None, "expected": {}, "observed": {},
@@ -365,7 +368,7 @@ def test_terminal_writer_persists_witness_for_reconstructed_alert(
         "schema": "sentinel.missed-window-buy-only/1",
         "cycle_id": cycle.cycle_id, "plan_id": "plan-1",
         "plan_fingerprint": FINGERPRINT,
-        "from_state": "RECONCILING", "attempt_count": 1,
+        "from_state": "RECONCILING", "attempt_count": int(attempted),
         "observation_id": 1, "latest_observation_id": 1,
         "remaining_buy_security_ids": ["buy"],
         "unsent_buy_keys": [], "filled_sell_keys": [],
@@ -395,3 +398,12 @@ def test_terminal_writer_persists_witness_for_reconstructed_alert(
         "WHERE event_type='AUTOMATION_SUPERSEDED'").fetchone()
     assert alert[0] == "WARN"
     assert alert[1]["detail"] == event
+    verification = {"verdict": "NOT_VERIFIED", "reason_codes": ["CYCLE_SUPERSEDED"]}
+    monkeypatch.setattr(automation_runtime.trial, "record_cycle_verification",
+                        lambda _conn, *, cycle_id: verification)
+    retained = await automation_runtime.ProductionAutomation.certify_terminal_cycle(
+        SimpleNamespace(automation_config=config), connection,
+        TickResult(action=TickAction.SUPERSEDED, cycle=retired))
+    assert retained == verification
+    assert connection.execute(
+        "SELECT count(*) FROM sentinel_alert_outbox WHERE severity='CRITICAL'").fetchone() == (0,)

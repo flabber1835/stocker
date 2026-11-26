@@ -27,8 +27,11 @@
     },
     "NativeFeePostingPending": {
       "module": "model",
-      "generated_ast_sha256": "7cd56d216f51a3b6ad4577781933986adf1adf0cd20e54d936a750b6bd6ce6eb",
+      "generated_ast_sha256": "8ed0c0bdca168dbb8aba7e95920e0f2109f8ffa1cbc5f4695e511c71a5ba5d37",
       "historical_ast_sha256": null,
+      "sale_continuity_predecessor_ast_sha256": "7cd56d216f51a3b6ad4577781933986adf1adf0cd20e54d936a750b6bd6ce6eb",
+      "sale_continuity_design": "docs/sentinel-execution-contract.md#131a-two-phase-execution-reduce-settle-re-observe-re-size-increase",
+      "sale_continuity_acceptance": ["tests/sentinel/test_automation_runtime.py"],
       "native_fee_posting_delay_design": "docs/native-fee-posting-delay.md",
       "native_fee_posting_delay_acceptance": [
         "tests/sentinel/test_native_fee_plan_continuation.py",
@@ -188,7 +191,10 @@
         "tests/sentinel/test_rolling_status_transactions.py::test_same_callback_structural_resume_reuses_only_unchanged_economic_rows",
         "tests/sentinel/test_unconfirmed_paper_postings.py::test_opening_cash_confirmation_holds_no_provisional_cursor_lock"
       ],
-      "generated_ast_sha256": "d766a34399ed81b17bdb73630a90bdfd0e8a7cef3cd0c6930ec1e31b50ff8bc2",
+      "generated_ast_sha256": "e6778d4bcb70e9e094f3ab1ed435df8f8b334449b2502100d383e3dd961ac839",
+      "sale_continuity_predecessor_ast_sha256": "d766a34399ed81b17bdb73630a90bdfd0e8a7cef3cd0c6930ec1e31b50ff8bc2",
+      "sale_continuity_design": "docs/sentinel-execution-contract.md#131a-two-phase-execution-reduce-settle-re-observe-re-size-increase",
+      "sale_continuity_acceptance": ["tests/sentinel/test_projection_and_executor.py"],
       "serial_market_buy_predecessor_ast_sha256": "5d74face745dc8d57754045e7277a11493c68957846687cd4c8021c5c50b67a1",
       "serial_market_buy_design": "docs/nov16-basket-throughput.md",
       "serial_market_buy_acceptance": [
@@ -353,7 +359,10 @@
       "module": "targets"
     },
     "_instrument_map": {
-      "generated_ast_sha256": "54863deab624ea61cbaf28ec32972b40240ecc904bbb8fa897d39f2501a0819d",
+      "generated_ast_sha256": "5f50ffc2809a76b71229ec8db412bde95f54443fd2592d5607c83055afb10938",
+      "sale_continuity_predecessor_ast_sha256": "54863deab624ea61cbaf28ec32972b40240ecc904bbb8fa897d39f2501a0819d",
+      "sale_continuity_design": "docs/sentinel-execution-contract.md#131a-two-phase-execution-reduce-settle-re-observe-re-size-increase",
+      "sale_continuity_acceptance": ["tests/sentinel/test_fractional_next_open_integrity.py", "tests/sentinel/test_projection_and_executor.py"],
       "reductions_only_predecessor_ast_sha256": "c7a3107cb5e074655c7a92e749abc9da2c622473ab628d86d06af4cd682371aa",
       "reductions_only_design": "docs/nov16-basket-throughput.md#reductions-after-the-increase-cutoff",
       "reductions_only_acceptance": ["tests/sentinel/test_fractional_flow.py::test_twenty_fractional_reductions_need_one_basket_admission"],
@@ -881,7 +890,10 @@
       "native_postings_design": "docs/paper-unconfirmed-native-postings.md",
       "native_postings_acceptance": ["tests/sentinel/test_unconfirmed_paper_postings.py"],
       "native_postings_predecessor_ast_sha256": "46d68a987ad09a6654ae8f624cf5bb1bfeff74293ea7d4d4180e61ee18b8a7ba",
-      "generated_ast_sha256": "64a4def4e7a18f6b8955f3411196e3d50c5afac27c16aced41506ee677912399",
+      "generated_ast_sha256": "e6a4305d11b7e7bdf65a2c7972d8534824735bde66a05a84f22736a149041959",
+      "sale_continuity_predecessor_ast_sha256": "64a4def4e7a18f6b8955f3411196e3d50c5afac27c16aced41506ee677912399",
+      "sale_continuity_design": "docs/sentinel-execution-contract.md#131a-two-phase-execution-reduce-settle-re-observe-re-size-increase",
+      "sale_continuity_acceptance": ["tests/sentinel/test_automation_runtime.py"],
       "consolidation": {
         "predecessor_ast_sha256": "202cf310a12be8daada8704adedeb4a8fb91cd5917ddcfa37b1a5243547dd3b5",
         "design": ["docs/fractional-paper-execution.md", "docs/paper-performance-consolidation.md"],

@@ -77,6 +77,7 @@ from sentinel.execution.states import RuntimeState
 from sentinel.feed import calendar, publication, readiness, store as feed_store
 
 from .model import (
+    NativeFeePostingPending,
     PaperActivationRefused,
     PaperRetryableRefused,
 )
@@ -406,11 +407,15 @@ async def recover_automated_paper_cycle(
                 if dual_mode and confirmed_result.clean else None)
             cash_changed = False
             if posting_reserve is None:
-                cash_changed = _cash_authority_or_refuse(
-                    conn, plan=plan, deployment=binding.identity, account=account,
-                    observation=confirmed_result.observation, activity_state=activity_state,
-                    permit_new_activity=True, endpoint_lag_observed_at=evidence_at,
-                    allow_native_fee_wait=True)
+                try:
+                    cash_changed = _cash_authority_or_refuse(
+                        conn, plan=plan, deployment=binding.identity, account=account,
+                        observation=confirmed_result.observation, activity_state=activity_state,
+                        permit_new_activity=True, endpoint_lag_observed_at=evidence_at,
+                        allow_native_fee_wait=True)
+                except NativeFeePostingPending as exc:
+                    exc.reconciliation = confirmed_result
+                    raise
             result.cash_plan_superseded = bool(cash_changed)
             if target_projection is None:
                 return result

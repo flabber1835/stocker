@@ -662,14 +662,17 @@ def install_durable_projection(monkeypatch, current_plan, *, multiplier="1"):
 
 @async_test
 @pytest.mark.parametrize('failure_at', ['resolver', 'execution'])
-async def test_operational_execute_pins_before_resolver_and_releases_on_failure(monkeypatch, failure_at):
+@pytest.mark.parametrize('live', [False, True])
+async def test_operational_execute_pins_before_resolver_and_releases_on_failure(monkeypatch, failure_at, live):
     from contextlib import contextmanager
+    from sentinel import trading
     current_plan = plan()
     cfg=config(); ctx=context(cfg, plan=current_plan); conn=FakeConnection(); worker=production(cfg)
     install_runtime_seams(monkeypatch,worker,conn,ctx,SimulatedBroker())
     monkeypatch.setattr(journal, 'latest_plan', lambda _conn: current_plan)
     worker._operational_source_only=True
-    worker._dual_run_enabled=True
+    worker._dual_run_enabled=not live
+    worker._live_run_enabled=live
     monkeypatch.setattr(automation_runtime,'require_observation_integrity',lambda _:None)
     trace=[]; held=[False]
     publication=object()
@@ -693,7 +696,10 @@ async def test_operational_execute_pins_before_resolver_and_releases_on_failure(
     async def execute(**kwargs):
         assert held[0],'execution lost its original publication pin'
         trace.append('EXECUTE');raise paper.PaperActivationRefused('execution refused')
-    monkeypatch.setattr(paper,'execute_automated_paper_plan',execute)
+    if live:
+        monkeypatch.setattr(trading, 'execute_automated_trading_plan', execute)
+    else:
+        monkeypatch.setattr(paper, 'execute_automated_paper_plan', execute)
     with pytest.raises(NonRetryableCallbackRefused):await worker.execute(ctx)
     assert trace==(['PIN','INPUTS','RESOLVER','RELEASE'] if failure_at=='resolver'
                    else ['PIN','INPUTS','RESOLVER','EXECUTE','RELEASE'])
@@ -707,8 +713,9 @@ def test_removed_operational_execution_pin_is_detected(monkeypatch):
     assert line in source
     namespace={};exec(compile(source.replace(line,'pinned = object()'),'execution-pin-falsifier','exec'),automation_runtime.__dict__,namespace)
     monkeypatch.setattr(automation_runtime.ProductionAutomation,'execute',namespace['execute'])
-    with pytest.raises(AssertionError):
-        test_operational_execute_pins_before_resolver_and_releases_on_failure(monkeypatch,'resolver')
+    for live in (False, True):
+        with pytest.raises(AssertionError):
+            test_operational_execute_pins_before_resolver_and_releases_on_failure(monkeypatch,'resolver',live)
 
 
 @async_test
@@ -3363,6 +3370,58 @@ async def test_terminal_rejection_supersedes_old_intent_without_revision_loop(mo
     assert result.failure_code == "TERMINAL_COMMAND_REFUSAL"
     assert not any(call.startswith(("submit:", "cancel:"))
                    for call in broker.calls)
+
+
+@async_test
+@pytest.mark.parametrize("barrier", ["refused-sale", "fee-posting"])
+async def test_recovery_admits_independent_sales_behind_purchase_barriers(monkeypatch, barrier):
+    from sentinel.paper.model import NativeFeePostingPending
+
+    cfg = config()
+    current_plan = plan(target="0")
+    ctx = context(cfg, state=CycleState.RECONCILING, plan=current_plan)
+    ctx = ctx.model_copy(update={"cycle": ctx.cycle.model_copy(update={"broker": "alpaca"})})
+    runtime = production(cfg)
+    conn = FakeConnection()
+    broker = SimulatedBroker()
+    another = BrokerInstrument("SEC-BBB", "BBB", "asset-BBB")
+    broker.seed_position(INSTRUMENT, "2")
+    broker.seed_position(another, "3")
+    install_runtime_seams(monkeypatch, runtime, conn, ctx, broker)
+    install_durable_projection(monkeypatch, current_plan)
+    rejected = replace(command(current_plan.plan_id, state=CommandState.REJECTED),
+                       side=Side.SELL)
+
+    async def recover(**kwargs):
+        result = reconciliation(await kwargs["broker"].observe())
+        if barrier == "fee-posting":
+            pending = NativeFeePostingPending("verified fee is not posted")
+            pending.reconciliation = result
+            raise pending
+        return result
+
+    monkeypatch.setattr(paper, "recover_automated_paper_cycle", recover)
+    monkeypatch.setattr(journal, "in_flight_commands", lambda *_args: ())
+    monkeypatch.setattr(journal, "latest_plan", lambda _conn: current_plan)
+    monkeypatch.setattr(journal, "load_commands", lambda *_args, **_kwargs: (
+        (rejected,) if barrier == "refused-sale" else ()))
+    monkeypatch.setattr(automation_runtime, "_now_utc", lambda: NOW)
+
+    result = await runtime.recover(ctx)
+
+    assert result.disposition is ExecuteDisposition.READY_TO_EXECUTE
+    assert result.reduction_only_continuation and result.reduction_only_required
+    assert result.last_clean_reconciliation_id == result.transport_reconciliation_id == "11"
+    assert not any(call.startswith(("submit:", "cancel:")) for call in broker.calls)
+
+
+def test_plan_bound_recovery_uses_the_current_identity_session(monkeypatch):
+    cfg = config()
+    ctx = context(cfg, state=CycleState.RECONCILING, plan=plan())
+    current = NOW + timedelta(days=1)
+    monkeypatch.setattr(automation_runtime, "_now_utc", lambda: current)
+
+    assert production(cfg)._recovery_identity_session(ctx.cycle) == (current.date().isoformat(), False)
 
 
 @async_test

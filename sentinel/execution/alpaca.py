@@ -29,7 +29,7 @@ from sentinel.execution.contract import (
     BrokerInstrumentUnavailable,
     BrokerObservation, BrokerOrder, BrokerPosition, CommandOutcome, Completeness, ExecutionBroker,
     MalformedBrokerEvidence, OrderTerms, Side)
-from sentinel.execution.guarded import BrokerAuthorityRefused
+from sentinel.execution.guarded import BrokerAuthorityRefused, require_paper_reduction_window
 from sentinel.execution import activity_stream, broker_cash, contract, journal
 from sentinel.execution.identity import is_sentinel_key
 from sentinel.execution.numeric import decimal_text
@@ -526,6 +526,8 @@ class AlpacaExecutionBroker(ExecutionBroker):
         if endpoint.environment is TradingEnvironment.PAPER:
             if self._live_admission is not None:
                 raise BrokerAuthorityRefused("LIVE admission entered PAPER transport")
+            if operation == "SUBMIT" and side is Side.SELL:
+                require_paper_reduction_window(self, client_key=command_key)
             return None
         from sentinel.authority.live import require_live_adapter_admission
         try:

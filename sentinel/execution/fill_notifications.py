@@ -20,7 +20,7 @@ SINCE_ENV = "SENTINEL_FILL_NOTIFICATIONS_SINCE"
 DEADLINE_SECONDS = 18
 POLL_SECONDS = 30
 _BATCH_SIZE = 3
-_PAPER_ACTIVE_STATES = ("ACKNOWLEDGED", "PARTIALLY_FILLED", "CANCEL_PENDING")
+_NATIVE_POLL_STATES = ("ACKNOWLEDGED", "PARTIALLY_FILLED", "CANCEL_PENDING")
 
 
 class FillNotificationRefused(ValueError):
@@ -52,7 +52,7 @@ def _covered(payloads, client_key):
                 if p.get("client_key") == client_key), Fraction(0))
 
 
-def _candidates(conn, bound, since, *, paper, rotation):
+def _candidates(conn, bound, since, *, rotation):
     rows = conn.execute(
         "SELECT client_key,broker_order_id,broker_instrument_id,symbol,security_id,side,"
         " quantity,filled_quantity,order_terms,notional,state FROM sentinel_commands"
@@ -61,7 +61,7 @@ def _candidates(conn, bound, since, *, paper, rotation):
         " AND (filled_quantity>0 OR state=ANY(%s))"
         " AND broker_order_id IS NOT NULL ORDER BY updated_at DESC,client_key",
         (bound[1], bound[2], bound[0], bound[3], since,
-         list(_PAPER_ACTIVE_STATES) if paper else [])).fetchall()
+         list(_NATIVE_POLL_STATES))).fetchall()
     if not rows:
         return []
     existing = _existing(conn)
@@ -72,9 +72,9 @@ def _candidates(conn, bound, since, *, paper, rotation):
             "notional", "state"), row, strict=True))
         command["covered"] = _covered(existing, command["client_key"])
         if (command["covered"] < Fraction(command["filled_quantity"])
-                or (paper and command["state"] in _PAPER_ACTIVE_STATES)):
+                or command["state"] in _NATIVE_POLL_STATES):
             eligible.append(command)
-    if paper and len(eligible) > _BATCH_SIZE:
+    if len(eligible) > _BATCH_SIZE:
         offset = (rotation * _BATCH_SIZE) % len(eligible)
         eligible = eligible[offset:] + eligible[:offset]
     return eligible[:_BATCH_SIZE]
@@ -140,7 +140,7 @@ async def _activities(reader, order_id, *, completed_at):
 
 async def _collect(conn, *, reader, since, now, config=None, rotation=0, response_clock=None):
     bound = _binding(conn) if config is None else _binding(conn, config=config)
-    candidates = _candidates(conn, bound, since, paper=config is None, rotation=rotation)
+    candidates = _candidates(conn, bound, since, rotation=rotation)
     conn.commit()  # No transaction or execution-writer lock spans network I/O.
     if not candidates:
         return 0
@@ -259,4 +259,4 @@ async def collect(conn, *, config, reader=None, now=None, rotation=0):
     return await asyncio.wait_for(
         _collect(conn, reader=reader, since=since, now=now,
                  config=config if live else None, rotation=rotation,
-                 response_clock=None if live else response_clock), DEADLINE_SECONDS)
+                 response_clock=response_clock), DEADLINE_SECONDS)

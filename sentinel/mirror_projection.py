@@ -261,7 +261,15 @@ def _publication_conditions(conn,detail):
     return ' OR '.join(conditions),params
 
 
-def _consume_event(conn,event,body,*,through,publication_version,budget):
+def _check_once(conn, plan_id, body, *, publication_version, checked):
+    if plan_id in checked:
+        return
+    if _recheck(conn,plan_id,publication_version=publication_version):
+        body['historical_mismatch_count']+=1
+    checked.add(plan_id)
+
+
+def _consume_event(conn,event,body,*,through,publication_version,budget,checked):
     sequence,source,key,operation,detail=event
     if operation=='TRUNCATE': raise coverage.EvidenceCoverageRefused('MIRROR_SOURCE_WAS_TRUNCATED')
     kind=detail.get('kind') if isinstance(detail,dict) else None
@@ -303,7 +311,7 @@ def _consume_event(conn,event,body,*,through,publication_version,budget):
         'AND d.effective_session<=%s AND ('+condition+') ORDER BY d.plan_id LIMIT %s',
         (body['event_after_plan'],through,*params,budget)).fetchall()
     for (plan_id,) in rows:
-        if _recheck(conn,plan_id,publication_version=publication_version): body['historical_mismatch_count']+=1
+        _check_once(conn, plan_id, body, publication_version=publication_version, checked=checked)
         body['event_after_plan']=plan_id
     complete=len(rows)<budget
     if complete: body['event_after_plan']=''
@@ -323,6 +331,8 @@ def advance(conn, *, checked_through,publication_version,limit=128):
         (publication_version,)).fetchone()
     if actual is None or str(actual[0])!=through:
         raise coverage.EvidenceCoverageRefused('MIRROR_PUBLICATION_SUBJECT_CHANGED')
+    # The locked source stream and selected publication are fixed for this advance.
+    checked = set()
     while used<limit:
         rows=coverage.changes(conn,DOMAIN,boundary,limit=1)
         if not rows:
@@ -331,14 +341,13 @@ def advance(conn, *, checked_through,publication_version,limit=128):
             if not due:
                 break
             for (plan_id,) in due:
-                if _recheck(conn,plan_id,publication_version=publication_version):
-                    body['historical_mismatch_count']+=1
+                _check_once(conn, plan_id, body, publication_version=publication_version, checked=checked)
                 used+=1
             # The writes create authenticated change records. Prove them in
             # this same advance when the caller's unit budget allows it.
             continue
         complete,cost=_consume_event(conn,rows[0],body,through=through,
-            publication_version=publication_version,budget=limit-used)
+            publication_version=publication_version,budget=limit-used,checked=checked)
         used+=cost
         if not complete: break
         boundary=int(rows[0][0])

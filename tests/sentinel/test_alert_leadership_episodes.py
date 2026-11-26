@@ -8,7 +8,7 @@ import pytest
 from sentinel import alert_service
 from sentinel.automation import outbox
 from sentinel.automation.health import AutomationHealth
-from sentinel.automation.model import AckState, AutomationRefused
+from sentinel.automation.model import AckState, AutomationRefused, DispatchResult
 from sentinel.feed import store
 from tests.sentinel.test_automation_outbox import conn, pg
 
@@ -214,7 +214,7 @@ async def test_dispatcher_start_preserves_episode_but_resets_recovery(
             pass
 
     async def no_delivery(*_args, **_kwargs):
-        return SimpleNamespace(error=None, delivered=False, alert=None)
+        return DispatchResult(alert=None)
 
     async def finish(stop, _seconds):
         stop.set()

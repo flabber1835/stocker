@@ -6,7 +6,7 @@ import json
 
 MAX_DOCUMENT_AGE_SECONDS = 45
 
-CURRENT_DOCUMENT_SCRIPT = r"""
+REQUEST_DEADLINE_SCRIPT = r"""
 function dashboardDeadline(controller, operation) {
   var timer;
   var start = performance.now();
@@ -33,6 +33,9 @@ function dashboardDeadline(controller, operation) {
   });
 }
 
+"""
+
+CURRENT_DOCUMENT_SCRIPT = REQUEST_DEADLINE_SCRIPT + r"""
 function currentDocument(html, status, response, started) {
   if (typeof html !== "string" || html.length > 2097152) {
     throw new Error("Dashboard response exceeds its document bound");

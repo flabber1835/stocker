@@ -16,9 +16,9 @@ CONFIG=dict(uuid='2ed4fe3b-def6-45db-940b-e78186758164',mount='/mnt/fixture-back
     backup='/mnt/fixture-backup/backup',transport='/run/sentinel-backup-transport-fixture')
 
 
-def mount(number):
+def mount(number, root='/'):
     return dict(id=number,device='8:81',fstype='ext4',source='/dev/sdf1',
-                options=['rw'],super_options=['rw'],optional=[])
+                options=['rw'],super_options=['rw'],optional=[],root=root)
 
 
 class BackupTransportTests(unittest.TestCase):
@@ -90,6 +90,47 @@ class BackupTransportTests(unittest.TestCase):
         self.detach()
         self.assertEqual(self.commands,[])
 
+    def test_attach_resumes_after_kernel_bound_before_owner_commit(self):
+        self.table = {CONFIG['mount']: mount(99, '/mounted-subtree')}
+        self.record = None
+        owner = SimpleNamespace(exists=lambda: self.record is not None,
+                                read_text=lambda: json.dumps(self.record))
+        def save(_config, record):
+            self.record = copy.deepcopy(record)
+        def runner(args):
+            self.commands.append(args)
+            child = Path(args[-1]).name
+            self.table[args[-1]] = mount(100 + len(self.commands), '/mounted-subtree/backup/' + child)
+            if len(self.commands) == 1:
+                raise InterruptedError('kernel bound before the owner recorded it')
+        with patch.object(transport,'state_path',return_value=owner), \
+             patch.object(transport,'_private_path'), \
+             patch.object(transport,'verified_media',return_value='8:81'), \
+             patch.object(transport,'prepare'), patch.object(transport,'_save',side_effect=save):
+            with self.assertRaises(InterruptedError):
+                transport.attach(self.config,runner,lambda:self.table)
+            self.assertEqual(self.record['phase'], 'ATTACHING')
+            self.assertFalse(self.record['mounts'])
+            self.assertEqual(self.record['pending']['base']['root'], '/mounted-subtree/backup/base')
+            transport.attach(self.config,runner,lambda:self.table)
+            transport.attach(self.config,runner,lambda:self.table)
+        self.assertEqual([Path(command[-1]).name for command in self.commands], ['base', 'wal'])
+        self.assertEqual(self.record['phase'], 'ATTACHED')
+        self.assertFalse(self.record['pending'])
+
+    def test_detach_verifies_pending_bind_exact_root(self):
+        self.record['mounts'].pop('wal')
+        self.record['phase'] = 'ATTACHING'
+        self.record['pending'] = {'wal': dict(device='8:81', fstype='ext4',
+                                             source='/dev/sdf1', root='/backup/wal')}
+        self.table[CONFIG['transport']+'/wal']['root'] = '/an-unrelated-directory'
+        with self.assertRaises(RuntimeError):
+            self.detach()
+        self.assertFalse(self.commands)
+        self.table[CONFIG['transport']+'/wal']['root'] = '/backup/wal'
+        self.detach()
+        self.assertEqual(len(self.commands), 2)
+
     def test_generated_usb_unit_has_no_engine_lifetime_edge(self):
         files=transport.unit_files(CONFIG,'/usr/local/libexec/sentinel-backup-transport.py',
             '/etc/sentinel-backup-transport.json',lambda a:'mnt-fixture.mount')
@@ -97,6 +138,9 @@ class BackupTransportTests(unittest.TestCase):
         self.assertNotIn('mnt-fixture.mount',files['docker-storage.conf'])
         self.assertNotIn('docker.service',files['sentinel-backup-transport.service'])
         self.assertIn('BindsTo=mnt-fixture.mount',files['sentinel-backup-transport.service'])
+        self.assertIn('ExecStopPost=/usr/bin/python3 /usr/local/libexec/sentinel-backup-transport.py '
+                      '--config /etc/sentinel-backup-transport.json detach',
+                      files['sentinel-backup-transport.service'])
         self.assertNotIn('docker.service',files['udev.rules'])
 
     def test_foreign_mount_guard_removal_is_detected(self):

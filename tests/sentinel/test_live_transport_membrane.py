@@ -9,12 +9,12 @@ import pytest
 
 from sentinel.authority.live import require_live_adapter_admission
 from sentinel.execution import live_transport
-from sentinel.execution.contract import BrokerCapabilities, ExecutionBroker, Side
+from sentinel.execution.contract import BrokerCapabilities, BrokerPosition, ExecutionBroker, OrderTerms, Side
 from sentinel.execution.guarded import (
     ExecutionBrokerGuard, GuardedExecutionBroker, LiveExecutionGrant,
     ManualExecutionGrant, PreTransportAuthorityRefused,
 )
-from tests.sentinel.live_order_fixtures import DAY, NOW, REFERENCE_SESSION, funding, order_fixture
+from tests.sentinel.live_order_fixtures import DAY, NOW, REFERENCE_SESSION, command, funding, order_fixture
 from tests.sentinel.live_authority_fixtures import signed_live
 
 
@@ -42,7 +42,7 @@ class OfflineNative(ExecutionBroker):
     async def market_clock(self):
         return SimpleNamespace(timestamp=self._now(), is_open=True)
 
-    async def submit(self, *, client_key, instrument, side, quantity, order_terms):
+    async def submit(self, *, client_key, instrument, side, quantity, order_terms=OrderTerms()):
         verified = require_live_adapter_admission(self.live_admission, base_url=self.base_url,
             now=self._now(), required_operation="SUBMIT")
         live_transport.require_live_mutation_permit(self, operation="SUBMIT",
@@ -60,17 +60,17 @@ class OfflineNative(ExecutionBroker):
         return "cancelled"
 
 
-def composition(*, funding_expiry=None, before_mutation=None):
-    fixture = order_fixture()
-    clock = [NOW]
+def composition(*, funding_expiry=None, before_mutation=None, automation_buy_window=None, now=NOW):
+    fixture = order_fixture(now)
+    clock = [now]
     inner = OfflineNative(fixture, clock)
     receipt = funding(fixture, **({"expires_at": funding_expiry.isoformat()} if funding_expiry else {}))
-    context = live_transport.LiveOrderContext(DAY, fixture.request, fixture.account, NOW,
+    context = live_transport.LiveOrderContext(DAY, fixture.request, fixture.account, now,
         fixture.positions, fixture.commitments, Decimal(10), REFERENCE_SESSION,
         funding=receipt.admission)
     policy = live_transport.LiveExecutionPolicy(admission=fixture.admission,
         load_submit=lambda _key: context, load_cancel=lambda _id: fixture.request,
-        final_check=lambda _operation: None,
+        final_check=lambda _operation: None, automation_buy_window=automation_buy_window,
         now=lambda: clock[0])
 
     async def before(_grant, _operation):
@@ -165,6 +165,68 @@ def test_evidence_expiry_during_final_authority_io_prevents_transport():
     case.wrapped._guard = replace(case.guard, before_mutation=delayed)
     with pytest.raises(live_transport.LiveTransportRefused, match="expired|current"):
         asyncio.run(case.wrapped.submit(**arguments(case)))
+    assert case.inner.calls == []
+
+
+def test_configured_buy_cutoff_during_final_authority_io_prevents_live_transport():
+    cutoff = NOW + timedelta(seconds=2)
+    case = composition(
+        automation_buy_window=lambda: (NOW - timedelta(seconds=1), cutoff))
+
+    async def cross_cutoff(_grant, _operation):
+        case.clock[0] = cutoff
+
+    case.wrapped._guard = replace(case.guard, before_mutation=cross_cutoff)
+    with pytest.raises(PreTransportAuthorityRefused, match="expired"):
+        asyncio.run(case.wrapped.submit(**arguments(case)))
+    assert case.inner.calls == []
+
+
+def test_twenty_owned_live_sales_clear_transport_after_purchase_cutoff():
+    case = composition(automation_buy_window=lambda: (
+        NOW - timedelta(minutes=1), NOW))
+    sales = {row.client_key: row for row in (
+        command(case.fixture, security=f"SEC-{index:02d}", side=Side.SELL)
+        for index in range(20))}
+    positions = {request.security_id: BrokerPosition(request.instrument, request.quantity)
+                 for request in sales.values()}
+
+    def load_sale(key):
+        request = sales[key]
+        return replace(case.context, request=request, positions=tuple(positions.values()),
+                       commitments=(request,), funding=None)
+
+    case.policy._load_submit = load_sale
+
+    async def scenario():
+        for request in sales.values():
+            result = await case.wrapped.submit(
+                client_key=request.client_key, instrument=request.instrument,
+                side=request.side, quantity=request.quantity, order_terms=request.order_terms)
+            assert result == "transported"
+            del positions[request.security_id]
+
+    asyncio.run(scenario())
+
+    assert not positions
+    assert [key for operation, key, _qty in case.inner.calls if operation == "SUBMIT"] == list(sales)
+
+
+def test_live_sale_permit_expires_if_final_authority_crosses_exchange_close():
+    from sentinel.feed import calendar
+
+    _, close = calendar.session_window(DAY)
+    case = composition(now=close - timedelta(seconds=1))
+    sale = command(case.fixture, side=Side.SELL)
+    case.policy._load_submit = lambda _key: replace(
+        case.context, request=sale, positions=(BrokerPosition(sale.instrument, sale.quantity),),
+        commitments=(sale,), funding=None)
+    case.policy._final_check = lambda _operation: case.clock.__setitem__(0, close)
+
+    with pytest.raises(PreTransportAuthorityRefused, match="expired"):
+        asyncio.run(case.wrapped.submit(
+            client_key=sale.client_key, instrument=sale.instrument,
+            side=sale.side, quantity=sale.quantity, order_terms=sale.order_terms))
     assert case.inner.calls == []
 
 

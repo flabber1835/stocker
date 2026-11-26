@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 import math
+import os
 from sentinel.notification_policy import CANCELLED_TEST_SQL
 
 
@@ -165,14 +166,27 @@ def validate_health_intervals(
         raise ValueError("dispatcher health intervals must be finite and positive")
 
 
+def health_intervals_from_env() -> tuple[float, float]:
+    maximum = float(os.environ.get('SENTINEL_AUTOMATION_ALERT_HEALTH_MAX_AGE_SECONDS', '30'))
+    grace = float(os.environ.get('SENTINEL_AUTOMATION_ALERT_STARTUP_GRACE_SECONDS', '330'))
+    validate_health_intervals(maximum_age_seconds=maximum, startup_grace_seconds=grace)
+    return maximum, grace
+
+
 def require_healthy(
-        conn, *, dispatcher_id: str, maximum_age_seconds: float,
+        conn, *, dispatcher_id: str | None, maximum_age_seconds: float,
         startup_grace_seconds: float) -> DispatcherHealth:
     """Database-clock liveness used by Docker, independent of the webhook."""
     validate_health_intervals(
         maximum_age_seconds=maximum_age_seconds,
         startup_grace_seconds=startup_grace_seconds)
-    identity = _identity(dispatcher_id)
+    identity = _identity(dispatcher_id) if dispatcher_id is not None else None
+    if identity is None:
+        selection = "state='HEALTHY' AND heartbeat_at<=clock_timestamp()"
+        parameters = ()
+    else:
+        selection = "dispatcher_id=%s"
+        parameters = (identity,)
     with conn.cursor() as cur:
         cur.execute(
             f"SELECT {_COLUMNS},"
@@ -180,8 +194,9 @@ def require_healthy(
             " EXTRACT(EPOCH FROM (clock_timestamp()-started_at)),"
             " (SELECT COUNT(*) FROM sentinel_alert_outbox"
             f"   a WHERE state='DEAD_LETTER' AND NOT {CANCELLED_TEST_SQL})"
-            " FROM sentinel_alert_dispatcher_health WHERE dispatcher_id=%s",
-            (identity,))
+            f" FROM sentinel_alert_dispatcher_health WHERE {selection}"
+            " ORDER BY heartbeat_at DESC,dispatcher_id LIMIT 1",
+            parameters)
         row = cur.fetchone()
     conn.rollback()
     if row is None:

@@ -348,7 +348,7 @@ def _with_opening_estimates(preview, estimates):
     return preview.model_copy(update={'legs': legs})
 
 
-def still_current(conn, *, cycle_id, plan_id):
+def still_current(conn, *, cycle_id, plan_id, broker=None, execute_at=None):
     """Reject obsolete queued notifications without broker calls or writes."""
     with conn.cursor() as cur:
         cur.execute("""SELECT EXISTS (SELECT 1 FROM sentinel_automation_cycles c
@@ -362,12 +362,14 @@ def still_current(conn, *, cycle_id, plan_id):
               AND p.decision_session=c.decision_session AND p.effective_session=c.effective_session
             WHERE c.cycle_id=%s AND p.plan_id=%s AND c.state IN ('PLAN_READY','WAITING_OPEN')
               AND NOT c.historical_state_only AND p.superseded_by IS NULL
-              AND c.execute_at>clock_timestamp())""", (cycle_id,plan_id))
+              AND (%s::text IS NULL OR c.broker=%s)
+              AND (%s::timestamptz IS NULL OR c.execute_at=%s)
+              AND c.execute_at>clock_timestamp())""", (cycle_id,plan_id,broker,broker,execute_at,execute_at))
         return cur.fetchone()[0] is True
 
 
-def read(conn, *, unnotified=False, authority_loader=None):
-    """Bounded SELECT projection of one future current-generation paper plan."""
+def read(conn, *, unnotified=False, authority_loader=None, expected_broker=None):
+    """Bounded SELECT projection of one future current-generation plan."""
     with conn.cursor() as cur:
         cur.execute("""SELECT c.cycle_id,p.plan_id,p.decision_session,p.effective_session,
             c.execute_at,p.created_at,p.target_basket,p.broker,p.broker_account_id,
@@ -383,9 +385,10 @@ def read(conn, *, unnotified=False, authority_loader=None):
               AND p.decision_session=c.decision_session AND p.effective_session=c.effective_session
             WHERE c.state IN ('PLAN_READY','WAITING_OPEN') AND NOT c.historical_state_only
               AND p.superseded_by IS NULL AND c.execute_at>clock_timestamp()
+              AND (%s::text IS NULL OR c.broker=%s)
               AND (NOT %s OR NOT EXISTS (SELECT 1 FROM sentinel_alert_outbox o
                 WHERE o.idempotency_key='next-open-plan:'||c.cycle_id||':'||p.plan_id))
-            ORDER BY c.execute_at LIMIT 2""", (unnotified,))
+            ORDER BY c.execute_at LIMIT 2""", (expected_broker,expected_broker,unnotified))
         values = cur.fetchall()
         if len(values)>1:
             raise ValueError('multiple current next-open plans')

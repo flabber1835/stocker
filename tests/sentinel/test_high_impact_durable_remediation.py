@@ -74,6 +74,7 @@ def test_crash_after_cycle_transition_reconstructs_missing_alert(conn) -> None:
         cur.execute("SELECT COUNT(*) FROM sentinel_alert_outbox")
         assert cur.fetchone()[0] == 0
 
+    outbox.recover_notifications(conn)
     recovered = outbox.claim_next(
         conn, holder_id="restart-dispatcher", claim_seconds=30)
     assert recovered is not None
@@ -120,6 +121,7 @@ def test_each_same_state_transition_has_one_event_identity(conn) -> None:
             """, (json.dumps({"failure_code": code}),))
     conn.commit()
 
+    outbox.recover_notifications(conn)
     delivered = []
     while True:
         alert = outbox.claim_next(
@@ -168,6 +170,7 @@ def test_restart_reconstructs_only_notifier_eligible_retry_transition(conn) -> N
         """)
     conn.commit()
 
+    outbox.recover_notifications(conn)
     alert = outbox.claim_next(
         conn, holder_id="retry-dispatcher", claim_seconds=30)
     assert alert is not None
@@ -193,6 +196,7 @@ def test_kill_event_reconstructs_after_notifier_crash(conn) -> None:
         """)
     conn.commit()
 
+    outbox.recover_notifications(conn)
     alert = outbox.claim_next(
         conn, holder_id="kill-dispatcher", claim_seconds=30)
     assert alert is not None

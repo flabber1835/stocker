@@ -21,13 +21,7 @@ def observe() -> tuple[int, dict]:
     dispatcher_id = os.environ.get(
         "SENTINEL_AUTOMATION_ALERT_DISPATCHER_ID", "primary").strip()
     try:
-        maximum_age = float(os.environ.get(
-            "SENTINEL_AUTOMATION_ALERT_HEALTH_MAX_AGE_SECONDS", "30"))
-        startup_grace = float(os.environ.get(
-            "SENTINEL_AUTOMATION_ALERT_STARTUP_GRACE_SECONDS", "330"))
-        alert_health.validate_health_intervals(
-            maximum_age_seconds=maximum_age,
-            startup_grace_seconds=startup_grace)
+        maximum_age, startup_grace = alert_health.health_intervals_from_env()
     except ValueError as exc:
         return 1, {'healthy': False, 'reason': str(exc)}
 

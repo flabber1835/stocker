@@ -321,7 +321,7 @@ def test_ordinary_info_remains_quiet_while_fill_and_critical_still_fan_out(db, i
 
 def test_removed_recovery_info_exemption_is_caught_by_transport_regression(db, issue369_pg, monkeypatch):
     source = textwrap.dedent(inspect.getsource(web_push.WebPushAlertAdapter.deliver))
-    changed, replacements = re.subn(r',\s*"SHADOW_DEPENDENCY_RECOVERED"(?=})', "", source)
+    changed, replacements = re.subn(r'"SHADOW_DEPENDENCY_RECOVERED",\s*', "", source)
     assert replacements == 1
     namespace = {}
     exec(compile(changed, "recovery-push-falsifier", "exec"),
@@ -335,10 +335,10 @@ def test_removed_warning_receipt_guard_is_caught_by_transport_regression(db, iss
     source = textwrap.dedent(inspect.getsource(web_push.WebPushAlertAdapter._initialize_recovery_fanout))
     needle = '" WHERE alert_id=%s AND state=\'DELIVERED\'"'
     assert source.count(needle) == 1
-    delivery_clock = '" AND delivered_at<=%s ORDER BY subscription_id"'
+    delivery_clock = '" AND delivered_at BETWEEN %s AND %s ORDER BY subscription_id"'
     assert source.count(delivery_clock) == 1
     changed = source.replace(needle, '" WHERE alert_id=%s"').replace(
-        delivery_clock, '" AND (delivered_at<=%s OR delivered_at IS NULL) ORDER BY subscription_id"')
+        delivery_clock, '" AND (delivered_at BETWEEN %s AND %s OR delivered_at IS NULL) ORDER BY subscription_id"')
     namespace = {}
     exec(compile(changed, "warning-receipt-falsifier", "exec"),
          web_push.__dict__, namespace)

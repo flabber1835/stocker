@@ -1126,6 +1126,11 @@ class Panel:
     def row(self, key: str) -> Optional[Row]:
         return next((r for r in self.rows if r.key == key), None)
 
+    @property
+    def is_live_trading(self) -> bool:
+        environment = self.row('trading_environment')
+        return bool(environment and environment.status == OK and environment.value == 'LIVE · real money')
+
 
 # ── the rows ─────────────────────────────────────────────────────────────────
 
@@ -2377,6 +2382,7 @@ def alpaca_account_row(
         *, available: Optional[bool], broker: Optional[str] = None,
         account_id: Optional[str] = None,
         expected_account_id: Optional[str] = None,
+        expected_broker: str = "alpaca",
         status: Optional[str] = None, flags: Optional[dict] = None,
         equity=None, cash=None, buying_power=None, multiplier=None,
         observed_at: Optional[datetime] = None,
@@ -2402,7 +2408,7 @@ def alpaca_account_row(
             observed_at, required_current=True)
     normalized_broker = str(broker or "").lower()
     normalized_status = str(status or "").upper()
-    if (normalized_broker != "alpaca" or not account_id
+    if (normalized_broker != expected_broker or not account_id
             or not expected_account_id):
         return Row(
             "alpaca_account", "Alpaca Account", "IDENTITY UNKNOWN", UNKNOWN,
@@ -2645,6 +2651,7 @@ def runtime_identity_row(
         certificate_sha256: Optional[str], lifecycle_current: Optional[bool],
         authority_verdict: Optional[str], checked_at: Optional[datetime],
         valid_until: Optional[datetime] = None,
+        live: bool = False,
         error: Optional[str] = None) -> Row:
     """Compare runtime observations with signed reviewed artifact claims."""
     if error:
@@ -2655,7 +2662,7 @@ def runtime_identity_row(
         ("reviewed Git", reviewed_git), ("reviewed image", reviewed_image),
         ("certificate", certificate_sha256), ("authority verdict", authority_verdict),
         ("checked at", checked_at),
-    ) if not value]
+    ) if not value and (name != 'reviewed Git' or not live)]
     if missing:
         return Row(
             "runtime_identity", "Runtime Identity", "INCOMPLETE", FAIL,
@@ -2664,12 +2671,13 @@ def runtime_identity_row(
     matches = (
         lifecycle_current is True
         and str(authority_verdict).upper() == "PASS"
-        and runtime_git == reviewed_git
+        and (live or runtime_git == reviewed_git)
         and runtime_image == reviewed_image)
     value = (
         f"GIT {str(runtime_git)[:12]} · IMAGE {str(runtime_image)[:19]}")
+    reviewed_source = 'LIVE runtime verification' if live else f'reviewed Git {reviewed_git}'
     detail = (
-        f"reviewed Git {reviewed_git} · reviewed image {reviewed_image} · "
+        f"{reviewed_source} · reviewed image {reviewed_image} · "
         f"certificate {str(certificate_sha256)[:12]} · "
         f"lifecycle {'current' if lifecycle_current else 'invalid'} · "
         f"authority {str(authority_verdict).upper()}")
@@ -2706,8 +2714,10 @@ def execution_authority_row(
     not a signature/environment/account verification.  Only a verdict already
     persisted by the automation authority checker may render as valid here.
     """
+    live = authority_mode == 'LIVE'
+    label = 'Live execution authority' if live else 'Paper execution authority'
     if error or installed is None:
-        return Row("authority", "Paper execution authority", "UNKNOWN",
+        return Row("authority", label, "UNKNOWN",
                    UNKNOWN, error or "execution authority could not be read",
                    checked_at)
     lifecycle = (
@@ -2721,7 +2731,7 @@ def execution_authority_row(
         f" · authority generation "
         f"{authority_generation if authority_generation is not None else 'none'}")
     if not installed:
-        return Row("authority", "Paper execution authority", "NOT INSTALLED",
+        return Row("authority", label, "NOT INSTALLED",
                    FAIL, "no durable certificate authority schema exists")
     lifecycle_failure = None
     if lifecycle_status != "ACTIVE":
@@ -2736,19 +2746,19 @@ def execution_authority_row(
 
     if lifecycle_failure is not None:
         verdict = str(runtime_verdict or "NO CURRENT AUTHORITY").upper()
-        return Row("authority", "Paper execution authority",
+        return Row("authority", label,
                    f"{verdict} · LIFECYCLE INVALID", FAIL,
                    f"{lifecycle_failure}; persisted runtime verdict cannot "
                    f"override it; {lifecycle}", checked_at)
     if not runtime_verdict:
-        return Row("authority", "Paper execution authority", "UNKNOWN",
+        return Row("authority", label, "UNKNOWN",
                    UNKNOWN,
                    "no durable runtime authority verdict; " + lifecycle)
     verdict = str(runtime_verdict).upper()
     if verdict in {"VALID", "AUTHORIZED", "PASS"}:
         if verdict_binding_matches is not True:
             return Row(
-                "authority", "Paper execution authority",
+                "authority", label,
                 f"{verdict} · VERDICT BINDING INVALID", FAIL,
                 "persisted runtime verdict is not bound to the currently "
                 f"active certificate; {lifecycle}", checked_at)
@@ -2767,9 +2777,10 @@ def execution_authority_row(
                    f" · image {runtime_image_digest or 'unavailable'}; "
                    "the certificate's original reviewed references do not certify this local image")
     digest = f" · {certificate_sha256[:12]}" if certificate_sha256 else ""
-    return Row("authority", "Paper execution authority",
+    return Row("authority", label,
                f"{verdict}{digest}", status, detail, checked_at,
-               freshness=timedelta(minutes=5), required_current=True)
+               freshness=timedelta(minutes=5), required_current=True,
+               valid_until=expires_at if live else None)
 
 
 __all__ = ["FAIL", "FINANCIAL_AUTHORITY_ROW_KEYS",

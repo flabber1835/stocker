@@ -1,6 +1,9 @@
 """LIVE public enrollment observes actual binding/runtime and fresh file changes."""
 from dataclasses import replace
+from datetime import timedelta
 import hashlib
+import inspect
+import textwrap
 
 import pytest
 
@@ -9,6 +12,8 @@ from sentinel.authority import live_runtime as runtime
 from sentinel.authority.canonical import _b64url_encode, canonical_json_bytes
 from sentinel.authority.live import AuthorityRefused, require_live_adapter_admission
 from sentinel.authority.model import RolloutMode, RolloutState
+from sentinel.automation.model import AutomationControl
+from sentinel.automation_runtime import config_from_env
 from tests.sentinel.live_authority_fixtures import live_fixture, signed_live
 
 
@@ -185,3 +190,80 @@ def test_enrollment_parser_rejects_paper_root_record_and_duplicate_identity(tmp_
     fixture.roots_path.write_bytes(canonical_json_bytes(fixture.enrollment))
     with pytest.raises(AuthorityRefused, match="root identity"):
         load(fixture)
+
+
+def lifecycle_control(fixture):
+    return AutomationControl(
+        enabled=True, kill_switch_engaged=False, generation=3, updated_at=fixture.now,
+        deployment_id=fixture.bound.deployment_id, broker=fixture.bound.broker,
+        broker_account_id=fixture.bound.broker_account_id, takeover_epoch=fixture.bound.takeover_epoch,
+        certificate_sha256=hashlib.sha256(fixture.certificate_path.read_bytes()).hexdigest(),
+        rollout_mode=fixture.rollout.mode.value, rollout_version=fixture.rollout.version,
+        config_sha256=config_from_env().fingerprint)
+
+
+@pytest.mark.parametrize(("change", "reason"), [
+    (None, None),
+    ("origin", "exact LIVE origin"),
+    ("ownership", "provisioned LIVE account"),
+    ("account", "enabled control binding"),
+    ("rollout", "current control rollout"),
+    ("configuration", "current execution configuration"),
+    ("rotation", "certificate differs"),
+    ("revocation", "revoked"),
+    ("expiration", "not current"),
+    ("operations", "does not allow"),
+])
+def test_live_lifecycle_rechecks_current_owned_control_and_public_signatures(
+        tmp_path, monkeypatch, change, reason):
+    f = runtime_fixture(tmp_path, monkeypatch)
+    control = lifecycle_control(f)
+    base_url, now = f.subject.base_url, f.now
+    if change == "origin":
+        base_url = "https://paper-api.alpaca.markets"
+    elif change == "ownership":
+        monkeypatch.setattr(runtime.binding, "require", lambda _: replace(f.bound, ownership_state="FOREIGN"))
+    elif change == "account":
+        control = control.model_copy(update={"takeover_epoch": 2})
+    elif change == "rollout":
+        control = control.model_copy(update={"rollout_version": 2})
+    elif change == "configuration":
+        control = control.model_copy(update={"config_sha256": "1" * 64})
+    elif change == "rotation":
+        f.claims["certificate_id"] = "valid-but-not-bound"
+        f.certificate_path.write_bytes(signed_live(f.claims, f.private_key, f.key_id))
+    elif change == "revocation":
+        f.enrollment["revoked_certificate_sha256"].append(control.certificate_sha256)
+        f.roots_path.write_bytes(canonical_json_bytes(f.enrollment))
+    elif change == "expiration":
+        now += timedelta(hours=1)
+    elif change == "operations":
+        f.claims["permitted_operations"] = ["READ"]
+        f.certificate_path.write_bytes(signed_live(f.claims, f.private_key, f.key_id))
+        control = lifecycle_control(f)
+
+    def require():
+        return runtime.require_live_control_lifecycle(
+            object(), control, base_url=base_url, env=f.env, now=now)
+
+    if reason is not None:
+        with pytest.raises(AuthorityRefused, match=reason):
+            require()
+    else:
+        verified = require()
+        assert verified.subject == f.subject
+        assert verified.certificate_sha256 == control.certificate_sha256
+        assert verified.claims.expires_at == now + timedelta(hours=1)
+
+
+def test_live_control_certificate_binding_falsifier(tmp_path, monkeypatch):
+    source = textwrap.dedent(inspect.getsource(runtime.require_live_control_lifecycle))
+    guard = "if verified.sha256 != expected.certificate_sha256:"
+    assert source.count(guard) == 1
+    namespace = {}
+    exec(compile(source.replace(guard, "if False:"), "<unbound-live-certificate>", "exec"),
+         vars(runtime), namespace)
+    monkeypatch.setattr(runtime, "require_live_control_lifecycle", namespace["require_live_control_lifecycle"])
+    with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
+        test_live_lifecycle_rechecks_current_owned_control_and_public_signatures(
+            tmp_path, monkeypatch, "rotation", "certificate differs")

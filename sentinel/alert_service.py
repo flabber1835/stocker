@@ -518,6 +518,7 @@ async def run() -> int:
     database_incident_detail: str | None = None
     database_incident_reported = False
     last_probe_at: float | None = None
+    history_repair = outbox.NotificationHistoryRepair(poll_seconds=poll)
     registered = False
     # A predecessor may have exited after an observation it could not persist.
     # Restart preserves the incident, but begins a fresh recovery interval.
@@ -574,12 +575,6 @@ async def run() -> int:
         try:
             # Provider GETs belong to execution_collector. A stalled broker
             # cannot delay dispatch of a previously committed critical alert.
-            _observe_health(
-                conn, health=health, max_attempts=automation.alert_max_attempts,
-                maximum_observation_gap_seconds=max(10.0, 2 * poll),
-                observation_interrupted=health_observation_interrupted,
-                scheduler_diagnostics=scheduler_diagnostics)
-            health_observation_interrupted = False
             result = await outbox.dispatch_once(
                 conn, adapter=adapter, holder_id=holder,
                 claim_seconds=automation.alert_claim_seconds,
@@ -592,11 +587,18 @@ async def run() -> int:
                     maximum_failures=maximum_failures)
                 _report_transport_failure(AlertTransportFailure(
                     result.error, retryable=not result.dead_lettered))
-            elif result.delivered:
+            elif result.newly_delivered:
                 alert_health.record_success(
                     conn, dispatcher_id=dispatcher_id)
 
             monotonic_now = time.monotonic()
+            history_repair.run_if_due(conn)
+            _observe_health(
+                conn, health=health, max_attempts=automation.alert_max_attempts,
+                maximum_observation_gap_seconds=max(10.0, 2 * poll),
+                observation_interrupted=health_observation_interrupted,
+                scheduler_diagnostics=scheduler_diagnostics)
+            health_observation_interrupted = False
             if (webhook_adapter is not None and not web_push_configured
                     and (last_probe_at is None
                          or monotonic_now - last_probe_at >= probe_seconds)):

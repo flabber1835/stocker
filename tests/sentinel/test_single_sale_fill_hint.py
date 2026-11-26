@@ -249,11 +249,13 @@ def test_multiple_required_sales_keep_the_original_reconciliation_cycles(
 @pytest.mark.parametrize("broker,fractional,current_book,has_window,expected", [
     ("alpaca", True, True, True, 75),
     ("alpaca-live", True, True, True, 0),
+    ("alpaca-live", False, False, True, 75),
+    ("alpaca-live", False, False, False, 0),
     ("alpaca", False, True, True, 0),
     ("alpaca", True, False, True, 0),
     ("alpaca", True, True, False, 0),
 ])
-def test_wait_budget_is_selected_only_for_fractional_paper_open(
+def test_wait_budget_is_selected_only_for_configured_opening_policies(
         broker, fractional, current_book, has_window, expected):
     deployment = DeploymentIdentity("nas-1", broker, "ACCOUNT", 1)
     assert E._single_sale_hint_budget(

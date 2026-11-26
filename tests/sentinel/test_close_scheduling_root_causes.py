@@ -161,13 +161,17 @@ async def test_publication_pin_handoff_keeps_its_own_retry_and_consumes_each_hin
             await exercise()
 
 
-@pytest.mark.parametrize('condition', ['exact', 'legacy', 'older', 'target', 'ahead', 'bad_provider',
+@pytest.mark.parametrize('live', [False, True], ids=['paper', 'live'])
+@pytest.mark.parametrize('condition', ['exact', 'legacy', 'older', 'target', 'verified_target',
+                                       'ahead', 'bad_provider',
                                        'future_clock', 'at_open', 'moved_close', 'plan_present',
                                        'missing_frontier', 'omit_adjacency'])
-def test_old_book_is_skipped_only_by_the_authenticated_adjacent_frontier(monkeypatch, condition):
-    from sentinel import dual_reconciliation
+def test_old_book_is_skipped_only_by_the_authenticated_adjacent_frontier(monkeypatch, condition, live):
+    from sentinel import dual_reconciliation, trading
 
     cfg, cycle, _permit = closing_cycle()
+    if live:
+        cycle = cycle.model_copy(update={'broker': 'alpaca-live'})
     now = cycle.prepare_at + timedelta(seconds=1)
     if condition == 'future_clock':
         now = cycle.decision_close_at - timedelta(seconds=1)
@@ -180,12 +184,16 @@ def test_old_book_is_skipped_only_by_the_authenticated_adjacent_frontier(monkeyp
     calls = []
     connection = SimpleNamespace(close=lambda: calls.append('closed'))
     worker = refresh_runtime(monkeypatch, cfg=cfg, now=lambda: now, connection=lambda: connection)
+    worker._live_run_enabled, worker._dual_run_enabled = live, not live
     worker._operational_source_only = condition != 'legacy'
     worker.sentinel_config = None
     frontier = {'older': '2026-10-23', 'omit_adjacency': '2026-10-23', 'target': '2026-10-27',
+                'verified_target': '2026-10-27',
                 'ahead': '2026-10-28', 'missing_frontier': None}.get(condition, '2026-10-26')
-    monkeypatch.setattr(runtime.feed_inputs, 'current', lambda _conn: SimpleNamespace(window_end=frontier))
+    monkeypatch.setattr(runtime.feed_inputs, 'current',
+                        lambda _conn: SimpleNamespace(window_end=frontier, version=7))
     monkeypatch.setattr(runtime.feed_inputs, 'is_rolling', lambda _pub: True)
+    monkeypatch.setattr(runtime, 'publication_fingerprint', lambda _pub: 'a' * 64)
 
     def provider(_conn, _pub):
         calls.append('provider')
@@ -194,10 +202,13 @@ def test_old_book_is_skipped_only_by_the_authenticated_adjacent_frontier(monkeyp
 
     def verify(_conn, **_kw):
         calls.append('old book')
-        raise DualReconciliationRefused('canonical proof refused')
+        if condition != 'verified_target':
+            refusal = trading.TradingGatewayRefused if live else DualReconciliationRefused
+            raise refusal('canonical proof refused')
 
     monkeypatch.setattr(operational_snapshot, 'require_alpaca_openfigi', provider)
     monkeypatch.setattr(dual_reconciliation, 'verified_shadow_intent', verify)
+    monkeypatch.setattr(trading, '_shadow', verify)
     if condition == 'omit_adjacency':
         source = textwrap.dedent(inspect.getsource(runtime.ProductionAutomation._closing_refresh_wait))
         guard = 'if frontier == calendar.latest_closed_session(before_close):'
@@ -210,6 +221,11 @@ def test_old_book_is_skipped_only_by_the_authenticated_adjacent_frontier(monkeyp
                 asyncio.run(worker.refresh(SimpleNamespace(cycle=cycle)))
             assert calls == ['provider', 'old book', 'closed']
         return
+    if condition == 'verified_target':
+        result = asyncio.run(worker.refresh(SimpleNamespace(cycle=cycle)))
+        assert result.already_published and result.data_version == '7'
+        assert calls == ['provider', 'old book', 'closed']
+        return
     failure = ClosingDataPending if condition == 'exact' else NonRetryableCallbackRefused
     with pytest.raises(failure):
         asyncio.run(worker.refresh(SimpleNamespace(cycle=cycle)))
@@ -217,6 +233,32 @@ def test_old_book_is_skipped_only_by_the_authenticated_adjacent_frontier(monkeyp
     if condition not in {'exact', 'bad_provider'}:
         expected.append('old book')
     assert calls == [*expected, 'closed']
+
+
+def test_fenced_live_reads_exact_shadow_without_another_writer_or_paper_proof(monkeypatch):
+    from sentinel import dual_reconciliation, trading
+
+    cfg, cycle, _permit = closing_cycle()
+    worker = refresh_runtime(monkeypatch, cfg=cfg, now=lambda: cycle.prepare_at,
+                            connection=lambda: pytest.fail('protected writer constructed'))
+    worker._live_run_enabled, worker._dual_run_enabled = True, False
+    worker._fenced_data_next_wake = None
+    worker._fenced_data_poll_seconds = 30
+    monkeypatch.setattr(runtime.schedule, 'for_clock', lambda _now, _cfg: cycle)
+    monkeypatch.setattr(runtime.feed_store, 'require_feed_schema', lambda _conn: None)
+    monkeypatch.setattr(operational_snapshot, 'require_alpaca_openfigi', lambda *_: None)
+    monkeypatch.setattr(runtime.feed_inputs, 'current', lambda _conn: SimpleNamespace(version=7))
+    monkeypatch.setattr(runtime.feed_inputs, 'is_rolling', lambda _pub: True)
+    monkeypatch.setattr(dual_reconciliation, 'verified_shadow_intent',
+                        lambda *_a, **_k: pytest.fail('PAPER proof reached'))
+    monkeypatch.setattr(runtime, '_enqueue_fenced_recovery_alert',
+                        lambda *_a, **_k: pytest.fail('false fenced data incident'))
+    monkeypatch.setattr(runtime.ingest, 'daily', lambda *_a, **_k: pytest.fail('competing writer'))
+    observed = []
+    monkeypatch.setattr(trading, '_shadow', lambda _conn, **kw: observed.append(kw))
+    assert asyncio.run(worker._fenced_data_wake(object())) is not None
+    assert observed == [{'session': str(cycle.decision_session),
+                         'observation_id': 'primary', 'starting_cash': 50000}]
 
 
 @pytest.mark.parametrize('started, expected', [

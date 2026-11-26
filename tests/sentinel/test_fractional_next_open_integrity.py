@@ -206,6 +206,36 @@ def buy_basket(database):
     return state, plan, projected
 
 
+def test_plan_preparation_does_not_look_up_native_purchase_instruments(database, monkeypatch):
+    from sentinel.execution.alpaca import MalformedBrokerPayload
+    from sentinel.paper.model import PaperActivationRefused
+
+    state, plan, projection = buy_basket(database)
+    monkeypatch.setattr(feed_inputs, "metadata", lambda _: {})
+    broker = DollarBroker()
+    lookups = []
+
+    async def resolve_purchase(**kwargs):
+        lookups.append(kwargs)
+        raise MalformedBrokerPayload("native purchase identity is unmapped")
+
+    monkeypatch.setattr(broker, "resolve_instrument", resolve_purchase)
+
+    async def check():
+        observation = await broker.observe()
+        mapped = await targets._instrument_map(
+            database, broker, state, plan, observation, preparation=True)
+        assert not mapped and not lookups
+        with pytest.raises(PaperActivationRefused, match="invalid broker instrument identity"):
+            await targets._instrument_map(database, broker, state, plan, observation,
+                target_basket=projection.target_basket, increase_security_ids={"SEC-AAA"},
+                buy_deferrals={})
+        assert lookups == [{"security_id": "SEC-AAA", "symbol": "AAA"}]
+        assert not any(call.startswith("submit:") for call in broker.calls)
+
+    asyncio.run(check())
+
+
 @pytest.mark.parametrize("availability", ["initially-inactive", "became-inactive", "conflicting-native-id"])
 def test_inactive_buy_defers_only_its_identity_and_keeps_other_transport(database, monkeypatch, availability):
     state, plan, projection = buy_basket(database)

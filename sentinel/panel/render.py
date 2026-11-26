@@ -32,7 +32,9 @@ from sentinel.panel.overview import overview_html
 from sentinel.panel.styles import CSS
 from sentinel.panel.banner import BANNER_SCRIPT
 from sentinel.panel.dom_refresh import SCRIPT as DOM_REFRESH_SCRIPT
-from sentinel.panel.pwa import CURRENT_DOCUMENT_SCRIPT, MAX_DOCUMENT_AGE_SECONDS
+from sentinel.panel.pwa import (
+    CURRENT_DOCUMENT_SCRIPT, MAX_DOCUMENT_AGE_SECONDS, REQUEST_DEADLINE_SCRIPT,
+)
 from sentinel.panel.review_controls import render as render_review, SCRIPT as REVIEW_SCRIPT
 
 from sentinel.panel.model import (
@@ -73,6 +75,7 @@ def _ago(delta) -> str:
 
 PUSH_SCRIPT = r"""
 (function(){
+""" + REQUEST_DEADLINE_SCRIPT + r"""
   var card = document.getElementById("push-card");
   var enable = document.getElementById("push-enable");
   var remove = document.getElementById("push-remove");
@@ -85,6 +88,14 @@ PUSH_SCRIPT = r"""
   }
   async function registration() {
     return navigator.serviceWorker.register("/service-worker.js", {scope: "/", updateViaCache: "none"});
+  }
+  function pushRequest(url, options, error, readJson) {
+    var controller = new AbortController();
+    return dashboardDeadline(controller, async function() {
+      var response = await fetch(url, Object.assign({}, options, {signal: controller.signal}));
+      if (!response.ok) { throw new Error(error); }
+      return readJson ? response.json() : undefined;
+    });
   }
   function deliveryMessage(receipt) {
     if (receipt.delivery_status === "ACCEPTED") {
@@ -109,11 +120,9 @@ PUSH_SCRIPT = r"""
     for (var attempt = 0; attempt < 10; attempt++) {
       await new Promise(function(resolve) { setTimeout(resolve, 2000); });
       try {
-        var response = await fetch("/push/tests/" + encodeURIComponent(receipt.alert_id), {
+        receipt = await pushRequest("/push/tests/" + encodeURIComponent(receipt.alert_id), {
           credentials: "same-origin", cache: "no-store"
-        });
-        if (!response.ok) { throw new Error("status unavailable"); }
-        receipt = await response.json();
+        }, "status unavailable", true);
       } catch (_) {
         message("Test is queued, but its current delivery status could not be read.");
         return;
@@ -145,10 +154,8 @@ PUSH_SCRIPT = r"""
       var reg = await registration();
       var sub = await reg.pushManager.getSubscription();
       if (!sub) {
-        var config = await fetch("/push/config", {cache: "no-store"}).then(function(response) {
-          if (!response.ok) { throw new Error("Push configuration is unavailable."); }
-          return response.json();
-        });
+        var config = await pushRequest("/push/config", {cache: "no-store"},
+          "Push configuration is unavailable.", true);
         sub = await reg.pushManager.subscribe({
           userVisibleOnly: true,
           applicationServerKey: decode(config.applicationServerKey)
@@ -156,12 +163,10 @@ PUSH_SCRIPT = r"""
       }
       var body = sub.toJSON();
       body.test_id = crypto.randomUUID();
-      var response = await fetch("/push/subscriptions", {
+      var receipt = await pushRequest("/push/subscriptions", {
         method: "POST", credentials: "same-origin", cache: "no-store",
         headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)
-      });
-      if (!response.ok) { throw new Error("Subscription could not be saved."); }
-      var receipt = await response.json();
+      }, "Subscription could not be saved.", true);
       remove.hidden = false;
       enable.textContent = "Send test notification";
       await followTest(receipt);
@@ -175,12 +180,11 @@ PUSH_SCRIPT = r"""
       var reg = await registration();
       var sub = await reg.pushManager.getSubscription();
       if (sub) {
-        var response = await fetch("/push/subscriptions/remove", {
+        await pushRequest("/push/subscriptions/remove", {
           method: "POST", credentials: "same-origin", cache: "no-store",
           headers: {"Content-Type": "application/json"},
           body: JSON.stringify({endpoint: sub.endpoint})
-        });
-        if (!response.ok) { throw new Error("Subscription removal could not be saved."); }
+        }, "Subscription removal could not be saved.", false);
         await sub.unsubscribe();
       }
       message("Notifications disabled on this device.");
@@ -209,9 +213,10 @@ STATIC_ASSETS = {
 
 
 def _row_html(r: Row, now: datetime, *, refresh_pending: bool = False, current: bool = True,
-              activation_pending: bool = False, historical_warning: bool = False) -> str:
+              activation_pending: bool = False, historical_warning: bool = False,
+              live: bool = False) -> str:
     st = r.effective_status(now)
-    label, value, explanation = describe(r, st, now=now if current and not refresh_pending else None)
+    label, value, explanation = describe(r, st, now=now if current and not refresh_pending else None, live=live)
     # Retained HTML is presentation only. Mutating an OK required-current row
     # to WARN would make the authority classifier invent a failure.
     display_status = ('neutral' if not current or refresh_pending and st not in {FAIL, UNKNOWN, PENDING}
@@ -547,7 +552,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
             operational_headline = 'UPDATING STATUS — LAST KNOWN VALUES BELOW'
     rows = "".join(_row_html(r, now, refresh_pending=refresh_pending,
         current=delivery.row_current(panel, r), activation_pending=activation_wait_withdraws(panel, r),
-        historical_warning=r.key in historical_warning_keys)
+        historical_warning=r.key in historical_warning_keys, live=panel.is_live_trading)
         for r in rendered_rows)
     overview = overview_html(panel, refresh_pending=refresh_pending)
     review_html = render_review(panel.operator_review,
@@ -557,7 +562,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
         status = delivery.row_status(panel, row)
         if (status in {FAIL, UNKNOWN} and delivery.row_current(panel, row)
                 and not activation_wait_history(panel, row)):
-            label, value, _ = describe(row, status)
+            label, value, _ = describe(row, status, live=panel.is_live_trading)
             kind = ' class="review-warning"' if row.key in historical_warning_keys else ''
             reasons.append(f'<li{kind}><a href="#status-{_esc(row.key)}" '
                            'onclick="document.getElementById(\'system-details\').open=true">'

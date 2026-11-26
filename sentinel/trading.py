@@ -6,7 +6,7 @@ No operation here creates or advances strategy state.
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -186,6 +186,24 @@ def _validate_grant(conn, grant, operation, result, *, base_url,
         verified_state_sha256=sizing["state_sha256"], retained_shadow=True)
 
 
+def _automation_buy_window(grant, plan):
+    from sentinel.automation import schedule
+    from sentinel.automation.env_config import config_from_env
+
+    config = config_from_env()
+    if (plan is None or grant.operation_scope != "EXECUTE"
+            or config.paper_debug_window is not None
+            or config.fingerprint != grant.config_sha256):
+        raise TradingGatewayRefused("LIVE purchase lacks its exact approved automation schedule")
+    timing = schedule.for_decision_session(plan.decision_session, config)
+    if timing.effective_session != plan.effective_session:
+        raise TradingGatewayRefused("LIVE purchase schedule belongs to a different session")
+    return (
+        max(timing.execute_at, timing.execution_open_at + timedelta(minutes=1)),
+        min(timing.execution_close_at, timing.execution_open_at + timedelta(minutes=10),
+            timing.execute_at + timedelta(seconds=config.maximum_execution_lateness_seconds)))
+
+
 def _guard(conn, broker, *, base_url, grant, observation_id, starting_cash,
            automation_config_sha256=None, plan=None, actions=None, clock=_clock,
            issuer_admission_check=None):
@@ -216,10 +234,13 @@ def _guard(conn, broker, *, base_url, grant, observation_id, starting_cash,
             client_key=client_key, actions=actions() if callable(actions) else actions, now=clock)
     async def cancel_context(broker_order_id):
         return load_owned_cancel_command(conn, binding=bound, broker_order_id=broker_order_id)
+
     policy = LiveExecutionPolicy(
         admission=lambda: _admission(conn, base_url, automation_config_sha256),
         load_submit=submit_context, load_cancel=cancel_context, now=clock,
-        final_check=final_check)
+        final_check=final_check,
+        automation_buy_window=(lambda: _automation_buy_window(grant, plan))
+        if isinstance(grant, AutomationExecutionGrant) else None)
     wrapped = GuardedExecutionBroker(inner=broker, grant=grant, guard=guard, live_policy=policy,
         issuer_admission_check=issuer_admission_check)
     require_certified_adapter(wrapped, expected="alpaca-live")
@@ -392,6 +413,8 @@ async def execute_trading_plan(*, conn, broker, base_url, confirm_account,
                 scope="EXECUTE", expected_account=confirm_account, plan=plan, confirm_submit=True)
             if grant.operation_scope != "EXECUTE":
                 raise TradingGatewayRefused("execution requires an EXECUTE grant")
+            reductions_only = (isinstance(grant, AutomationExecutionGrant)
+                               and grant.reduction_only_reconciliation_id is not None)
             from sentinel.execution.issuer_runtime import PaperIssuerAdmission
             issuer = PaperIssuerAdmission(conn=conn, binding=bound.identity, clock=_clock)
             guarded = _guard(conn, broker, base_url=endpoint.base_url, grant=grant,
@@ -420,17 +443,37 @@ async def execute_trading_plan(*, conn, broker, base_url, confirm_account,
                 allow_restrictions=True)
             instruments = await _instrument_map(conn, guarded, shadow.state, plan,
                 observation, target_basket=projected.target_basket,
-                restricted_security_ids=preflight.restricted_securities)
-            issuer.prepare_for_transport(publication=pinned, state=shadow.state,
-                plan=plan, projection=projected, reconciliation=preflight)
+                restricted_security_ids=preflight.restricted_securities, reductions_only=True)
+            buy_deferrals: dict[str, str] = {}
+
+            async def prepare_increases(candidates, fresh_reconciliation):
+                security_ids = {delta.security_id for delta in candidates}
+                instruments.update(await _instrument_map(
+                    conn, guarded, shadow.state, plan, fresh_reconciliation.observation,
+                    target_basket=projected.target_basket,
+                    restricted_security_ids=fresh_reconciliation.restricted_securities,
+                    buy_deferrals=buy_deferrals, increase_security_ids=security_ids))
+                from sentinel.core.decision import DEFENSIVE_SECURITY_ID
+                if security_ids - {DEFENSIVE_SECURITY_ID}:
+                    issuer.prepare_for_transport(publication=pinned, state=shadow.state,
+                        plan=plan, projection=projected, reconciliation=fresh_reconciliation)
+
             async def mutation_authority(fresh_reconciliation):
                 _transport_observation_or_refuse(fresh_reconciliation)
+
+            def buy_window_open():
+                start, deadline = _automation_buy_window(grant, plan)
+                return start <= _clock() < deadline
+
             session = await executor.execute_session(broker=guarded, conn=conn,
                 deployment=bound.identity, plan=plan, instruments=instruments,
                 today=today, actions=actions, target_projection=projected,
                 min_increment=guarded.capabilities.minimum_quantity_increment,
                 mutation_authority=mutation_authority,
-                buy_admission=issuer.check_buy,
+                buy_admission=issuer.check_buy, prepare_increases=prepare_increases,
+                buy_deferrals=buy_deferrals, reductions_only=reductions_only,
+                market_buy_window_open=(buy_window_open
+                    if isinstance(grant, AutomationExecutionGrant) else None),
                 security_restrictions=preflight.restricted_securities)
             return TradingExecutionResult(plan=plan, preflight=preflight, session=session)
 
