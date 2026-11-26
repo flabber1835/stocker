@@ -39,5 +39,10 @@ read-only access to the two public lifecycle files. Broker keys, provisioning
 and settlement paths stay with their existing owners. The standby worker uses
 the same public execution, enrollment and funding paths and strict backup policy
 as the primary. Keep the backed PAPER installer check pinned to the exact
-reviewed Compose delta. These changes qualify software offline. The existing
-LIVE enrollment, pilot and deployment requirements still apply.
+reviewed Compose delta.
+
+The panel entry in the automation overlay extends its base role. The resulting
+service retains the base image selection and PAPER owner context. The overlay
+also declares the same Docker log rotation limits so every production graph
+retains the disk bounds. LIVE enrollment, pilot and deployment requirements
+still apply.

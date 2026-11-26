@@ -402,6 +402,8 @@ async def serial_flow(database, monkeypatch, *, continuation=None):
                 result = await native_submit(**kwargs)
                 if continuation not in {"working", "unknown", "rejected"}:
                     inner.fill(kwargs["client_key"])
+                if continuation == "expired":
+                    inner.now = opened + timedelta(minutes=10)
                 if continuation == "new_reconciliation_required":
                     inner.schedule_observe(FaultKind.PARTIAL_OBSERVATION)
                 return result
@@ -434,7 +436,7 @@ async def serial_flow(database, monkeypatch, *, continuation=None):
                     informational_current_book=True,
                     increase_reconciliation_authority=fresh_cash,
                     market_buy_window_open=(None if continuation == "handoff"
-                                            else lambda: continuation != "expired"))
+                                            else lambda: inner.now < opened + timedelta(minutes=10)))
 
             current = await invoke()
             if continuation == "pending_posting":
@@ -470,6 +472,8 @@ async def serial_flow(database, monkeypatch, *, continuation=None):
                 assert ExecutionResult(plan, rec, current).needs_attention is (continuation != "working")
                 if continuation == "cash":
                     assert len(checked_books) == 2 and "new account cash" in current.detail
+                if continuation == "expired":
+                    assert len(checked_books) == 1 and "outside the buy window" in current.detail
             return
         async def tick():
             return await executor._execute_session_locked(broker=broker, conn=database,

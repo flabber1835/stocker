@@ -384,21 +384,34 @@ async def test_native_fee_preparation_retries_its_original_phase_before_open(con
 
 
 @pytest.mark.asyncio
-async def test_native_fee_preparation_uses_read_only_recovery_at_open(conn):
+@pytest.mark.parametrize("callback_crosses_open", [False, True])
+async def test_native_fee_preparation_uses_read_only_recovery_at_open(conn, callback_crosses_open):
     cfg = config()
     enable(conn, cfg)
     calls = []
+    clock_now = THURSDAY_BEFORE_OPEN
 
-    def prepare(_context):
+    def prepare(context):
+        nonlocal clock_now
         calls.append("prepare")
+        if callback_crosses_open:
+            clock_now = context.cycle.execution_open_at
         raise NativeFeePostingWait("provider still reports pre-fee cash")
 
     service = service_for(cfg, prepare=prepare,
         recover=lambda context: calls.append("recover") or recovery_success(context))
     for _ in range(3):
-        pending = await service.tick(conn, now=THURSDAY_BEFORE_OPEN)
+        pending = await service.tick(conn, now=THURSDAY_BEFORE_OPEN, clock=lambda: clock_now)
     assert pending.cycle.state is CycleState.RETRY_WAIT
-    resumed = await service.tick(conn, now=pending.cycle.execution_open_at)
+    opened = pending.cycle.execution_open_at
+    if callback_crosses_open:
+        assert pending.cycle.diagnostic["retry_phase"] == "PREFLIGHT_RECOVER"
+        assert pending.cycle.next_wake_at > opened
+        assert (await service.tick(conn, now=opened)).action is TickAction.WAITING
+        assert calls == ["recover", "prepare"]
+    else:
+        assert pending.cycle.diagnostic["retry_phase"] == "PREPARE"
+    resumed = await service.tick(conn, now=max(opened, pending.cycle.next_wake_at))
     assert resumed.cycle.state is CycleState.SUPERSEDED
     assert calls == ["recover", "prepare", "recover"]
 
@@ -807,7 +820,8 @@ async def test_unresolved_journal_preflight_blocks_publication(conn) -> None:
 
 
 @pytest.mark.asyncio
-async def test_stale_preflight_recovery_supersedes_planless_cycle(conn) -> None:
+@pytest.mark.parametrize("cooldown", [False, True])
+async def test_stale_preflight_recovery_supersedes_planless_cycle(conn, cooldown) -> None:
     cfg = config()
     enable(conn, cfg)
     calls = []
@@ -815,6 +829,8 @@ async def test_stale_preflight_recovery_supersedes_planless_cycle(conn) -> None:
     def incomplete(context):
         calls.append(("incomplete", context.cycle.decision_session.isoformat(),
                       context.cycle.plan_id))
+        if cooldown:
+            raise TransientInfrastructureFailure("provider cooldown", retry_after_seconds=86_460)
         return {
             "disposition": "RECONCILE",
             "failure_code": "OPEN_COMMANDS",
@@ -844,7 +860,15 @@ async def test_stale_preflight_recovery_supersedes_planless_cycle(conn) -> None:
             "a stale preflight cycle must terminalize before refresh"),
         execute=lambda context: pytest.fail(
             "a planless preflight cycle must never execute"))
-    stale = await replacement.tick(conn, now=THURSDAY_AFTER_CLOSE)
+    wake = THURSDAY_AFTER_CLOSE
+    if cooldown:
+        waiting = await replacement.tick(conn, now=wake)
+        assert waiting.action is TickAction.WAITING
+        assert waiting.cycle == pending.cycle
+        assert waiting.cycle.next_wake_at == wake + timedelta(minutes=1)
+        assert calls == [("incomplete", "2026-08-12", None)]
+        wake = pending.cycle.next_wake_at
+    stale = await replacement.tick(conn, now=wake)
 
     assert stale.action is TickAction.SUPERSEDED
     assert stale.cycle.cycle_id == pending.cycle.cycle_id
@@ -858,7 +882,7 @@ async def test_stale_preflight_recovery_supersedes_planless_cycle(conn) -> None:
     ]
 
     current = service_for(cfg, recover=clean)
-    progressed = await current.tick(conn, now=THURSDAY_AFTER_CLOSE)
+    progressed = await current.tick(conn, now=wake)
     assert progressed.action is TickAction.RECOVERED
     assert progressed.cycle.state is CycleState.REFRESHING_DATA
     assert progressed.cycle.decision_session.isoformat() == "2026-08-13"

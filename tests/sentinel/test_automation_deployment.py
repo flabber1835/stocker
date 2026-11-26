@@ -24,7 +24,13 @@ def compose():
     yaml = pytest.importorskip("yaml")
     base = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))
     overlay = yaml.safe_load(AUTOMATION_COMPOSE.read_text(encoding="utf-8"))
-    base["services"].update(overlay["services"])
+    for name, override in overlay["services"].items():
+        original = base["services"].get(name, {})
+        service = {**original, **override}
+        # Compose merges environment mappings for partial service overrides.
+        if "environment" in original and "environment" in override:
+            service["environment"] = {**original["environment"], **override["environment"]}
+        base["services"][name] = service
     return base
 
 

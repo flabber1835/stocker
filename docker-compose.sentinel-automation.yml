@@ -67,6 +67,7 @@ x-sentinel-logging: &sentinel-logging
 
 services:
   sentinel-panel:
+    logging: *sentinel-logging
     environment:
       SENTINEL_LIVE_CERTIFICATE_PATH: ${SENTINEL_LIVE_CERTIFICATE_PATH:-}
       SENTINEL_LIVE_TRUST_ROOTS_PATH: ${SENTINEL_LIVE_TRUST_ROOTS_PATH:-}

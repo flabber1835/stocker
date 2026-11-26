@@ -254,6 +254,13 @@ and polling gaps after slow work.
 `/tmp/repo` copy with `/source` mounted read-only. The actual workflow command
 was syntax-checked and executed locally using the existing test lens.
 
+The shared PAPER and LIVE notification path has independent witnesses at the
+first plan check and at the next recipient after an accepted request. Removing
+either check must expose an obsolete plan. Reintroducing historical repair
+before claiming a due alert must prevent delivery in the poisoned-history
+witness. These checks exercise the dispatcher and delivery behavior rather than
+depending on the former optional-preview exception handler.
+
 The PostgreSQL recovery test creates one physical base, then commits a plan,
 enabled-but-killed control and the production checkpoint marker in later
 sessions. Restoring that same base through the captured flushed LSN recovers

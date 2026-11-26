@@ -927,8 +927,24 @@ def test_production_alpaca_dual_preparation_uses_current_book_without_fill_histo
 @pytest.mark.parametrize('restart', [False, True])
 def test_preparation_cannot_report_ready_when_native_identity_is_malformed(
         conn, gateway, monkeypatch, restart):
+    from sentinel.core.decision import DEFENSIVE_SECURITY_ID, DEFENSIVE_SYMBOL
     from sentinel.execution.alpaca import MalformedBrokerPayload
+    from sentinel.execution.commands import Command
+    from sentinel.execution.contract import BrokerInstrument, Side
+    from sentinel.execution.identity import CommandIdentity
+    from sentinel.execution.states import CommandState
+
     _shadow, bound, broker = gateway
+    # Preparation must prove a potential reduction even though a new BUY's
+    # tradeability is checked by the opening execution pass.
+    holding = BrokerInstrument(DEFENSIVE_SECURITY_ID, DEFENSIVE_SYMBOL)
+    shares = Decimal(100)
+    identity = CommandIdentity(bound.identity, 'prior-defensive-holding', holding.security_id)
+    journal.save_command(conn, Command(identity,
+        holding, Side.BUY, shares, state=CommandState.FILLED,
+        broker_order_id='prior-defensive-order', filled_quantity=shares,
+        filled_average_price=Decimal(51)))
+    broker.seed_position(holding, str(shares))
     first = prepare(conn, broker) if restart else None
     calls = []
     async def refuse(**values):
@@ -937,8 +953,9 @@ def test_preparation_cannot_report_ready_when_native_identity_is_malformed(
     monkeypatch.setattr(broker, 'resolve_instrument', refuse)
     with pytest.raises(paper.PaperActivationRefused, match='invalid broker instrument identity'):
         prepare(conn, broker)
-    assert calls
-    assert not journal.load_commands(conn, bound.identity)
+    assert calls == [{'security_id': holding.security_id, 'symbol': holding.symbol}]
+    prior, = journal.load_commands(conn, bound.identity)
+    assert prior.identity == identity and prior.state is CommandState.FILLED
     assert journal.latest_plan(conn) == (first.plan if first else None)
 
 

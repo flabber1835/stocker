@@ -1,7 +1,6 @@
 """Dollar preview uses saved policy/valuation; it never asserts broker eligibility."""
 from copy import deepcopy
 from decimal import Decimal, localcontext
-from types import SimpleNamespace
 
 import pytest
 
@@ -46,7 +45,7 @@ def test_monday_dollar_preview_and_hold_exit_quantities(monkeypatch):
     html = overview._leg_html(legs['MTD'], ())
     assert '$1,340.19 market order' in html and 'estimated shares' not in html
     row = model.Row('paper_plan','Plan','ready',paper_plan=result)
-    card = overview._plan_html(SimpleNamespace(now=NOW, row=lambda key: row if key=='paper_plan' else None))
+    card = overview._plan_html(model.Panel(rows=[row], now=NOW))
     assert '$1,340.19 market order' in card and '$1,337.67 market order' in card
     assert 'Buy limits' not in card and 'whole-share market orders apply' in card
     detail = render._paper_plan_html(row, NOW)

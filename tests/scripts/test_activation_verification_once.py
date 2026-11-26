@@ -75,16 +75,20 @@ def test_installed_entry_keeps_one_fenced_lineage_read(monkeypatch,tmp_path,faul
     monkeypatch.setattr(core,'verify_reviewed_software_environment',verify)
     request=dict(source_commit=gate.COMMIT,mode='dual',installation_sha256='a'*64,
                  bundle=str(bundle.path),bundle_sha256=bundle.sha256)
+    request_path = tmp_path / 'activation-request.json'
+    request_path.write_text(json.dumps(request), encoding='utf-8')
     if fault:
         with pytest.raises(core.DeployRefused):
-            activate.attempt(tmp_path/'activation-request.json',request,dict(runtime_image=gate.RUNTIME))
+            activate.attempt(request_path, request, dict(runtime_image=gate.RUNTIME))
         assert 'configure_reviewed_mode_while_fenced' not in events
         assert 'plan' not in events
         assert not (tmp_path/'activation-result.json').exists()
     else:
-        activate.attempt(tmp_path/'activation-request.json',request,dict(runtime_image=gate.RUNTIME))
+        activate.attempt(request_path, request, dict(runtime_image=gate.RUNTIME))
         assert lineage==['read'] and events[-1]=='success'
         assert json.loads((tmp_path/'activation-result.json').read_text())['activation_state']=='ACTIVE'
+        intent = json.loads((tmp_path / 'activation-attempt.json').read_text())
+        assert intent['request_sha256'] == activate.digest(request_path)
     assert software_calls==[True]
     assert quiesces==[True,True]
     assert events.count('git') == 1  # Initial admission before GO.

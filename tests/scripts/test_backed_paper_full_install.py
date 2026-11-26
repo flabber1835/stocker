@@ -29,7 +29,11 @@ def test_canonical_graph_keeps_owner_policy_separate_from_image_and_archiving():
     base = yaml.safe_load((ROOT / 'docker-compose.sentinel.yml').read_text())
     authorized = yaml.safe_load((ROOT / 'docker-compose.sentinel-automation.yml').read_text())
     backup = yaml.safe_load((ROOT / 'docker-compose.sentinel-backup.yml').read_text())
-    services = {**base['services'], **authorized['services']}
+    services = dict(base['services'])
+    for role, override in authorized['services'].items():
+        previous = services.get(role, {})
+        services[role] = {**previous, **override, 'environment': {
+            **previous.get('environment', {}), **override.get('environment', {})}}
     for role in ('sentinel', 'sentinel-authorized-cli', *ROLES):
         environment = services[role]['environment']
         for key in OWNER_KEYS:

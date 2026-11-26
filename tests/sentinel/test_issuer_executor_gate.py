@@ -166,7 +166,7 @@ def test_pre_settlement_admission_has_a_falsifier(harness, monkeypatch):
 
     preflight_proof()
     source = inspect.getsource(execution._execute_session_locked)
-    needle = 'if not issuer_admitted(delta):'
+    needle = 'if check_issuer and not issuer_admitted(delta):'
     assert source.count(needle) == 1
     namespace = dict(vars(execution))
     exec(compile(source.replace(needle, 'if False:'), 'missing-issuer-preflight', 'exec'), namespace)

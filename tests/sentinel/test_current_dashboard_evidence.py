@@ -28,12 +28,17 @@ class Rows:
         return self.rows
 
 
-def test_account_reader_uses_canonical_ownership_without_broker_access():
+@pytest.mark.parametrize(('url', 'broker'), [
+    ('https://paper-api.alpaca.markets', 'alpaca'),
+    ('https://api.alpaca.markets', 'alpaca-live'),
+])
+def test_account_reader_uses_canonical_ownership_without_broker_access(monkeypatch, url, broker):
     from sentinel.binding import SENTINEL_OWNED
+    monkeypatch.setenv('ALPACA_BASE_URL', url)
     conn = Rows([('fixture-account',)])
     assert sources._bound_account_id(conn) == 'fixture-account'
-    assert conn.sql[0][1] == (SENTINEL_OWNED,)
-    assert "ownership_state=%s" in conn.sql[0][0]
+    assert conn.sql[0][1] == (SENTINEL_OWNED, broker)
+    assert "ownership_state=%s AND broker=%s" in conn.sql[0][0]
     assert sources._bound_account_id(Rows([])) is None
     with pytest.raises(ValueError, match='not unique'):
         sources._bound_account_id(Rows([('one',), ('two',)]))
@@ -142,15 +147,17 @@ def test_dual_runtime_broker_reader_does_not_consult_legacy_book(monkeypatch, mo
     from sentinel import paper_plan_preview
     from sentinel.panel.intent_memo import read as dated_intent
 
+    monkeypatch.setenv('ALPACA_BASE_URL', 'https://paper-api.alpaca.markets')
     monkeypatch.setenv('SENTINEL_REVIEWED_DEPLOYMENT_MODE', mode)
     helper = RuntimeFixture()
     _sources, connection = helper._install_sources(monkeypatch, observation={'observed_at': NOW,
         'completeness': 'COMPLETE', 'positions': {}, 'orders': [], 'runtime_state': 'RUNNING'},
         commands={'counts': {}, 'updated_at': NOW})
     preview_reads = []
-    def read_preview(conn, *, authority_loader):
+    def read_preview(conn, *, authority_loader, expected_broker):
         assert conn is connection
         assert authority_loader is dated_intent
+        assert expected_broker == 'alpaca'
         preview_reads.append(conn)
         return None
     monkeypatch.setattr(paper_plan_preview, 'read', read_preview)
