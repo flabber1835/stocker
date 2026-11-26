@@ -44,6 +44,18 @@ def test_live_account_receipt_is_native_bound_and_retains_actual_namespace(db, t
     assert db.execute('SELECT count(*) FROM sentinel_commands').fetchone()[0] == 0
     assert [path for _, path, _ in f.calls] == ['/v2/account', '/v2/account']
 
+    from sentinel.panel import model, overview_data, sources
+
+    monkeypatch.setenv('ALPACA_BASE_URL', f.config.base_url)
+    observed = sources._latest_account_evidence(db)
+    account_id = sources._bound_account_id(db)
+    assert account_id == f.subject.account_id
+    assert model.alpaca_account_row(available=True, expected_account_id=account_id,
+                                    expected_broker='alpaca-live', **observed).status == model.OK
+    assert overview_data.account_overview(observed, expected_account_id=account_id,
+                                          expected_broker='alpaca-live').cash == D('1000')
+    assert overview_data.account_overview(observed, expected_account_id=account_id) is None
+
 
 def test_real_public_loader_rechecks_actual_private_database_before_each_get(db, tmp_path, monkeypatch):
     actual_require, actual_rollout = binding.require, repository.load_rollout_state
@@ -154,6 +166,24 @@ def test_live_average_order_without_native_activities_never_invents_a_fill(db, t
     f.activities = []
     assert asyncio.run(fill_notifications.collect(db, config=f.config, reader=reader(f), now=f.now)) == 0
     assert db.execute('SELECT count(*) FROM sentinel_alert_outbox').fetchone()[0] == 0
+
+
+def test_live_fill_uses_actual_response_clock_before_local_ledger_advances(db, tmp_path, monkeypatch):
+    f = fill_fixture(db, tmp_path, monkeypatch)
+    filled = datetime.fromisoformat(f.activities[0]['transaction_time'])
+    samples = iter((filled - timedelta(milliseconds=500), filled + timedelta(milliseconds=500)))
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return next(samples)
+
+    monkeypatch.setattr(fill_notifications, 'datetime', Clock)
+    db.execute("UPDATE sentinel_commands SET state='ACKNOWLEDGED',filled_quantity=0,filled_average_price=NULL")
+    db.commit()
+    assert asyncio.run(fill_notifications.collect(db, config=f.config, reader=reader(f))) == 1
+    assert db.execute('SELECT state,filled_quantity FROM sentinel_commands').fetchone() == ('ACKNOWLEDGED', D('0'))
+    assert db.execute('SELECT count(*) FROM sentinel_fills').fetchone() == (0,)
 
 
 @pytest.mark.parametrize('observed_at', [

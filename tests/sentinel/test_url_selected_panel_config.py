@@ -62,4 +62,24 @@ def test_compose_forwards_one_url_and_public_authority_without_sender_credential
     sender = services['sentinel-alert-dispatcher']['environment']
     assert sender['ALPACA_BASE_URL'] == services[roles[0]]['environment']['ALPACA_BASE_URL']
     assert sender['ALPACA_API_KEY'] == sender['ALPACA_SECRET_KEY'] == ''
-    assert not public_names & sender.keys()
+    lifecycle_names = {'SENTINEL_LIVE_CERTIFICATE_PATH', 'SENTINEL_LIVE_TRUST_ROOTS_PATH'}
+    base = yaml.safe_load((root/'docker-compose.sentinel.yml').read_text())['services']
+    standby = yaml.safe_load(
+        (root/'docker-compose.sentinel-automation-standby.yml').read_text())['services']
+    for config in (services['sentinel-panel'], services['sentinel-verifier'],
+                   services['sentinel-alert-dispatcher'], standby['sentinel-alert-dispatcher-standby']):
+        assert public_names & config['environment'].keys() == lifecycle_names
+        assert not config['environment'].get('ALPACA_API_KEY')
+        assert not config['environment'].get('ALPACA_SECRET_KEY')
+        assert any(isinstance(volume, dict) and volume['target'] == '/var/lib/sentinel-authority'
+                   and volume['read_only'] is True for volume in config['volumes'])
+    primary_url = services[roles[0]]['environment']['ALPACA_BASE_URL']
+    assert base['sentinel-panel']['environment']['ALPACA_BASE_URL'] == primary_url
+    assert standby['sentinel-alert-dispatcher-standby']['environment']['ALPACA_BASE_URL'] == primary_url
+    worker = standby['sentinel-automation-standby']
+    assert worker['environment']['ALPACA_BASE_URL'] == primary_url
+    assert worker['environment']['SENTINEL_RUNTIME_BACKUP_AUTHORITY'] == 'REQUIRED_V1'
+    assert (public_names & worker['environment'].keys()
+            == lifecycle_names | {'SENTINEL_LIVE_FUNDING_CERTIFICATE_PATH'})
+    assert any(volume['target'] == '/var/lib/sentinel-authority'
+               and volume['read_only'] is True for volume in worker['volumes'])

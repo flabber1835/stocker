@@ -27,9 +27,10 @@ _ALERT_ID = re.compile(r"^[0-9a-f]{64}$")
 
 def _sender_available(conn) -> bool:
     try:
+        maximum_age, startup_grace = alert_health.health_intervals_from_env()
         health = alert_health.require_healthy(
-            conn, dispatcher_id="primary", maximum_age_seconds=30,
-            startup_grace_seconds=330)
+            conn, dispatcher_id=None, maximum_age_seconds=maximum_age,
+            startup_grace_seconds=startup_grace)
         return health.state == alert_health.HEALTHY
     except Exception:  # The absence is returned explicitly, never called delivery.
         conn.rollback()
@@ -39,7 +40,8 @@ def _sender_available(conn) -> bool:
 def _test_receipt(conn, alert) -> dict:
     state = ("CANCELLED" if notification_policy.is_cancelled(alert) else {
         "PENDING": "QUEUED", "DELIVERING": "SENDING",
-        "DELIVERED": "ACCEPTED", "DEAD_LETTER": "FAILED",
+        "DELIVERED": "ACCEPTED" if alert.delivered_at is not None else "FAILED",
+        "DEAD_LETTER": "FAILED",
     }[alert.state])
     return {"alert_id": alert.alert_id, "delivery_status": state,
             "sender_available": _sender_available(conn)}

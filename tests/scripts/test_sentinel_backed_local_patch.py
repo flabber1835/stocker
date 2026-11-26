@@ -96,9 +96,54 @@ def test_exact_compose_guard_has_executed_falsifier(verifier_grace_host, monkeyp
         test_backed_installer_refuses_unqualified_verifier_grace_changes(verifier_grace_host, 'other_change')
 
 
-def _verifier_config_pair():
+def _live_observer_compose_pair():
     name = 'docker-compose.sentinel-automation.yml'
     candidate = (ROOT / name).read_bytes()
+    panel = candidate.index(b'  sentinel-panel:\n')
+    next_service = candidate.index(b'  sentinel-authority-permissions:\n')
+    original = candidate[:panel] + candidate[next_service:]
+    public_files = (b'      SENTINEL_LIVE_CERTIFICATE_PATH: ${SENTINEL_LIVE_CERTIFICATE_PATH:-}\n'
+                    b'      SENTINEL_LIVE_TRUST_ROOTS_PATH: ${SENTINEL_LIVE_TRUST_ROOTS_PATH:-}\n')
+    mount = (b'      # Read-only signed LIVE lifecycle inputs.\n'
+             b'      - type: bind\n'
+             b'        source: ${SENTINEL_AUTHORITY_ARTIFACTS_DIR:-./artifacts/authority}\n'
+             b'        target: /var/lib/sentinel-authority\n'
+             b'        read_only: true\n')
+    assert original.count(public_files) == original.count(mount) == 2
+    original = original.replace(public_files, b'')
+    original = original.replace(b'    volumes:\n' + mount, b'', 1)
+    original = original.replace(mount, b'', 1)
+    return name, original, candidate
+
+
+@pytest.mark.parametrize('fault', [None, 'neighbor', 'wrong_predecessor'])
+def test_backed_installer_accepts_only_exact_live_observer_wiring(tmp_path, fault):
+    name, original, candidate = _live_observer_compose_pair()
+    if fault == 'neighbor':
+        candidate = candidate.replace(b'mem_limit: 512m', b'mem_limit: 768m', 1)
+    if fault == 'wrong_predecessor':
+        original = original.replace(b'mem_limit: 512m', b'mem_limit: 768m', 1)
+    host, name, original, candidate = _backed_compose_host(tmp_path, name, original, candidate)
+    if fault is not None:
+        with pytest.raises(patch.DeliveryRefused, match='BACKED_COMPOSITION_CHANGE_REFUSED'):
+            host.install_compose()
+        assert (host.deployment / name).read_bytes() == original
+    else:
+        host.verify_compose('predecessor')
+        host.install_compose()
+        host.verify_compose('candidate')
+
+
+def test_live_observer_compose_digest_falsifier(tmp_path, monkeypatch):
+    name, _, candidate = _live_observer_compose_pair()
+    altered = candidate.replace(b'mem_limit: 512m', b'mem_limit: 768m', 1)
+    monkeypatch.setattr(patch, '_LIVE_OBSERVER_COMPOSE_SHA256', hashlib.sha256(altered).hexdigest())
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_backed_installer_accepts_only_exact_live_observer_wiring(tmp_path, 'neighbor')
+
+
+def _verifier_config_pair():
+    name, candidate, _ = _live_observer_compose_pair()
     assert hashlib.sha256(candidate).hexdigest() == patch._VERIFIER_CONFIG_CANDIDATE_SHA256
     assert candidate.count(patch._VERIFIER_CONFIG_FORWARDING) == 1
     original = candidate.replace(patch._VERIFIER_CONFIG_FORWARDING, b'', 1)

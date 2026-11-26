@@ -10,9 +10,9 @@ from sentinel_autonomous_deploy_install_entry import InstallAnytimeConfig, Insta
 from sentinel_env_writer import EnvWriteRefused, safe_update_dotenv
 
 
-def _deploy_writer(path: Path, updates: Mapping[str, str]) -> None:
+def _deploy_writer(path: Path, updates: Mapping[str, str], *, record_intent=None) -> None:
     try:
-        safe_update_dotenv(path, updates)
+        safe_update_dotenv(path, updates, record_intent=record_intent)
     except EnvWriteRefused as exc:
         raise core.DeployRefused(str(exc)) from None
 

@@ -13,7 +13,7 @@ const win = {location:{reload:()=>reloads++}};
 vm.runInNewContext(input.script, {
   document:{getElementById:id=>id==='review-result'?result:button,
     addEventListener:(name,fn)=>{if(name==='click')click=fn;}},
-  window:win, AbortController,
+  window:win, AbortController, performance,
   setTimeout:fn=>{timer=fn;return 1;},clearTimeout:()=>{},
   fetch:(url,options)=>{requests++;request={url,options};options.signal.addEventListener('abort',()=>reject(new Error('timeout')));return response;}
 });
@@ -36,7 +36,11 @@ if (input.case==='absent') {
     button.dataset.viewToken='new-view'; win.syncReviewControl(); click({target:button});
     assert.equal(requests,1,'pending attempt owns the page through refresh');
   }
-  if (input.case==='timeout') timer();
+  if (input.case==='body-timeout') {
+    resolve({ok:true,json:()=>new Promise(()=>{})});
+    Promise.resolve().then(()=>timer());
+  }
+  else if (input.case==='timeout') timer();
   else if (input.case==='network') reject(new Error('offline'));
   else resolve({ok:input.case==='success' || input.case==='malformed',
     json:async()=>input.case==='malformed'?{status:'REVIEW',head:2,reviewed_head:1}:

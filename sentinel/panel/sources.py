@@ -27,6 +27,9 @@ from typing import Optional
 
 from psycopg.errors import LockNotAvailable, QueryCanceled
 
+from sentinel.execution.retired_unsent import (
+    no_planned_buy_native_match, only_retired_unsent_buys as _only_retired_unsent_buys,
+)
 from sentinel.feed import publication_progress
 from sentinel.panel import model
 
@@ -705,135 +708,6 @@ def _planned_buy_proven_unsent(conn, order, *, execute_at, completed_at):
         conn, order.client_key, execute_at=execute_at, as_of=completed_at)
 
 
-def _no_planned_buy_native_match(payload, planned_keys):
-    """A restored checkpoint is not proof if native list or exact GET found it."""
-    if not planned_keys:
-        return True
-    orders, exact = payload.get('orders'), payload.get('exact_evidence')
-    if not isinstance(orders, list) or not isinstance(exact, list):
-        return False
-    if any(not isinstance(order, Mapping)
-           or not isinstance(order.get('client_key'), str)
-           or order['client_key'] in planned_keys for order in orders):
-        return False
-    return not any(not isinstance(item, Mapping)
-        or not isinstance(item.get('client_key'), str)
-        or item['client_key'] in planned_keys and item.get('order') is not None
-        or isinstance(item.get('order'), Mapping)
-            and item['order'].get('client_key') in planned_keys
-        for item in exact)
-
-
-def _only_retired_unsent_buys(conn, cycle, observation, counts, *, now):
-    """Prove the global PLANNED set cannot require broker reconciliation."""
-    from sentinel.execution import journal
-    from sentinel.execution.states import TERMINAL
-
-    planned_count = counts.get('PLANNED', 0)
-    if (not cycle or cycle.get('state') != 'WAITING_OPEN'
-            or not 0 < planned_count <= 100
-            or counts != {'PLANNED': planned_count}
-            or observation['completeness'] != 'COMPLETE'
-            or observation['runtime_state'] != 'RUNNING'):
-        return False
-
-    rows = conn.execute("""
-        SELECT cmd.client_key, old.execute_at, old.completed_at, prior.seq,
-               waiting.broker, waiting.broker_account_id
-        FROM sentinel_automation_cycles waiting
-        JOIN sentinel_automation_control control ON control.id=1
-          AND waiting.control_generation=control.generation
-          AND waiting.certificate_sha256=control.certificate_sha256
-          AND waiting.config_sha256=control.config_sha256
-          AND (waiting.deployment_id,waiting.broker,waiting.broker_account_id,waiting.takeover_epoch)
-             =(control.deployment_id,control.broker,control.broker_account_id,control.takeover_epoch)
-        JOIN sentinel_account_binding binding ON binding.id=1
-          AND binding.ownership_state='SENTINEL_OWNED'
-          AND (binding.deployment_id,binding.broker,binding.broker_account_id,binding.takeover_epoch)
-             =(waiting.deployment_id,waiting.broker,waiting.broker_account_id,waiting.takeover_epoch)
-        JOIN sentinel_execution_plans current ON current.plan_id=waiting.plan_id
-          AND current.superseded_by IS NULL
-          AND (current.decision_session,current.effective_session)
-             =(waiting.decision_session,waiting.effective_session)
-          AND (current.deployment_id,current.broker,current.broker_account_id,current.takeover_epoch)
-             =(waiting.deployment_id,waiting.broker,waiting.broker_account_id,waiting.takeover_epoch)
-          JOIN sentinel_commands cmd ON cmd.state='PLANNED'
-            AND (cmd.deployment_id,cmd.broker,cmd.broker_account_id,cmd.takeover_epoch)
-               =(waiting.deployment_id,waiting.broker,waiting.broker_account_id,waiting.takeover_epoch)
-          JOIN sentinel_execution_plans expired ON expired.plan_id=cmd.plan_id
-            AND expired.effective_session=current.decision_session
-          AND (expired.deployment_id,expired.broker,expired.broker_account_id,expired.takeover_epoch)
-             =(waiting.deployment_id,waiting.broker,waiting.broker_account_id,waiting.takeover_epoch)
-        JOIN sentinel_automation_cycles old ON old.plan_id=expired.plan_id
-            AND old.control_generation BETWEEN 1 AND waiting.control_generation
-          AND (old.decision_session,old.effective_session)
-             =(expired.decision_session,expired.effective_session)
-          AND (old.deployment_id,old.broker,old.broker_account_id,old.takeover_epoch)
-             =(waiting.deployment_id,waiting.broker,waiting.broker_account_id,waiting.takeover_epoch)
-        JOIN sentinel_observations newest ON newest.seq=(SELECT max(seq) FROM sentinel_observations)
-          AND newest.seq::text=waiting.last_clean_reconciliation_id
-        JOIN sentinel_observations prior ON prior.seq::text=old.last_clean_reconciliation_id
-          AND prior.seq<newest.seq AND prior.observed_at BETWEEN old.execute_at AND old.completed_at
-        WHERE waiting.cycle_id=%s AND waiting.plan_id=%s AND waiting.state='WAITING_OPEN'
-          AND waiting.broker='alpaca' AND control.enabled AND NOT control.kill_switch_engaged
-          AND control.authority_verdict='PASS'
-          AND NOT waiting.historical_state_only AND NOT old.historical_state_only
-          AND waiting.failure_code IS NULL AND waiting.next_wake_at=waiting.execute_at
-          AND waiting.next_wake_at=%s
-          AND %s<waiting.execution_open_at
-          AND old.state='SUPERSEDED' AND old.failure_code=%s
-          AND old.completed_at<=newest.observed_at
-          AND old.diagnostic->'clean'='true'::jsonb AND old.diagnostic->>'terminal_reason' IS NULL
-          AND old.diagnostic->'unresolved'='[]'::jsonb
-          AND old.diagnostic->'foreign_orders'='[]'::jsonb
-          AND old.diagnostic->'foreign_positions'='[]'::jsonb
-          AND old.diagnostic->'restricted_securities'='{}'::jsonb
-          AND old.diagnostic->'expected'=old.diagnostic->'observed'
-          AND newest.seq=%s AND newest.observed_at=%s
-          AND newest.completeness='COMPLETE' AND newest.runtime_state='RUNNING'
-          AND prior.completeness='COMPLETE' AND prior.runtime_state='RUNNING'
-          AND cmd.side='BUY' AND cmd.filled_quantity=0 AND cmd.broker_order_id IS NULL
-          AND (SELECT count(*) FROM sentinel_commands WHERE state=ANY(%s))=%s
-            AND EXISTS (
-                WITH RECURSIVE successors(plan_id,superseded_by,hops) AS (
-                    SELECT expired.plan_id,expired.superseded_by,0
-                    UNION ALL
-                    SELECT next_plan.plan_id,next_plan.superseded_by,successors.hops+1
-                    FROM successors
-                    JOIN sentinel_execution_plans next_plan ON next_plan.plan_id=successors.superseded_by
-                    WHERE successors.hops<32
-                      AND (next_plan.decision_session,next_plan.effective_session)
-                         =(current.decision_session,current.effective_session)
-                      AND (next_plan.deployment_id,next_plan.broker,next_plan.broker_account_id,next_plan.takeover_epoch)
-                         =(current.deployment_id,current.broker,current.broker_account_id,current.takeover_epoch)
-                )
-                SELECT 1 FROM successors WHERE plan_id=current.plan_id
-            )
-        LIMIT 101
-        """, (cycle['cycle_id'], cycle.get('plan_id'), cycle.get('next_wake_at'), now,
-              model.OPENING_CUTOFF, observation['sequence'], observation['observed_at'],
-              list(_ACTIVE_COMMAND_STATES), planned_count)).fetchall()
-    keys = {row[0] for row in rows}
-    anchor = {(row[3], row[4], row[5]) for row in rows}
-    if len(rows) != planned_count or len(keys) != planned_count or len(anchor) != 1:
-        return False
-    prior, broker, account = anchor.pop()
-    from sentinel.automation.missed_buy_alert import no_transport_chain
-    if not all(no_transport_chain(conn, key, execute_at=opened, as_of=completed)
-               for key, opened, completed, *_ in rows):
-        return False
-
-    terminal = {state.value for state in TERMINAL}
-    for sequence in (prior, observation['sequence']):
-        payload = journal.load_observation_payload(conn, sequence)
-        if (payload.get('completeness') != 'COMPLETE'
-                or (payload.get('broker'), payload.get('account_id')) != (broker, account)
-                or not _no_planned_buy_native_match(payload, keys)
-                or any(order.get('state') not in terminal for order in payload['orders'])):
-            return False
-    return True
-
-
 def _opening_cutoff_progress(conn, plan, run, terminal, notional_by_security):
     """Read partial-run history only from exact terminal economics and clean journal proof."""
     from sentinel import local_paper
@@ -900,7 +774,7 @@ def _opening_cutoff_progress(conn, plan, run, terminal, notional_by_security):
     if (payload.get('completeness') != 'COMPLETE'
             or (payload.get('broker'), payload.get('account_id')) != (plan['broker'], plan['broker_account_id'])
             or any(CommandState(order['state']) not in TERMINAL for order in payload['orders'])
-            or not _no_planned_buy_native_match(payload, planned_keys)):
+            or not no_planned_buy_native_match(payload, planned_keys)):
         return None
     from sentinel.paper_plan_preview import quantity
     positions = {item['security_id']: quantity(item['quantity']) for item in payload['positions']}
@@ -1866,6 +1740,21 @@ def _service_authority_verdict(
 
 
 def _authority_lifecycle(conn) -> dict:
+    endpoint = _selected_trading_endpoint()
+    if endpoint.environment.name == 'LIVE':
+        from sentinel.authority.live_runtime import require_live_control_lifecycle
+        from sentinel.automation import store
+
+        control = store.load_control(conn)
+        result = {'authority_generation': control.generation, 'authority_mode': 'LIVE',
+                  'lifecycle_status': 'DISABLED', 'lifecycle_current': False}
+        if not control.enabled:
+            return result
+        verified = require_live_control_lifecycle(conn, control, base_url=endpoint.base_url)
+        return {**result, 'certificate_sha256': verified.certificate_sha256,
+                'lifecycle_status': 'ACTIVE', 'lifecycle_current': True,
+                'expires_at': _utc(verified.claims.expires_at),
+                'reviewed_image_digest': verified.claims.runtime_bindings['runtime_image_digest']}
     with conn.cursor() as cur:
         cur.execute(
             "SELECT a.generation,a.active_certificate_sha256,a.updated_at,"
@@ -1941,13 +1830,20 @@ def _authority_lifecycle(conn) -> dict:
     }
 
 
+def _selected_trading_endpoint():
+    from sentinel.config import DEFAULT_BASE_URL, trading_endpoint
+
+    return trading_endpoint(os.environ.get('ALPACA_BASE_URL', DEFAULT_BASE_URL))
+
+
 def _latest_account_evidence(conn) -> dict | None:
     with conn.cursor() as cur:
         cur.execute(
             "SELECT broker,broker_account_id,status,flags,equity,cash,"
             " buying_power,multiplier,observed_at"
             " FROM sentinel_broker_account_evidence"
-            " ORDER BY observed_at DESC,seq DESC LIMIT 1")
+            " WHERE broker=%s ORDER BY observed_at DESC,seq DESC LIMIT 1",
+            (_selected_trading_endpoint().broker_namespace,))
         row = cur.fetchone()
     if row is None:
         return None
@@ -1969,7 +1865,8 @@ def _bound_account_id(conn) -> str | None:
     with conn.cursor() as cur:
         cur.execute(
             "SELECT broker_account_id FROM sentinel_account_binding"
-            " WHERE id=1 AND ownership_state=%s", (SENTINEL_OWNED,))
+            " WHERE id=1 AND ownership_state=%s AND broker=%s",
+            (SENTINEL_OWNED, _selected_trading_endpoint().broker_namespace))
         rows = cur.fetchall()
     if len(rows) > 1:
         raise ValueError("account binding singleton is not unique")
@@ -2185,12 +2082,12 @@ def _backup_evidence_snapshot(conn) -> dict:
 def _runtime_verdict(conn) -> dict | None:
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT authority_verdict,authority_checked_at"
+            "SELECT authority_verdict,authority_checked_at,certificate_sha256"
             " FROM sentinel_automation_control WHERE id=1")
         row = cur.fetchone()
     if row is None:
         return None
-    return {"verdict": row[0], "checked_at": _utc(row[1])}
+    return {"verdict": row[0], "checked_at": _utc(row[1]), "certificate_sha256": row[2]}
 
 
 def _cash_posting_overview(conn, *, account_id, now):
@@ -2305,6 +2202,7 @@ def _operator_evidence_rows(
                         or (cycle or {}).get("protected_cohort") or {})
             original_expiry = _utc(original.get("observed_at")) + timedelta(minutes=10)
             account_valid_until = min(account_valid_until, original_expiry) if account_valid_until else original_expiry
+        selected_broker = _selected_trading_endpoint().broker_namespace
         account_row = (
             model.alpaca_account_row(
                 available=None, error=account_detail,
@@ -2312,6 +2210,7 @@ def _operator_evidence_rows(
             if account_detail else
             model.alpaca_account_row(
                 available=account is not None, expected_account_id=bound,
+                expected_broker=selected_broker,
                 valid_until=account_valid_until,
                 recovery=account_recovery,
                 matched_protected_reservation=reservation,
@@ -2321,7 +2220,8 @@ def _operator_evidence_rows(
                 market_working is not None and account_row.recovery == market_working):
             from sentinel.panel.overview_data import account_overview
             account_row = replace(account_row, paper_account=account_overview(
-                account, expected_account_id=bound, cash_posting=cash_posting))
+                account, expected_account_id=bound, expected_broker=selected_broker,
+                cash_posting=cash_posting))
 
         backup_error = base_error or restore_error or runtime_backup_error or maintenance_error
         backup_row = model.backup_restore_row(
@@ -2350,6 +2250,9 @@ def _operator_evidence_rows(
         identity_error = lifecycle_error or verdict_error
         lifecycle = dict(lifecycle or {})
         runtime_verdict = dict(verdict or {})
+        if (selected_broker == 'alpaca-live'
+                and lifecycle.get('certificate_sha256') != runtime_verdict.get('certificate_sha256')):
+            identity_error = identity_error or 'Runtime verdict names another LIVE certificate.'
         identity_row = model.runtime_identity_row(
             runtime_git=os.environ.get("SENTINEL_GIT_COMMIT", "").strip(),
             runtime_image=os.environ.get(
@@ -2360,6 +2263,8 @@ def _operator_evidence_rows(
             lifecycle_current=lifecycle.get("lifecycle_current"),
             authority_verdict=runtime_verdict.get("verdict"),
             checked_at=runtime_verdict.get("checked_at"),
+            live=selected_broker == 'alpaca-live',
+            valid_until=lifecycle.get('expires_at') if selected_broker == 'alpaca-live' else None,
             error=identity_error)
         if local:
             from sentinel import identity as runtime_identity
@@ -4510,13 +4415,14 @@ def _runtime_projection(database_url: str, *, include_book=True,
                 confirmed = None
                 if (recovery_cycle is not None and recovery_cycle.get('state') in {'WAITING_OPEN', 'EXECUTING'}
                         and recovery_cycle.get('plan_id') and recovery_cycle.get('execute_at')
-                        and not (working_orders or counts or uncertain)
+                        and not (working_orders or active or uncertain)
                         and observation['completeness'] == 'COMPLETE'
                         and observation['runtime_state'] == 'RUNNING'):
                     from sentinel.execution import opening_display
                     confirmed, _ = _read(conn,
                         lambda c: opening_display.observed_at(
                             c, cycle_id=recovery_cycle['cycle_id'], plan_id=recovery_cycle['plan_id'],
+                            broker=_selected_trading_endpoint().broker_namespace,
                             reconciliation=observation.get('sequence')),
                         STATEMENT_TIMEOUT_MS, default=None)
                 journal_observed_at = observed_at
@@ -4590,12 +4496,15 @@ def _runtime_projection(database_url: str, *, include_book=True,
             errors.append('recorded completed trading run: '+completed_error)
             completed_row = model.Row('completed_trading_run','Today’s recorded completed run',
                 'UNAVAILABLE',model.UNKNOWN,detail=completed_error)
-        if os.environ.get('SENTINEL_REVIEWED_DEPLOYMENT_MODE') not in {'dual','paper'}:
+        broker_namespace = _selected_trading_endpoint().broker_namespace
+        live = broker_namespace == 'alpaca-live'
+        if not live and os.environ.get('SENTINEL_REVIEWED_DEPLOYMENT_MODE') not in {'dual','paper'}:
             return [exposure, book, terminals, broker], errors
         from sentinel import paper_plan_preview
         from sentinel.panel.intent_memo import read as dated_intent
         preview, preview_error = _read(conn, lambda c: paper_plan_preview.read(
-            c, authority_loader=dated_intent), STATEMENT_TIMEOUT_MS, default=None)
+            c, authority_loader=dated_intent, expected_broker=broker_namespace),
+            STATEMENT_TIMEOUT_MS, default=None)
         adopting = None
         if (preview is None and not preview_error and recovery_cycle
                 and recovery_cycle.get('state') in {'DISCOVERED', 'REFRESHING_DATA', 'PREPARING'}
@@ -4626,10 +4535,12 @@ def _runtime_projection(database_url: str, *, include_book=True,
             if outcome_error:
                 # A supplementary projection cannot replace the saved plan;
                 # unreadable outcome provenance remains visible to operators.
-                errors.append('previous paper order outcomes: '+outcome_error)
+                errors.append('previous broker order outcomes: '+outcome_error)
             else:
                 plan_row = replace(plan_row, order_outcomes=outcomes)
         sampled = now or datetime.now(timezone.utc)
+        if live:
+            plan_row = replace(plan_row, label='Next live plan')
         trading_row = _opening_cutoff_current_status(trading_row, plan_row, recovery_cycle, now=sampled)
         completed_row = _opening_cutoff_current_status(completed_row, plan_row, recovery_cycle, now=sampled)
         return [exposure, book, terminals, broker, plan_row,

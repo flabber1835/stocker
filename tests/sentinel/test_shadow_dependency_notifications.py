@@ -266,6 +266,18 @@ def test_verified_recovery_is_unique_and_keeps_original_warning(conn, monkeypatc
     assert conn.execute('SELECT COUNT(*) FROM sentinel_alert_outbox').fetchone()[0] == 2
 
 
+def test_one_delivered_device_can_recover_while_the_warning_is_still_pending(conn, monkeypatch):
+    first = notices.enqueue_warning(conn, _payload())
+    _delivered(conn, first)
+    conn.execute("UPDATE sentinel_alert_outbox SET state='PENDING',delivered_at=NULL,"
+                 " next_attempt_at=clock_timestamp()+'1 hour'::interval WHERE alert_id=%s",
+                 (first.alert_id,))
+    conn.commit()
+    monkeypatch.setattr(notices, '_verified_result', lambda *_: True)
+    recovered, = notices.enqueue_recoveries(conn, CONFIG, _result(), now=NOW)
+    assert outbox.claim_next(conn, holder_id='private-recovery').alert_id == recovered.alert_id
+
+
 def test_historical_and_malformed_warnings_cannot_recover_or_starve_current(conn, monkeypatch):
     old = notices.enqueue_warning(conn, {**_payload(), 'decision_session': '2026-10-22'})
     _delivered(conn, old)

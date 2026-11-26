@@ -433,9 +433,10 @@ def test_completion_rechecks_actual_open_and_current_decision_without_renewing_d
         assert proof.publisher_deadline == PUBLISHER_END and proof.worker_deadline == WORKER_END
 
 
+@pytest.mark.parametrize('live', [False, True], ids=['paper', 'live'])
 @pytest.mark.parametrize('quiet', [True, False, None])
-def test_actual_refresh_waits_with_separate_clocks_or_keeps_original_refusal(monkeypatch, quiet):
-    from sentinel import dual_reconciliation
+def test_actual_refresh_waits_with_separate_clocks_or_keeps_original_refusal(monkeypatch, quiet, live):
+    from sentinel import dual_reconciliation, trading
     from sentinel.automation import schedule
     from sentinel.automation.model import AutomationConfig
     cycle = schedule.for_decision_session('2026-10-27', AutomationConfig())
@@ -443,7 +444,8 @@ def test_actual_refresh_waits_with_separate_clocks_or_keeps_original_refusal(mon
     closed = []
     worker.connect = lambda: SimpleNamespace(close=lambda: closed.append(True))
     worker._assert_cycle_authority = lambda *_args, **_kwargs: (cycle, None)
-    worker._operational_source_only, worker._dual_run_enabled = False, True
+    worker._operational_source_only, worker._dual_run_enabled = False, not live
+    worker._live_run_enabled = live
     worker._shadow_observation_id, worker._shadow_starting_cash = 'primary', 50000
     worker.sentinel_config = SimpleNamespace(state_dir='/private-state', database_url=DSN)
     monkeypatch.setattr(automation_runtime, 'require_execution_schemas', lambda *_args: None)
@@ -456,8 +458,10 @@ def test_actual_refresh_waits_with_separate_clocks_or_keeps_original_refusal(mon
     monkeypatch.setattr(waiting, 'observe', lambda *_args, **_kwargs: None if quiet is None else
         SimpleNamespace(quiet_eligible=quiet, publisher_deadline=PUBLISHER_END, worker_deadline=WORKER_END))
     def refused(*_args, **_kwargs):
-        raise dual_reconciliation.DualReconciliationRefused('original strict publication refusal')
+        refusal = trading.TradingGatewayRefused if live else dual_reconciliation.DualReconciliationRefused
+        raise refusal('original strict publication refusal')
     monkeypatch.setattr(dual_reconciliation, 'verified_shadow_intent', refused)
+    monkeypatch.setattr(trading, '_shadow', refused)
     expected = NonRetryableCallbackRefused if quiet is None else SourceDataPending
     with pytest.raises(expected) as failure:
         asyncio.run(worker.refresh(object()))

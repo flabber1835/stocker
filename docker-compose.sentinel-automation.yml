@@ -66,6 +66,19 @@ x-sentinel-logging: &sentinel-logging
     max-file: "3"
 
 services:
+  sentinel-panel:
+    environment:
+      SENTINEL_LIVE_CERTIFICATE_PATH: ${SENTINEL_LIVE_CERTIFICATE_PATH:-}
+      SENTINEL_LIVE_TRUST_ROOTS_PATH: ${SENTINEL_LIVE_TRUST_ROOTS_PATH:-}
+      SENTINEL_AUTOMATION_ALERT_HEALTH_MAX_AGE_SECONDS: ${SENTINEL_AUTOMATION_ALERT_HEALTH_MAX_AGE_SECONDS:-30}
+      SENTINEL_AUTOMATION_ALERT_STARTUP_GRACE_SECONDS: ${SENTINEL_AUTOMATION_ALERT_STARTUP_GRACE_SECONDS:-330}
+    volumes:
+      # Read-only signed LIVE lifecycle inputs.
+      - type: bind
+        source: ${SENTINEL_AUTHORITY_ARTIFACTS_DIR:-./artifacts/authority}
+        target: /var/lib/sentinel-authority
+        read_only: true
+
   sentinel-authority-permissions:
     logging: *sentinel-logging
     image: postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b
@@ -179,6 +192,8 @@ services:
       ALPACA_BASE_URL: ${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
       ALPACA_API_KEY: ""
       ALPACA_SECRET_KEY: ""
+      SENTINEL_LIVE_CERTIFICATE_PATH: ${SENTINEL_LIVE_CERTIFICATE_PATH:-}
+      SENTINEL_LIVE_TRUST_ROOTS_PATH: ${SENTINEL_LIVE_TRUST_ROOTS_PATH:-}
       SENTINEL_PAPER_BUY_POLICY: ${SENTINEL_PAPER_BUY_POLICY:-}
       SENTINEL_PAPER_BUY_CAP_BPS: ${SENTINEL_PAPER_BUY_CAP_BPS:-}
       SENTINEL_DATABASE_URL: postgresql://sentinel:${SENTINEL_POSTGRES_PASSWORD:?set SENTINEL_POSTGRES_PASSWORD}@sentinel-postgres:5432/sentinel
@@ -207,6 +222,12 @@ services:
       SENTINEL_AUTOMATION_PREPARE_MAX_ATTEMPTS: ${SENTINEL_AUTOMATION_PREPARE_MAX_ATTEMPTS:-8}
       SENTINEL_AUTOMATION_EXECUTE_MAX_ATTEMPTS: ${SENTINEL_AUTOMATION_EXECUTE_MAX_ATTEMPTS:-8}
       SENTINEL_AUTOMATION_RECOVER_MAX_ATTEMPTS: ${SENTINEL_AUTOMATION_RECOVER_MAX_ATTEMPTS:-8}
+    volumes:
+      # Read-only signed LIVE lifecycle inputs.
+      - type: bind
+        source: ${SENTINEL_AUTHORITY_ARTIFACTS_DIR:-./artifacts/authority}
+        target: /var/lib/sentinel-authority
+        read_only: true
     healthcheck:
       test: ["CMD", "python", "-m", "sentinel.alert_liveness"]
       interval: 10s
@@ -235,6 +256,8 @@ services:
       SENTINEL_WEB_PUSH_VAPID_PUBLIC_KEY: ${SENTINEL_WEB_PUSH_VAPID_PUBLIC_KEY:-}
       SENTINEL_PUBLIC_ORIGIN: ${SENTINEL_PUBLIC_ORIGIN:-}
       ALPACA_BASE_URL: ${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
+      SENTINEL_LIVE_CERTIFICATE_PATH: ${SENTINEL_LIVE_CERTIFICATE_PATH:-}
+      SENTINEL_LIVE_TRUST_ROOTS_PATH: ${SENTINEL_LIVE_TRUST_ROOTS_PATH:-}
       SENTINEL_GIT_COMMIT: ${SENTINEL_GIT_COMMIT:?set exact built Git commit}
       SENTINEL_RUNTIME_IMAGE_DIGEST: ${SENTINEL_RUNTIME_IMAGE_DIGEST:?set immutable runtime image digest}
       SENTINEL_TEST_IMAGE_DIGEST: ${SENTINEL_TEST_IMAGE_DIGEST:?set immutable certification test image digest}
@@ -269,6 +292,11 @@ services:
       SENTINEL_REVIEWED_VALIDATION_BUNDLE_SHA256: ${SENTINEL_REVIEWED_VALIDATION_BUNDLE_SHA256:-}
     volumes:
       - sentinel_state:/var/lib/sentinel:ro
+      # Read-only signed LIVE lifecycle inputs.
+      - type: bind
+        source: ${SENTINEL_AUTHORITY_ARTIFACTS_DIR:-./artifacts/authority}
+        target: /var/lib/sentinel-authority
+        read_only: true
     healthcheck:
       test: ["CMD", "python", "-m", "sentinel.panel.verification_service", "--health"]
       interval: 10s

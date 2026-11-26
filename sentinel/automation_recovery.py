@@ -287,7 +287,7 @@ class ProductionAutomation(base.ProductionAutomation):
                     conn, context, operation_scope="REFRESH", record_verdict=False)
                 current = self._refresh_inputs(conn)
                 wait = self._closing_refresh_wait(
-                    conn, cycle, current.window_end, closing_paper=True)
+                    conn, cycle, current.window_end, dedicated_close=True)
                 if type(wait) is ClosingDataPending and base._current_close_refresh(
                         cycle, self.automation_config, base._now_utc()):
                     base.journal.require_observation_integrity(conn)

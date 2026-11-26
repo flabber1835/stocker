@@ -234,7 +234,10 @@ def require_live_adapter_admission(
         raise AuthorityRefused("LIVE admission cannot authorize a PAPER endpoint")
     if required_operation not in LIVE_OPERATIONS:
         raise AuthorityRefused("unknown LIVE broker operation")
-    now = _aware(datetime.now(timezone.utc) if now is None else now)
+    try:
+        actual_bindings = _bindings(context.runtime_bindings)
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise AuthorityRefused("LIVE authority claims or current context are invalid") from exc
     if admission.enrollment_provider is not None:
         roots, revoked = admission.enrollment_provider()
     else:
@@ -242,22 +245,37 @@ def require_live_adapter_admission(
         revoked = (admission.revoked_certificate_sha256()
                    if callable(admission.revoked_certificate_sha256) else admission.revoked_certificate_sha256)
     payload = admission.certificate_provider() if admission.certificate_provider is not None else admission.certificate
+    verified = verify_live_execution_certificate(
+        payload, subject=context.subject, trust_roots=roots,
+        revoked_certificate_sha256=revoked, required_operation=required_operation, now=now)
+    if verified.subject.base_url != endpoint.base_url:
+        raise AuthorityRefused("LIVE authority does not match the exact current account and origin")
+    if verified.claims.runtime_bindings != actual_bindings:
+        raise AuthorityRefused("LIVE authority does not match the current runtime")
+    return verified
+
+
+def verify_live_execution_certificate(
+        payload: bytes, *, subject: ExecutionSubject, trust_roots: Mapping[str, LiveTrustRoot],
+        revoked_certificate_sha256: Collection[str], required_operation: str,
+        now: datetime | None = None) -> VerifiedLiveAuthority:
+    """Authenticate the certificate lifecycle shared by readers and full admission."""
+    if required_operation not in LIVE_OPERATIONS:
+        raise AuthorityRefused("unknown LIVE broker operation")
+    now = _aware(datetime.now(timezone.utc) if now is None else now)
     signed = verify_live_envelope(
-        payload, schema=LIVE_CERTIFICATE_SCHEMA, trust_roots=roots,
-        now=now, revoked_certificate_sha256=revoked)
+        payload, schema=LIVE_CERTIFICATE_SCHEMA, trust_roots=trust_roots,
+        now=now, revoked_certificate_sha256=revoked_certificate_sha256)
     try:
         claims = LiveClaims.model_validate(signed.claims)
-        subject = ExecutionSubject.model_validate(context.subject.model_dump())
-        actual_bindings = _bindings(context.runtime_bindings)
+        subject = ExecutionSubject.model_validate(subject.model_dump())
     except (ValueError, TypeError, AttributeError) as exc:
         raise AuthorityRefused("LIVE authority claims or current context are invalid") from exc
-    if claims.subject != subject or subject.base_url != endpoint.base_url:
+    if claims.subject != subject:
         raise AuthorityRefused("LIVE authority does not match the exact current account and origin")
-    if claims.runtime_bindings != actual_bindings:
-        raise AuthorityRefused("LIVE authority does not match the current runtime")
     if not claims.not_before <= now < claims.expires_at:
         raise AuthorityRefused("LIVE authority is not current")
-    root = roots[signed.key_id]
+    root = trust_roots[signed.key_id]
     if claims.issued_at < root.not_before or claims.expires_at > root.not_after:
         raise AuthorityRefused("LIVE authority outlives its enrolled issuer")
     if required_operation not in claims.permitted_operations:

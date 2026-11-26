@@ -77,7 +77,7 @@ def _outcome_html(outcome: PaperOrderOutcome) -> str:
         +'<br>Broker order: '+_esc(outcome.broker_order_id)+'</div></details></div>')
 
 
-def _leg_html(leg, outcomes) -> str:
+def _leg_html(leg, outcomes, *, budget_label='paper budget') -> str:
     estimate = leg.opening_estimate
     if estimate is not None:
         action = 'Buy' if estimate.shares else 'Skip'
@@ -103,7 +103,7 @@ def _leg_html(leg, outcomes) -> str:
         quantity = _quantity(amount)+' '+('share' if amount == 1 else 'shares')
     else:
         action, quantity = 'Keep', _quantity(leg.target_quantity)+' shares'
-    target = (f'${estimate.account_budget:,.2f} paper budget · ${estimate.limit_price:,.2f} limit'
+    target = (f'${estimate.account_budget:,.2f} {budget_label} · ${estimate.limit_price:,.2f} limit'
               if estimate is not None else
               'Target pending' if leg.reason == 'CORPORATE_ACTION_PENDING' else
               f'${leg.opening_dollars:,.2f} strategy intent · sizing unavailable'
@@ -124,6 +124,7 @@ def _leg_html(leg, outcomes) -> str:
 def _plan_html(panel: Panel, *, current: bool = True) -> str:
     row = panel.row('paper_plan')
     plan = row.paper_plan if row is not None else None
+    budget_label = 'live account budget' if panel.is_live_trading else 'paper budget'
     # The saved plan expires at the same boundary as its original row. Neither
     # the overview nor a retained response can promote an expired plan.
     admitted = row is not None and row.can_show_paper_plan(panel.now)
@@ -155,12 +156,12 @@ def _plan_html(panel: Panel, *, current: bool = True) -> str:
                  'Market-open time unavailable' if opened is None else
                  'Market open in '+ ' '.join(parts) if opened > panel.now else 'Scheduled market open reached')
     outcomes = row.visible_order_outcomes(panel.now)
-    changes = (''.join(_leg_html(leg, outcomes) for leg in actions)
+    changes = (''.join(_leg_html(leg, outcomes, budget_label=budget_label) for leg in actions)
                if actions else '<li class="no-plan-changes">No share changes in the saved plan.</li>')
     targets = ''.join(
         '<tr><th scope="row">'+_esc(leg.ticker)+'</th><td>'+_esc(leg.action.title())+'</td><td>'
         +_esc(_quantity(leg.current_quantity))+'</td><td>'
-        +_esc(f'${leg.opening_estimate.account_budget:,.2f} paper budget'
+        +_esc(f'${leg.opening_estimate.account_budget:,.2f} {budget_label}'
                if leg.opening_estimate is not None else
                f'${leg.opening_dollars:,.2f} strategy intent' if leg.opening_dollars is not None
                else _quantity(leg.target_quantity))+'</td></tr>' for leg in plan.legs)
@@ -332,9 +333,10 @@ def _run_html(panel: Panel, *, last_known=False) -> str:
 def _account_html(panel: Panel) -> str:
     row = panel.row('alpaca_account')
     account = row.paper_account if row is not None and row.can_show_paper_account(panel.now) else None
+    label = 'Recorded live account' if panel.is_live_trading else 'Recorded paper account'
     if account is None:
         return ('<section class="overview-card account-overview" aria-labelledby="account-overview-title">'
-                '<h2 id="account-overview-title">Recorded paper account</h2>'
+                f'<h2 id="account-overview-title">{label}</h2>'
                 '<p class="overview-unavailable">Account totals unavailable.</p></section>')
     posting = account.cash_posting
     posting_note = '' if posting is None else (
@@ -348,7 +350,7 @@ def _account_html(panel: Panel) -> str:
         and row.recovery.phase == MARKET_BUY_OBSERVATION else '')
     return (
         '<section class="overview-card account-overview" aria-labelledby="account-overview-title">'
-        '<div class="overview-heading"><h2 id="account-overview-title">Recorded paper account</h2>'
+        f'<div class="overview-heading"><h2 id="account-overview-title">{label}</h2>'
         '<span class="overview-tag">ALPACA</span></div>'
         '<div class="account-stats"><div><span>Account value</span><strong>$'+f'{account.equity:,.2f}'
         +'</strong></div><div><span>Cash · '+f'{account.cash/account.equity*100:.1f}'

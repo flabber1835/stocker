@@ -95,7 +95,8 @@ def safe_update_dotenv(
         path: Path,
         updates: Mapping[str, str],
         *,
-        before_commit: Optional[Callable[[], None]] = None) -> None:
+        before_commit: Optional[Callable[[], None]] = None,
+        record_intent: Optional[Callable[[Optional[bytes], bytes], None]] = None) -> None:
     """Serialize managed writers and commit only a still-current observation.
 
     Existing permission bits are preserved exactly. A newly created file is 0600.
@@ -126,6 +127,8 @@ def safe_update_dotenv(
 
             if before_commit is not None:
                 before_commit()
+            if record_intent is not None:
+                record_intent(original, payload)
 
             current, current_identity, _current_mode = _snapshot(path)
             if identity is None:

@@ -48,7 +48,7 @@ from sentinel.execution import commands as C
 from sentinel.execution import journal, reconcile as R, recovery
 from sentinel.execution.contract import Completeness, ExecutionBroker, Side
 from sentinel.execution.identity import (
-    ALPACA_PAPER_BROKER, CommandIdentity, DeploymentIdentity)
+    ALPACA_LIVE_BROKER, ALPACA_PAPER_BROKER, CommandIdentity, DeploymentIdentity)
 from sentinel.execution.guarded import BrokerAuthorityRefused
 from sentinel.execution.plan import ExecutionPlan
 from sentinel.execution.target_reprojection import (
@@ -254,10 +254,10 @@ def _single_sale_hint_budget(*, deployment: DeploymentIdentity,
                              fractional: bool, informational_current_book: bool,
                              market_buy_window_open: Callable[[], bool] | None
                              ) -> int:
-    """Select only the installed fractional PAPER opening path."""
-    return (MAX_SINGLE_SALE_HINT_WAIT_SECONDS
-            if deployment.broker == ALPACA_PAPER_BROKER
-            and fractional and informational_current_book
+    """Use bounded exact-key reads in approved automatic opening paths."""
+    paper = deployment.broker == ALPACA_PAPER_BROKER and fractional and informational_current_book
+    live = deployment.broker == ALPACA_LIVE_BROKER and not fractional and not informational_current_book
+    return (MAX_SINGLE_SALE_HINT_WAIT_SECONDS if (paper or live)
             and callable(market_buy_window_open) else 0)
 
 
@@ -287,6 +287,7 @@ async def execute_session(*, broker: ExecutionBroker, conn,
                           increase_reconciliation_authority=None,
                           mutation_authority=None,
                           buy_admission=None,
+                          prepare_increases=None,
                           security_restrictions: Optional[Mapping[str, str]] = None,
                           buy_deferrals: Optional[Mapping[str, str]] = None,
                           informational_current_book: bool = False,
@@ -409,6 +410,7 @@ async def execute_session(*, broker: ExecutionBroker, conn,
             increase_reconciliation_authority=increase_reconciliation_authority,
             mutation_authority=mutation_authority,
             buy_admission=buy_admission,
+            prepare_increases=prepare_increases,
             security_restrictions=security_restrictions,
             buy_deferrals=buy_deferrals,
             informational_current_book=informational_current_book,
@@ -429,6 +431,7 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                                   increase_reconciliation_authority=None,
                                   mutation_authority=None,
                                   buy_admission=None,
+                                  prepare_increases=None,
                                   security_restrictions: Optional[Mapping[str, str]] = None,
                                   buy_deferrals: Optional[Mapping[str, str]] = None,
                                   informational_current_book: bool = False,
@@ -514,7 +517,8 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
     posting_deferred: list[str] = []
     deferral_reasons: dict = {}
     restrictions = dict(security_restrictions or {})
-    buy_deferrals = buy_deferrals or {}
+    if buy_deferrals is None:
+        buy_deferrals = {}
     from sentinel.execution import protected_limits
     if target_projection is not None:
         unavailable = protected_limits.unavailable_opening_intents(target_projection)
@@ -566,7 +570,7 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
         deferral_reasons[delta.security_id] = reason
         return False
 
-    async def authorized(candidates, obs, commands):
+    async def authorized(candidates, obs, commands, *, check_issuer=True):
         """The subset that may proceed. Everything else lands in `refused`.
 
         Separated from sending so it can run BEFORE the settle. Refusing and
@@ -604,7 +608,7 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
             except Exception as exc:                          # noqa: BLE001
                 refused[delta.security_id] = f"{type(exc).__name__}: {exc}"
                 continue
-            if not issuer_admitted(delta):
+            if check_issuer and not issuer_admitted(delta):
                 continue
             out.append(delta)
         return out
@@ -700,12 +704,9 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                 restrictions[delta.security_id] = residual
             commands = commands + (sent,)
             if sent.state is not CommandState.ACKNOWLEDGED:
-                # A basket is a sequence of independently acknowledged broker
-                # promises.  Once one promise is rejected or indeterminate,
-                # sending later names would manufacture a partial basket on
-                # evidence that already says the batch did not proceed as
-                # planned.  Durable recovery owns UNKNOWN; a later cycle may
-                # re-size deferred names only after reconciliation.
+                # This observation predates the refused or uncertain order.
+                # A clean recovery can resize independent reductions without
+                # replaying the refused sale. Uncertainty must resolve first.
                 deferred.extend(
                     item.security_id
                     for item in authorized_candidates[index + 1:])
@@ -740,6 +741,18 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
     increases = [
         d for d in increases if d.security_id not in plan.unpriced_securities]
 
+    if reductions_only and reductions:
+        refused_sales = {
+            command.security_id for command in journal.load_commands(
+                conn, deployment, plan_id=plan.plan_id,
+                states=(CommandState.REJECTED, CommandState.CANCELLED))
+            if command.side is Side.SELL
+        }
+        for delta in reductions:
+            if delta.security_id in refused_sales:
+                refused[delta.security_id] = "the current plan already has a terminal sale refusal"
+        reductions = [delta for delta in reductions if delta.security_id not in refused_sales]
+
     submitted_before_reductions = len(submitted)
     open_commands = await submit_all(reductions, observation, open_commands)
     reduction_commands = tuple(submitted[submitted_before_reductions:])
@@ -753,11 +766,13 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
     # not the cause. Survivors are authorised AGAIN below, against the read they
     # are actually sized from — this pass classifies, the second one gates.
     if not reductions_only:
-        increases = await authorized(increases, observation, open_commands)
+        increases = await authorized(increases, observation, open_commands,
+                                     check_issuer=prepare_increases is None)
 
     # THE MISSED-OPEN RULE, before anything is spent on settling. A stale plan
     # may still de-risk; it may not buy, so there is nothing to settle FOR.
-    if increases and not window_open:
+    if increases and (not window_open or (
+            market_buy_window_open is not None and not market_buy_window_open())):
         deferred.extend(d.security_id for d in increases)
         increases = []
         detail_window = (
@@ -873,6 +888,17 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
         deferred.extend(delta.security_id for delta in increases)
         increases = []
         settle_note = "market BUY awaits complete account-wide order reconciliation"
+
+    if increases and prepare_increases is not None:
+        await prepare_increases(increases, rec)
+        eligible = []
+        for delta in increases:
+            if delta.security_id in buy_deferrals:
+                deferred.append(delta.security_id)
+                deferral_reasons[delta.security_id] = buy_deferrals[delta.security_id]
+            elif issuer_admitted(delta):
+                eligible.append(delta)
+        increases = eligible
 
     async def verify_increase_authority():
         nonlocal posting_funds
@@ -1003,7 +1029,7 @@ async def _settle_reductions(*, broker: ExecutionBroker, conn,
     only by a COMPLETE observation whose reconciliation is RUNNING and clean,
     with every named command durably FILLED for its full quantity.
 
-    The selected single-sale PAPER path may wait for a positive exact-key fill
+    The selected single-sale PAPER and LIVE paths may wait for an exact-key fill
     hint instead of repeatedly reconciling a still-working sale. The hint is
     never settlement: one new complete reconciliation must prove the fill.
     Other paths retain the bounded ``cycles`` behavior.

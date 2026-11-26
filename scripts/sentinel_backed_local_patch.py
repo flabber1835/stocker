@@ -51,6 +51,7 @@ _VERIFIER_PROBE = (
 )
 _VERIFIER_CONFIG_PREDECESSOR_SHA256 = 'fa94441022dc618ef598d3d1f08b117b3d8c609b77a4168967882f7274cb5dde'
 _VERIFIER_CONFIG_CANDIDATE_SHA256 = '768bfbf7a4beb4ee37ccc21cc750aa9fec8945ef932ed15e55889b4d6e7e4029'
+_LIVE_OBSERVER_COMPOSE_SHA256 = 'bd8342d5390bf4f0f56de87d4192480cea5980cfb8a6cc4a1ce71aabe89b541f'
 _VERIFIER_CONFIG_FORWARDING = b'''      # Read-only continuity needs the worker's non-secret scheduling identity.
       # Keep broker credentials and authorized-worker capability out of here.
       SENTINEL_PAPER_DEBUG_WINDOW: ${SENTINEL_PAPER_DEBUG_WINDOW:-}
@@ -101,6 +102,10 @@ def _allowed_compose_change(name, previous, candidate):
     """Admit the documented byte-for-byte automation Compose changes."""
     if name != 'docker-compose.sentinel-automation.yml':
         return False
+    # Exact LIVE observer file wiring and matching non-secret alert settings.
+    if (hashlib.sha256(previous).hexdigest() == _VERIFIER_CONFIG_CANDIDATE_SHA256
+            and hashlib.sha256(candidate).hexdigest() == _LIVE_OBSERVER_COMPOSE_SHA256):
+        return True
     # Only the reviewed 420a predecessor may gain this verifier-only public
     # configuration block. The complete before/after bytes remain pinned.
     if (hashlib.sha256(previous).hexdigest() == _VERIFIER_CONFIG_PREDECESSOR_SHA256

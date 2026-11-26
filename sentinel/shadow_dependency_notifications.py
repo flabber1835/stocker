@@ -272,19 +272,20 @@ def enqueue_recoveries(conn, config, result, *, now=None):
         return []
     rows = conn.execute(
         "SELECT a.alert_id FROM sentinel_alert_outbox a WHERE a.event_type=%s"
-        " AND a.severity='WARN' AND a.state='DELIVERED'"
+        " AND a.severity='WARN' AND a.created_at<=%s"
+        " AND ((a.state='DELIVERED' AND a.delivered_at<=%s)"
+        "      OR (a.state<>'DELIVERED' AND a.delivered_at IS NULL))"
         " AND a.idempotency_key=%s AND a.payload->>'decision_session'=%s"
         " AND (a.payload->>'observation_id'=%s OR"
         "      (a.payload->>'observation_id' IS NULL AND %s='primary'))"
-        " AND a.delivered_at IS NOT NULL AND a.delivered_at<=%s"
         " AND EXISTS(SELECT 1 FROM sentinel_web_push_deliveries d"
         " WHERE d.alert_id=a.alert_id AND d.state='DELIVERED'"
         " AND d.delivered_at>=a.created_at AND d.delivered_at<=%s)"
         " AND NOT EXISTS(SELECT 1 FROM sentinel_alert_outbox r WHERE r.idempotency_key=%s||a.alert_id)"
         " ORDER BY a.created_at,a.alert_id LIMIT 1",
-        (WARNING, warning_key(result['session']), result['session'],
+        (WARNING, instant, instant, warning_key(result['session']), result['session'],
          config.observation_id, config.observation_id,
-         instant, instant, 'shadow-dependency-recovered:')).fetchall()
+         instant, 'shadow-dependency-recovered:')).fetchall()
     recovered = []
     for (alert_id,) in rows:
         warning = outbox.load_alert(conn, alert_id)

@@ -144,7 +144,7 @@ def test_only_proven_retired_buys_keep_broker_observation_valid(retired_buy, fau
         accounts[644]['exact_evidence'] = [dict(client_key='buy',order={'state':'FILLED'})]
     elif fault == 'foreign-account':
         accounts[644]['account_id'] = 'different'
-    now = market_open if fault == 'expired' else market_open-timedelta(days=1)
+    now = cycle['next_wake_at'] if fault == 'expired' else market_open
     # The production reader has its own earlier count. A concurrent extra order
     # still has to fail the proof inside this database read.
     assert sources._only_retired_unsent_buys(

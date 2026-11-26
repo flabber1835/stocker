@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 from decimal import Decimal, InvalidOperation
 
-from typing import Mapping, Optional
+from typing import TYPE_CHECKING, Mapping, Optional
 
 from sentinel import (
     binding as binding_mod,
@@ -41,6 +41,9 @@ from sentinel.execution.plan import ExecutionPlan
 
 from sentinel.execution.states import RuntimeState
 
+if TYPE_CHECKING:
+    from sentinel.execution.reconcile import ReconciliationResult
+
 class PaperActivationRefused(BrokerAuthorityRefused):
     """A preparation or execution authority check failed."""
 
@@ -55,6 +58,8 @@ class PaperExecutionEntryBackupBusy(PaperRetryableRefused):
 
 class NativeFeePostingPending(PaperRetryableRefused):
     """Verified Alpaca debit fees are still absent from fresh account cash."""
+
+    reconciliation: ReconciliationResult | None = None
 
 class PreOpenShareUnitAuthorityUnavailable(PaperActivationRefused):
     """The exact next-open units needed for safe transport are unavailable."""

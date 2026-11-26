@@ -7,6 +7,7 @@ import json
 import pytest
 
 from sentinel.authority.canonical import canonical_json_bytes
+from sentinel.authority import live
 from sentinel.authority.live import (
     AuthorityRefused, LiveAdapterAdmission, LiveAuthorityContext, LiveLimits,
     LiveTrustRoot, require_live_adapter_admission,
@@ -144,7 +145,7 @@ def test_limits_have_no_lossy_unbounded_or_permissive_values(value):
         LiveLimits(max_capital=value, max_order_principal="100", max_daily_buy_commitment="100", max_buy_premium_bps=100)
 
 
-def test_subject_guard_has_a_behavioral_falsifier():
+def test_subject_guard_has_a_behavioral_falsifier(monkeypatch):
     fixture = live_fixture()
     subject = fixture.subject.model_copy(update={"takeover_epoch": 2})
     admission = replace(fixture.admission, context=LiveAuthorityContext(subject, fixture.bindings))
@@ -157,10 +158,11 @@ def test_subject_guard_has_a_behavioral_falsifier():
         return False
 
     assert subject_refuses(require_live_adapter_admission)
-    source = inspect.getsource(require_live_adapter_admission)
-    needle = "if claims.subject != subject or subject.base_url != endpoint.base_url:"
+    source = inspect.getsource(live.verify_live_execution_certificate)
+    needle = "if claims.subject != subject:"
     assert source.count(needle) == 1
     namespace = {}
     exec(compile(source.replace(needle, "if False:"), "live-subject-falsifier", "exec"),
-         require_live_adapter_admission.__globals__, namespace)
-    assert not subject_refuses(namespace["require_live_adapter_admission"])
+         vars(live), namespace)
+    monkeypatch.setattr(live, "verify_live_execution_certificate", namespace["verify_live_execution_certificate"])
+    assert not subject_refuses(require_live_adapter_admission)

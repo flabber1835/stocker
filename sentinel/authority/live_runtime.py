@@ -8,16 +8,19 @@ import os
 from pathlib import Path
 
 from sentinel import binding
+from sentinel.automation.model import AutomationControl
+from sentinel.config import DEFAULT_BASE_URL
 from sentinel.execution.identity import ALPACA_LIVE_BROKER
 from sentinel.execution.native_readonly import ExecutionSubject
 from sentinel.execution.protected_limits import ProtectedLimitPolicy
-from sentinel.trading_environment import TradingEndpoint, TradingEnvironment
+from sentinel.execution.target_reprojection import TargetProjectionRefused
+from sentinel.trading_environment import TradingEndpoint, TradingEndpointRefused, TradingEnvironment
 
 from . import repository
 from .canonical import _b64url_decode, _parse_canonical_json, canonical_sha256, key_id_for_public_key
 from .live import (
-    LiveAdapterAdmission, LiveAuthorityContext, LiveTrustRoot,
-    require_live_adapter_admission,
+    LiveAdapterAdmission, LiveAuthorityContext, LiveTrustRoot, VerifiedLiveAuthority,
+    require_live_adapter_admission, verify_live_execution_certificate,
 )
 from .model import AuthorityRefused, MAX_CERTIFICATE_BYTES, RolloutMode
 from .validation import runtime_artifact_identity
@@ -75,7 +78,11 @@ def _timestamp(value) -> datetime:
 
 
 def _enrollment(path: Path):
-    raw = _parse_canonical_json(_public_bytes(path), label="LIVE public enrollment")
+    return _parse_enrollment(_public_bytes(path))
+
+
+def _parse_enrollment(payload: bytes):
+    raw = _parse_canonical_json(payload, label="LIVE public enrollment")
     if (set(raw) != {"schema", "roots", "revoked_certificate_sha256"}
             or raw["schema"] != ENROLLMENT_SCHEMA
             or type(raw["roots"]) is not list or len(raw["roots"]) > 64
@@ -103,9 +110,9 @@ def _enrollment(path: Path):
     return roots, frozenset(revoked)
 
 
-def _subject(conn, endpoint: TradingEndpoint) -> ExecutionSubject:
+def _subject(conn, endpoint: TradingEndpoint, *, require_owned=False) -> ExecutionSubject:
     bound = binding.require(conn)
-    if bound.broker != ALPACA_LIVE_BROKER:
+    if bound.broker != ALPACA_LIVE_BROKER or require_owned and not bound.is_owned:
         raise AuthorityRefused("LIVE URL requires an explicitly provisioned LIVE account binding")
     try:
         return ExecutionSubject(
@@ -116,18 +123,9 @@ def _subject(conn, endpoint: TradingEndpoint) -> ExecutionSubject:
         raise AuthorityRefused("durable LIVE account subject is malformed") from exc
 
 
-def _context(
-        subject: ExecutionSubject, *, runtime_identity: Mapping, strategy_identity: Mapping,
-        roots_path: Path, rollout, automation_config_sha256: str | None) -> LiveAuthorityContext:
-    artifacts = runtime_artifact_identity(runtime_identity)
-    environment = runtime_identity.get("environment")
-    if (not isinstance(environment, Mapping) or environment.get("compatible") is not True
-            or environment.get("pins_match") is not True or environment.get("sources_known") is not True
-            or environment.get("pin_drift") != {}):
-        raise AuthorityRefused("current LIVE runtime environment is not certified")
-    source = environment.get("sentinel_source")
-    if not isinstance(source, Mapping):
-        raise AuthorityRefused("current LIVE runtime source is unavailable")
+def _execution_config_sha256(
+        subject: ExecutionSubject, *, enrollment: bytes, rollout,
+        automation_config_sha256: str | None) -> str:
     if automation_config_sha256 is None:
         from sentinel.automation_runtime import config_from_env
         automation_config_sha256 = config_from_env().fingerprint
@@ -142,19 +140,80 @@ def _context(
         "schema": "sentinel.live-execution-config/1",
         "environment": subject.environment.value, "base_url": subject.base_url,
         "broker": ALPACA_LIVE_BROKER,
-        "trust_roots_sha256": hashlib.sha256(_public_bytes(roots_path)).hexdigest(),
+        "trust_roots_sha256": hashlib.sha256(enrollment).hexdigest(),
         "automation_config_sha256": automation_config_sha256,
         "issuer_policy_sha256": _hex(issuer_policy, label="issuer admission policy"),
         "rollout_mode": rollout.mode.value, "rollout_version": rollout.version,
         "protected_buy_policy": None if policy is None else policy.to_dict(),
     }
+    return canonical_sha256(configuration)
+
+
+def _context(
+        subject: ExecutionSubject, *, runtime_identity: Mapping, strategy_identity: Mapping,
+        roots_path: Path, rollout, automation_config_sha256: str | None) -> LiveAuthorityContext:
+    artifacts = runtime_artifact_identity(runtime_identity)
+    environment = runtime_identity.get("environment")
+    if (not isinstance(environment, Mapping) or environment.get("compatible") is not True
+            or environment.get("pins_match") is not True or environment.get("sources_known") is not True
+            or environment.get("pin_drift") != {}):
+        raise AuthorityRefused("current LIVE runtime environment is not certified")
+    source = environment.get("sentinel_source")
+    if not isinstance(source, Mapping):
+        raise AuthorityRefused("current LIVE runtime source is unavailable")
+    config_sha256 = _execution_config_sha256(
+        subject, enrollment=_public_bytes(roots_path), rollout=rollout,
+        automation_config_sha256=automation_config_sha256)
     return LiveAuthorityContext(subject, {
         "runtime_image_digest": artifacts["runtime_image_digest"],
         "sentinel_source_sha256": _hex(source.get("hash"), label="source identity"),
         "runtime_identity_sha256": _hex(runtime_identity.get("identity_hash"), label="runtime identity"),
         "strategy_identity_sha256": canonical_sha256(strategy_identity),
-        "execution_config_sha256": canonical_sha256(configuration),
+        "execution_config_sha256": config_sha256,
     })
+
+
+def require_live_control_lifecycle(
+        conn, control: AutomationControl, *, base_url: str | None = None,
+        now: datetime | None = None, env: Mapping[str, str] | None = None) -> VerifiedLiveAuthority:
+    """Recheck mutable LIVE lifecycle facts without issuing a worker verdict."""
+    e = os.environ if env is None else env
+    try:
+        endpoint = TradingEndpoint.parse(e.get("ALPACA_BASE_URL", DEFAULT_BASE_URL)
+                                         if base_url is None else base_url)
+        if endpoint.environment is not TradingEnvironment.LIVE:
+            raise AuthorityRefused("LIVE lifecycle requires the exact LIVE origin")
+        subject = _subject(conn, endpoint, require_owned=True)
+    except (TradingEndpointRefused, binding.AccountNotBound) as exc:
+        raise AuthorityRefused("LIVE lifecycle requires the exact owned LIVE binding and origin") from exc
+
+    expected = control.binding
+    if (not control.enabled or expected is None or expected.broker != ALPACA_LIVE_BROKER
+            or (expected.deployment_id, expected.broker_account_id, expected.takeover_epoch)
+            != (subject.deployment_id, subject.account_id, subject.takeover_epoch)):
+        raise AuthorityRefused("LIVE lifecycle does not match the enabled control binding")
+    rollout = repository.load_rollout_state(conn)
+    if (rollout.mode.value != expected.rollout_mode or rollout.version != expected.rollout_version
+            or rollout.mode is RolloutMode.CONTROLLER
+            and rollout.certificate_sha256 != expected.certificate_sha256):
+        raise AuthorityRefused("LIVE lifecycle does not match the current control rollout")
+
+    enrollment = _public_bytes(_path(e, TRUST_ROOTS_PATH_ENV))
+    roots, revoked = _parse_enrollment(enrollment)
+    verified = verify_live_execution_certificate(
+        _public_bytes(_path(e, CERTIFICATE_PATH_ENV)), subject=subject,
+        trust_roots=roots, revoked_certificate_sha256=revoked, required_operation="AUTOMATION", now=now)
+    if verified.sha256 != expected.certificate_sha256:
+        raise AuthorityRefused("LIVE lifecycle certificate differs from the control binding")
+    try:
+        config_sha256 = _execution_config_sha256(
+            subject, enrollment=enrollment, rollout=rollout,
+            automation_config_sha256=expected.config_sha256)
+    except TargetProjectionRefused as exc:
+        raise AuthorityRefused("LIVE lifecycle protected BUY policy is invalid") from exc
+    if verified.claims.runtime_bindings["execution_config_sha256"] != config_sha256:
+        raise AuthorityRefused("LIVE lifecycle does not match the current execution configuration")
+    return verified
 
 
 def load_live_adapter_admission(

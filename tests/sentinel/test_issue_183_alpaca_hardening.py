@@ -19,7 +19,7 @@ from sentinel.execution.contract import (
     BrokerAccountIdentity, BrokerExactOrderLookup, BrokerInstrument,
     BrokerObservation, BrokerOrder, CommandOutcome, Completeness, Side)
 from sentinel.execution.guarded import (
-    BrokerAuthorityRefused, ExecutionBrokerGuard, GuardedExecutionBroker,
+    AutomationExecutionGrant, BrokerAuthorityRefused, ExecutionBrokerGuard, GuardedExecutionBroker,
     ManualExecutionGrant, PreTransportAuthorityRefused)
 from sentinel.execution.identity import CommandIdentity, DeploymentIdentity
 from sentinel.execution.states import CommandState as S
@@ -679,6 +679,45 @@ def guarded_clock_broker(inner):
         before_read=_noop_before, after_read=_noop_after,
         before_mutation=_noop_before)
     return GuardedExecutionBroker(inner=inner, grant=grant, guard=guard)
+
+
+def test_paper_recovered_sale_crossing_close_at_client_entry_is_proven_unsent():
+    from sentinel.feed import calendar
+
+    _, close = calendar.session_window(date(2026, 8, 18))
+    clock = [close - timedelta(seconds=1)]
+    authorized = [False]
+    raw, http = adapter(post=RuntimeError("unexpected sale POST"), routes={"/v2/assets/AAPL": {
+        "id": INSTRUMENT.broker_id, "symbol": INSTRUMENT.symbol,
+        "status": "active", "tradable": True}})
+    raw._clock_provider = lambda: clock[0]
+    normal_client = http.AsyncClient
+
+    class CloseAtEntry(normal_client):
+        async def __aenter__(self):
+            if authorized[0]:
+                clock[0] = close
+            return await super().__aenter__()
+
+    http.AsyncClient = CloseAtEntry
+
+    async def approve_mutation(_grant, _operation):
+        authorized[0] = True
+
+    guard = ExecutionBrokerGuard(_noop_before, _noop_after, approve_mutation)
+    grant = AutomationExecutionGrant(
+        "EXECUTE", "cycle", 1, "worker", 1, DEPLOYMENT.broker_account_id,
+        DEPLOYMENT.takeover_epoch, "CONTROLLER", 1, "a" * 64,
+        reduction_only_reconciliation_id="fresh-observation")
+    wrapped = GuardedExecutionBroker(inner=raw, grant=grant, guard=guard)
+    sale = Command(CommandIdentity(DEPLOYMENT, "plan", INSTRUMENT.security_id), INSTRUMENT,
+                   Side.SELL, Decimal(2), state=S.SEND_PENDING)
+
+    with pytest.raises(PreTransportAuthorityRefused, match="outside the plan") as stopped:
+        run(wrapped.submit(client_key=sale.client_key, instrument=sale.instrument,
+                           side=sale.side, quantity=sale.quantity))
+    wrapped.consume_not_transported(stopped.value, sale)
+    assert not [call for call in http.calls if call[0] == "POST"]
 
 
 def test_broker_closed_refuses_increase_before_transport():

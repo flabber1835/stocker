@@ -163,7 +163,9 @@ def prove(conn, cycle, control, *, diagnostic, clean_id) -> dict | None:
     from sentinel.paper_plan_preview import project_original_intent
 
     deadline = monotonic() + 4.0
-    if (cycle.historical_state_only or cycle.attempt_count <= 0 or not cycle.plan_id
+    if (cycle.historical_state_only
+            or (cycle.attempt_count == 0 and cycle.state.value != "RECONCILING")
+            or not cycle.plan_id
             or not cycle.plan_fingerprint or control.binding is None
             or cycle.control_generation != control.generation
             or (cycle.deployment_id, cycle.broker, cycle.broker_account_id,
@@ -435,7 +437,8 @@ def validates_terminal_proof(detail: Mapping[str, Any], *,
             or proof.get('from_state') not in {
                 'EXECUTING', 'RECONCILING', 'RETRY_WAIT'}
             or type(proof.get('attempt_count')) is not int
-            or proof['attempt_count'] <= 0
+            or proof['attempt_count'] < 0
+            or (proof['attempt_count'] == 0 and proof["from_state"] != "RECONCILING")
             or type(proof.get('observation_id')) is not int
             or proof['observation_id'] <= 0
             or type(proof.get('latest_observation_id')) is not int

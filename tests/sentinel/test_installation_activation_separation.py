@@ -231,7 +231,9 @@ def test_coordinator_recovers_under_fence_before_both_paper_bundle_paths(monkeyp
                         lambda *args:calls.append('fenced-recovery'))
     monkeypatch.setattr(activate, 'parse_reviewed_validation_bundle', lambda *a,**k:SimpleNamespace(git_commit=SHA))
     monkeypatch.setattr(activate, 'publish_immutable', lambda *a:None)
-    activate.attempt(tmp_path/'request.json', dict(mode='dual', source_commit=SHA,
+    request_path = tmp_path / 'request.json'
+    request_path.write_text('{}')
+    activate.attempt(request_path, dict(mode='dual', source_commit=SHA,
         installation_sha256='f'*64,bundle='bundle.zip' if supplied_bundle else None),
         dict(runtime_image=IMAGE))
     assert calls == ['coordinator-fence', 'account', 'disabled-killed',
@@ -429,8 +431,10 @@ def test_fenced_recovery_refusal_stops_before_financial_go(monkeypatch, tmp_path
         lambda *args:(_ for _ in ()).throw(core.DeployRefused('native fill invalid')))
     monkeypatch.setattr(activate, 'financial_bundle',
         lambda *args:pytest.fail('GO ran after recovery refusal'))
+    request_path = tmp_path / 'request.json'
+    request_path.write_text('{}')
     with pytest.raises(core.DeployRefused, match='native fill invalid') as caught:
-        activate.attempt(tmp_path/'request.json', dict(mode='dual', source_commit=SHA,
+        activate.attempt(request_path, dict(mode='dual', source_commit=SHA,
             installation_sha256='f'*64, bundle=None), dict(runtime_image=IMAGE))
     assert activate._public_reason(caught.value, 'ACTIVATION_REFUSED') == 'FENCED_PAPER_RECOVERY_REFUSED'
     assert calls == ['fence', 'account', 'disabled-killed']
@@ -458,6 +462,33 @@ def test_owned_configuration_checkpoint_allows_only_canonical_updates(monkeypatc
         write(activate.core.ENV_PATH, {'SENTINEL_GIT_COMMIT': SHA})
     with pytest.raises(core.DeployRefused, match='configuration changed'): activate.validate_request(phase_request)
     assert activate.digest(phase_request.parent / 'installation-receipt.json') == original
+
+
+@pytest.mark.parametrize('changed', [False, True])
+def test_activation_configuration_recovers_around_environment_replace(monkeypatch, phase_request, changed):
+    def stop_around_replace(path, updates, *, record_intent):
+        def before_replace(original, intended):
+            record_intent(original, intended)
+            if not changed:
+                raise InterruptedError('before replace')
+        safe_update_dotenv(path, updates, record_intent=before_replace)
+        raise InterruptedError('after replace')
+
+    interrupted = activate.owned_configuration(phase_request, stop_around_replace)
+    with pytest.raises(InterruptedError):
+        interrupted(core.ENV_PATH, {'SENTINEL_GIT_COMMIT': SHA})
+    assert ('SENTINEL_GIT_COMMIT' in core.ENV_PATH.read_text()) is changed
+
+    checkpoint = phase_request.parent / 'activation-checkpoint.json'
+    original = records.read_document(checkpoint)
+    assert original['schema'] == 'sentinel.activation-checkpoint/2'
+    assert activate.digest(core.ENV_PATH) in (original['previous_env_sha256'], original['env_sha256'])
+    activate.validate_request(phase_request)
+
+    activate.owned_configuration(phase_request, safe_update_dotenv)(
+        core.ENV_PATH, {'SENTINEL_GIT_COMMIT': SHA})
+    assert records.read_document(checkpoint)['schema'] == 'sentinel.activation-checkpoint/1'
+    assert activate.validate_request(phase_request)
 
 
 @pytest.mark.parametrize('defect', [None, 'confirmation', 'date', 'extra', 'shadow'])
@@ -620,6 +651,88 @@ def test_completed_activation_request_does_not_repeat_financial_actions(phase_re
     assert activate.completed_request(phase_request, payload) is True
     receipt.write_text('{"schema":"sentinel.activation-receipt/1", "git_commit":"changed"}')
     with pytest.raises(core.DeployRefused): activate.completed_request(phase_request, payload)
+
+
+@pytest.mark.parametrize('fault', [None, 'wrong-image', 'another-request', 'not-ready',
+                                  'fenced', 'new-generation', 'unavailable-then-current'])
+def test_activation_resumes_exact_durable_attempt_and_repairs_status(phase_request, monkeypatch, fault):
+    authority = phase_request.parent / 'authority'
+    directory = authority / 'deployments' / ('20261126T195600Z-' + SHA[:12])
+    directory.mkdir(parents=True)
+    receipt = directory / 'activation-receipt.json'
+    records.publish_immutable(receipt, {
+        'schema': 'sentinel.activation-receipt/1', 'git_commit': SHA, 'activation_mode': 'dual',
+        'runtime_image': IMAGE if fault != 'wrong-image' else 'another image',
+        'policy_state': 'LEADER_ACTIVE', 'operational_ready': fault != 'not-ready',
+        'deployment_id': 'deployment-a', 'paper_account_id': 'paper-a',
+        'certificate_sha256': 'd' * 64, 'control_generation': 1})
+    records.write_document(phase_request.parent / 'activation-attempt.json', {
+        'schema': 'sentinel.activation-attempt/1', 'runtime_image': IMAGE, 'receipt': str(receipt),
+        'request_sha256': activate.digest(phase_request) if fault != 'another-request' else 'f' * 64})
+    activate.status(phase_request, 'PREPARING')
+    monkeypatch.setattr(core, 'merged_environment',
+                       lambda: {'SENTINEL_AUTHORITY_ARTIFACTS_DIR': str(authority)})
+    monkeypatch.setattr(activate, 'host_lifecycle_lock', nullcontext)
+    monkeypatch.setattr(activate, 'attempt', lambda *_args, **_kwargs:
+                        pytest.fail('financial activation was repeated'))
+    result = phase_request.parent / 'activation-result.json'
+    status = phase_request.parent / 'activation-status.json'
+    reads = []
+    def read_control(request, installation):
+        assert request['source_commit'] == SHA and installation['runtime_image'] == IMAGE
+        reads.append(request['source_commit'])
+        if fault == 'unavailable-then-current' and len(reads) == 1:
+            raise core.ActivationPending('database unavailable')
+        return dict(enabled=fault != 'fenced', kill_switch_engaged=fault == 'fenced',
+                    generation=2 if fault == 'new-generation' else 1,
+                    certificate='d' * 64, account='paper-a', deployment='deployment-a')
+    monkeypatch.setattr(activate, 'observe_activation_control', read_control)
+    waits = []
+    def wait(seconds):
+        assert fault == 'unavailable-then-current' and seconds == 60 and not result.exists()
+        waits.append(records.read_document(status)['activation_state'])
+    monkeypatch.setattr(activate.time, 'sleep', wait)
+
+    if fault not in {None, 'unavailable-then-current'}:
+        assert activate.main(['--request', str(phase_request)]) == 2
+        assert not result.exists()
+        assert records.read_document(status)['activation_state'] == 'REFUSED'
+        if fault in {'fenced', 'new-generation'}:
+            assert records.read_document(status)['reason'] == 'ACTIVATION_CONTROL_CHANGED'
+    else:
+        assert activate.main(['--request', str(phase_request)]) == 0
+        assert records.read_document(result)['receipt'] == str(receipt)
+        assert records.read_document(status)['activation_state'] == 'ACTIVE'
+        activate.status(phase_request, 'INTERRUPTED')
+        assert activate.main(['--request', str(phase_request)]) == 0
+        assert records.read_document(status)['activation_state'] == 'ACTIVE'
+        assert waits == (['WAITING_FOR_READINESS'] if fault else [])
+        assert len(reads) == (2 if fault else 1)
+
+
+def test_activation_recovery_observes_exact_installed_control_without_starting_dependencies(
+        phase_request, monkeypatch):
+    request, installation = activate.validate_request(phase_request)
+    observed = dict(enabled=True, kill_switch_engaged=False, generation=3,
+                    certificate='d' * 64, deployment='deploy-a', account='paper-a')
+    calls = []
+    monkeypatch.setattr(core, 'merged_environment', lambda: {'SENTINEL_RUNTIME_IMAGE_REF': 'old-image'})
+
+    def run(argv, **options):
+        calls.append(argv)
+        assert options['env']['SENTINEL_RUNTIME_IMAGE_REF'] == IMAGE and options['timeout'] == 30
+        if argv[0] == 'bash':
+            return completed('-p sentinel -f docker-compose.sentinel.yml')
+        compile(argv[-1], '<activation-control>', 'exec')
+        assert 'SET TRANSACTION READ ONLY' in argv[-1]
+        return completed(json.dumps(observed))
+
+    monkeypatch.setattr(activate.subprocess, 'run', run)
+    assert activate.observe_activation_control(request, installation) == observed
+    assert calls[0][-1] == '--explain'
+    assert calls[1][0:2] == ['docker', 'compose']
+    assert calls[1][calls[1].index('run') + 1:-1] == [
+        '--rm', '-T', '--no-deps', '--pull', 'never', '--entrypoint', 'python', 'sentinel', '-c']
 
 
 @pytest.mark.parametrize('fault', [None, 'stale', 'latch', 'unacknowledged'])

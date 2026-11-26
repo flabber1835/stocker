@@ -7,6 +7,8 @@ storage identity, not an environment file. No broker or database mutations.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -51,7 +53,7 @@ def mounts():
     for line in Path('/proc/self/mountinfo').read_text().splitlines():
         before, after = line.split(' - ',1)
         fields, detail = before.split(), after.split()
-        result[fields[4]] = dict(id=int(fields[0]),device=fields[2],
+        result[fields[4]] = dict(id=int(fields[0]),device=fields[2],root=fields[3],
             options=fields[5].split(','), optional=fields[6:],
             fstype=detail[0], source=detail[1], super_options=detail[2].split(','))
     return result
@@ -67,7 +69,23 @@ def _same_mount(current, recorded):
     # A removed ext4 device legitimately acquires the `shutdown` option. Its
     # immutable mount ID/device identity, not mutable flags, proves ownership.
     return (isinstance(current,dict) and isinstance(recorded,dict)
-            and all(current.get(k)==recorded.get(k) for k in ('id','device','fstype','source')))
+            and all(current.get(k)==recorded.get(k) for k in ('id','device','fstype','source'))
+            and ('root' not in recorded or current.get('root') == recorded['root']))
+
+
+def _matches_bind(current, intent):
+    fields = {'device', 'fstype', 'source', 'root'}
+    return (isinstance(current, dict) and isinstance(intent, dict)
+            and set(intent) == fields and all(intent[k] and current.get(k) == intent[k] for k in fields))
+
+
+def _bind_intent(config, child, device, physical):
+    require(physical is not None and physical['device'] == device
+            and physical['fstype'] == 'ext4' and physical['root'].startswith('/'),
+            'backup mount changed before transport bind')
+    relative = (Path(config['backup']) / child).relative_to(config['mount'])
+    return dict(device=device, fstype=physical['fstype'], source=physical['source'],
+                root=str(Path(physical['root']) / relative))
 
 
 def primary_storage(config):
@@ -151,36 +169,46 @@ def verified_media(config, observe=mounts):
 def attach(config, runner=run, observe=mounts):
     device=verified_media(config,observe)
     prepare(config,runner,observe)
-    # Repeated service start only verifies the exact previously recorded mounts.
+    record = dict(config=config, phase='ATTACHING', mounts={}, pending={})
     owner = state_path(config)
     if owner.exists():
         _private_path(owner)
         record=json.loads(owner.read_text())
         require(record.get('config')==config, 'transport owner configuration changed')
-        if record.get('phase')=='ATTACHED':
-            require(all(_same_mount(observe().get(config['transport']+'/'+child),record['mounts'][child])
-                        for child in ('base','wal')), 'transport owner is stale; detach exact owner first')
-            return
-    require(all(config['transport']+'/'+child not in observe() for child in ('base','wal')),
-            'transport submount already has an owner')
-    record=dict(config=config,phase='ATTACHING',mounts={})
+    table = observe()
+    pending = record.setdefault('pending', {})
+    desired = {child: _bind_intent(config, child, device, table.get(config['mount']))
+               for child in ('base', 'wal')}
+    for child, intent in desired.items():
+        current = table.get(config['transport'] + '/' + child)
+        committed = record['mounts'].get(child)
+        if committed is not None or record['phase'] == 'ATTACHED':
+            require(_same_mount(current, committed), 'transport owner is stale; detach exact owner first')
+        elif current is not None:
+            require(_matches_bind(current, pending.get(child)) and pending[child] == intent,
+                    'transport submount already has an owner')
+            record['mounts'][child] = current
+            pending.pop(child)
+    if record['phase'] == 'ATTACHED':
+        return
+    record['phase'] = 'ATTACHING'
+    for child, intent in desired.items():
+        if child in record['mounts']:
+            continue
+        target = config['transport'] + '/' + child
+        current = observe()
+        require(target not in current and intent == _bind_intent(
+            config, child, device, current.get(config['mount'])), 'transport bind source or target changed')
+        pending[child] = intent
+        _save(config,record)
+        runner(['mount','--bind',config['backup']+'/'+child,target])
+        observed = observe().get(target)
+        require(_matches_bind(observed, intent), 'transport bind identity differs')
+        record['mounts'][child] = observed
+        pending.pop(child)
+        _save(config,record)
+    record['phase'] = 'ATTACHED'
     _save(config,record)
-    try:
-        for child in ('base','wal'):
-            target=config['transport']+'/'+child
-            runner(['mount','--bind',config['backup']+'/'+child,target])
-            observed=observe().get(target)
-            require(observed is not None and observed['device']==device,'transport bind identity differs')
-            record['mounts'][child]=observed
-            _save(config,record)
-        record['phase']='ATTACHED'
-        _save(config,record)
-    except BaseException:
-        # Only recorded successful binds are owned. The next inspect/detach may
-        # finish their cleanup; never unmount an unexpected target on failure.
-        record['phase']='FAILED_INSPECT'
-        _save(config,record)
-        raise
 
 
 def detach(config, runner=run, observe=mounts):
@@ -193,7 +221,10 @@ def detach(config, runner=run, observe=mounts):
     record=json.loads(owner.read_text())
     require(record.get('config')==config, 'transport owner configuration changed')
     for child, current in present.items():
-        require(current is None or _same_mount(current,record.get('mounts',{}).get(child)),
+        committed = record.get('mounts', {}).get(child)
+        owned = (_same_mount(current, committed) if committed is not None
+                 else _matches_bind(current, record.get('pending', {}).get(child)))
+        require(current is None or owned,
                 'transport mount is not the recorded owner')
     for child in ('wal','base'):
         target=config['transport']+'/'+child
@@ -203,6 +234,20 @@ def detach(config, runner=run, observe=mounts):
             runner(['umount','--lazy','--',target])
             require(target not in observe(), 'owned transport mount remains')
     _save(config,dict(config=config,phase='DETACHED',mounts={}))
+
+
+@contextmanager
+def _transport_lock(config):
+    lock = state_path(config).with_suffix('.lock')
+    fd = os.open(lock, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        info = os.fstat(fd)
+        require(stat.S_ISREG(info.st_mode) and info.st_uid == 0 and info.st_nlink == 1
+                and not info.st_mode & 0o022, 'transport lock ownership differs')
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
 
 
 def unit_files(config, executable, config_path, runner=run):
@@ -221,7 +266,7 @@ def unit_files(config, executable, config_path, runner=run):
         'Requires=sentinel-backup-transport-root.service '+mount_unit+'\n'
         'BindsTo='+mount_unit+'\nAfter=sentinel-backup-transport-root.service '+mount_unit+'\n'
         '[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart='+invoke+' attach\n'
-        'ExecStop='+invoke+' detach\nTimeoutStartSec=60\nTimeoutStopSec=30\n',
+        'ExecStopPost='+invoke+' detach\nTimeoutStartSec=60\nTimeoutStopSec=30\n',
       'docker-storage.conf':
         '[Unit]\nWants=sentinel-backup-transport-root.service\n'
         'After=sentinel-backup-transport-root.service\n'
@@ -238,7 +283,11 @@ def main():
     args=parser.parse_args()
     require(os.geteuid()==0,'native root required')
     config=configuration(args.config)
-    (primary_storage if args.operation=='primary' else globals()[args.operation])(config)
+    if args.operation in {'attach', 'detach'}:
+        with _transport_lock(config):
+            (attach if args.operation == 'attach' else detach)(config)
+    else:
+        (primary_storage if args.operation == 'primary' else prepare)(config)
 
 
 if __name__=='__main__':

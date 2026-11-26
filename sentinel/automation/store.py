@@ -1182,7 +1182,7 @@ def transition_cycle(
                 detail['missed_window_no_send'] = missed
         if (to_state is CycleState.SUPERSEDED
                 and failure_code == 'MAX_EXECUTION_LATENESS_EXCEEDED'
-                and current.attempt_count > 0
+                and (current.attempt_count > 0 or current.state is CycleState.RECONCILING)
                 and diagnostic is not _UNSET
                 and last_clean_reconciliation_id is not _UNSET):
             detail['missed_window_buy_only'] = _missed_buy_alert_witness(

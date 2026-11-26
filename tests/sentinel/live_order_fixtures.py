@@ -37,8 +37,8 @@ def command(fixture, *, security="SEC", revision=0, side=Side.BUY, **changes):
     return Command(**values)
 
 
-def order_fixture():
-    fixture = live_fixture(NOW)
+def order_fixture(now=NOW):
+    fixture = live_fixture(now)
     fixture.account = BrokerAccountSnapshot(
         BrokerAccountIdentity("alpaca-live", fixture.subject.account_id),
         equity=Decimal(1000), cash=Decimal(1000), buying_power=Decimal(1000),

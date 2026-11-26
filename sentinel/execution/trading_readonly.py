@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from contextvars import ContextVar
 from uuid import UUID
 
 from sentinel import binding, identity
@@ -23,17 +24,23 @@ def _uuid(value):
         return False
 
 
-def _parameters(path, params):
+def _parameters(path, params, *, opening=False):
     """Only the existing collectors' finite GET vocabulary reaches transport."""
     if type(path) is not str or params is not None and type(params) is not dict:
         raise MonitoringReadRefused("monitoring GET route or parameters refused")
     values = {} if params is None else dict(params)
-    if path == "/v2/account":
+    if path == "/v2/account" or opening and path == "/v2/positions":
         valid = not values
     elif path == "/v2/orders":
         valid = (set(values) == {"status", "limit", "nested"}
                  and values["status"] == "open" and values["nested"] is True
                  and type(values["limit"]) is int and 1 <= values["limit"] <= 500)
+        valid = valid or (opening
+            and set(values) in ({"status", "limit", "direction"},
+                            {"status", "limit", "direction", "before_order_id"})
+            and values["status"] == "open" and values["direction"] == "desc"
+            and type(values["limit"]) is int and values["limit"] == 500
+            and ("before_order_id" not in values or _uuid(values["before_order_id"])))
     elif path == "/v2/account/activities/FILL":
         valid = (set(values) in ({"order_id", "direction", "page_size"},
                                  {"order_id", "direction", "page_size", "page_token"})
@@ -55,6 +62,7 @@ class _ReadTransport(AlpacaExecutionBroker):
 
     def __init__(self, *, current, **kwargs):
         self._current = current
+        self._opening = ContextVar('live_monitoring_opening', default=False)
         admission, _verified = current()
         super().__init__(live_admission=admission, **kwargs)
 
@@ -70,7 +78,7 @@ class _ReadTransport(AlpacaExecutionBroker):
         return verified
 
     async def _get(self, path, params=None):
-        values = _parameters(path, params)
+        values = _parameters(path, params, opening=self._opening.get())
         async with self._httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
             first = self._require_transport_authority()
             response = await client.get(self.base_url + path, headers=self._headers(), params=values)
@@ -88,6 +96,13 @@ class _ReadTransport(AlpacaExecutionBroker):
             if account.account_id != first.subject.account_id:
                 raise MonitoringReadRefused("LIVE monitoring native account differs from binding")
         return payload
+
+    async def opening_snapshot(self):
+        token = self._opening.set(True)
+        try:
+            return await self.observe()
+        finally:
+            self._opening.reset(token)
 
 
 class TradingReadOnly:
@@ -147,6 +162,9 @@ class TradingReadOnly:
 
     async def account_snapshot(self):
         return await self.__transport.account_snapshot()
+
+    async def opening_snapshot(self):
+        return await self.__transport.opening_snapshot()
 
     async def _get(self, path, params=None):
         return await self.__transport._get(path, params)

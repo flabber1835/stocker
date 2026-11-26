@@ -24,6 +24,9 @@ services:
       ALPACA_API_KEY: ${ALPACA_API_KEY:-}
       ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:-}
       OPENFIGI_API_KEY: ${OPENFIGI_API_KEY:-}
+      SENTINEL_LIVE_CERTIFICATE_PATH: ${SENTINEL_LIVE_CERTIFICATE_PATH:-}
+      SENTINEL_LIVE_TRUST_ROOTS_PATH: ${SENTINEL_LIVE_TRUST_ROOTS_PATH:-}
+      SENTINEL_LIVE_FUNDING_CERTIFICATE_PATH: ${SENTINEL_LIVE_FUNDING_CERTIFICATE_PATH:-}
       SENTINEL_DATABASE_URL: ${SENTINEL_DATABASE_URL:?set shared HA PostgreSQL DSN}
       SENTINEL_PUBLICATION_RECEIPT_KEY: ${SENTINEL_PUBLICATION_RECEIPT_KEY:?set SENTINEL_PUBLICATION_RECEIPT_KEY}
       SENTINEL_GIT_COMMIT: ${SENTINEL_GIT_COMMIT:?set exact built Git commit}
@@ -64,6 +67,11 @@ services:
       SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256: ${SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256:-}
       SENTINEL_REVIEWED_VALIDATION_BUNDLE_SHA256: ${SENTINEL_REVIEWED_VALIDATION_BUNDLE_SHA256:-}
       SENTINEL_REVIEWED_DEPLOYMENT_MODE: ${SENTINEL_REVIEWED_DEPLOYMENT_MODE:-}
+    volumes:
+      - type: bind
+        source: ${SENTINEL_AUTHORITY_ARTIFACTS_DIR:-./artifacts/authority}
+        target: /var/lib/sentinel-authority
+        read_only: true
     healthcheck:
       test: ["CMD", "python", "-m", "sentinel.automation_liveness"]
       interval: 5s
@@ -81,7 +89,13 @@ services:
     security_opt: ["no-new-privileges:true"]
     entrypoint: ["python", "-m", "sentinel.alert_service"]
     environment:
-      ALPACA_BASE_URL: https://paper-api.alpaca.markets
+      ALPACA_BASE_URL: ${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
+      ALPACA_API_KEY: ""
+      ALPACA_SECRET_KEY: ""
+      SENTINEL_LIVE_CERTIFICATE_PATH: ${SENTINEL_LIVE_CERTIFICATE_PATH:-}
+      SENTINEL_LIVE_TRUST_ROOTS_PATH: ${SENTINEL_LIVE_TRUST_ROOTS_PATH:-}
+      SENTINEL_PAPER_BUY_POLICY: ${SENTINEL_PAPER_BUY_POLICY:-}
+      SENTINEL_PAPER_BUY_CAP_BPS: ${SENTINEL_PAPER_BUY_CAP_BPS:-}
       SENTINEL_DATABASE_URL: ${SENTINEL_DATABASE_URL:?set shared HA PostgreSQL DSN}
       SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL: ${SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL:-}
       SENTINEL_WEB_PUSH_VAPID_PUBLIC_KEY: ${SENTINEL_WEB_PUSH_VAPID_PUBLIC_KEY:-}
@@ -99,6 +113,11 @@ services:
       SENTINEL_AUTOMATION_ALERT_MAX_ATTEMPTS: ${SENTINEL_AUTOMATION_ALERT_MAX_ATTEMPTS:-8}
       SENTINEL_AUTOMATION_RETRY_BASE_SECONDS: ${SENTINEL_AUTOMATION_RETRY_BASE_SECONDS:-5}
       SENTINEL_AUTOMATION_RETRY_MAX_SECONDS: ${SENTINEL_AUTOMATION_RETRY_MAX_SECONDS:-900}
+    volumes:
+      - type: bind
+        source: ${SENTINEL_AUTHORITY_ARTIFACTS_DIR:-./artifacts/authority}
+        target: /var/lib/sentinel-authority
+        read_only: true
     healthcheck:
       test: ["CMD", "python", "-m", "sentinel.alert_liveness"]
       interval: 10s

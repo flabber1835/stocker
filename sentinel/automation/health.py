@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sentinel.automation import store
 from sentinel.automation.model import AutomationRefused, MissingAutomationState, ProtectedDayWait
 from sentinel.execution import journal
+from sentinel.execution.identity import ALPACA_LIVE_BROKER
 
 
 class ObservationDiagnostic(BaseModel):
@@ -283,7 +284,28 @@ def read_health(conn, *, include_alert_counts=True) -> AutomationHealth:
         authority_row is not None and authority_row[0] is not None
         and authority_row[1])
     claims = (authority_row[2] if authority_row is not None else {})
-    if not isinstance(claims, dict):
+    authority_expires_at = authority_row[3] if authority_row is not None else None
+    authority_mode = None
+    if control.broker == ALPACA_LIVE_BROKER:
+        from sentinel.authority.live_runtime import require_live_control_lifecycle
+        from sentinel.authority.model import AuthorityRefused
+        from sentinel.trading_environment import TradingEnvironment
+
+        claims = {}
+        authority_current = False
+        authority_expires_at = None
+        authority_mode = TradingEnvironment.LIVE.value
+        if control.enabled and not control.kill_switch_engaged:
+            try:
+                current_live = require_live_control_lifecycle(conn, control, now=database_now)
+            except AuthorityRefused:
+                pass
+            else:
+                authority_current = True
+                authority_expires_at = current_live.claims.expires_at
+            finally:
+                conn.rollback()
+    elif not isinstance(claims, dict):
         try:
             claims = json.loads(claims or "{}")
         except (TypeError, json.JSONDecodeError):
@@ -427,12 +449,11 @@ def read_health(conn, *, include_alert_counts=True) -> AutomationHealth:
         authority_detail=control.authority_detail,
         authority_checked_at=control.authority_checked_at,
         authority_lifecycle_current=authority_current,
-        authority_mode=claims.get(
-            "authorization_mode", "HISTORICALLY_CERTIFIED") if claims else None,
+        authority_mode=authority_mode or (claims.get(
+            "authorization_mode", "HISTORICALLY_CERTIFIED") if claims else None),
         historical_causality=claims.get(
             "historical_causality", "HISTORICALLY_CERTIFIED") if claims else None,
-        authority_expires_at=(authority_row[3]
-                              if authority_row is not None else None),
+        authority_expires_at=authority_expires_at,
         maximum_exposure=(str(claims.get("maximum_exposure"))
                           if claims.get("maximum_exposure") is not None
                           else None),

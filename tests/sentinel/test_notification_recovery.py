@@ -222,6 +222,19 @@ def test_real_dispatcher_stop_and_restart_are_seen_without_docker_health(db, iss
         assert child.returncode == 0, errors
 
 
+def test_enrollment_honors_healthy_standby_and_configured_age(db, monkeypatch):
+    from sentinel import alert_health
+
+    alert_health.register(db, dispatcher_id='standby')
+    alert_health.heartbeat(db, dispatcher_id='standby')
+    db.execute("UPDATE sentinel_alert_dispatcher_health SET heartbeat_at=clock_timestamp()-'40 seconds'::interval")
+    db.commit()
+    monkeypatch.setenv('SENTINEL_AUTOMATION_ALERT_HEALTH_MAX_AGE_SECONDS', '30')
+    assert not push_enrollment._sender_available(db)
+    monkeypatch.setenv('SENTINEL_AUTOMATION_ALERT_HEALTH_MAX_AGE_SECONDS', '60')
+    assert push_enrollment._sender_available(db)
+
+
 def due(db, alert_id):
     db.execute("UPDATE sentinel_alert_outbox SET next_attempt_at=clock_timestamp()-interval '1 second' "
                "WHERE alert_id=%s", (alert_id,))

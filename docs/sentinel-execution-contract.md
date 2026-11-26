@@ -1911,6 +1911,23 @@ desired exposure ABOVE realized   → waits for the next certified execution win
 Selling late is dangerous; buying late is opportunity cost. Do not chase missed
 recovery buys intraday because a server came back.
 
+If a prepared PAPER or LIVE cycle first wakes after the purchase cutoff, run
+read-only reconciliation during its named regular session. An exact clean
+observation can admit a sell-only execution pass for that same plan. A plan
+that still needs opening sizing can enter this pass to derive its canonical
+share targets, subject to the same independent sale checks. The durable grant
+binds the pass to the recovery observation and the final order guard admits
+only SELL. The session close expires the final native transport permission,
+including when the last authority check started before the close.
+
+For LIVE automated purchases, the approved automation schedule narrows the
+regular opening window. The gateway binds that deadline into the single-use
+native transport permit and checks it again when that permit is consumed.
+When a protected DAY cohort is still working as that opening window ends,
+recovery follows the accepted orders through their existing observation window.
+Read-only recovery observes current positions under the current authenticated
+symbol mapping. Historical orders retain the mapping for their submission date.
+
 This is part of the execution model and therefore part of certification.
 
 ### 13.1a Two-phase execution: reduce, settle, re-observe, re-size, increase
@@ -1942,9 +1959,8 @@ So:
 
 ```text
 1  size everything against the pre-trade observation
-2  PRE-FLIGHT the increases: anything that can never be authorised on this
-   evidence is REFUSED here, with its real reason
-3  submit the reductions
+2  submit the reductions with their own instrument evidence
+3  PRE-FLIGHT increases for account and journal restrictions
 4  SETTLE — reconcile until every required reduction is FILLED, bounded by
    settle_cycles. REJECTED, CANCELLED, PARTIALLY_FILLED, UNKNOWN, absent, or
    still-working reductions are not settlement
@@ -1952,7 +1968,8 @@ So:
 6  in the strict paper path, re-read typed cash/buying power and require
    `multiplier == 1` plus buying power equal to cash; filled-but-unsettled
    proceeds are not spending authority
-7  RE-SIZE the increases against the post-fill read and submit them
+7  RE-SIZE increases against the post-fill read, check purchase instruments and
+   issuer authority, and submit the authorized increases
 ```
 
 Steps 4-7 are skipped when there is nothing to settle for: a pure-buy session
@@ -1979,14 +1996,31 @@ settle" sends an operator to look at the wrong thing. Survivors are authorised
 again against the read they are actually sized from — the first pass classifies,
 the second gates.
 
+Purchase-only evidence, including BIL tradeability and confirmed outstanding
+PAPER fee postings, cannot delay the first submission of independently
+authorized reductions. Funding and issuer checks still apply to every
+purchase. An unexplained cash difference or an account-wide authority failure
+keeps its existing safety fence.
+
+Preparation records the plan from the account and authenticated inputs. Native
+purchase tradeability belongs to the execution pass because the broker can
+change it before the open. Preparation still checks identities for potential
+sales.
+
+A definitive rejected or cancelled sale leaves that security unfinished for
+the current plan. Fresh clean recovery can admit outstanding sales for other
+securities within the regular session. This grant cannot replace the refused
+sale or buy with its absent proceeds. An uncertain outcome stops further
+submission pending reconciliation.
+
 **When the settle fails, increases are DEFERRED.** §13.1's asymmetry applied to
 input quality rather than to time: buying late is opportunity cost, buying wrong
 is not. The bound is a cycle count, not a timeout — a sale still working after
 it is a sale whose proceeds are not arriving this session, and waiting longer
 converts a visible deferral into a hang.
 
-**Current PAPER single-sale continuation (2026-11-25).** The fractional
-market-order PAPER path has a narrower bounded settlement option when exactly
+**Automated PAPER and LIVE single-sale continuation.** The fractional
+market-order PAPER path and protected-order LIVE path use a bounded settlement option when exactly
 one required sale remains acknowledged or partially filled after one clean,
 complete reconciliation. It uses guarded, account-bound exact-key reads only
 as a *hint* that the sale has positively filled. It waits between hints and
@@ -2002,7 +2036,8 @@ for that one sale; it does not extend the ten-minute increase window or weaken
 the final quote, cash, clock, issuer, signed-authority and broker checks. The
 wait remains inside the existing financial writer scope and is strictly
 bounded. Multiple required sales and all other execution profiles retain the
-original cycle-count behavior. If the hint or final reconciliation fails, the
+original cycle-count behavior. Automated LIVE uses the same authenticated
+purchase deadline for the wait and final native transport. If the hint or final reconciliation fails, the
 purchase is deferred for ordinary durable recovery. A later change may move
 the wait outside the writer scope or reuse version-bound immutable economic
 proof across callbacks, but neither change is granted by this option.

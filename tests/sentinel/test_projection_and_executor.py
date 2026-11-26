@@ -196,14 +196,14 @@ def broker():
     return SimulatedBroker(account=BrokerAccountIdentity("sim", "SIM-ACCOUNT"))
 
 
-def go(b, conn, desired, *, p=None, today=TODAY):
+def go(b, conn, desired, *, p=None, today=TODAY, **options):
     """`desired` is folded INTO the plan — the executor has no other
     source of economics, which is the point of R3."""
     base = replace(p or plan(), target_basket=desired)
     executor.adopt_plan(conn, base)
     return run(executor.execute_session(
         broker=b, conn=conn, deployment=DEPLOY, plan=base,
-        instruments=INSTRUMENTS, today=today))
+        instruments=INSTRUMENTS, today=today, **options))
 
 
 def seed_held(conn, b, instrument, qty, *, plan_id="plan-0"):
@@ -367,6 +367,47 @@ class TestExecuteSession:
         assert result.submitted[0].side is Side.SELL
         assert result.submitted[0].state is S.REJECTED
         assert result.deferred == ("SEC-AAA",)
+
+    def test_purchase_evidence_is_read_after_independent_sales(self, conn):
+        b = broker()
+        seed_held(conn, b, AAA, 20)
+        deferrals = {}
+
+        def settle(sim):
+            for order in list(sim._orders.values()):
+                if order.client_key and order.remaining:
+                    sim.fill(order.client_key)
+
+        b.observe_hooks = [None, settle]
+
+        async def prepare_purchases(candidates, reconciled):
+            assert [candidate.security_id for candidate in candidates] == [BIL.security_id]
+            assert reconciled.clean
+            assert len([call for call in b.calls if call.startswith("submit:")]) == 1
+            deferrals[BIL.security_id] = "native BIL evidence unavailable"
+
+        result = go(b, conn, {BIL.security_id: D(10)}, buy_deferrals=deferrals,
+                    prepare_increases=prepare_purchases)
+
+        assert [(c.side, c.security_id) for c in result.submitted] == [(Side.SELL, AAA.security_id)]
+        assert result.deferral_reasons == deferrals
+
+    def test_sale_only_recovery_skips_the_refused_sale_and_finishes_another(self, conn):
+        b = broker()
+        seed_held(conn, b, AAA, 20)
+        seed_held(conn, b, BIL, 20)
+        b.schedule_submit(F.REJECT)
+        desired = {BBB.security_id: D(10)}
+
+        first = go(b, conn, desired)
+        assert [(c.security_id, c.state) for c in first.submitted] == [(AAA.security_id, S.REJECTED)]
+
+        recovered = go(b, conn, desired, reductions_only=True)
+
+        assert [(c.side, c.security_id) for c in recovered.submitted] == [(Side.SELL, BIL.security_id)]
+        assert len(journal.load_commands(conn, DEPLOY, plan_id=plan().plan_id,
+                                         security_id=AAA.security_id)) == 1
+        assert BBB.security_id in recovered.deferred
 
     def test_FOREIGN_ACTIVITY_blocks_buying_but_not_selling(self, conn):
         b = broker()

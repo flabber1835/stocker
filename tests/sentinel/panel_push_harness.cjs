@@ -57,9 +57,11 @@ const context = {
     calls.push('permission');
     return scenario === 'permission-denied' ? 'denied' : 'granted';
   }},
+  AbortController, performance, clearTimeout,
   Uint8Array, atob: value => Buffer.from(value, 'base64').toString('binary'),
   crypto: {randomUUID: () => 'single-test-id'},
   setTimeout: (callback, delay) => {
+    if (delay === 15000) return setTimeout(callback, scenario === 'body-timeout' ? 0 : delay);
     assert.equal(delay, 2000);
     Promise.resolve().then(callback);
   },
@@ -77,6 +79,7 @@ const context = {
       assert.equal(body.endpoint, sub.endpoint);
       assert.equal(body.test_id, 'single-test-id');
       if (scenario === 'enrollment-null-error') throw null;
+      if (scenario === 'body-timeout') return {ok: true, json: () => new Promise(() => {})};
       const terminal = scenario.split('-').at(-1).toUpperCase();
       return {ok: scenario !== 'save-failed', json: async () => ({
         delivery_status: ['ACCEPTED', 'FAILED', 'CANCELLED'].includes(terminal)
@@ -152,7 +155,8 @@ async function settled() { for (let i = 0; i < 32; i++) await Promise.resolve();
   assert.equal(enable.disabled, false, 'failure must not leave enrollment disabled');
   const failures = {'permission-denied':'permission was not granted',
     'config-failed':'configuration is unavailable', 'subscribe-failed':'browser enrollment failed',
-    'save-failed':'could not be saved', 'enrollment-null-error':'enrollment failed'};
+    'save-failed':'could not be saved', 'enrollment-null-error':'enrollment failed',
+    'body-timeout':'deadline exceeded'};
   if (failures[scenario]) {
     assert(status.textContent.includes(failures[scenario]));
     assert.equal(polls, 0);

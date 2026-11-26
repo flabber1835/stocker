@@ -648,9 +648,12 @@ class ExecuteResult(_FrozenModel):
     failure_detail: str | None = None
     diagnostic: Mapping[str, Any] = Field(default_factory=dict)
     reduction_only_continuation: bool = False
+    reduction_only_required: bool = False
 
     @model_validator(mode="after")
     def _conclusive_result_has_reconciliation(self) -> "ExecuteResult":
+        if self.reduction_only_required and not self.reduction_only_continuation:
+            raise ValueError("required reduction scope must have recovery authorization")
         if (self.reduction_only_continuation
                 and (self.disposition is not ExecuteDisposition.READY_TO_EXECUTE
                      or not self.last_clean_reconciliation_id
@@ -687,7 +690,7 @@ class ExecuteResult(_FrozenModel):
 def reduction_continuation_observation(cycle: CycleRecord) -> str | None:
     """The exact recovery observation selected for the durable sell-only handoff."""
     observation_id = cycle.diagnostic.get("reduction_only_reconciliation_id")
-    if (cycle.broker == "alpaca" and cycle.plan_id and cycle.plan_fingerprint
+    if (cycle.broker in {"alpaca", "alpaca-live"} and cycle.plan_id and cycle.plan_fingerprint
             and cycle.diagnostic.get("retry_phase") == "EXECUTE"
             and isinstance(observation_id, str) and observation_id
             and observation_id == cycle.last_clean_reconciliation_id):
@@ -733,6 +736,8 @@ class AlertRecord(_FrozenModel):
 class DispatchResult(_FrozenModel):
     alert: AlertRecord | None
     delivered: bool = False
+    newly_delivered: bool = False
+    skipped: bool = False
     dead_lettered: bool = False
     error: str | None = None
 

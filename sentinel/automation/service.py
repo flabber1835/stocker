@@ -31,7 +31,7 @@ from sentinel import opening_stage_log
 from sentinel.automation import integrity, schedule, store
 from sentinel.automation.source_completion import SourceCompletionHint, progressed
 from sentinel.backup_guard import BUSY_RETRY_MAX_SECONDS
-from sentinel.execution.identity import DeploymentIdentity
+from sentinel.execution.identity import ALPACA_LIVE_BROKER, ALPACA_PAPER_BROKER, DeploymentIdentity
 from sentinel.execution.journal import WriterLockUnavailable, in_flight_commands
 from sentinel.automation.model import (
     AutomationConfig,
@@ -578,11 +578,18 @@ class AutomationService:
         )
 
     def _reduction_window_open(self, *, now: datetime, cycle: CycleRecord) -> bool:
-        return (cycle.broker == "alpaca" and self.config.debug_window_for(cycle) is None
+        return (cycle.broker in {"alpaca", "alpaca-live"} and cycle.plan_id is not None
+                and self.config.debug_window_for(cycle) is None
                 and cycle.execution_open_at <= now < cycle.execution_close_at)
 
-    def _transport_expired(self, *, now: datetime, cycle: CycleRecord) -> bool:
+    def _purchase_window_expired(self, *, now: datetime, cycle: CycleRecord) -> bool:
         return (self._execution_expired(now=now, cycle=cycle)
+                or (self._reduction_window_open(now=now, cycle=cycle)
+                    and now >= min(self._latest_new_execution_at(cycle),
+                                   cycle.execution_open_at + timedelta(minutes=10))))
+
+    def _transport_expired(self, *, now: datetime, cycle: CycleRecord) -> bool:
+        return (self._purchase_window_expired(now=now, cycle=cycle)
                 and not (reduction_continuation_observation(cycle) is not None
                          and self._reduction_window_open(now=now, cycle=cycle)))
 
@@ -896,13 +903,10 @@ class AutomationService:
             pre_open = phase in {"PREFLIGHT_RECOVER", "PREPARE"}
             deadline = (cycle.execution_open_at if pre_open
                         else self._latest_new_execution_at(cycle))
-            if now < deadline:
-                return self._record_native_fee_wait(
-                    conn, now=now, cycle=cycle, permit=permit, phase=phase,
-                    deadline=deadline, exc=exc,
-                    recovery_transition=recovery_transition)
-            exc = NonRetryableCallbackRefused(
-                f"native fee posting did not reconcile before the original {phase.lower()} cutoff: {exc}")
+            return self._record_native_fee_wait(
+                conn, now=now, cycle=cycle, permit=permit, phase=phase,
+                deadline=deadline, exc=exc,
+                recovery_transition=recovery_transition)
         return self._record_retry(
             conn, now=now, cycle=cycle, permit=permit, phase=phase, exc=exc,
             failure_code=type(exc).__name__, failure_detail=str(exc)[:4000],
@@ -915,6 +919,8 @@ class AutomationService:
         # Re-enter through broker reconciliation after any execution callback.
         # Neither a retry nor a replacement lease can extend this cycle's cutoff.
         retry_phase = "RECOVER" if phase == "EXECUTE" else phase
+        if phase == "PREPARE" and now >= deadline:
+            retry_phase = "PREFLIGHT_RECOVER"
         prior = cycle.diagnostic
         exception_type = f"{type(exc).__module__}.{type(exc).__qualname__}"
         attempts = 1
@@ -922,7 +928,9 @@ class AutomationService:
         if prior.get("exception_type") == exception_type and prior.get("retry_phase") == retry_phase:
             attempts += int(prior.get("phase_attempt_count", 0))
             first_failure = prior["first_failure_at"]
-        retry_at = min(self._retry_at(now, attempts), deadline)
+        retry_at = self._retry_at(now, attempts)
+        if now < deadline:
+            retry_at = min(retry_at, deadline)
         diagnostic = {
             "retry_phase": retry_phase,
             "callback_failure": "NATIVE_FEE_POSTING_PENDING",
@@ -974,6 +982,14 @@ class AutomationService:
             conn, permit=permit, cycle_id=cycle.cycle_id,
             to_state=to_state, **changes)
 
+    @staticmethod
+    def _pending_recovery_wake(cycle: CycleRecord, *, now: datetime, permit):
+        if (cycle.state is CycleState.RETRY_WAIT
+                and cycle.next_wake_at is not None and now < cycle.next_wake_at):
+            return TickResult(action=TickAction.WAITING, cycle=cycle, permit=permit,
+                              reason="durable retry wake has not arrived")
+        return None
+
     async def _adopt_older_generation(
             self, conn, *, now: datetime, cycle: CycleRecord, permit,
             control, heartbeat_conn_factory=None, clock=None) -> TickResult:
@@ -1013,6 +1029,9 @@ class AutomationService:
                 action=TickAction.BLOCKED, cycle=adopted, permit=permit,
                 reason=adopted.failure_detail)
 
+        waiting = self._pending_recovery_wake(cycle, now=now, permit=permit)
+        if waiting is not None:
+            return waiting
         adopted = store.adopt_cycle(
             conn, permit=permit, cycle_id=cycle.cycle_id)
         if store.cycle_preflight_recovery_pending(adopted):
@@ -1408,7 +1427,8 @@ class AutomationService:
                     "an explicit operator deactivate/reactivate boundary is "
                     "required before a later session can proceed"))
         waiting_subject = None
-        if _idle_pulse is not None and now < _idle_pulse[1] and control.broker == 'alpaca':
+        if (_idle_pulse is not None and now < _idle_pulse[1]
+                and control.broker in (ALPACA_PAPER_BROKER, ALPACA_LIVE_BROKER)):
             waiting_spec = self._spec(control, obligation)
             if self.config.debug_window_for(waiting_spec) is None:
                 witness = store.waiting_open_witness(conn, waiting_spec.cycle_id)
@@ -1546,7 +1566,10 @@ class AutomationService:
                         action=TickAction.WAITING, cycle=cycle, permit=permit,
                         reason="durable retry wake has not arrived")
             retry_phase = str(cycle.diagnostic.get("retry_phase", "PREPARE"))
-            if retry_phase == "PREFLIGHT_RECOVER":
+            late_fee_preparation = (retry_phase == "PREPARE"
+                and cycle.diagnostic.get("callback_failure") == "NATIVE_FEE_POSTING_PENDING"
+                and now >= cycle.execution_open_at)
+            if retry_phase == "PREFLIGHT_RECOVER" or late_fee_preparation:
                 return await self._run_preflight_recover(
                     conn, now=now, cycle=cycle, permit=permit,
                     heartbeat_conn_factory=heartbeat_conn_factory, clock=clock)
@@ -1615,6 +1638,14 @@ class AutomationService:
                 return TickResult(
                     action=TickAction.WAITING, cycle=cycle, permit=permit,
                     reason="effective-session execution wake has not arrived")
+            if (self._purchase_window_expired(now=now, cycle=cycle)
+                    and self._reduction_window_open(now=now, cycle=cycle)):
+                cycle = store.transition_cycle(
+                    conn, permit=permit, cycle_id=cycle.cycle_id,
+                    to_state=CycleState.RECONCILING, next_wake_at=None)
+                return await self._run_recover(
+                    conn, now=now, cycle=cycle, permit=permit,
+                    heartbeat_conn_factory=heartbeat_conn_factory, clock=clock)
             if self._execution_expired(now=now, cycle=cycle):
                 failure_code = (
                     "MISSED_EXECUTION_WINDOW"
@@ -1708,6 +1739,9 @@ class AutomationService:
             permit, heartbeat_conn_factory=None,
             supersede_on_success: bool = False, clock=None) -> TickResult:
         """Prove the shared journal clean before any new publication."""
+        waiting = self._pending_recovery_wake(cycle, now=now, permit=permit)
+        if waiting is not None:
+            return waiting
         if cycle.last_fence_token != permit.fence_token:
             cycle = store.adopt_cycle(
                 conn, permit=permit, cycle_id=cycle.cycle_id)
@@ -1828,6 +1862,9 @@ class AutomationService:
             self, conn, *, now: datetime, cycle: CycleRecord,
             permit, heartbeat_conn_factory=None, clock=None) -> TickResult:
         """Read-only broker recovery; this callback is never the executor."""
+        waiting = self._pending_recovery_wake(cycle, now=now, permit=permit)
+        if waiting is not None:
+            return waiting
         if cycle.last_fence_token != permit.fence_token:
             cycle = store.adopt_cycle(
                 conn, permit=permit, cycle_id=cycle.cycle_id)
@@ -1903,7 +1940,7 @@ class AutomationService:
             result.disposition is ExecuteDisposition.READY_TO_EXECUTE
             and result.failure_code == "PROTECTED_COHORT_READY"
             and cycle.control_generation == permit.control_generation
-            and self._execution_expired(now=now, cycle=cycle))
+            and self._purchase_window_expired(now=now, cycle=cycle))
         if result.failure_code == "PROTECTED_DAY_ORDERS_WORKING" or crossing_cohort_ready:
             wait = protected_day_wait(
                 result.diagnostic.get("protected_day_wait"), now=now,
@@ -1938,10 +1975,11 @@ class AutomationService:
                 return TickResult(
                     action=TickAction.BLOCKED, cycle=cycle, permit=permit,
                     reason=cycle.failure_detail)
-            cutoff_expired = self._execution_expired(now=now, cycle=cycle)
-            reductions_only = (cutoff_expired and result.reduction_only_continuation
+            cutoff_expired = self._purchase_window_expired(now=now, cycle=cycle)
+            reductions_only = (result.reduction_only_continuation
+                               and (cutoff_expired or result.reduction_only_required)
                                and self._reduction_window_open(now=now, cycle=cycle))
-            if cutoff_expired and not reductions_only:
+            if (cutoff_expired or result.reduction_only_required) and not reductions_only:
                 if cycle.state is CycleState.EXECUTING:
                     cycle = store.transition_cycle(
                         conn, permit=permit, cycle_id=cycle.cycle_id,
@@ -2172,6 +2210,7 @@ class AutomationService:
         ticks = 0
         idle_permit: LeaderPermit | None = None
         waiting_execute_at: datetime | None = None
+        handled_terminal = None
         while not stop.is_set() and (max_ticks is None or ticks < max_ticks):
             try:
                 conn = conn_factory()
@@ -2218,7 +2257,11 @@ class AutomationService:
                             CycleState.SUPERSEDED,
                             CycleState.BLOCKED,
                         }):
-                    await _resolve(self.terminal(conn, result))
+                    cycle = result.cycle
+                    terminal = (cycle.cycle_id, cycle.state, cycle.updated_at)
+                    if terminal != handled_terminal:
+                        await _resolve(self.terminal(conn, result))
+                        handled_terminal = terminal
                 if (self.notify is not None
                         and (result.action in {
                             TickAction.BLOCKED,

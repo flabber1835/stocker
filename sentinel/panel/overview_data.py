@@ -56,9 +56,9 @@ def shadow_slots(wealth):
     return projected
 
 
-def account_overview(account, *, expected_account_id, cash_posting=None):
+def account_overview(account, *, expected_account_id, expected_broker='alpaca', cash_posting=None):
     """Typed balance only after exact account matching; no shadow substitutions."""
-    if not account or account.get('broker') != 'alpaca' or not expected_account_id:
+    if not account or account.get('broker') != expected_broker or not expected_account_id:
         return None
     if account.get('account_id') != expected_account_id:
         return None

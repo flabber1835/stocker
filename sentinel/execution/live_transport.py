@@ -151,6 +151,7 @@ class LiveExecutionPolicy:
     def __init__(self, *, admission: LiveAdapterAdmission | Callable[[], LiveAdapterAdmission],
                  load_submit: Callable, load_cancel: Callable,
                  final_check: Callable[[str], None],
+                 automation_buy_window: Callable[[], tuple[datetime, datetime]] | None = None,
                  now: Callable[[], datetime] | None = None):
         if not callable(load_submit) or not callable(load_cancel):
             raise TypeError("LIVE policy requires canonical journal context loaders")
@@ -163,6 +164,7 @@ class LiveExecutionPolicy:
         self._load_submit = load_submit
         self._load_cancel = load_cancel
         self._final_check = final_check
+        self._automation_buy_window = automation_buy_window
         self._now = now or (lambda: datetime.now(timezone.utc))
 
     def _authority(self, adapter, operation):
@@ -201,11 +203,20 @@ class LiveExecutionPolicy:
 
     async def authorize_submit(self, adapter, *, client_key, instrument, side,
                                quantity, order_terms):
+        buy_deadline = None
+        if side is Side.BUY and self._automation_buy_window is not None:
+            buy_start, buy_deadline = self._automation_buy_window()
+            if not buy_start <= self._now() < buy_deadline:
+                raise LiveTransportRefused("LIVE purchase is outside the approved automation window")
         context = self._load_submit(client_key)
         if inspect.isawaitable(context):
             context = await context
         if type(context) is not LiveOrderContext:
             raise LiveTransportRefused("LIVE gateway did not load typed original order context")
+        from sentinel.feed import calendar
+        opened, closed = calendar.session_window(context.effective_session)
+        if not opened <= self._now() < closed:
+            raise LiveTransportRefused("LIVE submission is outside the plan's regular session")
         request = context.request
         exact = _submit_tuple(command_key=client_key, instrument=instrument,
                               side=side, quantity=quantity, terms=order_terms)
@@ -235,8 +246,8 @@ class LiveExecutionPolicy:
                     or current.funding_receipt_sha256 != assessment.funding_receipt_sha256):
                 raise LiveTransportRefused("LIVE authority or funding changed before transport")
 
-        return self._permit(adapter, "SUBMIT", exact, authority,
-                            recheck=recheck, valid_until=assessment.valid_until)
+        return self._permit(adapter, "SUBMIT", exact, authority, recheck=recheck,
+                            valid_until=min(assessment.valid_until, closed, buy_deadline or closed))
 
     async def authorize_cancel(self, adapter, broker_order_id):
         command = self._load_cancel(broker_order_id)

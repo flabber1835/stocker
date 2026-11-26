@@ -206,6 +206,24 @@ def buy_basket(database):
     return state, plan, projected
 
 
+def test_plan_preparation_does_not_look_up_native_purchase_instruments(database, monkeypatch):
+    state, plan, _projection = buy_basket(database)
+    monkeypatch.setattr(feed_inputs, "metadata", lambda _: {})
+    broker = DollarBroker()
+
+    async def resolve_purchase(**_kwargs):
+        pytest.fail("plan preparation requested native purchase tradeability")
+
+    monkeypatch.setattr(broker, "resolve_instrument", resolve_purchase)
+
+    async def prepare():
+        mapped = await targets._instrument_map(
+            database, broker, state, plan, await broker.observe(), preparation=True)
+        assert not mapped
+
+    asyncio.run(prepare())
+
+
 @pytest.mark.parametrize("availability", ["initially-inactive", "became-inactive", "conflicting-native-id"])
 def test_inactive_buy_defers_only_its_identity_and_keeps_other_transport(database, monkeypatch, availability):
     state, plan, projection = buy_basket(database)

@@ -649,7 +649,7 @@ def test_conflicting_outbox_identity_does_not_complete_recovery(conn, monkeypatc
 
     with pytest.raises(ImmutableAlertChanged, match='stored alert ID and idempotency key disagree'):
         if recovery:
-            outbox.claim_next(conn, holder_id='private-dispatcher')
+            outbox.recover_notifications(conn)
         else:
             outbox.enqueue(conn, idempotency_key=key, event_type='AUTOMATION_KILL_ENGAGED',
                            severity='CRITICAL', payload={})
@@ -670,12 +670,14 @@ def test_completion_finds_late_lower_sequence_and_keeps_original_outbox(conn, pg
         newer = _control_event(conn, 'already notified')
         conn.commit()
         existing = outbox.enqueue_latest_kill_alert(conn)
+        outbox.recover_notifications(conn)
         first = outbox.claim_next(conn, holder_id='private-one')
         assert first.alert_id == existing.alert_id
         assert conn.execute(f'SELECT seq FROM {TABLE}').fetchall() == [(newer,)]
         outbox.mark_delivered(conn, alert_id=first.alert_id, holder_id='private-one',
                               attempt=first.attempt_count)
         delayed.commit()
+    outbox.recover_notifications(conn)
     second = outbox.claim_next(conn, holder_id='private-two')
     assert second.idempotency_key == f'control-event:{lower}'
     assert lower < newer
@@ -685,6 +687,7 @@ def test_completion_finds_late_lower_sequence_and_keeps_original_outbox(conn, pg
     conn.execute("UPDATE sentinel_automation_events SET reason='changed source version' WHERE seq=%s",
                  (newer,))
     conn.commit()
+    outbox.recover_notifications(conn)
     assert outbox.claim_next(conn, holder_id='private-updated-version') is None
     assert conn.execute(f'SELECT count(*) FROM {TABLE} WHERE seq=%s', (newer,)).fetchone() == (2,)
     assert outbox.load_alert(conn, existing.alert_id).payload == existing.payload
@@ -718,11 +721,13 @@ def test_completion_crash_replays_whole_batch_and_dispatchers_converge(conn, pg,
 
     def claim(index):
         with feed_store.connect(pg.sync_dsn) as worker:
+            outbox.recover_notifications(worker)
             return outbox.claim_next(worker, holder_id=f'private-dispatcher-{index}')
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         first, second = list(pool.map(claim, range(2)))
     assert first.alert_id != second.alert_id
+    outbox.recover_notifications(conn)
     third = outbox.claim_next(conn, holder_id='private-third')
     assert third.alert_id not in {first.alert_id, second.alert_id}
     assert conn.execute(f'SELECT count(*) FROM {TABLE}').fetchone()[0] == 3
@@ -891,6 +896,68 @@ def test_concurrent_claimers_receive_distinct_alerts(conn, pg) -> None:
             ]
         }
     assert len(claimed) == 2
+
+
+@pytest.mark.asyncio
+async def test_queued_delivery_survives_a_poisoned_history_repair(conn, monkeypatch):
+    def unavailable(*args, **kwargs):
+        raise ImmutableAlertChanged('conflicting history')
+
+    monkeypatch.setattr(outbox, '_reconstruct_missing_transition_alerts', unavailable)
+    alert = outbox.enqueue(conn, idempotency_key='current-critical', event_type='CURRENT_INCIDENT',
+                           severity='CRITICAL', payload={})
+    with pytest.raises(ImmutableAlertChanged, match='conflicting history'):
+        outbox.recover_notifications(conn)
+    result = await outbox.dispatch_once(conn, adapter=outbox.LogAlertAdapter(), holder_id='worker')
+    assert result.delivered and result.alert.alert_id == alert.alert_id
+
+
+def test_fill_repair_bounds_each_sweep_and_revisits_late_keys_and_conflicts(conn, monkeypatch):
+    monkeypatch.setattr(outbox, '_FILL_REPAIR_BATCH', 2)
+
+    def write_fill(order):
+        conn.execute("INSERT INTO sentinel_fills (broker_order_id,fill_key,quantity,price,filled_at)"
+                     " VALUES (%s,'activity',1,10,clock_timestamp())", (order,))
+        conn.commit()
+
+    def notices():
+        return {row[0] for row in conn.execute("SELECT payload->>'broker_order_id' FROM sentinel_alert_outbox"
+                                              " WHERE event_type='FILL_NOTIFICATION_IDENTITY_INVALID'").fetchall()}
+
+    for order in ('p', 'q', 'r'):
+        write_fill(order)
+    conn.execute("INSERT INTO sentinel_alert_outbox"
+                 " (alert_id,idempotency_key,schema_version,event_type,severity,payload,state,max_attempts)"
+                 " VALUES (%s,'conflicting-key',1,'TEST','INFO','{}','PENDING',8)",
+                 (outbox._alert_id('fill-integrity:p:activity'),))
+    conn.commit()
+    errors = []
+
+    def report_error(source, exc):
+        errors.append((source, type(exc)))
+
+    next_key = outbox.recover_notifications(conn, report_error=report_error)
+    assert next_key == ('q', 'activity')
+    assert errors == [('FILL', ImmutableAlertChanged)] and notices() == {'q'}
+    write_fill('a')
+    assert outbox.recover_notifications(conn, fill_after=next_key, report_error=report_error) is None
+    assert notices() == {'q', 'r'}
+    assert outbox.recover_notifications(conn, report_error=report_error) == ('p', 'activity')
+    assert notices() == {'a', 'q', 'r'} and errors == [('FILL', ImmutableAlertChanged)] * 2
+
+
+@pytest.mark.asyncio
+async def test_intentionally_skipped_delivery_has_no_acceptance_receipt(conn):
+    class QuietAdapter:
+        def deliver(self, alert, idempotency_key):
+            return outbox.DeliverySkipped('quiet event')
+
+    alert = outbox.enqueue(conn, idempotency_key='quiet', event_type='INFO', severity='INFO', payload={})
+    result = await outbox.dispatch_once(conn, adapter=QuietAdapter(), holder_id='worker')
+    assert result.skipped and not result.delivered and result.alert.delivered_at is None
+    assert outbox.claim_next(conn, holder_id='later-worker') is None
+    assert conn.execute('SELECT error FROM sentinel_alert_delivery_events WHERE alert_id=%s '
+                        'ORDER BY seq DESC LIMIT 1', (alert.alert_id,)).fetchone() == ('delivery skipped: quiet event',)
 
 
 @pytest.mark.asyncio

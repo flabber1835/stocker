@@ -82,6 +82,16 @@ def test_missing_live_authority_refuses_before_http(tmp_path, monkeypatch):
     assert all(conn.closed for conn in f.connections)
 
 
+def test_only_scoped_opening_snapshot_can_read_live_positions(tmp_path, monkeypatch):
+    f = monitoring(tmp_path, monkeypatch)
+    r = reader(f)
+    observation = asyncio.run(r.opening_snapshot())
+    assert observation.is_complete and observation.account_identity.account_id == f.subject.account_id
+    assert [path for _, path, _ in f.calls].count('/v2/positions') == 2
+    with pytest.raises(module.MonitoringReadRefused):
+        asyncio.run(r._get('/v2/positions'))
+
+
 @pytest.mark.parametrize("during", [False, True])
 def test_read_authority_revocation_is_fresh_even_for_existing_facade(tmp_path, monkeypatch, during):
     f = monitoring(tmp_path, monkeypatch)

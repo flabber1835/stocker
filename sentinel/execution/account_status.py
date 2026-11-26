@@ -327,7 +327,7 @@ async def collect(conn, *, config, reader=None, report_reservation_recheck=False
         reader = AlpacaExecutionBroker(api_key=config.alpaca_key,
             secret_key=config.alpaca_secret, base_url=config.base_url)
     opening = None
-    if not live and commands == [] and hasattr(reader, 'observe'):
+    if live or (commands == [] and hasattr(reader, 'observe')):
         from sentinel.execution import opening_display
         opening = await opening_display.collect(conn, reader=reader, bound=bound)
     sample = await asyncio.wait_for(

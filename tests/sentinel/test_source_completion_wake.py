@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from sentinel.automation_runtime import ProductionAutomation
 from sentinel.automation import source_completion
 from sentinel.automation.model import (
     ClosingDataPending, CycleState, NonRetryableCallbackRefused, SourceDataPending, TickAction,
@@ -93,18 +94,25 @@ async def test_close_pending_uses_cheap_wakes_and_a_bounded_full_retry(publicati
     assert len(calls) == 3
 
 
-def test_hint_reads_both_handoffs_without_loading_state(publications, pg):
-    before = read_hint(pg.sync_dsn)
+@pytest.mark.parametrize('live', [False, True], ids=['paper', 'live'])
+def test_hint_reads_both_handoffs_without_loading_state(publications, pg, live):
+    runtime = object.__new__(ProductionAutomation)
+    runtime._dual_run_enabled, runtime._live_run_enabled = not live, live
+    runtime._shadow_observation_id = "primary"
+    runtime.sentinel_config = SimpleNamespace(database_url=pg.sync_dsn)
+    cycle = SimpleNamespace(decision_session=DECISION)
+
+    before = runtime.source_completion_hint(cycle)
     assert before.publication_frontier == PREVIOUS
     assert before.attestation_row is None
     assert not source_completion.progressed(before, before, decision_session=DECISION)
     publish(publications)
-    published = read_hint(pg.sync_dsn)
+    published = runtime.source_completion_hint(cycle)
     assert source_completion.progressed(before, published, decision_session=DECISION)
     attest(publications, observation_id="foreign")
-    assert read_hint(pg.sync_dsn) == published
+    assert runtime.source_completion_hint(cycle) == published
     attest(publications)
-    completed = read_hint(pg.sync_dsn)
+    completed = runtime.source_completion_hint(cycle)
     assert source_completion.progressed(published, completed, decision_session=DECISION)
     assert not source_completion.progressed(completed, completed, decision_session=DECISION)
     assert not source_completion.progressed(completed, published, decision_session=DECISION)
