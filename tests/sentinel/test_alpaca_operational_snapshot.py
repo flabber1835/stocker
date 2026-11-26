@@ -186,14 +186,25 @@ def test_alpaca_snapshot_publishes_and_reads_only_native_endpoints(conn, alpaca_
                             snapshot_id=result["snapshot_id"]).counts["2026-09-14"] == 2
     # Follow the real producer's retained parts through the shared authority
     # reader used by empty enrollment, paper issuance and daily renewal.
-    from sentinel.observation_authority import current_metadata_snapshot_identity
+    from sentinel.observation_authority import current_metadata_snapshot_identity, metadata_material
     from sentinel.core.rolling_inputs import SnapshotReferences
     refs = SnapshotReferences(conn, candidate_id=result["candidate_id"],
                               snapshot_id=result["snapshot_id"])
     from sentinel.feed.rolling_contract import canonical_json
-    assert current_metadata_snapshot_identity(conn) == {
+    expected = {
         "snapshot_date": "2026-09-15", "row_count": 2,
         "sha256": digest(sorted(refs.tickers, key=canonical_json))}
+    assert current_metadata_snapshot_identity(conn) == expected
+    original = SnapshotReferences._from_bound_manifest
+    full = []
+    def traced(*args, **kwargs):
+        full.append(True)
+        return original(*args, **kwargs)
+    monkeypatch.setattr(SnapshotReferences, '_from_bound_manifest', staticmethod(traced))
+    with metadata_material():
+        assert current_metadata_snapshot_identity(conn) == expected
+        assert current_metadata_snapshot_identity(conn) == expected
+    assert full == [True]
     assert {call[0] for call in alpaca_path.calls} == {ASSETS, ACTION_URL, BAR_URL}
 
 

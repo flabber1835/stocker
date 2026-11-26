@@ -160,6 +160,8 @@ def test_deployed_automation_refuses_legacy_publication_before_source_fallback(
 @pytest.mark.parametrize("callback", ["prepare", "execute"])
 def test_resumed_operational_cycle_rechecks_alpaca_source_before_broker(
         monkeypatch, callback):
+    from contextlib import contextmanager
+
     class Connection:
         def close(self):
             pass
@@ -179,6 +181,12 @@ def test_resumed_operational_cycle_rechecks_alpaca_source_before_broker(
                         lambda *_a: None)
     monkeypatch.setattr(automation_runtime.feed_inputs, "current",
                         lambda *_a: SimpleNamespace(version=1))
+    @contextmanager
+    def pinned(conn, *, commit):
+        assert commit is False
+        yield automation_runtime.feed_inputs.current(conn)
+
+    monkeypatch.setattr(automation_runtime.feed_inputs, 'pinned', pinned)
     monkeypatch.setattr(automation_runtime.feed_inputs, "is_rolling",
                         lambda *_a: False)
     monkeypatch.setattr(automation_runtime.journal, "latest_plan",
@@ -656,17 +664,24 @@ def install_durable_projection(monkeypatch, current_plan, *, multiplier="1"):
 @pytest.mark.parametrize('failure_at', ['resolver', 'execution'])
 async def test_operational_execute_pins_before_resolver_and_releases_on_failure(monkeypatch, failure_at):
     from contextlib import contextmanager
-    cfg=config(); ctx=context(cfg); conn=FakeConnection(); worker=production(cfg)
+    current_plan = plan()
+    cfg=config(); ctx=context(cfg, plan=current_plan); conn=FakeConnection(); worker=production(cfg)
     install_runtime_seams(monkeypatch,worker,conn,ctx,SimulatedBroker())
+    monkeypatch.setattr(journal, 'latest_plan', lambda _conn: current_plan)
     worker._operational_source_only=True
-    monkeypatch.setattr(worker,'_require_operational_inputs',lambda _:None)
+    worker._dual_run_enabled=True
     monkeypatch.setattr(automation_runtime,'require_observation_integrity',lambda _:None)
     trace=[]; held=[False]
+    publication=object()
+    def inputs(reader, *, current):
+        assert reader is conn and held[0] and current is publication
+        trace.append('INPUTS')
+    monkeypatch.setattr(worker,'_require_operational_inputs',inputs)
     @contextmanager
     def pin(reader,*,commit):
         assert reader is conn and not commit
         held[0]=True;trace.append('PIN')
-        try:yield object()
+        try:yield publication
         finally:held[0]=False;trace.append('RELEASE')
     monkeypatch.setattr(automation_runtime.feed_inputs,'pinned',pin)
     def resolver(*a):
@@ -680,16 +695,17 @@ async def test_operational_execute_pins_before_resolver_and_releases_on_failure(
         trace.append('EXECUTE');raise paper.PaperActivationRefused('execution refused')
     monkeypatch.setattr(paper,'execute_automated_paper_plan',execute)
     with pytest.raises(NonRetryableCallbackRefused):await worker.execute(ctx)
-    assert trace==(['PIN','RESOLVER','RELEASE'] if failure_at=='resolver' else ['PIN','RESOLVER','EXECUTE','RELEASE'])
+    assert trace==(['PIN','INPUTS','RESOLVER','RELEASE'] if failure_at=='resolver'
+                   else ['PIN','INPUTS','RESOLVER','EXECUTE','RELEASE'])
     assert conn.closed==1 and not held[0]
 
 
 def test_removed_operational_execution_pin_is_detected(monkeypatch):
     import inspect,textwrap
     source=textwrap.dedent(inspect.getsource(automation_runtime.ProductionAutomation.execute))
-    line='input_scope.enter_context(feed_inputs.pinned(conn, commit=False))'
+    line='pinned = input_scope.enter_context(feed_inputs.pinned(conn, commit=False))'
     assert line in source
-    namespace={};exec(compile(source.replace(line,'pass'),'execution-pin-falsifier','exec'),automation_runtime.__dict__,namespace)
+    namespace={};exec(compile(source.replace(line,'pinned = object()'),'execution-pin-falsifier','exec'),automation_runtime.__dict__,namespace)
     monkeypatch.setattr(automation_runtime.ProductionAutomation,'execute',namespace['execute'])
     with pytest.raises(AssertionError):
         test_operational_execute_pins_before_resolver_and_releases_on_failure(monkeypatch,'resolver')
@@ -1617,7 +1633,7 @@ async def test_operational_completion_reenters_owned_proof_with_fresh_fences(
     install_runtime_seams(monkeypatch, runtime, conn, ctx, broker)
     runtime._dual_run_enabled = True
     runtime._operational_source_only = True
-    monkeypatch.setattr(runtime, '_require_operational_inputs', lambda _conn: None)
+    monkeypatch.setattr(runtime, '_require_operational_inputs', lambda _conn, **_kwargs: None)
     monkeypatch.setattr(automation_runtime, 'require_observation_integrity',
                         lambda _conn: None)
     plan_reads = []
