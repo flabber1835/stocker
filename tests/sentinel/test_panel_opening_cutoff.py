@@ -106,11 +106,24 @@ def retired_buy(historical_run_db, monkeypatch):
     return conn, cycle, observation, accounts, market_open
 
 
+def replace_waiting_plan_on_activation(conn):
+    conn.execute("""
+        INSERT INTO sentinel_execution_plans VALUES(
+            'replaced-plan','2026-11-25T21:22Z','2026-11-25','2026-11-27',
+            '{}','alpaca','paper','deployment',1,'new-plan');
+        UPDATE sentinel_execution_plans SET superseded_by='replaced-plan' WHERE plan_id='old-plan';
+        UPDATE sentinel_automation_cycles SET control_generation=82 WHERE cycle_id='old-cycle';
+    """)
+
+
+@pytest.mark.parametrize('activated', [False, True], ids=['first-plan', 'after-activation'])
 @pytest.mark.parametrize('fault', [None, 'current-plan', 'wrong-successor', 'killed', 'wrong-epoch',
     'no-restore', 'native-prior', 'native-newest', 'foreign-account', 'sell', 'unknown',
-    'other-planned', 'new-observation', 'expired'])
-def test_only_proven_retired_buys_keep_broker_observation_valid(retired_buy, fault):
+    'other-planned', 'new-observation', 'expired', 'future-generation'])
+def test_only_proven_retired_buys_keep_broker_observation_valid(retired_buy, fault, activated):
     conn, cycle, observation, accounts, market_open = retired_buy
+    if activated:
+        replace_waiting_plan_on_activation(conn)
     sql = {
         'current-plan': "UPDATE sentinel_commands SET plan_id='new-plan'",
         'wrong-successor': "UPDATE sentinel_execution_plans SET superseded_by='different' WHERE plan_id='old-plan'",
@@ -121,6 +134,7 @@ def test_only_proven_retired_buys_keep_broker_observation_valid(retired_buy, fau
         'unknown': "INSERT INTO sentinel_commands(client_key,state) VALUES ('other','UNKNOWN')",
         'other-planned': "INSERT INTO sentinel_commands(client_key,state) VALUES ('other','PLANNED')",
         'new-observation': "INSERT INTO sentinel_observations VALUES (645,'2026-11-25T22:00Z','RUNNING','COMPLETE')",
+        'future-generation': "UPDATE sentinel_automation_cycles SET control_generation=87 WHERE cycle_id='old-cycle'",
     }
     if fault in sql:
         conn.execute(sql[fault])
@@ -135,6 +149,17 @@ def test_only_proven_retired_buys_keep_broker_observation_valid(retired_buy, fau
     # still has to fail the proof inside this database read.
     assert sources._only_retired_unsent_buys(
         conn, cycle, observation, {'PLANNED': 1}, now=now) is (fault is None)
+
+
+@pytest.mark.parametrize('revision_fault', [
+    "takeover_epoch=2", "effective_session='2026-11-30'", "superseded_by='replaced-plan'",
+], ids=['wrong-epoch', 'wrong-session', 'cycle'])
+def test_retired_buy_refuses_invalid_intermediate_revision(retired_buy, revision_fault):
+    conn, cycle, observation, _, market_open = retired_buy
+    replace_waiting_plan_on_activation(conn)
+    conn.execute(f"UPDATE sentinel_execution_plans SET {revision_fault} WHERE plan_id='replaced-plan'")
+    assert not sources._only_retired_unsent_buys(
+        conn, cycle, observation, {'PLANNED': 1}, now=market_open-timedelta(days=1))
 
 
 @pytest.mark.parametrize('typed', [False, True])

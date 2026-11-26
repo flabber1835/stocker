@@ -48,9 +48,14 @@ or produce red as appropriate. A new miss requires a new review event.
 The ordinary idle broker observation may remain valid until its scheduled
 wake when the only journal entries still marked PLANNED are expired buys
 proved unsent. Require a current enabled PAPER cycle waiting for its future
-open and the same owned account and control generation as the completed
-cutoff. Require the expired plan to name that exact successor. The successor
-must name the current complete, reconciled broker observation. The old
+open under the same owned account, deployment and takeover epoch as the
+completed cutoff. A software activation can advance the control generation
+and replace the saved successor before its open. Allow a cutoff from the
+current or an earlier generation only when the stored supersession chain
+reaches the exact active plan within 32 links. Every successor must be bound
+to the same account and match the active plan's decision and effective
+sessions. The active cycle must name the current complete, reconciled broker
+observation. The old
 cutoff must name its own earlier clean observation. Check both native order
 lists and exact lookup evidence for the retired buys, and verify the complete
 no-transport event chain for each buy. An incomplete result leaves the
