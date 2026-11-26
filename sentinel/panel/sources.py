@@ -757,12 +757,15 @@ def _only_retired_unsent_buys(conn, cycle, observation, counts, *, now):
              =(waiting.decision_session,waiting.effective_session)
           AND (current.deployment_id,current.broker,current.broker_account_id,current.takeover_epoch)
              =(waiting.deployment_id,waiting.broker,waiting.broker_account_id,waiting.takeover_epoch)
-        JOIN sentinel_execution_plans expired ON expired.superseded_by=current.plan_id
-          AND expired.effective_session=current.decision_session
+          JOIN sentinel_commands cmd ON cmd.state='PLANNED'
+            AND (cmd.deployment_id,cmd.broker,cmd.broker_account_id,cmd.takeover_epoch)
+               =(waiting.deployment_id,waiting.broker,waiting.broker_account_id,waiting.takeover_epoch)
+          JOIN sentinel_execution_plans expired ON expired.plan_id=cmd.plan_id
+            AND expired.effective_session=current.decision_session
           AND (expired.deployment_id,expired.broker,expired.broker_account_id,expired.takeover_epoch)
              =(waiting.deployment_id,waiting.broker,waiting.broker_account_id,waiting.takeover_epoch)
         JOIN sentinel_automation_cycles old ON old.plan_id=expired.plan_id
-          AND old.control_generation=waiting.control_generation
+            AND old.control_generation BETWEEN 1 AND waiting.control_generation
           AND (old.decision_session,old.effective_session)
              =(expired.decision_session,expired.effective_session)
           AND (old.deployment_id,old.broker,old.broker_account_id,old.takeover_epoch)
@@ -771,9 +774,6 @@ def _only_retired_unsent_buys(conn, cycle, observation, counts, *, now):
           AND newest.seq::text=waiting.last_clean_reconciliation_id
         JOIN sentinel_observations prior ON prior.seq::text=old.last_clean_reconciliation_id
           AND prior.seq<newest.seq AND prior.observed_at BETWEEN old.execute_at AND old.completed_at
-        JOIN sentinel_commands cmd ON cmd.plan_id=expired.plan_id AND cmd.state='PLANNED'
-          AND (cmd.deployment_id,cmd.broker,cmd.broker_account_id,cmd.takeover_epoch)
-             =(waiting.deployment_id,waiting.broker,waiting.broker_account_id,waiting.takeover_epoch)
         WHERE waiting.cycle_id=%s AND waiting.plan_id=%s AND waiting.state='WAITING_OPEN'
           AND waiting.broker='alpaca' AND control.enabled AND NOT control.kill_switch_engaged
           AND control.authority_verdict='PASS'
@@ -794,6 +794,21 @@ def _only_retired_unsent_buys(conn, cycle, observation, counts, *, now):
           AND prior.completeness='COMPLETE' AND prior.runtime_state='RUNNING'
           AND cmd.side='BUY' AND cmd.filled_quantity=0 AND cmd.broker_order_id IS NULL
           AND (SELECT count(*) FROM sentinel_commands WHERE state=ANY(%s))=%s
+            AND EXISTS (
+                WITH RECURSIVE successors(plan_id,superseded_by,hops) AS (
+                    SELECT expired.plan_id,expired.superseded_by,0
+                    UNION ALL
+                    SELECT next_plan.plan_id,next_plan.superseded_by,successors.hops+1
+                    FROM successors
+                    JOIN sentinel_execution_plans next_plan ON next_plan.plan_id=successors.superseded_by
+                    WHERE successors.hops<32
+                      AND (next_plan.decision_session,next_plan.effective_session)
+                         =(current.decision_session,current.effective_session)
+                      AND (next_plan.deployment_id,next_plan.broker,next_plan.broker_account_id,next_plan.takeover_epoch)
+                         =(current.deployment_id,current.broker,current.broker_account_id,current.takeover_epoch)
+                )
+                SELECT 1 FROM successors WHERE plan_id=current.plan_id
+            )
         LIMIT 101
         """, (cycle['cycle_id'], cycle.get('plan_id'), cycle.get('next_wake_at'), now,
               model.OPENING_CUTOFF, observation['sequence'], observation['observed_at'],
