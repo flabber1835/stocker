@@ -13,9 +13,9 @@ const reads = [];
 const writes = [];
 const installed = [];
 let currentRegions = input.case?.currentRegions === true;
-const initialHealth = input.wake.startsWith('partial-short-') ? 'blue' :
-  ['known-failure','resume-known-failure','hidden-initial-known-failure'].includes(input.wake) || input.case?.knownNegative ? 'red' : 'green';
-const badge = { className: {blue:'state checking',red:'state fail',green:'state ok'}[initialHealth], textContent: 'current' };
+const initialHealth = input.case?.warning || (input.wake.startsWith('partial-short-') ? 'blue' :
+  ['known-failure','resume-known-failure','hidden-initial-known-failure'].includes(input.wake) || input.case?.knownNegative ? 'red' : 'green');
+const badge = { className: {blue:'state checking',amber:'state warn',red:'state fail',green:'state ok'}[initialHealth], textContent: 'current' };
 const heartbeat = { textContent: 'current' };
 const preparation = { textContent: 'Preparing closing snapshot' };
 const planReadiness = { textContent: 'Next trading plan: not ready yet.' };
@@ -26,7 +26,7 @@ const expandedDetail = {dataset: {detailKey: 'shadow-holdings'}, open: true,
 const document = {
   activeElement: {closest: () => expandedDetail},
   body: { dataset: { health:initialHealth, controllerVersion:input.script.match(/sentinelDashboardControllerVersion = "([^"]+)"/)[1], generatedAt: input.wake === 'invalid-date' ? 'invalid' :
-      input.wake === 'future-date' ? new Date(stamp + 10000).toISOString() : input.generated,
+      input.generated,
       maxAgeSeconds: input.budget,
       refreshPending: ['initial-pending','resume-initial-pending','partial-short-pending'].includes(input.wake) ? 'true' : 'false',
       observationCurrent: input.wake === 'transport-unowned-focus' || input.wake.startsWith('partial-short-') ? 'false' : 'true' } },
@@ -49,7 +49,7 @@ const document = {
     badge.className = next.fixtureValue.startsWith('partial') ? 'state checking' : 'state ok';
   },
 };
-class Clock extends Date { static now() { return now; } }
+class Clock extends Date { static now() { return now + (input.case?.deviceSkew || 0); } }
 class Parser {
   parseFromString(html) {
     return { fixtureValue:html, currentRegions: ['partial','partial-same','partial-new'].includes(html),
@@ -70,7 +70,7 @@ function assertFreshness(phase, message) {
   const current = phase === 'refreshing' && age >= -5000 && age < Number(input.budget)*1000 &&
     document.body.dataset.refreshPending !== 'true';
   const red = document.body.dataset.health === 'red';
-  assert.equal(badge.className, offline ? 'state neutral' : red ? 'state fail' : current ? 'state ok' : 'state checking', message);
+  assert.equal(badge.className, red ? 'state fail' : offline ? 'state neutral' : current ? 'state ok' : 'state checking', message);
   assert.equal(classes.has('not-current'), offline, message);
   assert.equal(withdrawn(), phase === 'expired', message);
   assert.equal(classes.has('checking-status'), !offline && !current, message);
@@ -78,14 +78,20 @@ function assertFreshness(phase, message) {
 function schedule(fn, delay) { const id = ++sequence; timers.set(id, {fn, delay, due: now + delay, age:fn.name==='heartbeatTick'}); return id; }
 function interval(fn, delay) { const id = schedule(fn, delay); timers.get(id).interval = true; return id; }
 const context = {
-  document, Date: Clock, DOMParser: Parser, AbortController,
+  document, Date: Clock, DOMParser: Parser, AbortController, URL,
   performance: {now: () => Math.max(0, now-stamp)},
-  navigator: { onLine: input.wake !== 'initial-offline' }, location: { href: 'http://fixture.invalid/' },
+  navigator: { onLine: input.wake !== 'initial-offline' },
+  location: { href: 'http://fixture.invalid/', origin: 'http://fixture.invalid' },
   window: { scrollY: 42, scrollTo() {}, addEventListener: (name, fn) => {listeners[name] = fn;} },
   setInterval: interval, setTimeout: schedule,
   clearInterval: id => timers.delete(id), clearTimeout: id => timers.delete(id),
   fetch: (_url, options) => new Promise((resolve, reject) => {
-    const read = {resolve, reject, started: now, aborted: false};
+    const read = {reject, options, started: now, aborted: false, resolve(response) {
+      const headers = response.headers;
+      resolve({status: response.ok ? 200 : 503, ...response, headers: {get(name) {
+        return name === 'X-Sentinel-Server-Time' ? String(now) : headers.get(name);
+      }}});
+    }};
     reads.push(read);
     options.signal.addEventListener('abort', () => {
       read.aborted = true;
@@ -101,7 +107,7 @@ function fireDelay(delay) {
   if (!entry[1].interval) { timers.delete(entry[0]); }
   entry[1].fn();
 }
-async function settled() { for (let i = 0; i < 8; i++) await Promise.resolve(); }
+async function settled() { await new Promise(resolve=>setImmediate(resolve)); }
 function failRead(read) {
   if (input.failure === 'timeout') { fireDelay(15000); return; }
   read.resolve({ok: input.failure !== 'busy', status: input.failure === 'busy' ? 503 : 200,
@@ -113,6 +119,49 @@ function failRead(read) {
   vm.runInNewContext(input.script, context, {
     filename: 'sentinel-panel-refresh://' + sourceHash
   });
+  if (input.wake === 'retain-warning') {
+    now += 30000; fireDelay(30000);
+    reads[0].resolve({ok:true,headers:{get:()=> 'PARTIAL'},text:async()=> 'partial'});
+    await settled();
+    assert.deepEqual(writes,['partial']);
+    assert.equal(badge.className,initialHealth==='red'?'state fail':'state warn');
+    assert(badge.textContent.includes(input.generated.replace('+00:00','.000Z')),
+      'a less complete projection must show when the prior warning was verified');
+    assert.match(badge.textContent,/checking for an update/);
+    const retryPoll=[...timers.values()].find(timer=>!timer.age);
+    now += retryPoll.delay; fireDelay(retryPoll.delay);
+    reads[1].resolve({ok:true,headers:{get:()=> 'CURRENT'},text:async()=> 'fresh'});
+    await settled();
+    assert.deepEqual(writes,['partial','fresh']);
+    assert.equal(badge.className,'state ok','new server proof can clear the local warning');
+    process.stdout.write('PASS\n');return;
+  }
+  if (input.wake === 'deadline-recovery' || input.wake === 'server-clock') {
+    now += 30000; fireDelay(30000);
+    assert.equal(reads.length,1);
+    assert(reads[0].options.headers['X-Sentinel-Panel-Fragment'],'normal reads negotiate the compact response');
+    if (input.wake === 'deadline-recovery') {
+      let completeBody;
+      if (input.case.phase==='body') {
+        reads[0].resolve({ok:true,headers:{get:()=> 'CURRENT'},text:()=>new Promise(resolve=>{completeBody=resolve;})});
+        await settled();
+      }
+      now += 15000; fireDelay(15000); await settled();
+      assert(reads[0].aborted);
+      assert([...timers.values()].some(timer=>timer.delay===5000),
+        'the refresh slot must be released even if the canceled operation stays pending');
+      now += 5000; fireDelay(5000);
+      reads[1].resolve({ok:true,headers:{get:()=> 'CURRENT'},text:async()=> 'fresh'});
+      await settled();
+      if (completeBody) completeBody('late');
+      else reads[0].resolve({ok:true,headers:{get:()=> 'CURRENT'},text:async()=> 'late'});
+    } else {
+      reads[0].resolve({ok:true,headers:{get:()=> 'CURRENT'},text:async()=> 'fresh'});
+    }
+    await settled();
+    assert.deepEqual(writes,['fresh'],'only the valid current request may update the dashboard');
+    process.stdout.write('PASS\n'); return;
+  }
   if (['partial','wrong-current-marker','wrong-partial-marker','missing-marker'].includes(input.failure)) {
     now += 30000; fireDelay(30000);
     const status = ['partial','wrong-partial-marker'].includes(input.failure) ? 'PARTIAL' : 'CURRENT';
@@ -186,14 +235,14 @@ function failRead(read) {
         'same boundary keeps its original proof');
       await advanceTo(stamp+budget);
       assert.equal(reads.length,2,'one expiry follow-up checks the next partial receipt');
-      assert.equal(reads[1].started,stamp+budget);
+      assert.equal(reads[1].started,stamp+budget-20,'follow-up charges time spent delivering the same proof');
       assert(!withdrawn(),'owned expiry refresh is bounded last-known');
       await advanceTo(stamp+budget+20);
       reply(1,'partial-new'); await settled();
       assert.deepEqual(writes,['partial-same','partial-new']);
       assert(currentRegions && !withdrawn(),
         'new partial keeps independently current regions while its receipt lives');
-      const nextBoundary=Date.parse(document.body.dataset.generatedAt)+budget;
+      const nextBoundary=Date.parse(document.body.dataset.generatedAt)+budget-(now-reads[1].started);
       await advanceTo(nextBoundary-1);
       assert(!withdrawn(),'the new region retains only its own finite proof');
       await advanceTo(nextBoundary);
@@ -269,7 +318,7 @@ function failRead(read) {
     }
     if (input.wake === 'transport-matrix') {
       const cycles=config.cycles || 1;
-      if (config.latencyMs < 15000) {
+      if (config.latencyMs < Math.min(15000,budget)) {
         await advanceTo(stamp+cycles*(poll+config.latencyMs+2000));
         assert.equal(installed.length,cycles,'bounded healthy responses replace the document');
         assert.equal(reads.length,cycles);
@@ -286,8 +335,8 @@ function failRead(read) {
         }
       } else {
         await advanceTo(stamp+poll+16001);
-        assert.equal(installed.length,0,'a response after the transport timeout is not installed');
-        assertFreshness('expired','exhausted transport must withdraw last-known amber');
+        assert.equal(installed.length,0,'a response exceeding delivery lifetime must not install');
+        assertFreshness('expired','exhausted transport must mark the observation as dated');
       }
     } else if (input.wake === 'transport-unowned-focus') {
       await advanceTo(stamp+2000);
@@ -319,6 +368,10 @@ function failRead(read) {
           lastKnown();
         } else {
           for (const [id,timer] of timers) if (timer.interval || timer.age) timers.delete(id);
+          // The first transport fails, and the retry owns a later request
+          // deadline. The original episode deadline must still withdraw proof.
+          reads[0].reject(new Error('connection interrupted'));
+          await settled();
         }
         await advanceTo(start+14999);lastKnown();
         await advanceTo(start+15001);
@@ -353,7 +406,10 @@ function failRead(read) {
         assertFreshness('expired','foreground events cannot renew the first resume deadline');
         show(config.visibility!==false);
         assertFreshness('expired','exhausted resume cannot revive last-known amber');
-        if (reads.at(-1).aborted && !config.ignoreAbort) await advanceTo(now+5000);
+        if (reads.at(-1).aborted || now-reads.at(-1).started>=budget) {
+          if (!reads.at(-1).aborted) await advanceTo(reads.at(-1).started+15000);
+          await advanceTo(now+5000);
+        }
         fresh(reads.at(-1));await settled();
         assert.deepEqual(writes,['fresh'],'a later genuinely fresh server answer can restore the view');
       } else if (input.wake === 'transport-negative') {
@@ -384,7 +440,7 @@ function failRead(read) {
       now = stamp + 30000; fireDelay(30000); await settled();
       assert.equal(reads.length, 1);
       document.visibilityState = 'hidden'; listeners.visibilitychange();
-      now = stamp + 120000;
+      now = stamp + 30100;
       reads[0].resolve({ok:true,status:200,headers:{get:()=> 'CURRENT'},text:async()=> 'fresh'});
       await settled();
       assert.equal(writes.length, 0, 'response completed while hidden cannot replace the lifecycle');
@@ -409,7 +465,7 @@ function failRead(read) {
       process.stdout.write('PASS\n'); return;
     }
     assert.equal(reads.length, previousReads + 1, 'foreground starts exactly one current read');
-    const expected = ['hidden-initial-due', 'hidden-timer'].includes(input.wake) ? 'state ok' :
+    const expected = ['hidden-initial-due', 'hidden-timer', 'hidden-response'].includes(input.wake) ? 'state ok' :
       initialHealth === 'red' ? 'state fail' : 'state checking';
     assert.equal(badge.className, expected,
       'foreground resume separates device freshness from server health');
@@ -425,6 +481,8 @@ function failRead(read) {
       now += 2; fireDelay(1000);
       assertFreshness('expired', 'first-visible resume keeps its original 15-second deadline');
       assert.equal(reads.length, previousReads + 1);
+      fireDelay(15000); await settled();
+      now += 5000; fireDelay(5000);
     }
     reads.at(-1).resolve({ok:true,status:200,headers:{get:()=> 'CURRENT'},text:async()=> 'fresh'});
     await settled();
@@ -514,6 +572,7 @@ function failRead(read) {
       assert.equal(document.body.dataset.generatedAt,original);
       now -= 1000; fireDelay(1000);
       assertFreshness('expired','expired resume remains red until a server answer');
+      now += 1000;
     }
     const pending=reads.at(-1);
     pending.resolve({ok:true,status:200,headers:{get:()=> 'CURRENT'},text:async()=> 'fresh'});
@@ -598,7 +657,7 @@ function failRead(read) {
       'original evidence must withdraw live preparation copy');
     now = stamp + 1000; fireDelay(1000);
     assertFreshness('expired', 'a local clock cannot restore green');
-  } else if (['invalid-date', 'future-date'].includes(input.wake)) {
+  } else if (input.wake === 'invalid-date') {
     listeners.pageshow({persisted: false});
     assertFreshness('expired');
     assert.equal(reads.length, 1);
@@ -638,7 +697,7 @@ function failRead(read) {
   listeners.pageshow({persisted: true});
   assert.equal(reads.length, 1, 'overlapping wakeups must not start another refresh');
   assert.equal(writes.length, 0);
-  const alreadyFailed=['fresh-age','invalid-date','future-date','offline','initial-offline'].includes(input.wake);
+  const alreadyFailed=['fresh-age','invalid-date','offline','initial-offline'].includes(input.wake);
   assertFreshness(alreadyFailed ? 'expired' : 'refreshing');
   if (input.failure === 'timeout') {
     fireDelay(15000);

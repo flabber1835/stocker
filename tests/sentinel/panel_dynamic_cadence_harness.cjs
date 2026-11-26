@@ -56,7 +56,7 @@ let scrollCalls=0;
 function schedule(fn,delay){const id=++sequence;timers.set(id,{fn,delay,due:now+delay,age:fn.name==='heartbeatTick'});return id;}
 class Clock extends Date {static now(){return now;}}
 const context={document,URL,Date:Clock,DOMParser:class{parseFromString(html){return makeDocument(JSON.parse(html));}},AbortController,
- performance:{now:()=>mono},navigator:{onLine:true},location:{href:'https://fixture.invalid/'},
+ performance:{now:()=>mono},navigator:{onLine:true},location:{href:'https://fixture.invalid/',origin:'https://fixture.invalid'},
  window:{scrollY:42,scrollTo(){scrollCalls++;},addEventListener:(name,fn)=>{listeners[name]=fn;}},
  setTimeout:schedule,clearTimeout:id=>timers.delete(id),setInterval:()=>{throw new Error('one owned heartbeat timeout required');},
  fetch:(_url,options)=>new Promise((resolve,reject)=>{reads.push({resolve,reject,started:now});options.signal.addEventListener('abort',()=>reject(new Error('timeout')));})};
@@ -72,7 +72,8 @@ async function advance(target){
 function activePoll(){return [...timers.values()].filter(t=>!t.age).map(t=>t.delay);}
 async function accept(budget,lag=0){
  const meta={...input.incoming,generatedAt:new Date(now-lag).toISOString(),maxAgeSeconds:String(budget)};
- reads.at(-1).resolve({ok:true,status:200,headers:{get:()=> 'CURRENT'},text:async()=>JSON.stringify(meta)});await settled();
+ reads.at(-1).resolve({ok:true,status:200,headers:{get:name=>name==='X-Sentinel-Server-Time'?String(now):'CURRENT'},
+  text:async()=>JSON.stringify(meta)});await settled();
 }
 function ageTick(){const entry=[...timers.entries()].find(([,t])=>t.age);assert(entry);timers.delete(entry[0]);entry[1].fn();}
 (async()=>{
@@ -116,8 +117,8 @@ function ageTick(){const entry=[...timers.entries()].find(([,t])=>t.age);assert(
   }else{
    await advance(15000);
    await accept(1.36); // A later verification of the same absolute deadline.
-   await advance(16359);assert.equal(reads.length,2);assert(!classes.has('not-current'));
-   await advance(16360);
+   await advance(16039);assert.equal(reads.length,2);assert(!classes.has('not-current'));
+   await advance(16040);
    assert.equal(reads.length,3,'same evidence deadline receives one follow-up');
    assert(classes.has('checking-status')&&!classes.has('expired-status'),'an owned boundary check is visibly last known');
    await advance(17000);await accept(22);
@@ -134,7 +135,8 @@ function ageTick(){const entry=[...timers.entries()].find(([,t])=>t.age);assert(
  }else if(input.scenario==='monotonic-visual'){
   setClock(3000,3000);ageTick();assert(document.getElementById('dashboard-heartbeat').textContent.includes('UPDATED 3s'));
   setClock(1000,4000);ageTick();assert(document.getElementById('dashboard-heartbeat').textContent.includes('UPDATED 4s'),'visual elapsed progression must use monotonic time');
-  setClock(30000,5000);ageTick();assert(classes.has('expired-status'),'monotonic display cannot renew the UTC evidence deadline');
+  setClock(30000,5000);ageTick();assert(!classes.has('expired-status'),'a wall-clock jump cannot withdraw a current observation');
+  setClock(30001,30001);ageTick();assert(classes.has('expired-status'),'the elapsed evidence deadline still withdraws currentness');
  }else if(input.scenario==='owned-heartbeat'){
   await advance(13000);heartbeatWrites.length=0;await accept(8,1900);
   assert(!heartbeatWrites.some(v=>v.text.includes('UPDATED 0s')),'server DOM must not reset the client heartbeat to zero');

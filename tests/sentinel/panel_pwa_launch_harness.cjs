@@ -36,7 +36,10 @@ async function launch() {
     getElementById:id=>({'launch-status':status,'launch-detail':detail,'launch-retry':retry})[id],
     addEventListener:(name,fn)=>{listeners[name]=fn;},
     open:()=>writes.push('open'),write:html=>{writes.push(html);document.body.dataset.panelLaunch='false';},close:()=>writes.push('close')};
-  class Clock extends Date {static now(){return stamp;}}
+  let elapsed=0;
+  class Clock extends Date {static now(){return stamp+elapsed+(input.kind==='device-skew'?-600000:0);}}
+  const responseHeaders = (status='CURRENT') => ({get:name =>
+    name==='X-Sentinel-Server-Time' ? String(stamp+elapsed) : status});
   class Parser {parseFromString(){return {
     getElementById:()=>input.kind==='incomplete'?null:{},body:{dataset:{
       generatedAt:input.kind==='invalid-date'?'invalid':new Date(stamp+(input.kind==='future'?10000:
@@ -44,7 +47,7 @@ async function launch() {
       maxAgeSeconds:input.kind==='budget'?'99999':'45',refreshPending:input.kind==='pending'?'true':'false',
       observationCurrent:['partial','wrong-current-marker'].includes(input.kind)?'false':input.kind==='missing-marker'?undefined:'true'}}};}}
   const context={document,Date:Clock,DOMParser:Parser,AbortController,URL,
-    navigator:{onLine:input.kind!=='offline'},
+    performance:{now:()=>elapsed},navigator:{onLine:input.kind!=='offline'},
     location:{href:'https://fixture.invalid/',origin:'https://fixture.invalid'},
     window:{addEventListener:(name,fn)=>{listeners[name]=fn;}},
     requestAnimationFrame:fn=>frames.push(fn),
@@ -64,10 +67,18 @@ async function launch() {
     timers.delete(id);
     return timer.fn;
   };
-  if (['reset-recovery','timeout-recovery','backoff','pause-offline','pause-hidden',
+  if (['reset-recovery','timeout-recovery','unsettled-fetch','unsettled-body','backoff','pause-offline','pause-hidden',
        'foreign-progress','malformed-progress'].includes(input.kind)) {
-    if (input.kind === 'timeout-recovery') {
-      reads[0].options.signal.addEventListener('abort',()=>reads[0].reject(new Error('aborted')));
+    let completeBody;
+    if (['timeout-recovery','unsettled-fetch','unsettled-body'].includes(input.kind)) {
+      if (input.kind==='timeout-recovery') {
+        reads[0].options.signal.addEventListener('abort',()=>reads[0].reject(new Error('aborted')));
+      } else if (input.kind==='unsettled-body') {
+        reads[0].resolve({ok:true,status:200,url:context.location.href,headers:responseHeaders(),
+          text:()=>new Promise(resolve=>{completeBody=resolve;})});
+        await settle();
+      }
+      elapsed=15000;
       takeTimer(15000)();
     } else if (input.kind.endsWith('-progress')) {
       reads[0].resolve({ok:false,status:503,
@@ -78,6 +89,7 @@ async function launch() {
     }
     await settle();
     assert.equal(writes.length,0);
+    assert.equal(retry.disabled,false,'a timed-out request must release the launch retry control');
     assert.match(status.textContent,/CONNECTION DELAYED/);
     if (input.kind==='pause-offline' || input.kind==='pause-hidden') {
       if (input.kind==='pause-offline') {
@@ -102,9 +114,15 @@ async function launch() {
       }
     }
     reads.at(-1).resolve({ok:true,status:200,url:context.location.href,
-      headers:{get:()=> 'CURRENT'},text:async()=> 'fresh'});
+      headers:responseHeaders(),text:async()=> 'fresh'});
     await settle();
     assert.deepEqual(writes,['open','fresh','close']);
+    if (completeBody) completeBody('late');
+    if (input.kind==='unsettled-fetch') {
+      reads[0].resolve({ok:true,status:200,url:context.location.href,headers:responseHeaders(),text:async()=> 'late'});
+    }
+    await settle();
+    assert.deepEqual(writes,['open','fresh','close'],'a late read must not replace a working document');
     assert.equal(timers.size,0);
     return;
   }
@@ -128,9 +146,9 @@ async function launch() {
   if(input.kind==='deadline') {const timer=[...timers.values()].find(t=>t.delay===15000);assert(timer);timer.fn();}
   reads[0].resolve({ok:input.kind!=='busy',status:input.kind==='busy'?503:200,
     url:input.kind==='foreign'?'https://foreign.invalid/':'https://fixture.invalid/',
-    headers:{get:()=>input.kind==='cached'?'LAST_KNOWN':['partial','wrong-partial-marker'].includes(input.kind)?'PARTIAL':'CURRENT'},text:async()=> 'fresh'});
+    headers:responseHeaders(input.kind==='cached'?'LAST_KNOWN':['partial','wrong-partial-marker'].includes(input.kind)?'PARTIAL':'CURRENT'),text:async()=> 'fresh'});
   for(let i=0;i<12;i++)await Promise.resolve();
-  if(['fresh','partial'].includes(input.kind)) {assert.deepEqual(writes,['open','fresh','close']);assert.equal(reads.length,1);}
+  if(['fresh','partial','device-skew'].includes(input.kind)) {assert.deepEqual(writes,['open','fresh','close']);assert.equal(reads.length,1);}
   else {assert.equal(writes.length,0,'invalid, late or hidden response installed authority');}
 }
 (async()=>{if(input.target==='worker')await worker();else await launch();process.stdout.write('PASS\n');})()

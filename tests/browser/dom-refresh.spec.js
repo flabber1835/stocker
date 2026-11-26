@@ -31,11 +31,12 @@ for(const variant of ['unchanged','changed','legacy-link','missing']) {
       }
       if(pathname!=='/')return route.fulfill({status:404,body:''});
       requests++;
-      return route.fulfill({status:200,contentType:'text/html',headers:{'X-Sentinel-Panel-Status':'CURRENT'},
+      return route.fulfill({status:200,contentType:'text/html',headers:{'X-Sentinel-Panel-Status':'CURRENT',
+        'X-Sentinel-Server-Time':String(Date.parse(serverNow))},
         body:html.replace(/data-generated-at="[^"]+"/,`data-generated-at="${serverNow}"`)});
     });
     await page.goto('http://127.0.0.1:18947/');
-    await expect(page.locator('.brand')).toHaveCSS('border-top-width','4px');
+    await expect(page.locator('.brand')).toHaveCSS('aspect-ratio','3 / 1');
     const initialCssRequests=cssRequests;
     await page.evaluate(missing=>{
       window.savedWrap=document.querySelector('.wrap');
@@ -46,7 +47,7 @@ for(const variant of ['unchanged','changed','legacy-link','missing']) {
     await page.clock.runFor(5000);
     await expect.poll(()=>requests).toBe(2);
     await expect(page.locator('#dashboard-stylesheet')).toHaveAttribute('data-source-href',path);
-    await expect(page.locator('.brand')).toHaveCSS('border-top-width','4px');
+    await expect(page.locator('.brand')).toHaveCSS('aspect-ratio','3 / 1');
     if(variant!=='unchanged')await expect(page.locator('.brand')).toHaveCSS('outline-width','3px');
     expect(await page.evaluate(()=>document.querySelector('.wrap')===savedWrap)).toBe(true);
     expect(await page.evaluate(()=>document.getElementById('dashboard-stylesheet')===savedStyle)).toBe(variant==='unchanged');
@@ -65,7 +66,8 @@ test('close refresh retains an independent card and names the pending next-open 
     if (path!=='/') return route.fulfill({status:404,body:''});
     const initial=route.request().isNavigationRequest();
     return route.fulfill({status:200,contentType:'text/html',headers:{
-      'X-Sentinel-Panel-Status':initial?'PARTIAL':'CURRENT'},body:initial?fixture.partial:fixture.verifying});
+      'X-Sentinel-Panel-Status':initial?'PARTIAL':'CURRENT',
+      'X-Sentinel-Server-Time':String(time+(initial?0:5000))},body:initial?fixture.partial:fixture.verifying});
   });
   await page.goto('http://127.0.0.1:18947/');
   await expect(page.locator('#operational-state')).toHaveText('Checking closing status · last verified values dated');
@@ -107,7 +109,7 @@ test('recorder observes rendering that changes without a DOM mutation',async({pa
   }
 });
 
-test('opening recorder follows the rendered page through both renewals and detects a late grey border',async({page,request})=>{
+test('opening recorder follows both renewals and detects a late loss of the green indicator',async({page,request})=>{
   test.setTimeout(55000);
   const fixture=JSON.parse(fs.readFileSync(process.env.SENTINEL_DOM_FIXTURE,'utf8'));
   const assets=await panelAssets(request,fixture.green);
@@ -149,7 +151,7 @@ test('opening recorder follows the rendered page through both renewals and detec
     await page.goto(url);
     await expect.poll(()=>capture.report.responses.filter(item=>item.document).length,{timeout:20000}).toBeGreaterThanOrEqual(3);
     await page.locator('body').evaluate(body=>{body.dataset.health='neutral';});
-    await expect.poll(()=>capture.report.events.some(e=>e.meaningful_visible && e.healthy_border===false)).toBe(true);
+    await expect.poll(()=>capture.report.events.some(e=>e.meaningful_visible && e.healthy_indicator===false)).toBe(true);
     await page.locator('body').evaluate(body=>{body.dataset.health='green';});
     await capture.waitForCompletion();
     const report=await finishCapture(capture);
@@ -175,10 +177,13 @@ for (const residualMs of [3360,1550,670]) {
       const path=new URL(route.request().url()).pathname;
       if (assets.has(path)) return route.fulfill({status:200,...assets.get(path)});
       if (path!=='/') return route.fulfill({status:404,body:''});
-      const body=route.request().isNavigationRequest() ? documents.initial :
+      const initial=route.request().isNavigationRequest();
+      let body=initial ? documents.initial :
         await new Promise(resolve=>pending.push(resolve));
+      const serverTime=initial ? arrival : await page.evaluate(()=>Date.now());
+      if(initial) body=body.replace('data-server-time=""',`data-server-time="${serverTime}"`);
       await route.fulfill({status:200,contentType:'text/html',
-        headers:{'X-Sentinel-Panel-Status':'CURRENT'},body});
+        headers:{'X-Sentinel-Panel-Status':'CURRENT','X-Sentinel-Server-Time':String(serverTime)},body});
     });
     await page.goto('http://127.0.0.1:18947/');
     const headline=page.locator('#operational-state');
@@ -256,10 +261,13 @@ test('near-expiry PARTIAL renews its current book card with bounded reads',async
     const path=new URL(route.request().url()).pathname;
     if(assets.has(path))return route.fulfill({status:200,...assets.get(path)});
     if(path!=='/')return route.fulfill({status:404,body:''});
-    const body=route.request().isNavigationRequest() ? documents.initial :
+    const initial=route.request().isNavigationRequest();
+    let body=initial ? documents.initial :
       await new Promise(resolve=>pending.push(resolve));
+    const serverTime=initial ? arrival : await page.evaluate(()=>Date.now());
+    if(initial) body=body.replace('data-server-time=""',`data-server-time="${serverTime}"`);
     await route.fulfill({status:200,contentType:'text/html',
-      headers:{'X-Sentinel-Panel-Status':'PARTIAL'},body});
+      headers:{'X-Sentinel-Panel-Status':'PARTIAL','X-Sentinel-Server-Time':String(serverTime)},body});
   });
   await page.goto('http://127.0.0.1:18947/');
   const body=page.locator('body');
@@ -292,10 +300,10 @@ test('near-expiry PARTIAL renews its current book card with bounded reads',async
   await expect(book).toHaveAttribute('data-current','true');
 });
 
-test('refresh preserves the live document, scroll, focus and details while border follows evidence',async({page,request})=>{
+test('compact refresh preserves the live document while the marquee follows evidence',async({page,request})=>{
   const fixture=JSON.parse(fs.readFileSync(process.env.SENTINEL_DOM_FIXTURE,'utf8'));
-  const assets=await panelAssets(request,fixture.green,fixture.red);
-  let html=fixture.green,release=null,held=false,requests=0;
+  const assets=await panelAssets(request,fixture.green,fixture.green_compact,fixture.red_compact);
+  let html=fixture.green_compact,release=null,held=false,requests=0;
   let serverNow=fixture.now;
   await page.clock.install({time:new Date(fixture.now)});
   await page.route('**/*',async route=>{
@@ -303,26 +311,31 @@ test('refresh preserves the live document, scroll, focus and details while borde
     if(assets.has(path))return route.fulfill({status:200,...assets.get(path)});
     if(path!=='/')return route.fulfill({status:404,body:''});
     requests++;
+    const initial=route.request().isNavigationRequest();
+    if (!initial) expect(route.request().headers()['x-sentinel-panel-fragment']).toMatch(/^[0-9a-f]{64}$/);
     if(held)await new Promise(resolve=>{release=resolve;});
-    await route.fulfill({status:200,contentType:'text/html',headers:{'X-Sentinel-Panel-Status':'CURRENT'},body:html.replace(/data-generated-at="[^"]+"/,'data-generated-at="'+serverNow+'"')});
+    await route.fulfill({status:200,contentType:'text/html',headers:{'X-Sentinel-Panel-Status':'CURRENT',
+      'X-Sentinel-Server-Time':String(Date.parse(serverNow))},
+      body:(initial?fixture.green:html).replace(/data-generated-at="[^"]+"/,'data-generated-at="'+serverNow+'"')});
   });
   await page.goto('http://127.0.0.1:18947/');
-  await expect.poll(()=>page.locator('.brand img[data-banner-src]').evaluate(img=>img.naturalWidth)).toBe(512);
+  const marquee=page.locator('.brand img[data-banner-src]');
+  await expect.poll(()=>marquee.evaluate(img=>img.naturalWidth)).toBe(1086);
   await expect(page.locator('#market-open-countdown')).toHaveText('Market open in 1 day 22 hours 4 minutes');
-  await expect(page.locator('#operational-state')).toHaveCSS('clip-path','inset(50%)');
+  await expect(page.locator('#operational-state')).toBeVisible();
   await expect(page.locator('#review-acknowledge, #health-history, footer, #plan-readiness, .overview-mode, .mode-guide')).toHaveCount(0);
-  await expect(page.locator('.brand')).toHaveCSS('border-top-width','4px');
+  await expect(page.locator('.brand')).toHaveCSS('border-top-width','0px');
   const baseline=await page.evaluate(()=>{
     const details=document.getElementById('system-details');details.open=true;
     details.querySelector('summary').focus();window.scrollTo(0,700);
     window.saved={body:document.body,wrap:document.querySelector('.wrap'),brand:document.querySelector('.brand'),
       slot:document.querySelector('[data-slot-id="0"]'),details,focus:document.activeElement};
-    return {scroll:scrollY,border:getComputedStyle(saved.brand).borderTopColor};
+    return {scroll:scrollY,src:saved.brand.querySelector('img').getAttribute('src')};
   });
   held=true;
   await page.clock.runFor(5000);
   await expect.poll(()=>requests).toBe(2);
-  expect(await page.locator('.brand').evaluate(el=>getComputedStyle(el).borderTopColor)).toBe(baseline.border);
+  await expect(marquee).toHaveAttribute('src',baseline.src);
   serverNow=new Date(Date.parse(fixture.now)+5000).toISOString();
   held=false;release();
   await expect(page.locator('body')).toHaveAttribute('data-generated-at',serverNow);
@@ -331,16 +344,18 @@ test('refresh preserves the live document, scroll, focus and details while borde
       saved.brand===document.querySelector('.brand')&&saved.slot===document.querySelector('[data-slot-id="0"]')&&
       saved.details===document.getElementById('system-details'),
     focus:saved.focus===document.activeElement,open:saved.details.open,scroll:scrollY,
-    border:getComputedStyle(saved.brand).borderTopColor,
-    expected:getComputedStyle(document.body).getPropertyValue('--fail').trim()
+    src:saved.brand.querySelector('img').getAttribute('src'),
+    css:document.getElementById('dashboard-stylesheet').nodeName
   }));
   expect(after.same).toBe(true);expect(after.focus).toBe(true);expect(after.open).toBe(true);
-  expect(after.scroll).toBe(baseline.scroll);expect(after.border).toBe(baseline.border);
-  html=fixture.red;serverNow=new Date(Date.parse(fixture.now)+10000).toISOString();await page.clock.runFor(5000);
+  expect(after.scroll).toBe(baseline.scroll);expect(after.src).toBe(baseline.src);
+  expect(after.css).toBe('STYLE');
+  html=fixture.red_compact;serverNow=new Date(Date.parse(fixture.now)+10000).toISOString();await page.clock.runFor(5000);
   await expect(page.locator('body')).toHaveAttribute('data-health','red');
-  expect(await page.locator('.brand').evaluate(el=>getComputedStyle(el).borderTopColor)).not.toBe(baseline.border);
+  await expect(marquee).toHaveAttribute('src','/static/caesars-status-red.gif');
   await page.context().setOffline(true);
-  await expect(page.locator('.brand')).toHaveCSS('border-top-color','rgb(139, 139, 147)');
+  await expect(marquee).toHaveCSS('filter','grayscale(1)');
+  await expect(page.locator('#operational-state')).toContainText('LAST KNOWN TRADING STOP');
   await page.clock.runFor(1000);
   await expect(page.locator('#market-open-countdown')).toHaveText('Market-open time not current');
 });

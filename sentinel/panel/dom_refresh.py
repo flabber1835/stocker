@@ -66,8 +66,8 @@ function reconcileDocument(next) {
   function styleSource(node) {
     return node && (node.getAttribute('data-source-href') || node.getAttribute('href'));
   }
-  if (newStyle && (!oldStyle || oldStyle.nodeName !== newStyle.nodeName ||
-      styleSource(oldStyle) !== styleSource(newStyle))) {
+  if (newStyle && (!oldStyle || styleSource(oldStyle) !== styleSource(newStyle) ||
+      (oldStyle.nodeName === 'LINK' && newStyle.nodeName === 'STYLE'))) {
     var preparedStyle = newStyle.cloneNode(true);
     if (oldStyle) { oldStyle.replaceWith(preparedStyle); }
     else { document.head.appendChild(preparedStyle); }

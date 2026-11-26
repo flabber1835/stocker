@@ -146,6 +146,8 @@ close_documents = dict(now=close_at.isoformat(),
     verifying=publication(close_page, close_at+timedelta(seconds=5), close_until))
 print(json.dumps(dict(now=now.isoformat(),
     green=render(page, refresh_seconds=5), red=render(negative, refresh_seconds=5),
+    green_compact=render(page, refresh_seconds=5, compact=True),
+    red_compact=render(negative, refresh_seconds=5, compact=True),
     short_receipts=short_receipts, short_partial=short_partial,
     review_documents=review_documents, history_documents=history_documents,
     mobile_history=mobile_history, close_documents=close_documents)))
