@@ -1427,14 +1427,15 @@ class ProductionAutomation:
         observed_session = calendar.session_on_or_after(observed_day)
         return min(observed_session, cycle.effective_session.isoformat()), True
 
-    def _require_operational_inputs(self, conn):
+    def _require_operational_inputs(self, conn, *, current=None):
         """Recheck source authority when a persisted cycle skips refresh."""
         if not getattr(self, "_operational_source_only", False):
             return
         if not (getattr(self, "_dual_run_enabled", False) or getattr(self, "_live_run_enabled", False)):
             raise NonRetryableCallbackRefused(
                 "operational paper automation requires reviewed dual mode")
-        current = feed_inputs.current(conn)
+        if current is None:
+            current = feed_inputs.current(conn)
         if not feed_inputs.is_rolling(current):
             raise NonRetryableCallbackRefused(
                 "operational automation requires rolling Alpaca inputs")
@@ -1443,6 +1444,13 @@ class ProductionAutomation:
             operational_snapshot.require_alpaca_openfigi(conn, current)
         except operational_snapshot.OperationalSnapshotRefused as exc:
             raise NonRetryableCallbackRefused(str(exc)) from exc
+
+    def _paper_opening_material(self, scope):
+        if (getattr(self, '_operational_source_only', False)
+                and not getattr(self, '_live_run_enabled', False)):
+            from sentinel.observation_authority import metadata_material
+
+            scope.enter_context(metadata_material())
 
     def _require_dual_plan_shadow_match(
             self, conn, plan, *, pending_is_retryable: bool) -> Mapping:
@@ -1824,6 +1832,7 @@ class ProductionAutomation:
         conn = None
         input_scope = ExitStack()
         try:
+            self._paper_opening_material(input_scope)
             with opening_stage_log.preflight('recovery_connection_schema'):
                 conn = self.connect()
                 require_execution_schemas(conn)
@@ -2169,6 +2178,7 @@ class ProductionAutomation:
         conn = None
         input_scope = ExitStack()
         try:
+            self._paper_opening_material(input_scope)
             with opening_stage_log.preflight("connection_schema"):
                 conn = self.connect()
                 require_execution_schemas(conn)
@@ -2177,8 +2187,15 @@ class ProductionAutomation:
             with opening_stage_log.preflight("cycle_authority"):
                 cycle, control = self._assert_cycle_authority(
                     conn, context, operation_scope="EXECUTE")
+            source_only = getattr(self, '_operational_source_only', False)
+            paper_pin = (source_only and self._dual_run_enabled
+                         and not getattr(self, '_live_run_enabled', False))
             with opening_stage_log.preflight("operational_inputs"):
-                self._require_operational_inputs(conn)
+                if paper_pin:
+                    pinned = input_scope.enter_context(feed_inputs.pinned(conn, commit=False))
+                    self._require_operational_inputs(conn, current=pinned)
+                else:
+                    self._require_operational_inputs(conn)
             with opening_stage_log.preflight("plan_pin"):
                 if self._dual_run_enabled or getattr(self, "_live_run_enabled", False):
                     current_plan = journal.latest_plan(conn)
@@ -2189,7 +2206,7 @@ class ProductionAutomation:
                         raise NonRetryableCallbackRefused(
                             "automation execution cycle does not name the durable "
                             "current PAPER plan")
-                if getattr(self, '_operational_source_only', False):
+                if source_only and not paper_pin:
                     input_scope.enter_context(feed_inputs.pinned(conn, commit=False))
             with opening_stage_log.preflight("broker_adapter"):
                 broker = self._broker(conn, cycle.effective_session.isoformat())

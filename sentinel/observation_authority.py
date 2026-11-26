@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -29,7 +30,19 @@ from sentinel.feed.publication import visible_predicate
 from sentinel.feed import readers
 
 
-_idle_metadata_slot = ContextVar('idle_standing_paper_metadata', default=None)
+_metadata_slot = ContextVar('standing_paper_metadata_material', default=None)
+
+
+@contextmanager
+def metadata_material():
+    """Own only the compact immutable material for one bounded PAPER operation."""
+    slot = {}
+    token = _metadata_slot.set(slot)
+    try:
+        yield
+    finally:
+        slot.clear()
+        _metadata_slot.reset(token)
 
 
 ACCEPTED_BOUNDARY_PATH = (
@@ -99,7 +112,7 @@ def _rolling_metadata_snapshot_identity(conn, pub) -> Mapping:
     from sentinel.core.rolling_inputs import SnapshotReferences
     from sentinel.feed import operational_snapshot, rolling_store, calendar
 
-    slot = _idle_metadata_slot.get()
+    slot = _metadata_slot.get()
     if slot is None:
         binding = operational_snapshot._bound(conn, pub)
         refs = SnapshotReferences(conn, candidate_id=binding['candidate_id'],
@@ -129,8 +142,10 @@ def _rolling_metadata_snapshot_identity(conn, pub) -> Mapping:
 
 
 def _comparison_validation_token(conn, candidate):
-    return conn.execute('SELECT validation_sha256,tableoid,xmin::text,ctid::text '
-                        'FROM sentinel_snapshot_validations WHERE candidate_id=%s',
+    return conn.execute('SELECT v.validation_sha256,v.tableoid,v.xmin::text,v.ctid::text, '
+                        's.system_identifier::text,d.oid,pg_postmaster_start_time() '
+                        'FROM sentinel_snapshot_validations v CROSS JOIN pg_control_system() s '
+                        'JOIN pg_database d ON d.datname=current_database() WHERE v.candidate_id=%s',
                         (candidate,)).fetchone()
 
 

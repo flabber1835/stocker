@@ -96,8 +96,7 @@ def test_idle_metadata_reuse_authenticates_fresh_bound_inputs(published, monkeyp
     monkeypatch.setattr(rolling_inputs, 'SnapshotReferences', SimpleNamespace(
         _from_bound_manifest=lambda *_a, **_k: reads.append(True) or refs))
 
-    token = observation._idle_metadata_slot.set({})
-    try:
+    with observation.metadata_material():
         first = observation._rolling_metadata_snapshot_identity(None, pub)
         first['row_count'] = 5
         assert observation._rolling_metadata_snapshot_identity(None, pub)['row_count'] == 2
@@ -112,5 +111,26 @@ def test_idle_metadata_reuse_authenticates_fresh_bound_inputs(published, monkeyp
         monkeypatch.setattr(rolling_store, 'verify_evidence', corrupt)
         with pytest.raises(AuthorityRefused, match='comparison evidence changed'):
             observation._rolling_metadata_snapshot_identity(None, pub)
-    finally:
-        observation._idle_metadata_slot.reset(token)
+
+
+def test_opening_callback_metadata_scope_is_discarded_on_exit():
+    from contextlib import ExitStack
+    from types import SimpleNamespace
+
+    from sentinel.automation_runtime import ProductionAutomation
+
+    runtime = SimpleNamespace(_operational_source_only=True, _live_run_enabled=False)
+    with pytest.raises(RuntimeError, match='callback interrupted'):
+        with ExitStack() as first:
+            ProductionAutomation._paper_opening_material(runtime, first)
+            slot = observation._metadata_slot.get()
+            slot['key'] = 'prior-callback'
+            raise RuntimeError('callback interrupted')
+    assert not slot and observation._metadata_slot.get() is None
+    with ExitStack() as second:
+        ProductionAutomation._paper_opening_material(runtime, second)
+        assert observation._metadata_slot.get() == {}
+    runtime._live_run_enabled = True
+    with ExitStack() as live:
+        ProductionAutomation._paper_opening_material(runtime, live)
+        assert observation._metadata_slot.get() is None
