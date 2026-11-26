@@ -10,14 +10,14 @@ import pytest
 from sentinel.panel.banner import BANNER_SCRIPT
 
 
-def execute(case, script=BANNER_SCRIPT):
+def execute(case, script=BANNER_SCRIPT, **options):
     node = shutil.which('node')
     if node is None:
         if os.environ.get('SENTINEL_IN_IMAGE') == '1':
             pytest.fail('Node is required in the CI test lens')
         pytest.skip('This controller qualification requires installed Node')
     return subprocess.run([node, str(Path(__file__).with_name('panel_banner_harness.cjs'))],
-        input=json.dumps({'case': case, 'script': script}), capture_output=True,
+        input=json.dumps({'case': case, 'script': script, **options}), capture_output=True,
         text=True, timeout=10)
 
 

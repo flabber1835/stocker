@@ -243,7 +243,9 @@ def test_panel_wire_encoding_keeps_evidence_uncached_and_fingerprint_assets_immu
     from sentinel.panel.render import STATIC_ASSETS
 
     page = example_panel()
+    clock = int(page.now.timestamp() * 1000)
     monkeypatch.setattr(panel_app, '_read_panel', lambda: page)
+    monkeypatch.setattr(panel_app, 'time_ns', lambda: clock * 1_000_000)
     client = TestClient(panel_app.app)
     for route in ('/?document=1', '/panel.json'):
         exact = client.get(route, headers={'Accept-Encoding': 'identity'})
@@ -258,6 +260,9 @@ def test_panel_wire_encoding_keeps_evidence_uncached_and_fingerprint_assets_immu
             assert response.headers['cache-control'] == 'no-store'
             assert response.headers['vary'] == 'Accept-Encoding'
             assert response.headers['x-sentinel-panel-status'] == exact.headers['x-sentinel-panel-status']
+            if route == '/?document=1':
+                assert response.headers['x-sentinel-server-time'] == str(clock)
+                assert f'data-server-time="{clock}"' in response.text
 
     for asset in STATIC_ASSETS:
         resource = client.get(f'/static/{asset}')

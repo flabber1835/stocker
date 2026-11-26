@@ -10,11 +10,12 @@ import subprocess
 import pytest
 
 from sentinel.panel import model, serialization
+from sentinel.panel.banner import BANNER_SCRIPT
 from sentinel.panel.presentation import dashboard_health
 from sentinel.panel.render import render
 from sentinel.panel.styles import CSS
 from tests.sentinel.test_operational_dashboard_snapshot import panel as rich_panel
-from tests.sentinel.test_panel_styles import _rules, _specificity
+from tests.sentinel.test_panel_banner import execute as run_banner
 from tests.support.dashboard_review import reviewed_panel
 
 
@@ -46,34 +47,16 @@ def completed_page():
     return replace(page,rows=rows,observation_display_keys=tuple(row.key for row in rows))
 
 
-def _brand_border(html, *, browser_state=None, css=CSS):
-    """Apply the actual brand cascade to its finite body/lifecycle attributes."""
+def _marquee(html, *, browser_state=None, script=BANNER_SCRIPT):
+    """Run the shipped resource controller against the rendered status."""
     body = re.search(r'<body\b([^>]*)>',html)[1]
     attributes = dict(re.findall(r'([\w-]+)="([^"]*)"',body))
-    winner = None
-    for order,(selector,content,_media) in enumerate(_rules(css)):
-        if selector != '.brand' and not selector.endswith(' .brand'):
-            continue
-        if selector.startswith('.') and selector != '.brand':
-            if selector.split()[0][1:] != browser_state:
-                continue
-        exclusions = re.findall(r':not\(\[([\w-]+)="([^"]*)"\]\)',selector)
-        if any(attributes.get(key)==value for key,value in exclusions):
-            continue
-        positive = re.sub(r':not\([^)]*\)','',selector)
-        if any(attributes.get(key)!=value for key,value in
-               re.findall(r'\[([\w-]+)="([^"]*)"\]',positive)):
-            continue
-        declarations = dict(part.strip().split(':',1) for part in content.split(';') if ':' in part)
-        color = declarations.get('border-color')
-        if color is None and 'border' in declarations:
-            color = declarations['border'].split()[-1]
-        if color is not None:
-            priority = (_specificity(selector),order)
-            if winner is None or priority >= winner[0]:
-                winner = (priority,color)
-    assert winner is not None
-    return winner[1]
+    result = run_banner('selection', script, health=attributes['data-health'],
+                        refreshPending=attributes['data-refresh-pending'] == 'true',
+                        browserState=browser_state)
+    assert result.returncode == 0, result.stderr
+    state = json.loads(result.stdout)
+    return state['src'], state['unknown']
 
 
 def test_valuation_handoff_retains_review_history_and_withholds_the_action_token():
@@ -116,7 +99,7 @@ def test_proved_display_is_current_without_strict_machine_or_ack_currentness(mon
     assert 'data-observation-current="true"' in html
     assert 'data-strict-observation-current="false"' in html
     assert 'id="review-acknowledge"' not in html
-    assert _brand_border(html)=='var(--ok)'
+    assert _marquee(html) == ('/static/caesars-status-green.gif', False)
     app = importlib.import_module('sentinel.panel.app')
     monkeypatch.setattr(app,'_read_panel',lambda:page)
     monkeypatch.setattr(app,'_config',lambda:('/private','unused'))
@@ -139,7 +122,7 @@ def test_unproved_display_remains_partial_and_cannot_turn_green():
     assert payload['observation']['current'] is False
     assert payload['observation']['strict_current'] is False
     assert payload['dashboard_health']['color']=='blue'
-    assert _brand_border(render(page))=='#54a8d8'
+    assert _marquee(render(page)) == ('/static/caesars-status-green-still.gif', True)
 
 
 def test_completed_run_stays_visible_during_independently_proved_account_change():
@@ -163,8 +146,11 @@ def test_partial_current_negative_is_red_until_browser_freshness_is_lost(browser
     assert dashboard_health(page)['color']=='red'
     html=render(page)
     assert 'data-observation-current="false"' in html
-    assert _brand_border(html,browser_state=browser_state)==(
-        '#8b8b93' if browser_state == 'not-current' else 'var(--fail)')
+    assert _marquee(html,browser_state=browser_state) == {
+        None: ('/static/caesars-status-red.gif', False),
+        'checking-status': ('/static/caesars-status-red-still.gif', False),
+        'not-current': ('/static/caesars-status-green-still.gif', True),
+    }[browser_state]
     app=importlib.import_module('sentinel.panel.app')
     monkeypatch.setattr(app,'_read_panel',lambda:page)
     machine=app.operational_health()
@@ -195,12 +181,13 @@ def _countdown(page,*,fresh=True,card=True,delayed=False,add_global_gate=False):
     data=dict(script=script,now=now,end=now+3600000,fresh=fresh,card=card,delayed=delayed)
     harness=r'''const vm=require('node:vm'),fs=require('node:fs');
 const p=JSON.parse(fs.readFileSync(0,'utf8'));
-class Clock extends Date {static now(){return p.now;}}
+class Clock extends Date {static now(){return p.now+3600000;}}
 const card={dataset:{current:String(p.card)}};
 const counter={dataset:{marketOpenAt:new Date(p.end).toISOString()},textContent:'',closest:()=>card};
 vm.runInNewContext(p.script+';updateMarketCountdown();',{
  document:{body:{dataset:{observationCurrent:'false'}},getElementById:()=>counter},
- Date:Clock,originalCurrent:()=>p.fresh,invalidated:false,refreshDelayed:p.delayed});
+ Date:Clock,generated:p.now-500,evidenceAge:()=>500,
+ originalCurrent:()=>p.fresh,invalidated:false,refreshDelayed:p.delayed});
 process.stdout.write(counter.textContent);'''
     result=subprocess.run([node,'-e',harness],input=json.dumps(data),text=True,
                           capture_output=True,timeout=10)
@@ -239,8 +226,10 @@ def test_signed_opening_boundary_shows_checking_without_current_plan_or_machine_
     health = dashboard_health(page)
     assert health['color'] == 'blue' and health['opening_refresh'] is True
     assert health['plan_readiness'] == 'unavailable'
-    assert _brand_border(render(page)) == '#54a8d8'
-    assert _brand_border(render(page), browser_state='not-current') == '#8b8b93'
+    html = render(page)
+    assert 'id="operational-state" class="state checking"' in html
+    assert _marquee(html) == ('/static/caesars-status-green-still.gif', True)
+    assert _marquee(html, browser_state='not-current') == ('/static/caesars-status-green-still.gif', True)
     module = importlib.import_module('sentinel.panel.app')
     monkeypatch.setattr(module,'_read_panel',lambda:page)
     assert module.panel_json().headers['X-Sentinel-Panel-Status']=='PARTIAL'
@@ -287,7 +276,7 @@ def test_partial_execution_refresh_requires_original_finite_callback():
     ('showResume', True, 'red', True, '', 'state fail'),
     ('showResume', True, 'red', False, 'checking-status', 'state fail'),
     ('invalidate', True, 'red', False, 'checking-status', 'state fail'),
-    ('invalidate', False, 'red', False, 'not-current', 'state neutral'),
+    ('invalidate', False, 'red', False, 'not-current', 'state fail'),
 ])
 def test_browser_refresh_preserves_valid_color_then_distinguishes_checking_from_offline(
         action, online, health_color, current, expected_class, expected_badge):
@@ -298,7 +287,7 @@ def test_browser_refresh_preserves_valid_color_then_distinguishes_checking_from_
                                    if row.key != 'backup_restore'] + [failed])
     html = render(page)
     functions = []
-    for name in ('pendingRefresh', 'showResume', 'invalidate'):
+    for name in ('pendingRefresh', 'showResume', 'invalidate', 'showLastVerifiedStatus', 'rememberWarning'):
         start = html.index('  function '+name+'(')
         end = html.index('\n  function ', start+2)
         functions.append(html[start:end])
@@ -312,14 +301,14 @@ const heartbeat={textContent:''};
 const context={document:{body:{dataset:{health:p.health}},documentElement:{classList:{
   add:(...values)=>values.forEach(value=>classes.add(value)), remove:(...values)=>values.forEach(value=>classes.delete(value)),
   contains:(value)=>classes.has(value)}}},
-  navigator:{onLine:p.online},badge,heartbeat,generated:Date.now(),
+  navigator:{onLine:p.online},badge,heartbeat,generated:p.generated,verifiedWarning:null,
   invalidated:!p.online,hardFailure:false,refreshDelayed:false,originalCurrent:()=>p.current,
   withdrawPreparation:()=>{},clockReversed:()=>false,refreshDocument:()=>{}};
-vm.runInNewContext(p.script+';'+p.action+'(false,false);',context);
+vm.runInNewContext(p.script+';rememberWarning();'+p.action+'(false,false);',context);
 process.stdout.write(JSON.stringify({classes:[...classes],badge:badge.className,text:badge.textContent}));'''
     result = subprocess.run([node, '-e', harness], input=json.dumps({
         'script':'\n'.join(functions), 'action':action, 'online':online,
-        'health':health_color, 'current':current}),
+        'health':health_color, 'current':current, 'generated':int(page.now.timestamp()*1000)}),
         text=True, capture_output=True, timeout=10)
     assert result.returncode == 0, result.stderr
     state = json.loads(result.stdout)
@@ -330,18 +319,24 @@ process.stdout.write(JSON.stringify({classes:[...classes],badge:badge.className,
     assert state['badge'] == expected_badge
     if current:
         assert state['text'] == 'Current status'
-    assert _brand_border(html, browser_state=expected_class or None) == (
-        '#8b8b93' if not online else 'var(--fail)' if health_color == 'red'
-        else '#54a8d8' if expected_class else 'var(--ok)')
+    elif health_color == 'red':
+        assert state['text'].startswith('LAST KNOWN TRADING STOP')
+        assert page.now.date().isoformat() in state['text']
+    if not online or (expected_class and health_color == 'green'):
+        expected_image = ('/static/caesars-status-green-still.gif', True)
+    else:
+        suffix = '-still' if expected_class else ''
+        expected_image = (f'/static/caesars-status-{health_color}{suffix}.gif', False)
+    assert _marquee(html, browser_state=expected_class or None) == expected_image
     if not online:
-        assert _brand_border(render(page, refresh_pending=True),
-                             browser_state='not-current') == '#8b8b93'
+        assert _marquee(render(page, refresh_pending=True),
+                        browser_state='not-current') == ('/static/caesars-status-green-still.gif', True)
 
 
-def test_refresh_styles_cannot_repaint_active_red_as_checking_blue():
+def test_refresh_cannot_replace_the_red_sign_with_the_neutral_sign():
     page = display_page()
     retained = render(page, refresh_pending=True)
-    assert _brand_border(retained) == '#54a8d8'
+    assert _marquee(retained) == ('/static/caesars-status-green-still.gif', True)
     assert 'id="operational-state" class="state checking"' in retained
     failed = model.Row('backup_restore', 'Backup', 'FAILED', model.FAIL)
     page = replace(page, rows=[row for row in page.rows
@@ -349,9 +344,11 @@ def test_refresh_styles_cannot_repaint_active_red_as_checking_blue():
     html = render(page, refresh_pending=True)
     assert 'id="operational-state" class="state fail"' in html
     assert 'Last known trading stop · checking for an update' in html
-    assert _brand_border(html, browser_state='checking-status') == 'var(--fail)'
-    selector = '.checking-status body:not([data-health="red"]) .brand'
-    broken = CSS.replace(selector, '.checking-status body .brand')
-    assert broken != CSS
-    with pytest.raises(AssertionError):
-        assert _brand_border(html, browser_state='checking-status', css=broken) == 'var(--fail)'
+    assert '.brand img.unknown-sign{filter:grayscale(1) sepia(.75)}' in CSS
+    assert '.not-current .brand img.unknown-sign{filter:grayscale(1)}' in CSS
+    expected = ('/static/caesars-status-red-still.gif', False)
+    assert _marquee(html, browser_state='checking-status') == expected
+    guard = "(checking && color === 'green')"
+    assert BANNER_SCRIPT.count(guard) == 1
+    broken = BANNER_SCRIPT.replace(guard, 'checking')
+    assert _marquee(html, browser_state='checking-status', script=broken) != expected

@@ -17,7 +17,9 @@ function boot(cachedFailure=false){
  window.addEventListener=(name,fn)=>wake[name]=fn;
  const motion={matches:false,addEventListener:(_name,fn)=>wake.motion=fn};
  window.matchMedia=()=>motion;
- const document={body:{dataset:{health:'green'}},documentElement:{classList:{contains:name=>classes.has(name)}},
+ if(request.browserState)classes.add(request.browserState);
+ const document={body:{dataset:{health:request.health??'green',refreshPending:String(request.refreshPending===true)}},
+  documentElement:{classList:{contains:name=>classes.has(name)}},
   querySelector:selector=>selector==='.brand img[data-banner-src]'?image:
   selector==='.brand-fallback'?fallback:null};
  class MutationObserver {constructor(fn){observer=fn;} observe(){}}
@@ -30,6 +32,9 @@ function boot(cachedFailure=false){
 if(request.case==='foreign-state')window.__sentinelMarqueeResources={[asset]:{url:'https://unrelated.invalid/',recovered:false,failed:false}};
 const first=boot(request.case==='already-failed');
 switch(request.case){
+ case 'selection':
+  console.log(JSON.stringify({src:first.src(),unknown:first.imageClasses.has('unknown-sign')}));
+  break;
  case 'healthy':
   first.load();assert.equal(assignments.length,1);assert.equal(first.src(),asset);
   assert.equal(first.image.hidden,false);assert.equal(first.fallback.hidden,true);break;
@@ -69,4 +74,4 @@ switch(request.case){
   break;
  default:throw Error('Unknown banner case');
 }
-console.log(JSON.stringify({case:request.case,assignments,passed:true}));
+if(request.case!=='selection')console.log(JSON.stringify({case:request.case,assignments,passed:true}));
