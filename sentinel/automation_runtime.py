@@ -1712,9 +1712,9 @@ class ProductionAutomation:
             require_observation_integrity(conn)
             cycle, control = self._assert_cycle_authority(
                 conn, context, operation_scope="PREPARE")
-            self._require_operational_inputs(conn)
             if getattr(self, '_operational_source_only', False):
-                input_scope.enter_context(feed_inputs.pinned(conn, commit=False))
+                pinned = input_scope.enter_context(feed_inputs.pinned(conn, commit=False))
+                self._require_operational_inputs(conn, current=pinned)
             missed = ()
             if not self._dual_run_enabled and not getattr(self, "_live_run_enabled", False):
                 # Reviewed dual mode adopts the exact current shadow-produced

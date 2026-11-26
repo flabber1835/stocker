@@ -55,6 +55,34 @@ def test_readers_bind_snapshot_raw_marks_and_leave_legacy_readers_closed(conn, p
     conn.rollback()
 
 
+def test_nested_opening_pin_reuses_only_same_connection_published_evidence(conn, published, monkeypatch):
+    import psycopg
+    from sentinel.feed import readiness_scope
+
+    original = publication._verify_receipt_chain
+    calls = []
+
+    def counted(connection, **kwargs):
+        calls.append(connection.info.backend_pid)
+        return original(connection, **kwargs)
+
+    monkeypatch.setattr(publication, '_verify_receipt_chain', counted)
+    with feed_inputs.pinned(conn, commit=False) as original_pin:
+        with feed_inputs.pinned(conn, commit=False, reuse_owned=True) as borrowed:
+            assert borrowed == original_pin
+            borrowed.evidence['test-only'] = True
+        assert 'test-only' not in readiness_scope.owned_publication(conn).evidence
+        assert calls == [conn.info.backend_pid]
+        with psycopg.connect(conn.info.dsn) as other:
+            with feed_inputs.pinned(other, commit=False, reuse_owned=True) as foreign:
+                assert foreign == original_pin
+            assert calls == [conn.info.backend_pid, other.info.backend_pid]
+    assert readiness_scope.owned_publication(conn) is None
+    with feed_inputs.pinned(conn, commit=False, reuse_owned=True) as next_pin:
+        assert next_pin == original_pin
+    assert len(calls) == 3
+
+
 def test_next_open_resolver_is_bounded_and_historical_dates_do_not_borrow_extension(conn, published, monkeypatch):
     pub = feed_inputs.require_current(conn)
     capture = rolling_store.manifest
@@ -357,8 +385,9 @@ def test_structural_reuse_is_absent_outside_guard(conn, published):
 @pytest.fixture
 def gateway(conn, published, monkeypatch, request):
     result = approve(conn)
-    broker_name = getattr(request, "param", "sim")
-    bound = binding.bind(conn, deployment_id="rolling-paper-test", broker=broker_name, broker_account_id="paper-fixture")
+    selected = getattr(request, "param", "sim")
+    broker_name, account = selected if isinstance(selected, tuple) else (selected, "paper-fixture")
+    bound = binding.bind(conn, deployment_id="rolling-paper-test", broker=broker_name, broker_account_id=account)
     conn.execute("INSERT INTO sentinel_system_certificates "
                  "(certificate_sha256,manifest_bytes,manifest,allowed_rollout_modes) "
                  "VALUES (%s,'{}'::bytea,'{}'::jsonb,'[\"CONTROLLER\"]'::jsonb)", ("a" * 64,))
@@ -367,7 +396,7 @@ def gateway(conn, published, monkeypatch, request):
     conn.execute("INSERT INTO sentinel_rollout_events (version,from_mode,to_mode,certificate_sha256,reason) "
                  "VALUES (2,'PINNED_1_00','CONTROLLER',%s,'test certificate fixture')", ("a" * 64,))
     conn.commit()
-    broker = SimulatedBroker(account=BrokerAccountIdentity(broker_name, "paper-fixture"),
+    broker = SimulatedBroker(account=BrokerAccountIdentity(broker_name, account),
                              equity=Decimal("250000"), cash=Decimal("250000"))
     monkeypatch.setattr(inspection, "require_certified", certification.require_certified_adapter)
     # Offline signed certificate issuance is covered by the existing authority
@@ -385,6 +414,288 @@ def prepare(conn, broker, **overrides):
         dual_shadow_observation_id=OBS, dual_shadow_starting_cash=100000, now_et=NOW, base_url=DEFAULT_BASE_URL)
     values.update(overrides)
     return asyncio.run(paper.prepare_paper_plan(**values))
+
+
+@pytest.mark.parametrize('gateway', [('alpaca', 'PAEXIT')], indirect=True)
+@pytest.mark.parametrize('starting_exposure', ['1.00', '0.55'])
+def test_full_exit_recovers_the_eleventh_order_before_buy_cutoff(
+        conn, gateway, operational_source, monkeypatch, tmp_path, starting_exposure):
+    """Use the real strategy, scheduler and guarded PAPER gateway in private."""
+    from datetime import datetime, timezone
+    from multiprocessing import get_context
+    from multiprocessing.managers import BaseManager
+    import os
+    import signal
+    from time import monotonic, sleep
+    import httpx
+    from sentinel import backup_runtime_authority
+    from sentinel.automation import integrity, model, schedule, store as automation_store
+    from sentinel.config import SentinelConfig, build_execution_broker
+    from sentinel.execution import alpaca
+    from sentinel.execution.commands import Command
+    from sentinel.execution.contract import BrokerInstrument, Side
+    from sentinel.execution.identity import CommandIdentity
+    from sentinel.execution.market_buy_policy import FRACTIONAL_MODE, MarketBuyPolicy
+    from sentinel.execution.states import CommandState
+    from tests.sentinel.test_market_buy_policy import MARKET_ENV
+    from tests.sentinel.test_rolling_daily import refresh
+    from tests.support.alpaca_simulator import AlpacaSimulator
+
+    starting, bound, _ = gateway
+    held = {str(episode["security_id"]): episode["ticker"]
+            for episode in starting.state.wealth_core["episodes"].values()}
+    assert len(held) == 20
+    through = refresh(conn, operational_source, monkeypatch, publish=False)
+    for row in operational_source["SEP"]:
+        if row["date"] == through:
+            for field in ("open", "close", "closeunadj"):
+                row[field] = str(Decimal(row[field]) * Decimal("0.70"))
+            row["volume"] = "3000000"
+    for row in operational_source["SFP"]:
+        if row["date"] == through and row["ticker"] == "SPY":
+            row["closeadj"] = str(Decimal(row["closeadj"]) * Decimal("0.70"))
+    published = snapshots.enqueue(conn, strategy_sha256=digest(production_strategy()[1]),
+                                  dependencies_sha256=digest("exit rehearsal"))
+    conn.commit()
+    snapshots.prepare(conn, published)
+    shadow = rolling_runtime.advance(conn, through=through, observation_id=OBS, starting_cash=100000)
+    assert Decimal(str(shadow.state.last_decision["target_core_exposure"])) == 0, shadow.state.last_decision
+
+    for key, value in {**MARKET_ENV, "SENTINEL_PAPER_BUY_POLICY": FRACTIONAL_MODE,
+            "SENTINEL_LOCAL_PAPER_ACCOUNT_ID": bound.broker_account_id,
+            "SENTINEL_REVIEWED_DEPLOYMENT_MODE": "dual",
+            "SENTINEL_SHADOW_OBSERVATION_ID": OBS,
+            "SENTINEL_SHADOW_STARTING_CASH": "100000"}.items():
+        monkeypatch.setenv(key, value)
+    # Certificate and independent backup media are fixture inputs. The signed
+    # operation checks still use the real build of the production guard.
+    signed = validation.require_current_authority
+    monkeypatch.setattr(automation_runtime, 'require_current_authority', signed)
+    monkeypatch.setattr(backup_runtime_authority, 'require', lambda *args, **kwargs: {'fixture': True})
+    monkeypatch.setattr(preparation, '_guard_broker', validation._guard_broker)
+    cfg = model.AutomationConfig(market_buy_policy_sha256=MarketBuyPolicy.from_env().fingerprint())
+    timing = schedule.for_decision_session(through, cfg)
+    sentinel_cfg = SentinelConfig(database_url=conn.info.dsn, base_url=DEFAULT_BASE_URL,
+        alpaca_key='simulation-key', alpaca_secret='simulation-secret', state_dir=tmp_path,
+        max_cycles=1, poll_seconds=0)
+
+    class ExitBroker(AlpacaSimulator):
+        def _submit(self, body):
+            notional = body.get('notional')
+            if notional is None:
+                return super()._submit(body)
+            assert body['side'] == 'buy'
+            assert all(order['status'] == 'filled' for order in self.orders.values())
+            assert Decimal(notional) < self.cash
+            response = super()._submit({**body, 'qty': str(Decimal(notional) / Decimal(100))})
+            assert response.status_code == 200, response.text
+            return response
+
+        def exchange(self, method, url, headers, content, now):
+            self.now = now
+            request = httpx.Request(method, url, headers=headers, content=content)
+            try:
+                response = self.handle(request)
+            except httpx.ReadTimeout:
+                return None
+            return response.status_code, dict(response.headers), response.content
+
+        def fill_working(self, now):
+            self.now = now
+            for order_id, order in self.orders.items():
+                if order['status'] == 'new':
+                    self.fill(order_id)
+
+        def evidence(self):
+            return self.requests, self.positions
+
+    world = ExitBroker(cash='250000')
+    world.account_id = bound.broker_account_id
+    world.account_overrides['created_at'] = '2026-02-12T00:00:00Z'
+    opened, _ = calendar.session_window(through)
+    world.now = opened + timedelta(minutes=2)
+    conn.execute("UPDATE sentinel_account_binding SET established_at='2026-02-12T00:00:00Z' WHERE id=1")
+    conn.commit()
+    quantity = Decimal(125) * Decimal(starting_exposure)
+    for sid, ticker in held.items():
+        if ticker not in world.assets:
+            world.add_asset(ticker)
+        instrument = BrokerInstrument(sid, ticker, world.assets[ticker]['id'])
+        identity = CommandIdentity(bound.identity, 'prior-position-fixture', sid)
+        order = world._submit(dict(symbol=ticker, side='buy', qty=str(quantity),
+                                   client_order_id=identity.client_key, type='market', time_in_force='day')).json()
+        world.fill(order['id'])
+        journal.save_command(conn, Command(identity, instrument, Side.BUY, quantity,
+            broker_order_id=order['id'], filled_quantity=quantity, filled_average_price=Decimal(100),
+            state=CommandState.FILLED))
+    world.add_asset('BIL')
+    for asset in world.assets.values():
+        asset['fractionable'] = True
+    assert world.cash == Decimal(250000) * (1 - Decimal(starting_exposure))
+    conn.commit()
+
+    peer = None
+    crash_pid = None
+
+    def handle(request):
+        if peer is None:
+            return world.handle(request)
+        result = peer.exchange(request.method, str(request.url), dict(request.headers),
+                               request.content, clock())
+        if result is None:
+            assert crash_pid is not None and os.getppid() == crash_pid
+            os.kill(crash_pid, signal.SIGKILL)
+            os._exit(73)
+        status, headers, content = result
+        return httpx.Response(status, headers=headers, content=content)
+
+    class Transport:
+        @staticmethod
+        def AsyncClient(**kwargs):
+            return httpx.AsyncClient(transport=httpx.MockTransport(handle), trust_env=False, **kwargs)
+
+    def adapter(connection, session):
+        broker = build_execution_broker(sentinel_cfg,
+            resolve_security_id=paper.build_security_resolver(connection, session))
+        broker._http_provider = lambda: Transport
+        broker._clock_provider = lambda: clock()
+        return broker
+
+    elapsed_origin = None
+    resumed = timedelta(0)
+
+    def clock():
+        if elapsed_origin is None:
+            return world.now
+        at = timing.execute_at + resumed + timedelta(seconds=monotonic() - elapsed_origin)
+        world.now = at
+        return at
+
+    class ClockType(type):
+        def __instancecheck__(cls, instance):
+            return isinstance(instance, datetime)
+
+    class Clock(datetime, metaclass=ClockType):
+        @classmethod
+        def now(cls, tz=None):
+            return clock().astimezone(tz)
+
+    for owner in (alpaca, execution, recovery):
+        monkeypatch.setattr(owner, 'datetime', Clock)
+    monkeypatch.setattr(automation_runtime, '_now_utc', clock)
+    monkeypatch.setattr(integrity, 'database_now', lambda _conn: clock())
+    world.now = datetime.fromisoformat(through).replace(tzinfo=timezone.utc) + timedelta(days=1, hours=4)
+    prepared = prepare(conn, adapter(conn, through), through=through, now_et=world.now,
+                       expected_account=bound.broker_account_id)
+    plan = prepared.plan
+    assert plan.target_exposure == 0
+    assert set(sid for sid, target in plan.target_basket.items() if target) == {'SENTINEL:BIL'}
+    controls = model.ControlBinding(deployment_id=bound.deployment_id, broker=bound.broker,
+        broker_account_id=bound.broker_account_id, takeover_epoch=bound.takeover_epoch,
+        certificate_sha256='a' * 64, rollout_mode='CONTROLLER', rollout_version=2,
+        config_sha256=cfg.fingerprint)
+    automation_store.activate(conn, binding=controls, actor='exit-test', reason='private rehearsal')
+    automation_store.release_kill(conn, expected_binding=controls, actor='exit-test', reason='private rehearsal')
+
+    def worker(holder):
+        runtime = automation_runtime.ProductionAutomation(
+            sentinel_config=sentinel_cfg, automation_config=cfg, holder_id=holder)
+        monkeypatch.setattr(runtime, '_broker', adapter)
+        # Keep the independent authority check in-process with the signed
+        # fixture so the spawned observer cannot read any host release state.
+        def callback_authority(context, _stopped):
+            with runtime.connect() as fresh:
+                runtime._validate_control_authority(fresh, context.permit)
+        runtime.service.callback_authority = callback_authority
+        runtime.service.terminal = None
+        return runtime
+
+    before = worker('exit-before-restart')
+    permit = automation_store.acquire_lease(conn, holder_id=before.holder_id, lease_seconds=cfg.lease_seconds)
+    cycle = automation_store.create_cycle(conn, permit=permit,
+        spec=before.service._spec(automation_store.load_control(conn), timing), now=world.now, config=cfg)
+    for state in (model.CycleState.REFRESHING_DATA, model.CycleState.PREPARING):
+        cycle = automation_store.transition_cycle(conn, permit=permit, cycle_id=cycle.cycle_id, to_state=state)
+    cycle = automation_store.transition_cycle(conn, permit=permit, cycle_id=cycle.cycle_id,
+        to_state=model.CycleState.PLAN_READY, plan_id=plan.plan_id, data_version=str(plan.data_version),
+        publication_fingerprint=plan.publication_fingerprint, plan_fingerprint=plan.fingerprint(),
+        state_fingerprint=plan.shadow_snapshot_hash)
+    cycle = automation_store.transition_cycle(conn, permit=permit, cycle_id=cycle.cycle_id,
+        to_state=model.CycleState.WAITING_OPEN,
+        opening_cutoffs=before.service._opening_cutoffs(cycle), next_wake_at=timing.execute_at)
+
+    # Lose the response after the 11th sale has been accepted. The first worker
+    # has no chance to record that response or submit any of the remaining legs.
+    def lost_response(sim, request, _response):
+        assert len([o for o in sim.orders.values() if o['side'] == 'sell']) == 11
+        raise httpx.ReadTimeout('accepted sale response lost', request=request)
+
+    world.fault('POST', '/v2/orders', lost_response, occurrence=11, after_effect=True)
+
+    async def tick(runtime):
+        with runtime.connect() as connection:
+            return await runtime.service.tick(connection, now=clock(),
+                heartbeat_conn_factory=runtime.connect, clock=clock)
+
+    def run_first_worker():
+        nonlocal crash_pid
+        crash_pid = os.getpid()
+        raise AssertionError(f'opening did not reach the injected restart: {asyncio.run(tick(before))}')
+
+    class ExitManager(BaseManager):
+        pass
+
+    ExitManager.register('broker', callable=lambda: world,
+                         exposed=('exchange', 'fill_working', 'evidence'))
+    processes = get_context('fork')
+    with ExitManager(ctx=processes) as manager:
+        peer = manager.broker()
+        elapsed_origin = monotonic()
+        first = processes.Process(target=run_first_worker)
+        first.start()
+        first.join(timeout=180)
+        if first.is_alive():
+            first.terminate()
+            first.join(timeout=10)
+        assert first.exitcode == -signal.SIGKILL
+        exited_at = clock()
+        commands = journal.load_commands(conn, bound.identity, plan_id=plan.plan_id)
+        assert len(commands) == 11
+        uncertain, = [command for command in commands if command.state is CommandState.SEND_PENDING]
+        lease_remaining = conn.execute(
+            'SELECT GREATEST(0,EXTRACT(EPOCH FROM expires_at-clock_timestamp())) '
+            'FROM sentinel_automation_lease WHERE id=1').fetchone()[0]
+        conn.rollback()
+        sleep(float(lease_remaining) + .1)
+        resumed += max(timedelta(0), timedelta(seconds=45) - (clock() - exited_at))
+        peer.fill_working(clock())
+
+        after = worker('exit-after-restart')
+        for _ in range(12):
+            result = asyncio.run(tick(after))
+            peer.fill_working(clock())
+            assert result.cycle is not None, result
+            if result.cycle.state is model.CycleState.SUCCEEDED:
+                break
+            assert not result.cycle.state.terminal, result
+            if result.cycle.next_wake_at is not None:
+                resumed += max(timedelta(seconds=1), result.cycle.next_wake_at - clock())
+        finished_at = clock()
+        requests, positions = peer.evidence()
+
+    assert result.cycle.state is model.CycleState.SUCCEEDED, result
+    assert finished_at < timing.execution_open_at + timedelta(minutes=10)
+    accepted = [request for request in requests if request['method'] == 'POST']
+    assert len(accepted) == 21
+    assert [request['body']['side'] for request in accepted] == ['sell'] * 20 + ['buy']
+    assert len({request['body']['client_order_id'] for request in accepted}) == 21
+    assert positions['BIL'] > 0 and all(not positions[ticker] for ticker in held.values())
+    assert any(request['path'].endswith(':by_client_order_id')
+               and request['params'].get('client_order_id') == uncertain.client_key
+               for request in requests)
+    print(f'exit {starting_exposure} opening checks and first 11 sends '
+          f'{(exited_at - timing.execute_at).total_seconds():.2f}s, '
+          f'completed {(finished_at - timing.execute_at).total_seconds():.2f}s after 9:31')
 
 
 def test_host_dual_plan_readback_joins_actual_cli_and_read_only_book(

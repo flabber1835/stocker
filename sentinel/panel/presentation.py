@@ -328,6 +328,17 @@ def _historical_skip_record(panel) -> bool:
         and row_current(panel, row))
 
 
+def _retired_trading_day(panel, row: Row) -> bool:
+    if row.key != 'trading_run' or row.trading_run is None or row.valid_until is None:
+        return False
+    day = row.trading_run.intent.effective_session
+    midnight = datetime.combine(day + timedelta(days=1), datetime.min.time(),
+                                tzinfo=ZoneInfo('America/New_York'))
+    boundary = midnight - timedelta(microseconds=1)
+    return (row.valid_until == boundary and panel.now >= midnight
+            and _historical_skip_record(replace(panel, now=boundary - timedelta(microseconds=1))))
+
+
 def _opening_capabilities(panel, *, broker=True, maintenance=False) -> bool:
     from sentinel.panel.delivery import row_current
     keys = [key for key in _HISTORY_CURRENT_FACTS if broker or key != 'broker']
@@ -1124,6 +1135,8 @@ def _classify_health_rows(panel, *, include_inactive_warnings=False, checking=()
     from sentinel.panel.delivery import row_current
 
     for row in panel.rows:
+        if _retired_trading_day(panel, row):
+            continue
         status = row.effective_status(panel.now)
         current = row_current(panel, row)
         if activation_wait_withdraws(panel, row) or activation_wait_history(panel, row):

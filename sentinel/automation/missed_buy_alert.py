@@ -1,14 +1,12 @@
-"""Positive, saved evidence for a clean opening that missed only BUY transport.
-
-This is a one-time notifier read at the fenced terminal transition. It neither
-grants execution authority nor refreshes the broker; ambiguity returns None.
-"""
+"""Shared read-only proof that a terminal opening missed only unsent BUYs."""
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from time import monotonic
+from typing import Any
 
 
 _ACTIVE = (
@@ -49,14 +47,14 @@ def _positions(payload) -> dict[str, Decimal] | None:
     return {sid: qty for sid, qty in result.items() if qty}
 
 
-def _no_transport_events(conn, command, *, execute_at, as_of, deadline) -> bool:
+def no_transport_chain(conn, key, *, execute_at, as_of, deadline=None) -> bool:
     """Allow only the canonical restored checkpoint chain, never a send outcome."""
-    if monotonic() >= deadline:
+    if deadline is not None and monotonic() >= deadline:
         return False
     events = conn.execute(
         "SELECT from_state,to_state,filled_quantity,detail,at "
         "FROM sentinel_command_events WHERE client_key=%s ORDER BY seq LIMIT 101",
-        (command.client_key,)).fetchall()
+        (key,)).fetchall()
     if not events or len(events) > 100:
         return False
     first = events[0]
@@ -148,6 +146,7 @@ def _observation(conn, seq, *, cycle, expected, as_of, planned_keys,
         if ((deployment, broker, account, epoch) != (
                 cycle.deployment_id, cycle.broker, cycle.broker_account_id,
                 cycle.takeover_epoch)
+                or by_key[key]["security_id"] != sid
                 or (plan_id == cycle.plan_id and key not in current_plan_keys)
                 or (plan_id == cycle.plan_id and sid in no_command_buy_ids)
                 or (sid in no_command_buy_ids and plan_id != cycle.plan_id
@@ -185,18 +184,9 @@ def prove(conn, cycle, control, *, diagnostic, clean_id) -> dict | None:
             or not str(clean_id).isdigit() or not 0 < int(clean_id) < 2**63
             or diagnostic.get("observation_id") != int(clean_id)):
         return None
-    expected = {}
-    for sid, raw in diagnostic["expected"].items():
-        if not isinstance(sid, str) or not sid or not isinstance(raw, str):
-            return None
-        try:
-            qty = Decimal(raw)
-        except (InvalidOperation, ValueError):
-            return None
-        if not qty.is_finite() or qty < 0:
-            return None
-        if qty:
-            expected[sid] = qty
+    expected = _expected_positions(diagnostic)
+    if expected is None:
+        return None
 
     plan = journal.load_plan(conn, cycle.plan_id)
     if monotonic() >= deadline:
@@ -311,8 +301,8 @@ def prove(conn, cycle, control, *, diagnostic, clean_id) -> dict | None:
                     or sid in planned or command.filled_quantity != 0
                     or command.broker_order_id is not None
                     or (command.quantity, command.notional) != remaining[sid]
-                    or not _no_transport_events(
-                        conn, command, execute_at=cycle.execute_at,
+                    or not no_transport_chain(
+                        conn, command.client_key, execute_at=cycle.execute_at,
                         as_of=as_of, deadline=deadline)):
                 return None
             planned[sid] = command.client_key
@@ -365,3 +355,123 @@ def prove(conn, cycle, control, *, diagnostic, clean_id) -> dict | None:
         "filled_sell_keys": sorted(filled_sells),
         "journal": "RESTORED_PRETRANSPORT_ONLY",
     }
+
+
+def _expected_positions(diagnostic):
+    expected = diagnostic.get("expected")
+    if (not isinstance(expected, Mapping)
+            or any(not isinstance(raw, str) for raw in expected.values())):
+        return None
+    return _positions({"positions": [
+        {"security_id": sid, "quantity": raw} for sid, raw in expected.items()
+    ]})
+
+
+def saved_terminal_proof(conn, cycle, control):
+    """Read the exact terminal event used by the notifier."""
+    from sentinel.automation.model import CycleState
+
+    event = conn.execute(
+        "SELECT from_state,to_state,control_generation,fence_token,detail "
+        "FROM sentinel_automation_cycle_events WHERE cycle_id=%s ORDER BY seq DESC LIMIT 1",
+        (cycle.cycle_id,)).fetchone()
+    if event is None:
+        return None
+    source, target, generation, fence, detail = event
+    if (source not in {"EXECUTING", "RECONCILING", "RETRY_WAIT"}
+            or target != cycle.state.value or target != "SUPERSEDED"
+            or generation != cycle.control_generation or fence != cycle.last_fence_token
+            or not isinstance(detail, Mapping) or detail.get("diagnostic") != cycle.diagnostic
+            or detail.get("failure_code") != cycle.failure_code
+            or str(detail.get("last_clean_reconciliation_id"))
+                != str(cycle.last_clean_reconciliation_id)):
+        return None
+    if "missed_window_buy_only" not in detail:
+        # Older terminal events recorded the original evidence but no summary.
+        return prove(conn, cycle.model_copy(update={"state": CycleState(source)}), control,
+                     diagnostic=cycle.diagnostic, clean_id=cycle.last_clean_reconciliation_id)
+    if not validates_terminal_proof(detail, state=target, cycle_id=cycle.cycle_id):
+        return None
+    proof = detail["missed_window_buy_only"]
+    if (proof["plan_id"], proof["plan_fingerprint"], proof["from_state"],
+            proof["attempt_count"]) != (
+            cycle.plan_id, cycle.plan_fingerprint, source, cycle.attempt_count):
+        return None
+    return proof
+
+
+def current_observation_matches(conn, cycle, proof, *, sequence, reconciled_at,
+                                as_of, current_plan_keys, planned_buy_ids):
+    """A later broker fact must meet the terminal verifier's same standard."""
+    expected = _expected_positions(cycle.diagnostic)
+    if expected is None or sequence < proof["latest_observation_id"]:
+        return False
+    observed = _observation(
+        conn, sequence, cycle=cycle, expected=expected, as_of=as_of,
+        planned_keys=set(proof["unsent_buy_keys"]), current_plan_keys=current_plan_keys,
+        no_command_buy_ids=set(proof["remaining_buy_security_ids"]) - planned_buy_ids,
+        deadline=monotonic() + 4.0)
+    return observed is not None and observed >= reconciled_at
+
+
+def validates_terminal_proof(detail: Mapping[str, Any], *,
+                          state: str, cycle_id: Any) -> bool:
+    """Only the producer's exact terminal BUY-only evidence permits WARN."""
+    if (state != 'SUPERSEDED'
+            or detail.get('failure_code') != 'MAX_EXECUTION_LATENESS_EXCEEDED'):
+        return False
+    proof = detail.get('missed_window_buy_only')
+    if (not isinstance(proof, Mapping) or set(proof) != {
+            'schema', 'cycle_id', 'plan_id', 'plan_fingerprint',
+            'from_state', 'attempt_count', 'observation_id',
+            'latest_observation_id', 'remaining_buy_security_ids',
+            'unsent_buy_keys', 'filled_sell_keys', 'journal'}
+            or proof.get('schema') != 'sentinel.missed-window-buy-only/1'
+            or proof.get('cycle_id') != str(cycle_id)
+            or not isinstance(proof.get('plan_id'), str)
+            or not proof['plan_id']
+            or not isinstance(proof.get('plan_fingerprint'), str)
+            or re.fullmatch(r'[0-9a-f]{64}', proof['plan_fingerprint']) is None
+            or proof.get('from_state') not in {
+                'EXECUTING', 'RECONCILING', 'RETRY_WAIT'}
+            or type(proof.get('attempt_count')) is not int
+            or proof['attempt_count'] <= 0
+            or type(proof.get('observation_id')) is not int
+            or proof['observation_id'] <= 0
+            or type(proof.get('latest_observation_id')) is not int
+            or proof['latest_observation_id'] < proof['observation_id']
+            or proof.get('journal') != 'RESTORED_PRETRANSPORT_ONLY'
+            or str(detail.get('last_clean_reconciliation_id'))
+                != str(proof['observation_id'])):
+        return False
+    remaining, planned, sold = (
+        proof['remaining_buy_security_ids'], proof['unsent_buy_keys'],
+        proof['filled_sell_keys'])
+    if (not isinstance(remaining, list) or not 0 < len(remaining) <= 20
+            or not isinstance(planned, list) or len(planned) > len(remaining)
+            or not isinstance(sold, list) or len(sold) > 100
+            or any(not isinstance(value, str) or not value for group in (
+                remaining, planned, sold) for value in group)
+            or any(group != sorted(set(group)) for group in (
+                remaining, planned, sold))):
+        return False
+    diagnostic = detail.get('diagnostic')
+    if not isinstance(diagnostic, Mapping):
+        return False
+    raw = diagnostic.get('actionable_deltas')
+    return (diagnostic.get('clean') is True
+            and diagnostic.get('runtime_state') == 'RUNNING'
+            and diagnostic.get('observation_id') == proof['observation_id']
+            and diagnostic.get('expected') == diagnostic.get('observed')
+            and isinstance(diagnostic.get('expected'), Mapping)
+            and all(diagnostic.get(key) == [] for key in (
+                'unresolved', 'foreign_orders', 'foreign_positions'))
+            and diagnostic.get('restricted_securities') == {}
+            and diagnostic.get('terminal_reason') is None
+            and isinstance(raw, list)
+            and len(raw) == len(remaining)
+            and all(isinstance(item, Mapping) and item.get('side') == 'BUY'
+                    and item.get('security_id') == sid
+                    for item, sid in zip(sorted(raw, key=lambda item: str(
+                        item.get('security_id')) if isinstance(item, Mapping) else ''),
+                        remaining, strict=True)))

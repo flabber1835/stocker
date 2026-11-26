@@ -696,41 +696,13 @@ def _opening_cutoff_diagnostic(conn, plan, clean):
 
 def _planned_buy_proven_unsent(conn, order, *, execute_at, completed_at):
     """A PLANNED BUY is harmless only with its exact no-transport event chain."""
+    from sentinel.automation.missed_buy_alert import no_transport_chain
+
     if (order.state != 'PLANNED' or order.side != 'BUY'
             or order.broker_order_id is not None or order.filled_quantity != 0):
         return False
-    return _no_transport_chain(
-        conn, order.client_key, execute_at=execute_at, completed_at=completed_at)
-
-
-def _no_transport_chain(conn, key, *, execute_at, completed_at):
-    events = conn.execute(
-        'SELECT from_state,to_state,filled_quantity,detail,at '
-        'FROM sentinel_command_events WHERE client_key=%s ORDER BY seq LIMIT 101',
-        (key,)).fetchall()
-    if not events or len(events) > 100:
-        return False
-    first = events[0]
-    if (first[0] is not None or first[1] != 'PLANNED' or first[2] != 0
-            or not isinstance(first[4], datetime)
-            or not execute_at <= first[4] <= completed_at):
-        return False
-    pending = False
-    previous_at = first[4]
-    for source, target, filled, detail, at in events[1:]:
-        if (filled != 0 or not isinstance(at, datetime)
-                or not previous_at <= at <= completed_at):
-            return False
-        if not pending and (source, target) == ('PLANNED', 'SEND_PENDING'):
-            pending = True
-        elif (pending and (source, target) == ('SEND_PENDING', 'PLANNED')
-              and isinstance(detail, str)
-              and detail.startswith('PRE_TRANSPORT_CHECKPOINT_RESTORED: ')):
-            pending = False
-        else:
-            return False
-        previous_at = at
-    return not pending
+    return no_transport_chain(
+        conn, order.client_key, execute_at=execute_at, as_of=completed_at)
 
 
 def _no_planned_buy_native_match(payload, planned_keys):
@@ -831,7 +803,8 @@ def _only_retired_unsent_buys(conn, cycle, observation, counts, *, now):
     if len(rows) != planned_count or len(keys) != planned_count or len(anchor) != 1:
         return False
     prior, broker, account = anchor.pop()
-    if not all(_no_transport_chain(conn, key, execute_at=opened, completed_at=completed)
+    from sentinel.automation.missed_buy_alert import no_transport_chain
+    if not all(no_transport_chain(conn, key, execute_at=opened, as_of=completed)
                for key, opened, completed, *_ in rows):
         return False
 
@@ -3274,7 +3247,7 @@ def _recoverable_superseded_wait(conn, cycle) -> MissedOpenUnattendedWait | None
         return None
 
     from sentinel import local_paper
-    from sentinel.automation import env_config, schedule, store, unsent_recovery
+    from sentinel.automation import env_config, missed_buy_alert, schedule, store, unsent_recovery
     from sentinel.automation.health import read_health
     from sentinel.automation.model import AutomationRefused, CycleState
     from sentinel.execution.target_reprojection import TargetProjectionRefused
@@ -3334,6 +3307,9 @@ def _recoverable_superseded_wait(conn, cycle) -> MissedOpenUnattendedWait | None
         except AutomationRefused:
             return None
     else:
+        proof = missed_buy_alert.saved_terminal_proof(conn, previous, control)
+        if proof is None:
+            return None
         partial_run = _partial_buy_only_cutoff_run(conn, cycle, now=now)
         if partial_run is None:
             return None
@@ -3353,19 +3329,20 @@ def _recoverable_superseded_wait(conn, cycle) -> MissedOpenUnattendedWait | None
                    for order in observation['orders'])):
         return None
     if partial_run is not None:
-        from sentinel.execution import journal
-
         opening = partial_run.operational_fact.opening
-        if (observation['sequence'] < opening.observation_id
-                or observation['observed_at'] < opening.reconciled_at):
-            return None
-        latest_payload = journal.load_observation_payload(conn, observation['sequence'])
-        planned_keys = {item.client_key for item in partial_run.trading_run.orders
-                        if item.state == 'PLANNED'}
-        if (latest_payload.get('completeness') != 'COMPLETE'
-                or (latest_payload.get('broker'), latest_payload.get('account_id'))
-                    != (health.broker, health.broker_account_id)
-                or not _no_planned_buy_native_match(latest_payload, planned_keys)):
+        run = partial_run.trading_run
+        planned = {item.client_key: item.security_id for item in run.orders
+                   if item.state == 'PLANNED'}
+        if (opening.observation_id != proof['observation_id']
+                or sorted(planned) != proof['unsent_buy_keys']
+                or sorted(run.unsent_at_cutoff) != proof['remaining_buy_security_ids']
+                or sorted(item.client_key for item in run.orders if item.side == 'SELL')
+                    != proof['filled_sell_keys']
+                or not missed_buy_alert.current_observation_matches(
+                    conn, previous, proof, sequence=observation['sequence'],
+                    reconciled_at=opening.reconciled_at, as_of=now,
+                    current_plan_keys={item.client_key for item in run.orders},
+                    planned_buy_ids=set(planned.values()))):
             return None
     account = _latest_account_evidence(conn)
     if account is None:

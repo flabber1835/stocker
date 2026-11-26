@@ -113,6 +113,15 @@ def test_foreign_or_genuinely_failed_history_does_not_get_retirement_classificat
 def test_original_market_day_boundary_remains_finite_and_selector_can_drop_the_old_record():
     page=next_decision_panel();page=replace(page,now=ROLL+timedelta(microseconds=1))
     assert not presentation._historical_skip_record(page)
+    assert 'trading_run' not in presentation.health_facts(page)['active']
+    assert 'trading_run' not in presentation.health_facts(page)['warnings']
+    row=page.row('trading_run')
+    early=replace(row,valid_until=ROLL-timedelta(minutes=1))
+    expired=replace(page,rows=[early if r.key==row.key else r for r in page.rows])
+    assert 'trading_run' in presentation.health_facts(expired)['warnings']
+    unknown=replace(row,status=model.FAIL,operational_fact=None)
+    unproved=replace(page,rows=[unknown if r.key==row.key else r for r in page.rows])
+    assert 'trading_run' in presentation.health_facts(unproved)['active']
     without=replace(page,rows=[row for row in page.rows if row.key!='trading_run'])
     assert 'trading_run' not in presentation.health_facts(without)['active']
     assert 'trading_run' not in presentation.health_facts(without)['warnings']

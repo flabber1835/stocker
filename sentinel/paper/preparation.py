@@ -451,7 +451,7 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
         binding = assert_no_legacy_path(conn)
         rollout = load_rollout_state(conn)
         from sentinel import structural_verification
-        with feed_inputs.pinned(conn, commit=False) as pinned, structural_verification.callback(conn):
+        with feed_inputs.pinned(conn, commit=False, reuse_owned=True) as pinned, structural_verification.callback(conn):
             feed_inputs.require_shadow_mode(pinned, dual_mode)
             observation_time = (now_et if now_et is not None else
                                 datetime.now(ZoneInfo(calendar.EXCHANGE_TZ)))
@@ -463,7 +463,7 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     f"latest closed XNYS session {latest_closed}. An early "
                     "current-session publication is not close evidence and "
                     "cannot become an immutable next-session plan.")
-            frontier = feed_inputs.frontier(conn)
+            frontier = feed_inputs.frontier(conn, pinned)
             if frontier != through_text:
                 raise PaperActivationRefused(
                     f"requested decision session {through_text} is not the "

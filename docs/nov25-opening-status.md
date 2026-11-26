@@ -77,13 +77,12 @@ loss remains its own browser-local neutral state.
 
 ## Alerts and qualification
 
-This display change does not rewrite an existing terminal alert. Alert severity
-for a clean BUY-only miss needs its own immutable producer witness before a
-separate notification change can safely call it a warning. A required SELL
-that cannot finish, UNKNOWN transport, or lost authority remains red. Existing
-critical alerts are not automatically acknowledged. Preserve the command
-journal, original trial verdict, notification payloads, and operator review
-history.
+The [audit consolidation](paper-audit-consolidation.md) makes the terminal
+producer's proof common to the notification and the display. The display
+independently checks current broker and scheduler facts. A required SELL that
+cannot finish, UNKNOWN transport, or lost authority remains red. Preserve
+the command journal, original trial verdict, notification payloads, and
+operator review history.
 
 Qualification must falsify each financial proof component, including a planned
 SELL, wrong or absent no-transport event, broker order still working, unknown

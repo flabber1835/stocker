@@ -1185,11 +1185,9 @@ def transition_cycle(
                 and current.attempt_count > 0
                 and diagnostic is not _UNSET
                 and last_clean_reconciliation_id is not _UNSET):
-            missed_buy = _missed_buy_alert_witness(
+            detail['missed_window_buy_only'] = _missed_buy_alert_witness(
                 conn, current, diagnostic=diagnostic,
                 clean_id=last_clean_reconciliation_id)
-            if missed_buy is not None:
-                detail['missed_window_buy_only'] = missed_buy
         if opening_cutoffs is not None:
             if current.state is not CycleState.PLAN_READY or to_state is not CycleState.WAITING_OPEN:
                 raise InvalidCycleTransition("opening cutoffs belong to the scheduled plan")

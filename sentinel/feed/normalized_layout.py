@@ -162,6 +162,14 @@ def stored_sessions(conn, candidate_id, kind, *, start=None, end=None):
         return tuple(row[0] for row in cur.fetchall())
 
 
+def stream_sessions(conn, candidate_id, kind, read_day, *, start=None, end=None):
+    """Stream each bounded shared-layout session in canonical storage order."""
+    for day in stored_sessions(conn, candidate_id, kind, start=start, end=end):
+        rolling_work.checkpoint()
+        yield from read_day(day)
+    rolling_work.checkpoint()
+
+
 _PREDECESSOR_POINT = (
     'SELECT session,close_signal,close_unadjusted FROM sentinel_snapshot_bars '
     'WHERE candidate_id=%s AND security_id=%s AND session<%s ORDER BY session DESC LIMIT 1')
@@ -208,14 +216,12 @@ def _predecessor_stream(conn, candidate_id, before, securities, *, query):
     # using their small index rather than sorting all expanded price rows.
     daily = query(_PREDECESSOR_BATCH.replace('session<%s', 'session=%s'))
 
-    def rows_by_day():
-        days = stored_sessions(conn, candidate_id, 'BARS', end=before - timedelta(days=1))
-        for day in days:
-            rolling_work.checkpoint()
-            with store.streaming_cursor(conn, daily, (candidate_id, day, securities)) as rows:
-                yield from rows
+    def read_day(day):
+        with store.streaming_cursor(conn, daily, (candidate_id, day, securities)) as rows:
+            yield from rows
 
-    with closing(rows_by_day()) as rows:
+    with closing(stream_sessions(conn, candidate_id, 'BARS', read_day,
+                                 end=before - timedelta(days=1))) as rows:
         yield rows
 
 

@@ -61,6 +61,16 @@ def require_owned_publication(conn, pub):
     _require_pin(conn, scope)
 
 
+def owned_publication(conn):
+    """Return a detached publication only to the live connection that pinned it."""
+    scope = _current.get()
+    if scope is None or scope.owner is not conn:
+        return None
+    pub = scope.publication_object
+    require_owned_publication(conn, pub)
+    return deepcopy(pub)
+
+
 def capture(conn):
     """Opaque lifetime token for other read-only work under this exact pin."""
     scope = _current.get()

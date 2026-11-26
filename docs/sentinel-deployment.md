@@ -1,5 +1,9 @@
 # Sentinel current operating contract
 
+[PAPER audit consolidation](paper-audit-consolidation.md) defines the shared
+missed-buy proof, ordinary display rollover, publication reuse, and full opening
+exit qualification following the November 25 audit.
+
 [Opening and idle authority proof attribution](open-authority-proof-attribution.md)
 specifies the November 25 timing breakdown while retaining fresh signed and
 publication proof at every broker operation.
