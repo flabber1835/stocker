@@ -8,6 +8,7 @@ from pathlib import Path, PurePosixPath
 import re
 import subprocess
 
+from .checkout import has_filing_archive
 from .model import read_json, require
 
 SCHEMA = 'sentinel.local-paper-qualification/1'
@@ -59,6 +60,8 @@ def source_files(source, *, scope=None, predecessor_commit=None, commit=None, gi
     """Hash the complete declared input scope, never ignored local evidence."""
     require(scope is None or scope == OPERATIONAL_SCOPE, 'QUALIFICATION_SOURCE_SCOPE_INVALID')
     source = Path(source).resolve()
+    if scope == OPERATIONAL_SCOPE:
+        require(not has_filing_archive(source), 'QUALIFICATION_HISTORICAL_FILINGS_PRESENT')
     read = (lambda *args: git(source,*args)) if git_reader is None else git_reader
     if git_reader is None:
         names=read('ls-files','-z').split('\0')

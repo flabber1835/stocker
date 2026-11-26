@@ -15,6 +15,7 @@ PYTHON="${SENTINEL_HOST_PYTHON:-${SENTINEL_PYTHON:-python3}}"
   echo "REFUSED: host Python is incompatible; minimum Python is 3.8.15" >&2
   exit 1
 }
+"$PYTHON" scripts/sentinel_local_delivery/checkout.py check --worktree .
 
 # Record mode intent before software preflight. Provider/account/session checks
 # belong only to the separately requested activation coordinator.

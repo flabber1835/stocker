@@ -370,6 +370,9 @@ class EnvHarness(unittest.TestCase):
         scripts.mkdir(exist_ok=True)
         for name in ("sentinel_env.py", "go-archive-format-v1.json", "sentinel-env.sh", "sentinel-compose.sh", "sentinel_postgres_helpers.py", "sentinel-autonomous-deploy.sh", "sentinel-go-validate.sh", "sentinel-bringup.sh", "sentinel_lock_ownership.py"):
             shutil.copyfile(ROOT / "scripts" / name, scripts / name)
+        checkout = scripts / "sentinel_local_delivery/checkout.py"
+        checkout.parent.mkdir(exist_ok=True)
+        shutil.copyfile(ROOT / "scripts/sentinel_local_delivery/checkout.py", checkout)
         launcher = scripts / "sentinel-autonomous-deploy.sh"
         launcher.write_text(launcher.read_text().replace(
             "/tmp/sentinel-autonomous-deploy.lock", str(self.root / "deploy.lock")))
