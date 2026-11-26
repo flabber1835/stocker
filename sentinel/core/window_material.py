@@ -1,7 +1,7 @@
 """Pure current-window material and its canonical feed installation."""
 from __future__ import annotations
+from array import array
 from collections import deque
-from itertools import groupby
 from typing import Literal
 from pydantic import ConfigDict, Field
 from stock_strategy_shared.wealth_core.engine import SecurityBar
@@ -61,10 +61,17 @@ def protected(prior):
     return ids
 
 
+class _SignalTail:
+    def __init__(self):
+        self.indices = array('H')
+        self.closes = array('d')
+        self.liquidity = deque(maxlen=20)
+        self.final_ticker = None
+
 
 def compile_rows(*, prior, manifest, metadata, resolve_identity,
                  publication_version, session, rows):
-    """Interpret a complete identity-ordered row stream without storage access."""
+    """Interpret a complete stream with ascending dates per security."""
     from sentinel.feed.rolling_contract import CurrentFormationWindow
     axis = calendar.previous_sessions(session, 300)
     available = list(map(str, manifest.window.sessions))
@@ -72,31 +79,40 @@ def compile_rows(*, prior, manifest, metadata, resolve_identity,
                                    and set(axis).issubset(available))):
         raise ValueError('CURRENT_WINDOW_AXIS_REQUIRED')
     indices = {day:i for i, day in enumerate(axis)}
+    latest_index = len(axis) - 1
+    history_start = latest_index - 260
     live = protected(prior)
     signals, histories = [], {sid:[] for sid in live}
-    for sid, group in groupby(rows, key=lambda row: row.security_id):
-        closes = deque(maxlen=127)
-        liquidity = deque(maxlen=20)
-        for row in group:
-            day = str(row.session)
-            if day not in indices or resolve_identity(row.ticker, day) != sid or sid not in metadata:
-                raise ValueError('CURRENT_WINDOW_IDENTITY_OR_AXIS_CHANGED')
-            # CanonicalBar validates the raw close as positive and finite. The
-            # identity basis uses the published signal at a multiplier of one.
-            if row.close_signal is None:
-                raise FeedError('Median-5 requires a published signal-domain close')
-            closes.append((indices[day], row.close_signal))
-            liquidity.append((row.close_unadjusted, row.volume))
-            if sid in live and axis[-261] <= day < axis[-1]:
-                histories[sid].append(row)
-        if day == axis[-1]:
-            session_indices, signal_closes = map(list, zip(*closes))
-            raw_closes, volumes = map(list, zip(*liquidity))
-            series = SecuritySeries(sid, row.ticker, f'SID:{sid}',
-                session_indices=session_indices, signal_closes=signal_closes,
-                raw_closes=raw_closes, volumes=volumes)
-            signals.append(Signal.from_feature(feature(
-                series, metadata[sid], index=299, session=axis[-1])))
+    tails = {}
+    for row in rows:
+        day, sid = str(row.session), row.security_id
+        index = indices.get(day)
+        if index is None or resolve_identity(row.ticker, day) != sid or sid not in metadata:
+            raise ValueError('CURRENT_WINDOW_IDENTITY_OR_AXIS_CHANGED')
+        if row.close_signal is None:
+            raise FeedError('Median-5 requires a published signal-domain close')
+        tail = tails.get(sid)
+        if tail is None:
+            tail = tails[sid] = _SignalTail()
+        if tail.indices and index <= tail.indices[-1]:
+            raise ValueError('CURRENT_WINDOW_PRICE_ORDER_CHANGED')
+        tail.indices.append(index)
+        tail.closes.append(row.close_signal)
+        tail.liquidity.append((row.close_unadjusted, row.volume))
+        if sid in live and history_start <= index < latest_index:
+            histories[sid].append(row)
+        if index == latest_index:
+            tail.final_ticker = row.ticker
+    for sid in sorted(tails):
+        tail = tails[sid]
+        if tail.final_ticker is None:
+            continue
+        raw_closes, volumes = map(list, zip(*tail.liquidity))
+        series = SecuritySeries(sid, tail.final_ticker, f'SID:{sid}',
+            session_indices=list(tail.indices[-127:]), signal_closes=list(tail.closes[-127:]),
+            raw_closes=raw_closes, volumes=volumes)
+        signals.append(Signal.from_feature(feature(
+            series, metadata[sid], index=latest_index, session=session)))
     return WindowFeatures(snapshot_sha256=manifest.snapshot_id,
         prior_state_sha256=prior.state_hash, publication_version=publication_version,
         sessions=tuple(axis), signals=tuple(signals), histories=histories)

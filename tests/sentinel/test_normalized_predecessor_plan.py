@@ -79,19 +79,23 @@ def test_batch_keeps_exact_point_evidence_and_coordinate_order(conn, shared):
     assert layout.predecessor_prices(conn, identity, coordinates, query=query) == expected
 
 
-def test_batch_decodes_each_shared_session_once_for_overlapping_coordinates(conn):
+def test_batch_decodes_each_shared_session_once_for_overlapping_coordinates(conn, monkeypatch):
+    from sentinel.feed import store
+
     identity, window = candidate(conn, True)
     query = layout.query_router(conn)
-    plan = conn.execute('EXPLAIN (ANALYZE, FORMAT JSON) ' + query(layout._PREDECESSOR_BATCH),
-        (identity, window.sessions[8], ['A', 'B'])).fetchone()[0][0]['Plan']
+    original = store.streaming_cursor
+    scans = []
 
-    def scans(node):
-        if node.get('Function Name') == 'jsonb_to_recordset':
-            yield node['Actual Loops']
-        for child in node.get('Plans', []):
-            yield from scans(child)
+    def measured(conn, statement, params):
+        scans.append((statement, params[1]))
+        return original(conn, statement, params)
 
-    assert list(scans(plan)) == [8]
+    monkeypatch.setattr(store, 'streaming_cursor', measured)
+    coordinates = {str(window.sessions[i]): ['A', 'B'] for i in (2, 5, 8)}
+    layout.predecessor_prices(conn, identity, coordinates, query=query)
+    assert [day for _, day in scans] == list(window.sessions[:8])
+    assert all('AND session=%s' in statement for statement, _ in scans)
 
 
 def test_only_exact_point_query_uses_fast_physical_route(monkeypatch):

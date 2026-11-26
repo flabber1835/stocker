@@ -325,22 +325,26 @@ def advance(conn, *, checked_through,publication_version,limit=128):
         raise coverage.EvidenceCoverageRefused('MIRROR_PUBLICATION_SUBJECT_CHANGED')
     while used<limit:
         rows=coverage.changes(conn,DOMAIN,boundary,limit=1)
-        if not rows: break
+        if not rows:
+            due=conn.execute("SELECT plan_id FROM sentinel_paper_mirror_dependencies WHERE effective_session<=%s "
+                "AND payload->>'status' IS NULL ORDER BY plan_id LIMIT %s",(through,limit-used)).fetchall()
+            if not due:
+                break
+            for (plan_id,) in due:
+                if _recheck(conn,plan_id,publication_version=publication_version):
+                    body['historical_mismatch_count']+=1
+                used+=1
+            # The writes create authenticated change records. Prove them in
+            # this same advance when the caller's unit budget allows it.
+            continue
         complete,cost=_consume_event(conn,rows[0],body,through=through,
             publication_version=publication_version,budget=limit-used)
         used+=cost
         if not complete: break
         boundary=int(rows[0][0])
         body['accumulator']=coverage.digest([body['accumulator'],list(rows[0])])
-    if used<limit:
-        due=conn.execute("SELECT plan_id FROM sentinel_paper_mirror_dependencies WHERE effective_session<=%s "
-            "AND payload->>'status' IS NULL ORDER BY plan_id LIMIT %s",(through,limit-used)).fetchall()
-        for (plan_id,) in due:
-            if _recheck(conn,plan_id,publication_version=publication_version): body['historical_mismatch_count']+=1
-            used+=1
-    # Newly signed row changes remain journalled. A later bounded pass proves
-    # their exact rows before the prefix becomes current; no unsigned queue is
-    # deleted to manufacture readiness.
+    # The signed suffix remains pending if the budget was exhausted. Never
+    # skip a journal unit or stamp a publication with unchecked due plans.
     if boundary==coverage.head(conn,DOMAIN)[1] and not conn.execute(
             "SELECT 1 FROM sentinel_paper_mirror_dependencies WHERE effective_session<=%s "
             "AND payload->>'status' IS NULL LIMIT 1",(through,)).fetchone():

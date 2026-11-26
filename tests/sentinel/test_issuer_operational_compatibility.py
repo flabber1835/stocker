@@ -239,6 +239,24 @@ _NOTIFICATION_OVERLAY = (
 
 
 def _predecessor_bytes(name, raw):
+    if name == 'feed/normalized_layout.py':
+        start = raw.index(b'@contextmanager\ndef _predecessor_stream(')
+        end = raw.index(b'def predecessor_prices(', start)
+        assert hashlib.sha256(raw[start:end]).hexdigest() == (
+            'c5b837152ba9220a5f7fafd4e7d87f502df65d26c40d282e758bd6e9027c41d8'), 'access-path overlay changed'
+        raw = raw[:start] + raw[end:]
+        for current, previous in (
+            (b'from contextlib import closing, contextmanager\nfrom datetime import date, timedelta\n',
+             b'from datetime import date\n'),
+            (b'"""Resolve strictly earlier prices for all action days in one ordered scan."""\n',
+             b'"""Resolve strictly earlier prices for all action days in one ordered scan."""\n'
+             b'    from sentinel.feed import store\n\n'),
+            (b'    with _predecessor_stream(conn, candidate_id, days[-1][0], securities, query=query) as prices:\n',
+             b'    with store.streaming_cursor(conn, query(_PREDECESSOR_BATCH),\n'
+             b'                                (candidate_id, days[-1][0], securities)) as prices:\n'),
+        ):
+            assert raw.count(current) == 1, 'access-path overlay changed'
+            raw = raw.replace(current, previous, 1)
     if name == 'operational_schema.py':
         text = raw.decode('utf-8')
         for current, previous in _NOTIFICATION_OVERLAY:
