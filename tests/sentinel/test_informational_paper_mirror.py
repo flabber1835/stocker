@@ -126,6 +126,27 @@ def test_pending_is_immutable_and_requires_every_symbol():
             shadow_record_sha256="c" * 64, publication_version=7)
 
 
+def test_pending_retry_reuses_only_the_original_subject_and_covered_scope():
+    conn = _Conn()
+    first = _pending(conn)
+
+    def retry(symbols, **changes):
+        options = dict(plan=_Plan(), active_security_ids=tuple(symbols), active_symbols=symbols,
+                       sizing_authority_sha256='b' * 64, shadow_record_sha256='c' * 64,
+                       publication_version=7)
+        options.update(changes)
+        return mirror.record_pending(conn, **options)
+
+    assert retry({}) == first
+    assert conn.rows[mirror._pending_cursor(_Plan.plan_id)][1] == first
+    for symbols, changes in [({'SEC-A': 'CHANGED'}, {}), ({'SEC-B': 'BBB'}, {}),
+                             ({}, {'publication_version': 8}),
+                             ({}, {'shadow_record_sha256': 'd' * 64}),
+                             ({}, {'sizing_authority_sha256': 'e' * 64})]:
+        with pytest.raises(mirror.InformationalPaperMirrorRefused, match='immutable'):
+            retry(symbols, **changes)
+
+
 def test_every_new_publication_rechecks_old_session_and_latches_correction(
         monkeypatch):
     conn = _Conn()

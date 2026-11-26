@@ -164,11 +164,19 @@ def _load_row(conn, cursor: str, *, status: str | None = None) -> dict | None:
     return value
 
 
+def _retains_pending_scope(saved: dict | None, current: dict) -> bool:
+    if saved is None or saved["status"] != PENDING or current["status"] != PENDING:
+        return False
+    subject = current.keys() - {"active_security_ids", "active_symbols", "record_sha256"}
+    return (all(saved[key] == current[key] for key in subject)
+            and current["active_symbols"].items() <= saved["active_symbols"].items())
+
+
 def _insert_once(conn, *, cursor: str, value: Mapping) -> dict:
     record = _validate(value)
     existing = _load_row(conn, cursor)
     if existing is not None:
-        if existing != record:
+        if existing != record and not _retains_pending_scope(existing, record):
             raise InformationalPaperMirrorRefused(
                 "informational mirror evidence is immutable")
         return existing
@@ -179,7 +187,7 @@ def _insert_once(conn, *, cursor: str, value: Mapping) -> dict:
             " ON CONFLICT (cursor_name) DO NOTHING",
             (cursor, record["effective_session"], _canonical(record)))
     stored = _load_row(conn, cursor)
-    if stored != record:
+    if stored != record and not _retains_pending_scope(stored, record):
         raise InformationalPaperMirrorRefused(
             "a concurrent writer recorded different informational evidence")
     return stored

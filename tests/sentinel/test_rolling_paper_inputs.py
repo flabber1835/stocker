@@ -498,6 +498,13 @@ def test_full_exit_recovers_the_eleventh_order_before_buy_cutoff(
                 response = self.handle(request)
             except httpx.ReadTimeout:
                 return None
+            if response.status_code == 200 and request.url.path.startswith('/v2/orders'):
+                def native(order):
+                    return {**order, 'qty': None} if order.get('notional') is not None else order
+
+                payload = response.json()
+                response = httpx.Response(200, json=(
+                    [native(order) for order in payload] if isinstance(payload, list) else native(payload)))
             return response.status_code, dict(response.headers), response.content
 
         def fill_working(self, now):

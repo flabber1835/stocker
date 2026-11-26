@@ -50,6 +50,14 @@ Account and residual cash retain their exact stored decimal representation in
 plan readback. A zero balance is a valid input to the plan fingerprint. The
 readback must preserve values such as `0.00` through save and restart.
 
+The first mutation of a plan creates its immutable informational mirror
+record. Completed reductions can shrink the current set of active securities.
+A resumed execution reuses the original record when the plan, publication,
+sizing and shadow proof are identical and every current identity and symbol
+was in the original scope. Keep the original scope for the following close
+check. A new identity, changed symbol or changed proof still refuses this
+reuse. The resumed operation must prove current broker state independently.
+
 Rehearse an eligible 100% to 0% exit and a 55% to 0% exit using the ordinary
 opening boundaries, twenty reductions and the defensive BIL purchase. Run the
 opening checks, scheduler, gateway, and command recovery in a private database.
