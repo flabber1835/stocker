@@ -82,6 +82,15 @@ def a_plan(pid="plan-P", basket=None, **over):
 
 
 class TestAPlanIdDeterminesThePlan:
+    def test_zero_cash_decimal_scale_survives_deterministic_plan_readback(self, conn):
+        from dataclasses import replace
+
+        plan = a_plan(target_exposure=D('0.0'), account_nav=D('250000.00'),
+                      account_cash=D('0.00'), cash_residual=D('0.000'))
+        plan = replace(plan, plan_id='sentinel-' + plan.fingerprint())
+        journal.save_plan(conn, plan)
+        assert journal.load_plan(conn, plan.plan_id).to_dict() == plan.to_dict()
+
     def test_identical_content_is_idempotent(self, conn):
         """Re-deriving a plan after a restart is NORMAL, and two separate
         objects with equal content must not look like divergence. Without this

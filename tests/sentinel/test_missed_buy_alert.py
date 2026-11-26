@@ -237,7 +237,7 @@ def test_no_command_buy_and_restored_planned_buy_can_warn(evidence):
     "unfinished-sale", "sell-delta", "unknown", "unrestored-checkpoint",
     "saved-same-key", "latest-same-key", "exact-same-key",
     "current-plan-unplanned", "malformed-fractional", "nonzero-fractional",
-    "prior-rejected", "foreign-order",
+    "prior-rejected", "foreign-order", "wrong-native-security",
 ])
 def test_uncertain_buy_only_cutoff_stays_critical(evidence, fault):
     if fault == "unfinished-sale":
@@ -253,6 +253,8 @@ def test_uncertain_buy_only_cutoff_stays_critical(evidence, fault):
         evidence.payloads[seq]["orders"].append(
             {"client_key": "planned-key", "security_id": "buy-planned",
              "state": "FILLED"})
+    elif fault == "wrong-native-security":
+        evidence.payloads[2]["orders"][0]["security_id"] = "another-security"
     elif fault == "exact-same-key":
         evidence.payloads[1]["exact_evidence"].append({
             "client_key": "planned-key",
@@ -346,9 +348,11 @@ def test_terminal_writer_persists_witness_for_reconstructed_alert(
         connection, permit=permit, spec=cycle_spec(control, config))
     for state in (CycleState.PREPARING, CycleState.PLAN_READY,
                   CycleState.RECONCILING):
+        prepared = (dict(plan_id="plan-1", plan_fingerprint=FINGERPRINT)
+                    if state is CycleState.PLAN_READY else {})
         cycle = store.transition_cycle(
             connection, permit=permit, cycle_id=cycle.cycle_id,
-            to_state=state, increment_attempt=state is CycleState.RECONCILING)
+            to_state=state, increment_attempt=state is CycleState.RECONCILING, **prepared)
     diagnostic = {
         "clean": True, "runtime_state": "RUNNING", "observation_id": 1,
         "terminal_reason": None, "expected": {}, "observed": {},
@@ -381,6 +385,9 @@ def test_terminal_writer_persists_witness_for_reconstructed_alert(
         "WHERE cycle_id=%s AND to_state='SUPERSEDED' ORDER BY seq DESC LIMIT 1",
         (cycle.cycle_id,)).fetchone()[0]
     assert event["missed_window_buy_only"] == witness
+    monkeypatch.setattr(missed_buy_alert, "prove", lambda *_args, **_kwargs:
+                        pytest.fail("reconstructed a complete terminal proof"))
+    assert missed_buy_alert.saved_terminal_proof(connection, retired, control) == witness
     outbox._reconstruct_missing_transition_alerts(connection)
     connection.commit()
     alert = connection.execute(

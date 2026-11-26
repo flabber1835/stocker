@@ -339,8 +339,16 @@ def test_partial_buy_wait_requires_only_its_planned_command_and_latest_clean_bro
     previous.failure_code = cycle['failure_code']
     previous.attempt_count = 1
     previous.control_generation = control.generation
-    previous.diagnostic = {}
+    previous.plan_id = 'partial-plan'
     raw = replace(_partial_buy_panel().row('trading_run'), status=model.FAIL)
+    previous.execute_at = raw.trading_run.intent.execute_at
+    previous.diagnostic = {'expected': {}}
+    from sentinel.automation import missed_buy_alert
+    proof = {'observation_id': 528, 'latest_observation_id': 528,
+             'unsent_buy_keys': ['buy-command'], 'remaining_buy_security_ids': ['buy'],
+             'filled_sell_keys': ['sell-command']}
+    monkeypatch.setattr(missed_buy_alert, 'saved_terminal_proof',
+                        lambda *_args: proof)
     monkeypatch.setattr(sources, '_partial_buy_only_cutoff_run',
                         lambda *_args, **_kwargs: raw)
     monkeypatch.setattr(sources, '_active_commands',
@@ -349,17 +357,28 @@ def test_partial_buy_wait_requires_only_its_planned_command_and_latest_clean_bro
                   observed_at=OLD, sequence=529,
                   orders=[{'state':'FILLED','key':'sell-command'}])
     latest_payload = dict(completeness='COMPLETE', broker='alpaca',
-        account_id='paper-1', orders=[{'state':'FILLED','client_key':'sell-command'}],
+        account_id='paper-1', positions=[],
+        orders=[{'state':'FILLED','client_key':'sell-command','security_id':'sell'}],
         exact_evidence=[])
     monkeypatch.setattr(sources, '_latest_observation', lambda _conn: latest)
     monkeypatch.setattr(journal, 'load_observation_payload',
                         lambda _conn, _seq: latest_payload)
-    conn = SimpleNamespace(execute=lambda *_args: SimpleNamespace(
-        fetchall=lambda: [('buy-command','PLANNED')]))
+    def execute(query, _params):
+        if 'FROM sentinel_observations' in query:
+            return SimpleNamespace(fetchone=lambda: (OLD, 'RUNNING', 'COMPLETE'))
+        if 'WHERE client_key=ANY' in query:
+            return SimpleNamespace(fetchall=lambda: [
+                ('sell-command', 'partial-plan', 'paper-deployment', 'alpaca', 'paper-1', 1, 'sell')])
+        return SimpleNamespace(fetchall=lambda: [('buy-command', 'PLANNED')])
+
+    conn = SimpleNamespace(execute=execute)
     wait = sources._recoverable_superseded_wait(conn, cycle)
     assert wait is not None and wait.partial_buy_only
     assert (wait.opening.cycle_id, wait.opening.plan_id, wait.opening.observation_id) == (
         'partial-cycle', 'partial-plan', 528)
+    latest_payload['positions'].append({'security_id':'unexpected','quantity':'1'})
+    assert sources._recoverable_superseded_wait(conn, cycle) is None
+    latest_payload['positions'].clear()
     latest_payload['orders'].append({'state':'FILLED','client_key':'buy-command'})
     assert sources._recoverable_superseded_wait(conn, cycle) is None
     latest_payload['orders'].pop()

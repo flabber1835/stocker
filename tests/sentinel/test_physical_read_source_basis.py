@@ -28,6 +28,25 @@ def predecessor_sources():
 
 def physical_predecessor(module, raw):
     if (module == 'sentinel.feed.rolling_store'
+            and hashlib.sha256(raw).hexdigest() == economic_manifest.DAILY_SESSION_STORAGE[module]):
+        changes = (
+            (b'from sentinel.feed.normalized_layout import read_table, stream_sessions',
+             b'from sentinel.feed.normalized_layout import read_table, stored_sessions'),
+            (b'            def read_day(day):\n'
+             b'                return _stream_rows(conn, candidate_id, table=table, columns=columns,\n'
+             b'                                    order=order, start=day, end=day)\n\n'
+             b'            yield from stream_sessions(conn, candidate_id, kind, read_day, start=start, end=end)\n',
+             b'            for day in stored_sessions(conn, candidate_id, kind, start=start, end=end):\n'
+             b'                rolling_work.checkpoint()\n'
+             b'                yield from _stream_rows(conn, candidate_id, table=table, columns=columns,\n'
+             b'                                        order=order, start=day, end=day)\n'
+             b'            rolling_work.checkpoint()\n'),
+        )
+        for current, previous in changes:
+            assert raw.count(current) == 1
+            raw = raw.replace(current, previous, 1)
+        assert hashlib.sha256(raw).hexdigest() == economic_manifest.CLOSE_READINESS_COMPILERS[module]
+    if (module == 'sentinel.feed.rolling_store'
             and hashlib.sha256(raw).hexdigest() == economic_manifest.CLOSE_READINESS_COMPILERS[module]):
         changes = (
             (b'def staged_readiness_facts(conn, candidate_id: str) -> SnapshotReadiness | None:\n'
@@ -149,6 +168,8 @@ def test_every_nonphysical_compiler_expression_matches_independent_c84_source(mo
      b'value = manifest(conn, candidate_id)'),
     ('sentinel.feed.rolling_store',b'require_payload(conn, candidate_id)\n    manifest(conn, candidate_id)',
      b'pass\n    manifest(conn, candidate_id)'),
+    ('sentinel.feed.rolling_store',b'order=order, start=day, end=day)',
+     b'order=order, start=day, end=end)'),
     ('sentinel.feed.action_history',b'session=%s AND ticker=ANY(%s)',b'session<=%s AND ticker=ANY(%s)')])
 def test_compiler_arithmetic_and_sql_edits_fail_mechanical_proof(module,old,new):
     raw=Path(importlib.import_module(module).__file__).read_bytes()

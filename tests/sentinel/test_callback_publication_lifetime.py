@@ -17,13 +17,14 @@ from sentinel.execution.states import RuntimeState
 def test_operational_callback_pins_factory_gateway_and_postcondition(monkeypatch,operation,fail):
     active = []
     closed = []
+    publication = object()
     conn = SimpleNamespace(close=lambda:closed.append(True))
     @contextmanager
     def pin(c, **kwargs):
         assert c is conn and not active
         active.append(True)
         try:
-            yield object()
+            yield publication
         finally:
             active.pop()
     cycle = SimpleNamespace(decision_session=date(2026,10,15),effective_session=date(2026,10,16),
@@ -36,7 +37,10 @@ def test_operational_callback_pins_factory_gateway_and_postcondition(monkeypatch
     owner.sentinel_config = SimpleNamespace(base_url='https://paper-api.alpaca.markets')
     owner.automation_config = SimpleNamespace(fingerprint='f'*64)
     owner._assert_cycle_authority = lambda *a,**k:(cycle,SimpleNamespace(binding=object()))
-    owner._require_operational_inputs = lambda c:None
+    def require_inputs(c, *, current):
+        assert c is conn and current is publication and active
+
+    owner._require_operational_inputs = require_inputs
     owner._recovery_identity_session = lambda c:('2026-10-16',True)
     def broker(c, session):
         assert active, 'production factory escaped callback publication pin'

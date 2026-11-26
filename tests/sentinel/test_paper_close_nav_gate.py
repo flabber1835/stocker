@@ -566,16 +566,21 @@ def test_manual_delayed_preparation_cannot_bypass_due_cycle_gate(monkeypatch):
     publication = SimpleNamespace(version=7, evidence={})
     pin_calls = []
 
-    def pinned(_conn, *, commit):
+    def pinned(_conn, *, commit, reuse_owned):
         assert _conn is conn
         assert commit is False
+        assert reuse_owned is True
         pin_calls.append(publication)
         return nullcontext(publication)
+
+    def frontier(_conn, pinned_publication):
+        assert _conn is conn and pinned_publication is publication
+        return through.isoformat()
 
     monkeypatch.setattr(
         paper_preparation.feed_inputs, "pinned", pinned)
     monkeypatch.setattr(
-        paper_preparation.feed_inputs, "frontier", lambda _conn: through.isoformat())
+        paper_preparation.feed_inputs, "frontier", frontier)
     monkeypatch.setattr(
         paper_preparation, "_readiness_or_refuse", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(

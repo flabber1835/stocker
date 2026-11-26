@@ -240,6 +240,29 @@ _NOTIFICATION_OVERLAY = (
 
 def _predecessor_bytes(name, raw):
     if name == 'feed/normalized_layout.py':
+        shared_reader = (
+            b'def stream_sessions(conn, candidate_id, kind, read_day, *, start=None, end=None):\n'
+            b'    """Stream each bounded shared-layout session in canonical storage order."""\n'
+            b'    for day in stored_sessions(conn, candidate_id, kind, start=start, end=end):\n'
+            b'        rolling_work.checkpoint()\n'
+            b'        yield from read_day(day)\n'
+            b'    rolling_work.checkpoint()\n\n\n')
+        current_loop = (
+            b'    def read_day(day):\n'
+            b'        with store.streaming_cursor(conn, daily, (candidate_id, day, securities)) as rows:\n'
+            b'            yield from rows\n\n'
+            b"    with closing(stream_sessions(conn, candidate_id, 'BARS', read_day,\n"
+            b'                                 end=before - timedelta(days=1))) as rows:\n')
+        previous_loop = (
+            b'    def rows_by_day():\n'
+            b"        days = stored_sessions(conn, candidate_id, 'BARS', end=before - timedelta(days=1))\n"
+            b'        for day in days:\n'
+            b'            rolling_work.checkpoint()\n'
+            b'            with store.streaming_cursor(conn, daily, (candidate_id, day, securities)) as rows:\n'
+            b'                yield from rows\n\n'
+            b'    with closing(rows_by_day()) as rows:\n')
+        assert raw.count(shared_reader) == raw.count(current_loop) == 1, 'access-path overlay changed'
+        raw = raw.replace(shared_reader, b'', 1).replace(current_loop, previous_loop, 1)
         start = raw.index(b'@contextmanager\ndef _predecessor_stream(')
         end = raw.index(b'def predecessor_prices(', start)
         assert hashlib.sha256(raw[start:end]).hexdigest() == (
@@ -322,6 +345,7 @@ def test_presentation_overlay_cannot_hide_predecessor_contract_edits(name, old, 
     ('operational_schema.py', b'if marker_possible:', b'if False:'),
     ('feed/normalized_layout.py', b'price[0] < day:', b'price[0] <= day:'),
     ('feed/normalized_layout.py', b'elif row[0] != encoded:', b'elif False:'),
+    ('feed/normalized_layout.py', b'yield from read_day(day)', b'yield from read_day(end)'),
 ])
 def test_access_path_overlay_cannot_hide_changed_ownership_or_install_guards(name, old, new):
     root = Path(operational_schema.__file__).resolve().parent

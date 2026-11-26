@@ -245,7 +245,8 @@ def test_sql_adapter_uses_the_shared_compiler_and_preserves_order():
     assert 'series.append' not in source
 
 
-@pytest.mark.parametrize('changed', ['sentinel.core.window_material', 'sentinel.feed.normalized_layout'])
+@pytest.mark.parametrize('changed', ['sentinel.core.window_material',
+    'sentinel.feed.normalized_layout', 'sentinel.feed.rolling_store'])
 def test_daily_session_reads_bind_exact_compiler_and_storage(changed, monkeypatch):
     installed = '4e0527eb06780b744fefeadc47e2b18c2cdaacfa77ffa24946a569c5e59b0b1b'
     assert economic.identity(schema='daily-session-test')['sha256'] == installed

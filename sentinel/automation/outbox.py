@@ -204,69 +204,6 @@ def _witnessed_missed_window(detail: Mapping[str, Any], *,
         and proof.get('journal') == 'NO_TRANSPORT_EVENT_OR_COMMAND')
 
 
-def _witnessed_missed_buy(detail: Mapping[str, Any], *,
-                          state: str, cycle_id: Any) -> bool:
-    """Only the producer's exact terminal BUY-only evidence permits WARN."""
-    if (state != 'SUPERSEDED'
-            or detail.get('failure_code') != 'MAX_EXECUTION_LATENESS_EXCEEDED'):
-        return False
-    proof = detail.get('missed_window_buy_only')
-    if (not isinstance(proof, Mapping) or set(proof) != {
-            'schema', 'cycle_id', 'plan_id', 'plan_fingerprint',
-            'from_state', 'attempt_count', 'observation_id',
-            'latest_observation_id', 'remaining_buy_security_ids',
-            'unsent_buy_keys', 'filled_sell_keys', 'journal'}
-            or proof.get('schema') != 'sentinel.missed-window-buy-only/1'
-            or proof.get('cycle_id') != str(cycle_id)
-            or not isinstance(proof.get('plan_id'), str)
-            or not proof['plan_id']
-            or not isinstance(proof.get('plan_fingerprint'), str)
-            or re.fullmatch(r'[0-9a-f]{64}', proof['plan_fingerprint']) is None
-            or proof.get('from_state') not in {
-                'EXECUTING', 'RECONCILING', 'RETRY_WAIT'}
-            or type(proof.get('attempt_count')) is not int
-            or proof['attempt_count'] <= 0
-            or type(proof.get('observation_id')) is not int
-            or proof['observation_id'] <= 0
-            or type(proof.get('latest_observation_id')) is not int
-            or proof['latest_observation_id'] < proof['observation_id']
-            or proof.get('journal') != 'RESTORED_PRETRANSPORT_ONLY'
-            or str(detail.get('last_clean_reconciliation_id'))
-                != str(proof['observation_id'])):
-        return False
-    remaining, planned, sold = (
-        proof['remaining_buy_security_ids'], proof['unsent_buy_keys'],
-        proof['filled_sell_keys'])
-    if (not isinstance(remaining, list) or not 0 < len(remaining) <= 20
-            or not isinstance(planned, list) or len(planned) > len(remaining)
-            or not isinstance(sold, list) or len(sold) > 100
-            or any(not isinstance(value, str) or not value for group in (
-                remaining, planned, sold) for value in group)
-            or any(group != sorted(set(group)) for group in (
-                remaining, planned, sold))):
-        return False
-    diagnostic = detail.get('diagnostic')
-    if not isinstance(diagnostic, Mapping):
-        return False
-    raw = diagnostic.get('actionable_deltas')
-    return (diagnostic.get('clean') is True
-            and diagnostic.get('runtime_state') == 'RUNNING'
-            and diagnostic.get('observation_id') == proof['observation_id']
-            and diagnostic.get('expected') == diagnostic.get('observed')
-            and isinstance(diagnostic.get('expected'), Mapping)
-            and all(diagnostic.get(key) == [] for key in (
-                'unresolved', 'foreign_orders', 'foreign_positions'))
-            and diagnostic.get('restricted_securities') == {}
-            and diagnostic.get('terminal_reason') is None
-            and isinstance(raw, list)
-            and len(raw) == len(remaining)
-            and all(isinstance(item, Mapping) and item.get('side') == 'BUY'
-                    and item.get('security_id') == sid
-                    for item, sid in zip(sorted(raw, key=lambda item: str(
-                        item.get('security_id')) if isinstance(item, Mapping) else ''),
-                        remaining, strict=True)))
-
-
 def _cycle_event_alert(row) -> dict[str, Any] | None:
     seq, cycle_id, to_state, control_generation, fence_token, raw_detail = row
     state = str(to_state)
@@ -333,7 +270,9 @@ def _cycle_event_alert(row) -> dict[str, Any] | None:
         payload["fence_token"] = int(fence_token)
     missed_window = _witnessed_missed_window(
         detail, state=state, cycle_id=cycle_id)
-    missed_buy = _witnessed_missed_buy(
+    from sentinel.automation.missed_buy_alert import validates_terminal_proof
+
+    missed_buy = validates_terminal_proof(
         detail, state=state, cycle_id=cycle_id)
     return {
         "idempotency_key": key,

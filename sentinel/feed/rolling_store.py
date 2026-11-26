@@ -259,18 +259,18 @@ def write_benchmarks(conn, candidate_id: str,
 def _rows(conn, candidate_id, *, table, columns, order, start=None, end=None):
     rolling_work.checkpoint()
     if table in ('sentinel_snapshot_bars', 'sentinel_snapshot_benchmarks'):
-        from sentinel.feed.normalized_layout import read_table, stored_sessions
+        from sentinel.feed.normalized_layout import read_table, stream_sessions
         kind = 'BARS' if table.endswith('_bars') else 'BENCHMARKS'
         table = read_table(conn, kind)
         if table == 'sentinel_candidate_'+kind.lower():
             # A cursor over the UNION view otherwise sorts all expanded JSON
             # rows before its first FETCH. Partition by actual storage dates;
             # each query retains the original predicate and exact row order.
-            for day in stored_sessions(conn, candidate_id, kind, start=start, end=end):
-                rolling_work.checkpoint()
-                yield from _stream_rows(conn, candidate_id, table=table, columns=columns,
-                                        order=order, start=day, end=day)
-            rolling_work.checkpoint()
+            def read_day(day):
+                return _stream_rows(conn, candidate_id, table=table, columns=columns,
+                                    order=order, start=day, end=day)
+
+            yield from stream_sessions(conn, candidate_id, kind, read_day, start=start, end=end)
             return
     yield from _stream_rows(conn, candidate_id, table=table, columns=columns,
                             order=order, start=start, end=end)

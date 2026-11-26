@@ -56,7 +56,10 @@ def coherent(conn):
 
 
 def readiness(conn, *, today):
-    pub = require_current(conn)
+    from sentinel.feed import readiness_scope
+    pub = readiness_scope.owned_publication(conn)
+    if pub is None:
+        pub = require_current(conn)
     if is_rolling(pub):
         from datetime import datetime
         return rolling_go_inputs.validate_status(conn, pub, now=datetime.fromisoformat(today))[1]

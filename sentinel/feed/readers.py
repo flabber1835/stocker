@@ -27,12 +27,17 @@ def require_current(conn):
 
 
 @contextmanager
-def pinned(conn, *, commit=True):
+def pinned(conn, *, commit=True, reuse_owned=False):
+    from sentinel.feed import readiness_scope
+    if reuse_owned and not commit:
+        owned = readiness_scope.owned_publication(conn)
+        if owned is not None:
+            yield owned
+            return
     with publication._core.pinned(conn, commit=commit) as pub:
         publication._validate_publication(conn, pub, allow_snapshot=True)
         if is_rolling(pub):
             snapshots._bound(conn, pub)
-        from sentinel.feed import readiness_scope
         with readiness_scope.pinned(conn, pub):
             yield pub
 

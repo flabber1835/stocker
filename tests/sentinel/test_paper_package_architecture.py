@@ -211,6 +211,7 @@ def test_equivalence_manifest_covers_every_canonical_definition():
                 else:
                     record = manifest["definitions"][node.name]
                 if node.name == 'prepare_paper_plan':
+                    _restore_preparation_publication_calls(node)
                     writes = [statement.value for statement in ast.walk(node) if isinstance(statement, ast.Expr)
                               and isinstance(statement.value, ast.Call)
                               and ast.unparse(statement.value.func) == 'broker_cash.record_plan_baseline']
@@ -241,6 +242,21 @@ def test_equivalence_manifest_covers_every_canonical_definition():
     assert not unreviewed, "\n".join(unreviewed)
 
 
+def _restore_preparation_publication_calls(node):
+    expected = ast.parse('with feed_inputs.pinned(conn, commit=False, reuse_owned=True) as pinned, '
+                         'structural_verification.callback(conn):\n    pass').body[0]
+    scopes = [scope for scope in ast.walk(node) if isinstance(scope, ast.With)
+              and [ast.dump(item) for item in scope.items]
+              == [ast.dump(item) for item in expected.items]]
+    assert len(scopes) == 1, 'preparation must reuse only the owned publication'
+    scope = scopes[0]
+    frontier = ast.parse('frontier = feed_inputs.frontier(conn, pinned)').body[0]
+    locations = [index for index, item in enumerate(scope.body) if ast.dump(item) == ast.dump(frontier)]
+    assert len(locations) == 1, 'preparation frontier must use the pinned publication'
+    scope.body[locations[0]] = ast.parse('frontier = feed_inputs.frontier(conn)').body[0]
+    scope.items[0].context_expr.keywords.pop()
+
+
 def _check_and_remove_opening_projection_delta(node):
     """Restore only the six timed phases and two exact projection call scopes."""
     if node.name == '_target_projection_or_refuse':
@@ -265,7 +281,7 @@ def _check_and_remove_opening_projection_delta(node):
                 del statements[index]
     elif node.name == '_execute_current_paper_plan':
         expected_owner = ast.parse(
-            'with feed_inputs.pinned(conn, commit=False) as pinned, '
+            'with feed_inputs.pinned(conn, commit=False, reuse_owned=True) as pinned, '
             'structural_verification.callback(conn) as proof_scope:\n    pass'
         ).body[0]
         owners = [candidate for candidate in ast.walk(node)
@@ -273,6 +289,7 @@ def _check_and_remove_opening_projection_delta(node):
                   and [ast.dump(item) for item in candidate.items] ==
                   [ast.dump(item) for item in expected_owner.items]]
         assert len(owners) == 1, 'opening projection scope parent changed'
+        owners[0].items[0].context_expr.keywords.pop()
         statements = owners[0].body
         readiness, frontier = ast.parse(
             '_readiness_or_refuse(conn, now_et=now_et)\n'
@@ -615,8 +632,10 @@ def test_recovery_scope_witness_refuses_other_wrapper_changes(before, after):
 
 @pytest.mark.parametrize('before,after', [
     ('structural_verification.callback(conn)', 'structural_verification.callback(other)'),
-    ('feed_inputs.pinned(conn, commit=False) as pinned, structural_verification.callback(conn)',
-     'feed_inputs.pinned(conn, commit=True) as pinned, structural_verification.callback(conn)'),
+    ('feed_inputs.pinned(conn, commit=False, reuse_owned=True)',
+     'feed_inputs.pinned(conn, commit=True, reuse_owned=True)'),
+    ('reuse_owned=True', 'reuse_owned=False'),
+    ('frontier = feed_inputs.frontier(conn, pinned)', 'frontier = feed_inputs.frontier(conn, other)'),
     ('if activation_backup_retry else {}', 'if True else {}'),
     ('with journal.writer_lock(conn, **entry_options):', 'with journal.writer_lock(conn):'),
 ])
@@ -626,4 +645,5 @@ def test_preparation_scope_witness_refuses_other_wrapper_changes(before, after):
     node = next(item for item in ast.parse(source.replace(before, after)).body
         if isinstance(item, ast.AsyncFunctionDef) and item.name == 'prepare_paper_plan')
     with pytest.raises(AssertionError):
+        _restore_preparation_publication_calls(node)
         _check_and_remove_backup_gate_delta(node)
