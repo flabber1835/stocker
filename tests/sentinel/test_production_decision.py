@@ -4,6 +4,7 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import date, datetime, timezone
 from decimal import Decimal
+import hashlib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -436,16 +437,21 @@ def test_data_semantics_identity_moves_when_only_a_decoder_source_moves(
     monkeypatch.setattr(window_material, '__file__', str(decoder))
 
     before = data_semantics_source_identity()
-    assert original.count(b'index=299') == 1
-    decoder.write_bytes(original.replace(b'index=299', b'index=298'))
+    original_index = b'index=latest_index, session=session'
+    assert original.count(original_index) == 1
+    decoder.write_bytes(original.replace(original_index, b'index=latest_index - 1, session=session'))
     after = data_semantics_source_identity()
 
     assert before["schema"] == DATA_SEMANTICS_IDENTITY_SCHEMA
     assert before["sha256"] != after["sha256"]
     prior_files = {item['module']:item['sha256'] for item in before['files']}
     current_files = {item['module']:item['sha256'] for item in after['files']}
-    assert prior_files['sentinel.core.window_features'] == current_files['sentinel.core.window_features']
-    assert prior_files['sentinel.core.window_material'] != current_files['sentinel.core.window_material']
+    # An altered decoder withdraws the reviewed two-module mapping. The
+    # unchanged facade and edited decoder both return their actual digests.
+    for name, path in (('window_features', facade), ('window_material', decoder)):
+        module = 'sentinel.core.' + name
+        assert current_files[module] == hashlib.sha256(path.read_bytes()).hexdigest()
+        assert prior_files[module] != current_files[module]
 
 
 @pytest.mark.parametrize("module_name,old,new", [

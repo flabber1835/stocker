@@ -135,11 +135,17 @@ def physical_read_predecessor(path, raw):
     return raw
 
 
-def test_manifest_changes_only_its_reader_pin_and_all_old_witness_bytes_stay_exact():
+def test_manifest_reconstructs_its_exact_historical_fields_and_witnesses():
     original=baseline()
     canonical=lambda value:json.dumps(value,sort_keys=True,separators=(',',':'),allow_nan=False).encode()
     profile=economic.manifest()
-    assert {key:sha(canonical(value)) for key,value in profile.items() if key!='module_sha256'}==original['manifest']['fields_sha256']
+    historical = deepcopy(profile)
+    removed = {'sentinel.feed.normalized_layout', 'sentinel.feed.rolling_contract', 'sentinel.feed.store'}
+    adapter_edges = historical['dependencies']['sentinel.core.window_features']
+    assert removed.isdisjoint(adapter_edges)
+    historical['dependencies']['sentinel.core.window_features'] = sorted([*adapter_edges, *removed])
+    assert {key:sha(canonical(value)) for key,value in historical.items()
+            if key!='module_sha256'} == original['manifest']['fields_sha256']
     assert sha(economic.MANIFEST.read_bytes())==economic.MANIFEST_SHA256
     assert economic.MANIFEST_SHA256!=original['manifest']['sha256']
     assert set(basis.BASELINES)<=set(profile['input_compilers'])

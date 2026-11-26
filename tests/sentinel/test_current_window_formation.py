@@ -45,7 +45,6 @@ def test_same_snapshot_proof_cannot_cross_publication_or_skip_session():
 
 
 def test_feature_loader_fences_future_and_expired_rows(monkeypatch, conn):
-    from contextlib import nullcontext
     from types import SimpleNamespace
     from sentinel.feed import calendar
     from sentinel.feed.rolling_contract import CanonicalBar
@@ -55,11 +54,13 @@ def test_feature_loader_fences_future_and_expired_rows(monkeypatch, conn):
     rows = [CanonicalBar(security_id='1',ticker='ABC',session=s,close_signal=10.,
         close_unadjusted=20.,open_unadjusted=20.,volume=1e6,split_ratio=1.,dividend_per_share=0.)
         for s in (window.sessions[0],window.sessions[-2],window.sessions[-1])]
-    def stream(conn, query, params):
-        selected = rows if 'session BETWEEN %s AND %s' not in query else [
-            r for r in rows if params[1] <= str(r.session) <= params[2]]
-        return nullcontext(iter([tuple(getattr(r,c) for c in rolling_store.BAR_COLUMNS) for r in selected]))
-    monkeypatch.setattr(window_features.store,'streaming_cursor',stream)
+    reads = []
+
+    def read_bars(_conn, candidate_id, *, start, end):
+        reads.append((candidate_id, start, end))
+        yield from (row for row in rows if start <= str(row.session) <= end)
+
+    monkeypatch.setattr(rolling_store, 'read_bars', read_bars)
     refs = SimpleNamespace(candidate_id='candidate',manifest=SimpleNamespace(window=window,snapshot_id='b'*64),
         current_metadata=lambda **kw:({'1':SecurityMeta('1','ABC','Domestic Common Stock','1',
             first_session=str(window.start))},{}),resolver=SimpleNamespace(resolve=lambda *a:'1'))
@@ -67,6 +68,7 @@ def test_feature_loader_fences_future_and_expired_rows(monkeypatch, conn):
     value = window_features.load(conn,prior=prior,refs=refs,
         publication=SimpleNamespace(window_end=str(window.end),version=1),session=day)
     assert value.sessions == tuple(calendar.previous_sessions(day,300))
+    assert reads == [('candidate', value.sessions[0], value.sessions[-1])]
     assert len(value.signals)==1 and value.signals[0].raw_close==20.
 
 
@@ -144,15 +146,16 @@ def test_selected_formation_go_restart_and_daily_preserve_simplifications(conn, 
         expected = advance_session(seed, published, controller_config=config, strategy_identity=strategy)
         # SQL must exclude old/future rows before materialization.
         inspected = []
-        original_cursor = window_features.store.streaming_cursor
-        def cursor(conn, sql, params):
-            inspected.append(params)
-            assert 'session BETWEEN %s AND %s' in sql
-            return original_cursor(conn, sql, params)
+        original_stream = rolling_store._stream_rows
+
+        def stream_rows(connection, candidate_id, **kwargs):
+            inspected.append((str(kwargs['start']), str(kwargs['end'])))
+            yield from original_stream(connection, candidate_id, **kwargs)
+
         with monkeypatch.context() as scoped:
-            scoped.setattr(window_features.store, 'streaming_cursor', cursor)
+            scoped.setattr(rolling_store, '_stream_rows', stream_rows)
             window_features.load(conn, prior=seed, refs=source.refs, publication=pub, session=source.axis[-2])
-        assert inspected[-1][1:] == (calendar.previous_sessions(source.axis[-2], 300)[0], source.axis[-2])
+        assert inspected == [(day, day) for day in calendar.previous_sessions(source.axis[-2], 300)]
     evidence = observation_authority.current_warmup_evidence(conn, starting_cash=50000)
     conn.commit()
     assert evidence['schema'] == observation_startup.WINDOW_FORMED_SCHEMA

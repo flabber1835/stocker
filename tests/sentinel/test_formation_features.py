@@ -32,9 +32,11 @@ def fixture(monkeypatch):
                     (lambda row: (row.security_id, str(row.session))))
         reads.append((lo, hi, len(values)))
         yield iter(tuple(getattr(row, field) for field in rolling_store.BAR_COLUMNS) for row in values)
-    monkeypatch.setattr(rolling_store.store if hasattr(rolling_store, 'store') else formation_features.store,
-                        'streaming_cursor', cursor)
-    monkeypatch.setattr(window_features.store, 'streaming_cursor', cursor)
+    def read_bars(_conn, _candidate_id, *, start, end):
+        yield from (row for row in rows if start <= str(row.session) <= end)
+
+    monkeypatch.setattr(formation_features.store, 'streaming_cursor', cursor)
+    monkeypatch.setattr(rolling_store, 'read_bars', read_bars)
     meta = {sid:SecurityMeta(sid, sid, category='Domestic Common Stock Primary Class',
                             first_session=axis[0]) for sid in ('AAA','BBB','GAP')}
     refs = SimpleNamespace(candidate_id='candidate', manifest=SimpleNamespace(
