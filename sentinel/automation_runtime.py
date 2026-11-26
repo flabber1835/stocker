@@ -680,6 +680,7 @@ def _observe_idle_control_authority(
         automation_config=automation_config, holder_id=holder_id)
     conn = None
     subject = {}
+    diagnostics = {}
 
     def retain_subject(control, rollout, current):
         bound = control.binding
@@ -702,7 +703,7 @@ def _observe_idle_control_authority(
         conn.read_only = True
         idle_authority.set_progress(progress,
             backend_pid=getattr(getattr(conn, "info", None), "backend_pid", None))
-        with opening_stage_log.idle_authority_phases():
+        with opening_stage_log.idle_authority_phases(diagnostics):
             control, certificate, publication_version = runtime._validate_control_authority(
                 conn, permit, include_publication_version=True,
                 progress=lambda stage: idle_authority.set_progress(progress, stage=stage),
@@ -714,17 +715,18 @@ def _observe_idle_control_authority(
             "status": "PASS",
             **subject,
             "certificate_sha256": certificate.certificate_sha256,
+            "diagnostics": diagnostics,
         }
     except Exception as exc:  # noqa: BLE001
         try:
             runtime._raise_authority_refusal(exc)
         except StaleLeaderRefused:
-            return {"status": "STALE"}
+            return {"status": "STALE", "diagnostics": diagnostics}
         except TransientInfrastructureFailure:
-            return {"status": "TRANSIENT"}
+            return {"status": "TRANSIENT", "diagnostics": diagnostics}
         except NonRetryableCallbackRefused as refusal:
             return {"status": "REFUSED", "detail": str(refusal)[:4000],
-                    "subject": subject or None}
+                    "subject": subject or None, "diagnostics": diagnostics}
         raise
     finally:
         if conn is not None:
@@ -2708,6 +2710,7 @@ class ProductionAutomation:
                     raise SupervisorIntegrityFailure(
                         "idle authority observer returned an invalid result")
                 status = result["status"]
+                opening_stage_log.emit_idle_authority_phases(result.get("diagnostics"))
                 if status == "STALE":
                     self._idle_authority_diagnostic(flight, status)
                     raise StaleLeaderRefused(

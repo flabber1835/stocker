@@ -83,6 +83,27 @@ def _classify(conn, publication, matching):
     return sum(_cash_only(row, originals.get(row['effective_session']), corrections, proved) for row in matching)
 
 
+def _history_row_versions(conn, plan_ids):
+    db = conn.execute("SELECT current_setting('transaction_isolation'),"
+        "current_setting('transaction_read_only'),current_setting('session_replication_role'),"
+        "pg_postmaster_start_time()::text,"
+        "floor(pg_snapshot_xmax(pg_current_snapshot())::text::numeric/4294967296)::bigint").fetchone()
+    if db[:3] != ('repeatable read', 'on', 'origin'):
+        return None
+    pending = [mirror._pending_cursor(plan_id) for plan_id in plan_ids]
+    rows = conn.execute('''
+        SELECT p.plan_id,d.tableoid::text,d.xmin::text,d.ctid::text,
+               s.tableoid::text,s.xmin::text,s.ctid::text
+        FROM unnest(%s::text[],%s::text[]) AS p(plan_id,cursor_name)
+        JOIN sentinel_paper_mirror_dependencies d USING(plan_id)
+        JOIN sentinel_processed_sessions s USING(cursor_name)
+        ORDER BY p.plan_id
+        ''', (plan_ids, pending)).fetchall()
+    # The authenticated history context already binds the database, physical
+    # relation inventory, DDL epoch and exact tracked evidence sequence.
+    return (db, rows) if len(rows) == len(plan_ids) else None
+
+
 def _counts(conn, publication, summary):
     count = summary['historical_mismatch_count']
     flagged = conn.execute(
@@ -91,27 +112,39 @@ def _counts(conn, publication, summary):
         " ORDER BY d.plan_id LIMIT %s", (count + 1,)).fetchall()
     if len(flagged) != count:
         return None
-    plans = [mirror_projection._row(conn, plan_id) for plan_id, _ in flagged]
+    plan_ids = [plan_id for plan_id, _ in flagged]
+    with_commands = sum(has_commands for _, has_commands in flagged)
+    memo = current_memo.get()
+    context = summary.get('indexed_history_context') if memo is not None else None
+    subject = None
+    shared = None
+    if context:
+        shared = [_MEMO_PURPOSE, context, publication.version, publication.evidence,
+                  os.environ.get('SENTINEL_GIT_COMMIT'), os.environ.get('SENTINEL_RUNTIME_IMAGE_DIGEST')]
+        versions = _history_row_versions(conn, plan_ids)
+        if versions is not None:
+            subject = digest([shared, 'row-versions', versions])
+            qualified = memo.read(subject, count)
+            if qualified is not None:
+                return qualified, with_commands
+    plans = [mirror_projection._row(conn, plan_id) for plan_id in plan_ids]
     if any(row is None or not row['historical_mismatch'] for row in plans):
         return None
     matching = [row for row in plans if row['checked_publication'] == publication.version
                 and row['status'] == mirror.MISMATCH]
     if not matching:
         return None
-    memo = current_memo.get()
-    subject = None
-    if memo is not None and summary.get('indexed_history_context'):
-        subject = digest([_MEMO_PURPOSE, summary['indexed_history_context'], publication.version, publication.evidence,
-                          plans, os.environ.get('SENTINEL_GIT_COMMIT'), os.environ.get('SENTINEL_RUNTIME_IMAGE_DIGEST')])
+    if shared is not None and subject is None:
+        subject = digest([shared, 'full-rows', plans])
         qualified = memo.read(subject, len(matching))
         if qualified is not None:
-            return qualified, sum(has_commands for _, has_commands in flagged)
+            return qualified, with_commands
     qualified = _classify(conn, publication, matching)
     if qualified is None:
         return None
     if subject is not None:
         memo.store(subject, qualified)
-    return qualified, sum(has_commands for _, has_commands in flagged)
+    return qualified, with_commands
 
 
 def detail(conn, publication, summary):

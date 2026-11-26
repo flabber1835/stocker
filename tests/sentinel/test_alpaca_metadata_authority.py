@@ -79,3 +79,38 @@ def test_metadata_requires_identified_alpaca_source(published):
     source["schema"] = "unknown"
     with pytest.raises(AuthorityRefused, match="source identity is missing"):
         read()
+
+
+def test_idle_metadata_reuse_authenticates_fresh_bound_inputs(published, monkeypatch):
+    source, refs = published
+    refs.manifest.snapshot_id = 'snapshot'
+    pub = SimpleNamespace(version=12)
+    rows = [('validation', 'table', '11', '(1,1)')]
+    reads = []
+    comparisons = []
+    monkeypatch.setattr(operational_snapshot, '_bound_and_manifest', lambda *_: (
+        {'candidate_id': 'candidate', 'snapshot_id': 'snapshot'}, refs.manifest))
+    monkeypatch.setattr(rolling_store, 'retired', lambda *_: False)
+    monkeypatch.setattr(observation, '_comparison_validation_token', lambda *_: rows[0])
+    monkeypatch.setattr(rolling_store, 'verify_evidence', lambda _, identity: comparisons.append(identity))
+    monkeypatch.setattr(rolling_inputs, 'SnapshotReferences', SimpleNamespace(
+        _from_bound_manifest=lambda *_a, **_k: reads.append(True) or refs))
+
+    token = observation._idle_metadata_slot.set({})
+    try:
+        first = observation._rolling_metadata_snapshot_identity(None, pub)
+        first['row_count'] = 5
+        assert observation._rolling_metadata_snapshot_identity(None, pub)['row_count'] == 2
+        assert reads == [True] and comparisons == ['validation', 'validation']
+        rows[0] = ('validation', 'table', '12', '(1,2)')
+        assert observation._rolling_metadata_snapshot_identity(None, pub)['row_count'] == 2
+        assert reads == [True, True]
+
+        def corrupt(*_):
+            raise AuthorityRefused('comparison evidence changed')
+
+        monkeypatch.setattr(rolling_store, 'verify_evidence', corrupt)
+        with pytest.raises(AuthorityRefused, match='comparison evidence changed'):
+            observation._rolling_metadata_snapshot_identity(None, pub)
+    finally:
+        observation._idle_metadata_slot.reset(token)

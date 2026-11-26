@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -26,6 +27,9 @@ from sentinel.authority import (
 )
 from sentinel.feed.publication import visible_predicate
 from sentinel.feed import readers
+
+
+_idle_metadata_slot = ContextVar('idle_standing_paper_metadata', default=None)
 
 
 ACCEPTED_BOUNDARY_PATH = (
@@ -93,12 +97,47 @@ def current_metadata_snapshot_identity(conn) -> Mapping:
 
 def _rolling_metadata_snapshot_identity(conn, pub) -> Mapping:
     from sentinel.core.rolling_inputs import SnapshotReferences
-    from sentinel.feed import operational_snapshot, rolling_store, archive_tables
+    from sentinel.feed import operational_snapshot, rolling_store, calendar
+
+    slot = _idle_metadata_slot.get()
+    if slot is None:
+        binding = operational_snapshot._bound(conn, pub)
+        refs = SnapshotReferences(conn, candidate_id=binding['candidate_id'],
+                                  snapshot_id=binding['snapshot_id'])
+        return _reference_metadata_identity(conn, refs)
+
+    binding, manifest = operational_snapshot._bound_and_manifest(conn, pub)
+    key = None
+    candidate = binding['candidate_id']
+    if manifest.provider == 'ALPACA_OPENFIGI' and not rolling_store.retired(conn, candidate):
+        # The pinned binding just authenticated both content-addressed input
+        # blobs. The additional comparison proof is consumed by SnapshotReferences.
+        row = _comparison_validation_token(conn, candidate)
+        if row is not None:
+            rolling_store.verify_evidence(conn, row[0])
+            key = (pub.version, binding['candidate_id'], manifest.snapshot_id,
+                   row, calendar.calendar_version())
+            if slot.get('key') == key:
+                return dict(slot['identity'])
+
+    refs = SnapshotReferences._from_bound_manifest(conn, candidate_id=binding['candidate_id'],
+        snapshot_id=binding['snapshot_id'], manifest=manifest)
+    identity = _reference_metadata_identity(conn, refs)
+    if key is not None and _comparison_validation_token(conn, candidate) == row:
+        slot.update(key=key, identity=tuple(identity.items()))
+    return identity
+
+
+def _comparison_validation_token(conn, candidate):
+    return conn.execute('SELECT validation_sha256,tableoid,xmin::text,ctid::text '
+                        'FROM sentinel_snapshot_validations WHERE candidate_id=%s',
+                        (candidate,)).fetchone()
+
+
+def _reference_metadata_identity(conn, refs) -> Mapping:
+    from sentinel.feed import rolling_store, archive_tables
     from sentinel.feed.rolling_contract import canonical_json, digest
 
-    binding = operational_snapshot._bound(conn, pub)
-    refs = SnapshotReferences(conn, candidate_id=binding["candidate_id"],
-                              snapshot_id=binding["snapshot_id"])
     source = rolling_store.load_evidence(conn, refs.manifest.source_evidence_sha256)
     if refs.manifest.provider == "ALPACA_OPENFIGI":
         if source.get("schema") not in ("sentinel.alpaca-openfigi-operational-source/1",

@@ -30,8 +30,10 @@ _RESULT_LIMIT = 16384
 
 def _serve(channel, parent_pid, function, args, progress):
     from sentinel.automation.model import LeaderPermit
+    from sentinel.observation_authority import _idle_metadata_slot
 
     supervisor_io._parent_death(parent_pid)
+    _idle_metadata_slot.set({})
     with channel:
         while raw := channel.recv(_REQUEST_LIMIT+1):
             if len(raw) > _REQUEST_LIMIT:

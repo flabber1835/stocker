@@ -59,34 +59,45 @@ def test_preexisting_latched_plans_explain_cash_and_report_actual_commands(conn,
     memo = mirror_history.ClassificationMemo()
     monkeypatch.setattr(mirror_history, 'current_memo', ContextVar('test_mirror_memo', default=memo))
     classify_calls = []
+    row_reads = []
     canonical = mirror_history._classify
+    load_row = mirror_projection._row
     def counted(*args):
         classify_calls.append(True)
         return canonical(*args)
     monkeypatch.setattr(mirror_history, '_classify', counted)
+    monkeypatch.setattr(mirror_projection, '_row',
+        lambda conn, plan_id: row_reads.append(plan_id) or load_row(conn, plan_id))
     summary = dict(historical_mismatch_count=2, indexed_history_publication=2, indexed_history_context='a'*64)
     detail = mirror_history.detail(conn, pub, summary)
     assert 'Late dividend data explains the latest check on 2 of 2 plans' in detail
     assert 'command journal contains entries for 1 of 2 plans' in detail
     assert mirror_history.detail(conn, pub, summary) == detail and len(classify_calls) == 1
+    assert len(row_reads) == 2, 'warm read restored historical pending snapshots'
     assert before == conn.execute('SELECT payload,hmac_sha256 FROM sentinel_paper_mirror_dependencies ORDER BY plan_id').fetchall()
     conn.rollback()
     journal.save_command(conn, cmd(BBB, plan=plans[1].plan_id))
     conn.commit()
+    conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
     assert 'entries for 2 of 2 plans' in mirror_history.detail(conn, pub, summary)
     assert len(classify_calls) == 1, 'fresh command presence reran the historical classifier'
+    assert len(row_reads) == 2
     memo.slot[64] ^= 1
     assert 'latest check on 2 of 2 plans' in mirror_history.detail(conn, pub, summary)
     assert len(classify_calls) == 2, 'damaged signature reused'
     assert 'latest check on 2 of 2 plans' in mirror_history.detail(conn, pub,
         dict(summary, indexed_history_context='b'*64))
     assert len(classify_calls) == 3, 'changed mirror coverage reused'
+    assert 'latest check on 2 of 2 plans' in mirror_history.detail(conn, pub, summary)
+    assert len(classify_calls) == 4
+    conn.rollback()
     changed = dict(before[0][0], material_sha256=digest({'DIFFERENT-MATERIAL':'2'}))
     mirror_projection._write(conn, changed)
     conn.commit()
+    conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
     mixed = mirror_history.detail(conn, pub, summary)
     assert 'latest check on 1 of 2 plans' in mixed and 'without a dividend-only explanation total 1' in mixed
-    assert len(classify_calls) == 4, 'changed plan material reused'
+    assert len(classify_calls) == 5, 'changed plan material reused'
 
 
 def _use_memo_in_observer(memo, subject, produce):

@@ -6,6 +6,8 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any, Mapping
 
+import psycopg
+
 from sentinel.automation.model import (
     AutomationControl,
     AutomationRefused,
@@ -612,6 +614,40 @@ def latest_cycle(conn, *, include_historical: bool = False) -> CycleRecord | Non
     return _cycle(row) if row is not None else None
 
 
+def waiting_open_witness(conn, cycle_id: str):
+    """Small, read-only subject for an ordinary cycle still before its wake."""
+    from sentinel import operational_ddl_epoch
+    from sentinel.operational_catalog import OperationalCatalogRefused
+
+    try:
+        with conn.transaction(force_rollback=True):
+            conn.execute("SET LOCAL statement_timeout='750ms'")
+            row = conn.execute('''
+                SELECT system_identifier::text, current_database(), pg_postmaster_start_time(),
+                       floor(pg_snapshot_xmax(pg_current_snapshot())::text::numeric/4294967296)::bigint,
+                       pg_relation_filenode(c.tableoid), c.xmin::text, c.ctid::text,
+                       pg_relation_filenode('sentinel_automation_cycle_events'::regclass),
+                       current_setting('session_replication_role'), pg_current_xact_id_if_assigned(),
+                       to_regclass('public.sentinel_operational_ddl_epoch') IS NOT NULL,
+                       ARRAY(SELECT concat_ws(':',e.tableoid,e.xmin,e.ctid)
+                             FROM sentinel_automation_cycle_events e WHERE e.cycle_id=c.cycle_id
+                             ORDER BY e.seq LIMIT 257)
+                FROM sentinel_automation_cycles c CROSS JOIN pg_control_system()
+                WHERE c.cycle_id=%s AND c.state='WAITING_OPEN' AND NOT c.historical_state_only
+                  AND clock_timestamp()<c.execute_at
+                  AND NOT EXISTS (SELECT 1 FROM sentinel_automation_cycles other
+                       WHERE other.cycle_id<>c.cycle_id AND
+                       (other.state NOT IN ('SUCCEEDED','MISSED_STATE_ONLY','SUPERSEDED','BLOCKED')
+                        OR (NOT other.historical_state_only AND
+                            (other.decision_session,other.created_at)>=(c.decision_session,c.created_at))))
+                ''', (cycle_id,)).fetchone()
+            if row is None or row[8:11] != ('origin', None, True) or not 0 < len(row[11]) <= 256:
+                return None
+            return row, operational_ddl_epoch.current(conn)
+    except (psycopg.Error, OperationalCatalogRefused):
+        return None
+
+
 def oldest_nonterminal_cycle(conn) -> CycleRecord | None:
     """Next live obligation, including a historical audit not yet finalized."""
     with conn.cursor() as cur:
@@ -806,14 +842,18 @@ def _immutable_cycle(record: CycleRecord) -> dict[str, Any]:
     }
 
 
-def _cycles_in_scope(conn, spec: CycleSpec) -> list[CycleRecord]:
+def _cycles_in_scope(conn, spec: CycleSpec, *, current_generation=False) -> list[CycleRecord]:
+    generation = ' AND control_generation=%s' if current_generation else ''
+    key = (spec.deployment_id, spec.broker, spec.broker_account_id,
+           spec.takeover_epoch, spec.decision_session)
+    if current_generation:
+        key += (spec.control_generation,)
     with conn.cursor() as cur:
         cur.execute(
             f"SELECT {_CYCLE_COLUMNS} FROM sentinel_automation_cycles WHERE "
             "deployment_id=%s AND broker=%s AND broker_account_id=%s "
-            "AND takeover_epoch=%s AND decision_session=%s ORDER BY control_generation,cycle_id",
-            (spec.deployment_id,spec.broker,spec.broker_account_id,
-             spec.takeover_epoch,spec.decision_session))
+            "AND takeover_epoch=%s AND decision_session=%s" + generation
+            + " ORDER BY control_generation,cycle_id", key)
         return [_cycle(row) for row in cur.fetchall()]
 
 
@@ -909,8 +949,7 @@ def _existing_current_cycle(conn, *, permit, spec):
                 getattr(spec, key) != value
                 for key, value in control.binding.model_dump().items()):
             raise AutomationRefused('cycle binding differs from current activation')
-        current = next((cycle for cycle in _cycles_in_scope(conn, spec)
-                        if cycle.control_generation == spec.control_generation), None)
+        current = next(iter(_cycles_in_scope(conn, spec, current_generation=True)), None)
         if current is not None:
             if _immutable_cycle(current) != spec.model_dump():
                 raise ImmutableCycleChanged(

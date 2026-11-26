@@ -137,6 +137,23 @@ def test_idle_authority_phases_are_per_request_and_preserve_refusal(caplog):
     assert "private certificate detail" not in caplog.text
 
 
+def test_idle_diagnostics_survive_the_worker_reply_and_ignore_unrecognized_payload(caplog):
+    import json
+
+    reply = {}
+    with caplog.at_level(logging.INFO, logger=opening_stage_log.LOGGER_NAME):
+        with opening_stage_log.idle_authority_phases(reply):
+            with opening_stage_log.guard_phase('current_publication'):
+                opening_stage_log.authority_rows('publication_rows', 3)
+        assert not caplog.messages
+        reply['phases']['private'] = (1, 123)
+        reply['phases']['certificate_bindings'] = (True, 1000)
+        opening_stage_log.emit_idle_authority_phases(json.loads(json.dumps(reply)))
+    assert len(caplog.messages) == 2
+    assert 'phase=current_publication count=1' in caplog.messages[0]
+    assert 'kind=publication_rows count=1 rows=3' in caplog.messages[1]
+
+
 def test_publication_row_count_is_aggregated_without_values(caplog):
     with caplog.at_level(logging.INFO, logger=opening_stage_log.LOGGER_NAME):
         with opening_stage_log.broker_reads():

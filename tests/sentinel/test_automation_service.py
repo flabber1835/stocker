@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import logging
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -138,6 +139,87 @@ def service_for(cfg, *, holder="worker-a", refresh=refresh_result,
     return AutomationService(
         config=cfg, holder_id=holder, refresh=refresh, prepare=prepare,
         recover=recover, execute=execute)
+
+
+@pytest.mark.asyncio
+async def test_idle_wait_reuses_only_unchanged_cycle_and_never_delays_execution(conn, monkeypatch):
+    from sentinel import operational_ddl_epoch
+
+    cfg = config()
+    tomorrow = datetime.now(UTC) + timedelta(days=7)
+    obligation = schedule.for_clock(tomorrow, cfg)
+    now = obligation.prepare_at + timedelta(seconds=1)
+    expected = binding(cfg).model_copy(update={'broker': 'alpaca'})
+    store.activate(conn, binding=expected, actor='operator', reason='test activation')
+    store.release_kill(conn, expected_binding=expected, actor='operator', reason='test authority')
+    runtime = service_for(cfg)
+    operational_ddl_epoch.install(conn)
+    conn.commit()
+    try:
+        for _ in range(4):
+            first = await runtime.tick(conn, now=now)
+        assert first.cycle.state is CycleState.WAITING_OPEN
+        calls = []
+        validate = automation_integrity.validate_cycle_lineage
+
+        def traced(conn, cycle):
+            calls.append(cycle.cycle_id)
+            return validate(conn, cycle)
+
+        monkeypatch.setattr(automation_integrity, 'validate_cycle_lineage', traced)
+
+        async def poll(at=now):
+            return await runtime.tick(conn, now=at, _idle_pulse=(
+                first.permit, first.cycle.execute_at, time.monotonic()))
+
+        assert (await poll()).cycle == first.cycle
+        assert calls == [first.cycle.cycle_id]
+        calls.clear()
+        assert (await poll()).cycle == first.cycle
+        assert calls == [], 'warm idle tick replayed the full event history'
+        conn.execute('CREATE TABLE parked_witness_ddl (id integer)')
+        conn.commit()
+        assert (await poll()).cycle == first.cycle
+        assert calls == [first.cycle.cycle_id], 'changed DDL reused a parked result'
+        calls.clear()
+        with monkeypatch.context() as missing:
+            missing.setattr(store, 'waiting_open_witness', lambda *_: None)
+            for _ in range(2):
+                assert (await poll()).cycle == first.cycle
+        assert calls == [first.cycle.cycle_id] * 2, 'a missing witness reused a parked result'
+        assert (await poll(first.cycle.execute_at)).cycle.state is CycleState.SUCCEEDED
+    finally:
+        conn.rollback()
+        conn.execute('DROP EVENT TRIGGER IF EXISTS sentinel_operational_evidence_ddl_changed')
+        conn.commit()
+
+
+@pytest.mark.asyncio
+async def test_paper_debug_window_wait_does_not_use_idle_reuse(conn, monkeypatch):
+    from sentinel.automation.model import PaperDebugWindow
+
+    cfg = config()
+    obligation = schedule.for_clock(datetime.now(UTC) + timedelta(days=7), cfg)
+    start = obligation.execution_open_at + timedelta(minutes=5)
+    window = PaperDebugWindow(effective_session=obligation.effective_session,
+        not_before=start, not_after=start + timedelta(minutes=10))
+    cfg = cfg.model_copy(update={'paper_debug_window': window})
+    expected = binding(cfg).model_copy(update={'broker': 'alpaca'})
+    store.activate(conn, binding=expected, actor='operator', reason='test activation')
+    store.release_kill(conn, expected_binding=expected, actor='operator', reason='test authority')
+    service = service_for(cfg)
+    now = obligation.prepare_at + timedelta(seconds=1)
+    for _ in range(4):
+        waiting = await service.tick(conn, now=now)
+    assert waiting.cycle.state is CycleState.WAITING_OPEN
+    assert waiting.cycle.execute_at == start
+
+    def unexpected_witness(*_):
+        pytest.fail('an explicit PAPER debug window must use the ordinary tick')
+
+    monkeypatch.setattr(store, 'waiting_open_witness', unexpected_witness)
+    result = await service.tick(conn, now=now, _idle_pulse=(waiting.permit, start, time.monotonic()))
+    assert (result.action, result.cycle) == (TickAction.WAITING, waiting.cycle)
 
 
 @pytest.mark.asyncio

@@ -1396,6 +1396,19 @@ class AutomationService:
                     "the current activation generation has a blocked cycle; "
                     "an explicit operator deactivate/reactivate boundary is "
                     "required before a later session can proceed"))
+        waiting_subject = None
+        if _idle_pulse is not None and now < _idle_pulse[1] and control.broker == 'alpaca':
+            waiting_spec = self._spec(control, obligation)
+            if self.config.debug_window_for(waiting_spec) is None:
+                witness = store.waiting_open_witness(conn, waiting_spec.cycle_id)
+                if witness is not None:
+                    waiting_subject = (waiting_spec, permit.holder_id, permit.fence_token, witness)
+                    parked = getattr(self, '_waiting_open_proof', None)
+                    if parked is not None and parked[0] == waiting_subject:
+                        conn.rollback()
+                        return TickResult(action=TickAction.WAITING, cycle=parked[1].model_copy(deep=True),
+                            permit=permit, reason="effective-session execution wake has not arrived")
+        self._waiting_open_proof = None
         prior = store.latest_cycle(conn)
         conn.rollback()
         if prior is not None:
@@ -1585,6 +1598,9 @@ class AutomationService:
 
         if cycle.state is CycleState.WAITING_OPEN:
             if now < cycle.execute_at:
+                if (waiting_subject is not None and cycle.cycle_id == waiting_spec.cycle_id
+                        and store.waiting_open_witness(conn, cycle.cycle_id) == witness):
+                    self._waiting_open_proof = (waiting_subject, cycle.model_copy(deep=True))
                 return TickResult(
                     action=TickAction.WAITING, cycle=cycle, permit=permit,
                     reason="effective-session execution wake has not arrived")
