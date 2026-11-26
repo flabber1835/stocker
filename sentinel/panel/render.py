@@ -50,7 +50,7 @@ _DOT = {OK: "●", WARN: "▲", FAIL: "■", PENDING: "○", UNKNOWN: "?", 'neut
 # The inline controller is part of this source file. Imported scripts contribute
 # their actual bytes so an edit to any running handler changes the handoff ID.
 CONTROLLER_VERSION = sha256(Path(__file__).read_bytes() + b'\0' +
-    '\0'.join((CURRENT_DOCUMENT_SCRIPT, DOM_REFRESH_SCRIPT, REVIEW_SCRIPT, BANNER_SCRIPT)).encode()).hexdigest()
+    '\0'.join((CURRENT_DOCUMENT_SCRIPT, DOM_REFRESH_SCRIPT, REVIEW_SCRIPT, BANNER_SCRIPT, CSS)).encode()).hexdigest()
 
 
 def _ago(delta) -> str:
@@ -460,7 +460,8 @@ def deployment_progress_html(phase=None):
 
 
 def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
-           refresh_pending: bool = False) -> str:
+           refresh_pending: bool = False, compact: bool = False,
+           server_time_ms: int | None = None) -> str:
     now = panel.now
     health = dashboard_health(panel)
     from sentinel.panel import delivery
@@ -538,6 +539,8 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     if refresh_pending:
         if display_color == 'red':
             operational_headline = 'LAST KNOWN TRADING STOP — CHECKING FOR AN UPDATE'
+        elif display_color == 'amber':
+            operational_headline = 'LAST VERIFIED STATUS AMBER — CHECKING FOR AN UPDATE'
         else:
             display_color = 'blue'
             headline_status = 'checking'
@@ -577,23 +580,12 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
                        'Refreshing closing evidence · last-known cards keep their original times'
                        if closing_refresh else 'DASHBOARD HEARTBEAT · UPDATED 0s AGO')
     if refresh_pending:
-        compact_headline = ('Last known trading stop · checking for an update'
-                            if display_color == 'red' else 'Refreshing status · last known values')
-    return f"""<!doctype html>
-<html lang="en"><head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="color-scheme" content="light dark">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="{_esc(page_name)}">
-<meta name="theme-color" content="#b3261e">
-<meta http-equiv="Cache-Control" content="no-store, max-age=0">
-<link rel="manifest" href="/manifest.webmanifest">
-<link rel="apple-touch-icon" sizes="180x180" href="/static/caesars-palace-180.png">
-<title>{_esc(page_name)}</title>
-<style id="dashboard-stylesheet" data-source-href="/static/{STYLE_ASSET}">{CSS}</style>
-</head><body data-generated-at="{_esc(generated)}"
+        compact_headline = {
+            'red': 'Last known trading stop · checking for an update',
+            'amber': 'Last verified status amber · checking for an update',
+        }.get(display_color, 'Refreshing status · last known values')
+    body = f"""<body data-generated-at="{_esc(generated)}"
+             data-server-time="{'' if server_time_ms is None else server_time_ms}"
              data-health="{_esc(display_color)}"
              data-refresh-pending="{'true' if refresh_pending else 'false'}"
              data-opening-refresh="{str(opening_refresh).lower()}"
@@ -604,7 +596,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
              data-max-age-seconds="{document_age}">
 <div class="wrap">
 <header>
-  <div class="brand"><img data-banner-src="/static/caesars-palace-512.png" width="512" height="512" alt="{_esc(page_name)}" hidden><noscript><img src="/static/caesars-palace-512.png" width="512" height="512" alt="{_esc(page_name)}"></noscript><span class="brand-fallback" hidden>{_esc(page_name)}</span></div>
+  <div class="brand"><img data-banner-src="/static/caesars-status-green.gif" width="1086" height="362" alt="{_esc(page_name)}" hidden><noscript><img class="unknown-sign" src="/static/caesars-status-green-still.gif" width="1086" height="362" alt="{_esc(page_name)}"></noscript><span class="brand-fallback" hidden>{_esc(page_name)}</span></div>
   <span id="operational-state" class="state {headline_status}" title="{_esc(operational_headline)}">{_esc(compact_headline)}</span>
   {reason_html}
   <span id="dashboard-heartbeat" class="heartbeat" role="status"
@@ -626,6 +618,26 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
 {review_html}
 </div></details>
 </div>
+"""
+    if compact:
+        return (f'<!doctype html><html lang="en"><head><title>{_esc(page_name)}</title>'
+                f'<link id="dashboard-stylesheet" rel="stylesheet" href="/static/{STYLE_ASSET}">'
+                f'</head>{body}</body></html>')
+    return f"""<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="{_esc(page_name)}">
+<meta name="theme-color" content="#16111f">
+<meta http-equiv="Cache-Control" content="no-store, max-age=0">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/caesars-palace-180.png">
+<title>{_esc(page_name)}</title>
+<style id="dashboard-stylesheet" data-source-href="/static/{STYLE_ASSET}">{CSS}</style>
+</head>{body}
 <script>
 // Negative authority only. This code can remove green before a network read;
 // only the server can earn it again by returning a new complete document.
@@ -642,6 +654,16 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   var planReadiness = document.getElementById("plan-readiness");
   var generated = Date.parse(document.body.dataset.generatedAt);
   var budget = Number(document.body.dataset.maxAgeSeconds) * 1000;
+  var sourceClock = window.sentinelDashboardClock;
+  window.sentinelDashboardClock = null;
+  if (!sourceClock || sourceClock.generation !== generated || sourceClock.budget !== budget){{
+    var navigationAge = performance.now();
+    var renderedAge = document.body.dataset.serverTime ?
+      Number(document.body.dataset.serverTime) - generated : 0;
+    sourceClock = {{age:renderedAge >= 0 ? renderedAge + navigationAge : NaN, tick:navigationAge}};
+  }}
+  var verifiedWarning = null;
+  rememberWarning();
   var maximumBudget = {PRESENTATION_MAX_AGE_SECONDS * 1000};
   var maximumRefreshMs = {refresh_limit_ms};
   var earlyStarted = -Infinity;
@@ -649,8 +671,6 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   var followedBoundary = false;
   var scheduledBoundary = null;
   var refreshDelayMs = refreshCadence(budget);
-  var visualAnchor = performance.now();
-  var visualAge = Math.max(0, Date.now() - generated);
   var hasBeenVisible = document.visibilityState === "visible";
   var pageAway = !hasBeenVisible;
   var wentToBackground = false;
@@ -683,7 +703,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       Math.min(maximumRefreshMs, Math.max(5000, Math.floor(value / 2000) * 1000)) : maximumRefreshMs;
     scheduledBoundary = null;
     var boundary = generated + value;
-    var remaining = boundary - Date.now();
+    var remaining = value - evidenceAge();
     var currentRegion = document.body.dataset.observationCurrent === "false" &&
       document.querySelector('.row[data-current="true"]') !== null;
     if (!validBudget(value) || !(remaining > 0 && remaining <= regular) ||
@@ -699,16 +719,17 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     return Math.max(1, Math.floor(remaining / 2));
   }}
   function nextRefreshDue(){{
-    return scheduledBoundary === "expiry" ? Math.ceil(generated + budget) : Date.now() + refreshDelayMs;
+    return performance.now() + refreshDelayMs;
   }}
-  function elapsedVisualAge(){{
-    return visualAge + Math.max(0, performance.now() - visualAnchor);
+  function evidenceAge(){{
+    var elapsed = performance.now() - sourceClock.tick;
+    return Number.isFinite(generated) && elapsed >= 0 ? sourceClock.age + elapsed : NaN;
   }}
   function armHeartbeat(){{
     clearTimeout(ageTimer);
-    var elapsed = elapsedVisualAge();
+    var elapsed = evidenceAge();
     var delay = Number.isFinite(elapsed) ? Math.max(1, 1000 - elapsed % 1000) : 1000;
-    var remaining = generated + budget - Date.now();
+    var remaining = budget - elapsed;
     if (validBudget(budget) && remaining > 0){{ delay = Math.min(delay, Math.ceil(remaining)); }}
     ageTimer = setTimeout(function heartbeatTick(){{ checkAge(); armHeartbeat(); }}, delay);
   }}
@@ -722,10 +743,10 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       refreshDeferred = true;
       return;
     }}
-    if (ordinaryStarted === null && resumeStarted === null && !hardFailure && Date.now() < ordinaryDue){{ return; }}
+    if (ordinaryStarted === null && resumeStarted === null && !hardFailure && performance.now() < ordinaryDue){{ return; }}
     refreshDeferred = false;
     if (ordinaryStarted === null){{
-      ordinaryStarted = Date.now();
+      ordinaryStarted = performance.now();
       // A scheduled boundary check owns transport only. It cannot extend proof.
       var boundaryDue = scheduledBoundary === "expiry" && ordinaryStarted >= ordinaryDue &&
         ordinaryStarted - ordinaryDue < 1000;
@@ -735,39 +756,44 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       }} else if (scheduledBoundary === "expiry"){{ followedBoundary = true; }}
       scheduledBoundary = null;
       ordinaryTimer = setTimeout(function(){{
-        if (resumeStarted === null && (!originalCurrent() || Date.now() >= generated+budget)){{ invalidate(false); }}
+        if (resumeStarted === null && !originalCurrent()){{ invalidate(false); }}
       }}, 15000);
     }}
     refreshing = true;
     var controller = new AbortController();
-    var deadline = setTimeout(function(){{ controller.abort(); }}, 15000);
+    var started = performance.now();
+    var response;
+    var responseStatus;
+    var responseAllowed = false;
+    var sameOrigin = false;
     var transportDelay = true;
     try {{
-      var response = await fetch(location.href, {{cache:"no-store", headers:{{"X-Sentinel-Refresh":"1"}}, signal:controller.signal}});
-      var status = response.headers.get("X-Sentinel-Panel-Status");
-      if (!response.ok || !["CURRENT", "PARTIAL"].includes(status)){{
-        var sameOrigin = new URL(response.url || location.href, location.href).origin === location.origin;
-        var progress = response.status === 503 && sameOrigin && !pageAway && navigator.onLine
-          ? response.headers.get("X-Sentinel-Deployment-Progress") : null;
-        setDeploymentProgress(progress ? decodeURIComponent(progress) : "");
-        transportDelay = response.status === 503 || response.headers.get("X-Sentinel-Panel-Status") === "LAST_KNOWN";
-        throw new Error("Current dashboard is not ready");
-      }}
-      var html = await response.text();
+      var html = await dashboardDeadline(controller, async function(){{
+        response = await fetch(location.href, {{cache:"no-store", headers:{{
+          "X-Sentinel-Refresh":"1",
+          "X-Sentinel-Panel-Fragment":window.sentinelDashboardControllerVersion
+        }}, signal:controller.signal}});
+        sameOrigin = new URL(response.url || location.href, location.href).origin === location.origin;
+        responseStatus = response.headers.get("X-Sentinel-Panel-Status");
+        responseAllowed = sameOrigin && response.ok && ["CURRENT", "PARTIAL"].includes(responseStatus);
+        if (!responseAllowed){{
+          throw new Error("Current dashboard is not ready");
+        }}
+        return response.text();
+      }});
       transportDelay = false;
-      var next = currentDocument(html, status);
+      var next = currentDocument(html, responseStatus, response, started);
       // Keep the foreground lifecycle and original clocks while the tab is hidden.
       if (document.visibilityState !== "visible" || pageAway){{ return; }}
       clearTimeout(refreshTimer);
       clearTimeout(resumeTimer);
       clearTimeout(ordinaryTimer);
-      clearTimeout(deadline);
       if (next.body.dataset.controllerVersion !== window.sentinelDashboardControllerVersion){{
-        if (!/^(?:[0-9a-f]{{64}}|[1-9][0-9]{{0,3}})$/.test(next.body.dataset.controllerVersion || "") ||
-            new URL(response.url || location.href, location.href).origin !== new URL(location.href).origin){{
+        if (!/^(?:[0-9a-f]{{64}}|[1-9][0-9]{{0,3}})$/.test(next.body.dataset.controllerVersion || "")){{
           throw new Error("Invalid dashboard controller handoff");
         }}
         clearTimeout(ageTimer);
+        window.sentinelDashboardClock = next.sentinelClock;
         document.open(); document.write(html); document.close();
         return;
       }}
@@ -778,9 +804,12 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       planReadiness = document.getElementById('plan-readiness');
       generated = Date.parse(document.body.dataset.generatedAt);
       budget = Number(document.body.dataset.maxAgeSeconds) * 1000;
+      sourceClock = next.sentinelClock;
+      rememberWarning();
+      if (verifiedWarning && document.body.dataset.health === "blue"){{
+        showLastVerifiedStatus("checking for an update", "");
+      }}
       refreshDelayMs = refreshCadence(budget);
-      visualAnchor = performance.now();
-      visualAge = Math.max(0, Date.now() - generated);
       invalidated = false; hardFailure = false; refreshDelayed = false;
       ordinaryStarted = null; ordinaryEligible = false; ordinaryDue = nextRefreshDue();
       resumeStarted = null; resumeExhausted = false; wentToBackground = false;
@@ -789,7 +818,17 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       checkAge();
       armHeartbeat();
     }} catch (_error) {{
-      if (!response) {{ setDeploymentProgress(""); }}
+      var progress = "";
+      if (response){{
+        if (sameOrigin && response.status === 503 && !pageAway && navigator.onLine){{
+          try {{ progress = decodeURIComponent(response.headers.get("X-Sentinel-Deployment-Progress") || ""); }}
+          catch (_malformedProgress) {{}}
+        }}
+        if (!sameOrigin || (!responseAllowed && response.status !== 503 &&
+            responseStatus !== "LAST_KNOWN")){{ transportDelay = false; }}
+      }}
+      setDeploymentProgress(progress);
+      if (document.visibilityState !== "visible" || pageAway){{ refreshDeferred = true; return; }}
       if (transportDelay && !invalidated && continuityCurrent()){{
         showResume();
       }} else if (transportDelay && !invalidated && originalCurrent()){{
@@ -800,18 +839,18 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       }}
       retryTimer = setTimeout(function(){{ retryTimer = null; refreshDocument(); }}, 5000);
     }} finally {{
-      clearTimeout(deadline);
       refreshing = false;
     }}
   }}
   function originalCurrent(){{
-    var age = Date.now() - generated;
+    var age = evidenceAge();
     return document.body.dataset.refreshPending !== "true" &&
-      Number.isFinite(age) && validBudget(budget) && age >= -5000 && age < budget && !clockReversed();
+      Number.isFinite(age) && validBudget(budget) && age < budget && !clockReversed();
   }}
   function clockReversed(){{
-    return (ordinaryStarted !== null && Date.now() < ordinaryStarted) ||
-      (resumeStarted !== null && Date.now() < resumeStarted);
+    var now = performance.now();
+    return (ordinaryStarted !== null && now < ordinaryStarted) ||
+      (resumeStarted !== null && now < resumeStarted);
   }}
   function pendingRefresh(){{
     withdrawPreparation();
@@ -820,13 +859,13 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       new Date(generated).toISOString();
   }}
   function resumeCurrent(){{
-    var elapsed = Date.now() - resumeStarted;
+    var elapsed = performance.now() - resumeStarted;
     var current = resumeStarted !== null && elapsed >= 0 && elapsed < 15000;
     if (resumeStarted !== null && !current){{ resumeExhausted = true; }}
     return !resumeExhausted && current;
   }}
   function continuityCurrent(){{
-    var elapsed = Date.now() - ordinaryStarted;
+    var elapsed = performance.now() - ordinaryStarted;
     return !hardFailure && navigator.onLine &&
       (refreshing || retryTimer !== null) &&
       (resumeStarted !== null ? resumeCurrent() :
@@ -838,25 +877,23 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     withdrawPreparation();
     refreshDelayed = true;
     document.documentElement.classList.add("checking-status");
-    badge.className = document.body.dataset.health === "red" ? "state fail" : "state checking";
-    badge.textContent = document.body.dataset.health === "red"
-      ? "LAST KNOWN TRADING STOP — CHECKING FOR AN UPDATE"
-      : "REFRESHING STATUS — LAST KNOWN VALUES";
+    showLastVerifiedStatus("checking for an update", "REFRESHING STATUS — LAST KNOWN VALUES");
     heartbeat.textContent = "Refreshing status · checking connection · last known observation " +
       new Date(generated).toISOString();
   }}
   function resumeDocument(){{
-    var age = Date.now() - generated;
+    var age = evidenceAge();
     if (hardFailure || !navigator.onLine ||
-        !Number.isFinite(age) || !validBudget(budget) || age < -5000 || clockReversed()){{
+        !Number.isFinite(age) || !validBudget(budget) || clockReversed()){{
       invalidate(true, true);
       return;
     }}
     if (resumeStarted === null){{
-      var anchor = !wentToBackground && ordinaryEligible ? ordinaryStarted : Date.now();
-      if (Date.now() - anchor < 0 || Date.now() - anchor >= 15000){{ invalidate(true); return; }}
+      var anchor = !wentToBackground && ordinaryEligible ? ordinaryStarted : performance.now();
+      var elapsed = performance.now() - anchor;
+      if (elapsed < 0 || elapsed >= 15000){{ invalidate(true); return; }}
       resumeStarted = anchor;
-      resumeTimer = setTimeout(function(){{ resumeExhausted = true; invalidate(false); }}, Math.max(0, 15000-(Date.now()-resumeStarted)));
+      resumeTimer = setTimeout(function(){{ resumeExhausted = true; invalidate(false); }}, 15000-elapsed);
     }}
     if (!resumeCurrent()){{ invalidate(true); return; }}
     if (invalidated){{
@@ -875,12 +912,26 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       document.documentElement.classList.remove("not-current", "checking-status", "expired-status");
       if (offline){{ document.documentElement.classList.add("not-current"); }}
       else {{ document.documentElement.classList.add("checking-status", "expired-status"); }}
-      var lastKnownStop = !offline && document.body.dataset.health === "red";
-      badge.className = offline ? "state neutral" : lastKnownStop ? "state fail" : "state checking";
-      badge.textContent = lastKnownStop ? "LAST KNOWN TRADING STOP — UPDATE UNAVAILABLE" : "{_esc(stale_headline)}";
-      heartbeat.textContent = "DASHBOARD UPDATE UNAVAILABLE · LAST KNOWN VALUES";
+      showLastVerifiedStatus(offline ? "offline" : "update unavailable", "{_esc(stale_headline)}");
+      heartbeat.textContent = "DASHBOARD UPDATE UNAVAILABLE · LAST KNOWN OBSERVATION " +
+        (Number.isFinite(generated) ? new Date(generated).toISOString() : "unknown");
     }}
     if (andReload){{ refreshDocument(); }}
+  }}
+  function showLastVerifiedStatus(message, unknown){{
+    var color = verifiedWarning && verifiedWarning.color;
+    var lastKnown = {{red:"LAST KNOWN TRADING STOP", amber:"LAST VERIFIED STATUS AMBER"}}[color];
+    badge.className = lastKnown ? (color === "red" ? "state fail" : "state warn")
+      : navigator.onLine ? "state checking" : "state neutral";
+    badge.textContent = lastKnown ? lastKnown + " · " + verifiedWarning.stamp + " · " + message : unknown;
+    badge.title = badge.textContent;
+  }}
+  function rememberWarning(){{
+    var color = document.body.dataset.health;
+    if (color === "green"){{ verifiedWarning = null; }}
+    if ((color === "red" || color === "amber") && Number.isFinite(generated)){{
+      verifiedWarning = {{color:color, stamp:new Date(generated).toISOString()}};
+    }}
   }}
   function withdrawPreparation(){{
     if (preparation){{ preparation.textContent = "Last known preparation stage · refresh required"; }}
@@ -888,8 +939,8 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   }}
   function checkAge(){{
     updateMarketCountdown();
-    var age = Date.now() - generated;
-    if (!Number.isFinite(age) || !validBudget(budget) || age < -5000 || clockReversed()){{
+    var age = evidenceAge();
+    if (!Number.isFinite(age) || !validBudget(budget) || clockReversed()){{
       invalidate(true, true);
     }} else if (document.visibilityState !== "visible" || pageAway){{
       return;
@@ -907,7 +958,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
         ? "Refreshing opening evidence · last-known cards keep their original times"
         : document.body.dataset.closingRefresh === "true"
         ? "Refreshing closing evidence · last-known cards keep their original times"
-        : "DASHBOARD HEARTBEAT · UPDATED " + Math.max(0, Math.floor(elapsedVisualAge() / 1000)) + "s AGO";
+        : "DASHBOARD HEARTBEAT · UPDATED " + Math.floor(age / 1000) + "s AGO";
       if (heartbeat.textContent !== text){{ heartbeat.textContent = text; }}
     }}
   }}
@@ -920,13 +971,14 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     var end = Date.parse(counter.dataset.marketOpenAt);
     var value = current ? 'Market-open time unavailable' : 'Market-open time not current';
     if (current && Number.isFinite(end)){{
-      var total = Math.max(0, Math.ceil((end-Date.now())/60000));
+      var remaining = end - (generated + evidenceAge());
+      var total = Math.max(0, Math.ceil(remaining/60000));
       var days = Math.floor(total/1440), hours = Math.floor(total%1440/60), minutes = total%60;
       var parts = [];
       [[days,'day'],[hours,'hour'],[minutes,'minute']].forEach(function(part){{
         if (part[0] || part[1] === 'minute'){{ parts.push(part[0]+' '+part[1]+(part[0] === 1 ? '' : 's')); }}
       }});
-      value = end > Date.now() ? 'Market open in '+parts.join(' ') : 'Scheduled market open reached';
+      value = remaining > 0 ? 'Market open in '+parts.join(' ') : 'Scheduled market open reached';
     }}
     if (counter.textContent !== value){{ counter.textContent = value; }}
   }}

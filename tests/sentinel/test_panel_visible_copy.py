@@ -179,7 +179,7 @@ def test_preparation_headline_requires_it_to_explain_every_operational_warning()
         valid_until=NOW-timedelta(seconds=1), recovery=replace(row.recovery,
             deadline=NOW-timedelta(seconds=1)))])
     refreshing = render(model.Panel(rows=[row], now=NOW), refresh_pending=True)
-    assert '>Refreshing status · last known values</span>' in refreshing
+    assert '>Last verified status amber · checking for an update</span>' in refreshing
 
 
 def test_removing_structured_phase_guard_is_detected(monkeypatch):
@@ -232,12 +232,12 @@ def test_existing_brand_graphic_replaces_duplicate_header_text_but_keeps_accessi
     html=render(model.Panel(now=NOW,rows=rows))
     header=Header();header.feed(html)
     assert header.images==[
-        {'data-banner-src':'/static/caesars-palace-512.png','width':'512',
-         'height':'512','alt':"Caesar's Palace",'hidden':None},
-        {'src':'/static/caesars-palace-512.png','width':'512',
-         'height':'512','alt':"Caesar's Palace"},
+        {'data-banner-src':'/static/caesars-status-green.gif','width':'1086',
+         'height':'362','alt':"Caesar's Palace",'hidden':None},
+        {'class':'unknown-sign','src':'/static/caesars-status-green-still.gif','width':'1086',
+         'height':'362','alt':"Caesar's Palace"},
     ]
-    assert '<noscript><img src="/static/caesars-palace-512.png"' in html
+    assert '<noscript><img class="unknown-sign" src="/static/caesars-status-green-still.gif"' in html
     assert '<span class="brand-fallback" hidden>' in html
     assert not header.headings
     visible=' '.join(header.visible)
@@ -255,7 +255,8 @@ def test_brand_graphic_uses_available_width_and_preserves_its_intrinsic_aspect_r
     assert properties['display']=='block'
     assert properties['width']=='100%' and properties['max-width']=='100%'
     assert properties['height']=='auto'
-    assert '.brand{display:block;border:4px solid' in CSS
+    assert re.search(r'\.brand\{[^}]*aspect-ratio:3/1', CSS)
+    assert not re.search(r'\.brand\{[^}]*border:', CSS)
     assert 'width:42px' not in declaration and 'height:42px' not in declaration
 
 

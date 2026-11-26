@@ -1,5 +1,8 @@
 # Sentinel current operating contract
 
+[Dashboard browser recovery and marquee](dashboard-browser-recovery.md) covers
+browser deadlines, compact refreshes, and the status sign.
+
 [PAPER audit consolidation](paper-audit-consolidation.md) defines the shared
 missed-buy proof, ordinary display rollover, publication reuse, and full opening
 exit qualification following the November 25 audit.

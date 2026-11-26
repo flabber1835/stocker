@@ -8,6 +8,11 @@ const {expect}=require('@playwright/test');
 async function panelAssets(request,...documents) {
   const paths=new Set();
   for(const html of documents) {
+    if (html.includes('data-banner-src="/static/caesars-status-green.gif"')) {
+      for (const color of ['green','amber','red']) {
+        for (const suffix of ['','-still']) paths.add(`/static/caesars-status-${color}${suffix}.gif`);
+      }
+    }
     for(const match of html.matchAll(/\s(?:src|href)="(\/static\/[a-z0-9.-]+)"/g)) {
       paths.add(match[1]);
     }

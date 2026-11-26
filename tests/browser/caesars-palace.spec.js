@@ -3,29 +3,30 @@ const {panelAssets,servePanelAsset}=require('./panel-assets.cjs');
 
 test.describe('Banner resource recovery', () => {
   // Image-resource behavior is independent of push/navigation worker behavior.
-  // Use real PNG decoding and document replacement in each desktop engine;
+  // Use real GIF decoding and document replacement in each desktop engine;
   // this does not claim an actual iOS Home Screen acceptance result.
   test.use({serviceWorkers:'block'});
 
-  const assetPath='/static/caesars-palace-512.png';
-  const assetSha256='87d7efa50b7335de0f82614456c18baa81299c1fe7c62c7b8ab9670e46b0d31f';
+  const assetPath='/static/caesars-status-green.gif';
+  const stillPath='/static/caesars-status-green-still.gif';
+  const assetSha256='1f1b69de28b513c6cdc92bda0af6a80cc467603568435fbce2c2804c161201cf';
 
   async function bannerFixture(page,{failures=0,hold=false}={}) {
     const http=require('node:http');
     const crypto=require('node:crypto');
     const documentResponse=await page.request.get('/');
     expect(documentResponse.status()).toBe(200);
-    const html=await documentResponse.text();
+    const html=(await documentResponse.text()).replace(/data-health="[^"]+"/,'data-health="green"');
     const assets=await panelAssets(page.request,html);
     expect(assets.has(assetPath)).toBe(true);
-    const {body:png}=assets.get(assetPath);
-    expect(crypto.createHash('sha256').update(png).digest('hex')).toBe(assetSha256);
-    expect([png.readUInt32BE(16),png.readUInt32BE(20)]).toEqual([512,512]);
+    const {body:gif}=assets.get(assetPath);
+    expect(crypto.createHash('sha256').update(gif).digest('hex')).toBe(assetSha256);
+    expect([gif.readUInt16LE(6),gif.readUInt16LE(8)]).toEqual([1086,362]);
     const requests=[],pending=new Set(),sockets=new Set(),timers=new Set();
     let held=hold;
     function image(response,body) {
       if (response.destroyed) return;
-      response.writeHead(200,{'Content-Type':'image/png','Cache-Control':'no-store',
+      response.writeHead(200,{'Content-Type':'image/gif','Cache-Control':'no-store',
         'Content-Length':body.length});
       response.end(body);
     }
@@ -41,14 +42,15 @@ test.describe('Banner resource recovery', () => {
         if (requests.length<=failures) {
           // Match the causal transport failure: promise the full image, send
           // its first 1,024 real bytes, then interrupt that owned response.
-          response.writeHead(200,{'Content-Type':'image/png','Cache-Control':'no-store',
-            'Content-Length':png.length});
-          response.write(png.subarray(0,1024));
+          response.writeHead(200,{'Content-Type':'image/gif','Cache-Control':'no-store',
+            'Content-Length':gif.length});
+          response.write(gif.subarray(0,1024));
           const timer=setTimeout(()=>{timers.delete(timer);response.destroy();},50);
           timers.add(timer);
           response.once('close',()=>{clearTimeout(timer);timers.delete(timer);});
-        } else image(response,png);
+        } else image(response,gif);
       } else if (assets.has(url.pathname)) {
+        if (url.pathname===stillPath) requests.push({path:url.pathname,query:url.search,url:request.url});
         servePanelAsset(response,assets.get(url.pathname));
       } else if (url.pathname==='/') {
         response.writeHead(200,{'Content-Type':'text/html; charset=utf-8',
@@ -66,7 +68,7 @@ test.describe('Banner resource recovery', () => {
     return {html,url,requests,
       async open(){await page.goto(url,{waitUntil:'domcontentloaded'});},
       async replace(){await page.evaluate(body=>{document.open();document.write(body);document.close();},html);},
-      release(){held=false;for (const response of pending) image(response,png);pending.clear();},
+      release(){held=false;for (const response of pending) image(response,gif);pending.clear();},
       async close(){
         await page.goto('about:blank',{waitUntil:'commit',timeout:5000}).catch(()=>undefined);
         for (const timer of timers) clearTimeout(timer);
@@ -83,7 +85,7 @@ test.describe('Banner resource recovery', () => {
     await expect.poll(()=>page.locator('.brand img[data-banner-src]').evaluate(image=>({
       complete:image.complete,width:image.naturalWidth,height:image.naturalHeight,
       hidden:image.hidden
-    }))).toEqual({complete:true,width:512,height:512,hidden:false});
+    }))).toEqual({complete:true,width:1086,height:362,hidden:false});
     await expect(page.locator('.brand img[data-banner-src]')).toBeVisible();
     await expect(page.locator('.brand-fallback')).toBeHidden();
   }
@@ -92,7 +94,7 @@ test.describe('Banner resource recovery', () => {
     await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
   }
 
-  test('healthy existing PNG keeps its original resource identity',async ({page})=>{
+  test('healthy marquee keeps its resource identity',async ({page})=>{
     const fixture=await bannerFixture(page);
     try {
       await fixture.open();await decodedBanner(page);
@@ -102,7 +104,7 @@ test.describe('Banner resource recovery', () => {
     } finally {await fixture.close();}
   });
 
-  test('JavaScript-disabled page displays only the original noscript PNG',async ({browser,baseURL})=>{
+  test('JavaScript-disabled page displays only the neutral letterbox still',async ({browser,baseURL})=>{
     const context=await browser.newContext({baseURL,javaScriptEnabled:false,
       serviceWorkers:'block',viewport:{width:393,height:852}});
     const page=await context.newPage();
@@ -112,21 +114,36 @@ test.describe('Banner resource recovery', () => {
       const original=page.locator('.brand noscript img');
       await expect.poll(()=>original.evaluate(image=>({complete:image.complete,
         width:image.naturalWidth,height:image.naturalHeight})))
-        .toEqual({complete:true,width:512,height:512});
+        .toEqual({complete:true,width:1086,height:362});
       await expect(original).toBeVisible();
       await expect(page.locator('.brand img[data-banner-src]')).toBeHidden();
       await expect(page.locator('.brand-fallback')).toBeHidden();
       await expect(page.locator('.brand img:visible')).toHaveCount(1);
       const box=await page.locator('.brand').boundingBox(),image=await original.boundingBox();
-      await expect(page.locator('.brand')).toHaveCSS('border-top-width','4px');
-      await expect(page.locator('.brand')).toHaveCSS('border-bottom-width','4px');
-      expect(box.height).toBeLessThanOrEqual(image.height+8);
+      await expect(page.locator('.brand')).toHaveCSS('border-top-width','0px');
+      expect(box.height).toBeCloseTo(image.height,0);
+      expect(box.width/box.height).toBeCloseTo(3,1);
       expect(fixture.requests).toHaveLength(1);
-      expect(fixture.requests[0].url).toBe(assetPath);
+      expect(fixture.requests[0].url).toBe(stillPath);
     } finally {
       if (fixture) await fixture.close();
       await context.close();
     }
+  });
+
+  test('reduced motion has a still for each warning and the logo follows verified status',async ({page})=>{
+    await page.emulateMedia({reducedMotion:'reduce'});
+    const fixture=await bannerFixture(page);
+    try {
+      await fixture.open(); await decodedBanner(page);
+      const banner=page.locator('.brand img[data-banner-src]');
+      await expect(banner).toHaveAttribute('src',stillPath);
+      for (const color of ['amber','red']) {
+        await page.evaluate(value=>{document.body.dataset.health=value;},color);
+        await expect(banner).toHaveAttribute('src',`/static/caesars-status-${color}-still.gif`);
+        await decodedBanner(page);
+      }
+    } finally {await fixture.close();}
   });
 
   test('truncated HTTP200 resets only the failed resource identity once',async ({page},testInfo)=>{
@@ -139,7 +156,7 @@ test.describe('Banner resource recovery', () => {
       expect(fixture.requests[1].query).not.toBe('');
       const current=await page.locator('.brand img[data-banner-src]').getAttribute('src');
       expect(new URL(current,fixture.url).pathname+new URL(current,fixture.url).search).toBe(fixture.requests[1].url);
-      await testInfo.attach('recovered-real-png',{body:await page.locator('.brand').screenshot(),contentType:'image/png'});
+      await testInfo.attach('recovered-marquee',{body:await page.locator('.brand').screenshot(),contentType:'image/png'});
     } finally {await fixture.close();}
   });
 
@@ -152,7 +169,8 @@ test.describe('Banner resource recovery', () => {
         await expect(page.locator('.brand-fallback')).toContainText("Caesar's Palace");
         await expect(page.locator('.brand img[data-banner-src]')).toBeHidden();
         await paintedFrames(page);
-        expect((await page.locator('.brand').boundingBox()).height).toBeLessThan(100);
+        const box=await page.locator('.brand').boundingBox();
+        expect(box.width/box.height).toBeCloseTo(3,1);
         expect(fixture.requests).toHaveLength(2);
         if (replacement<2) await fixture.replace();
       }
@@ -244,6 +262,7 @@ test.describe('App resume presentation', () => {
     function documentAt(now, positive) {
       let body = source.replace(/data-generated-at="[^"]+"/,
         `data-generated-at="${new Date(now).toISOString()}"`)
+        .replace(/data-server-time="[^"]+"/, `data-server-time="${now}"`)
         .replace(/data-max-age-seconds="[^"]+"/, 'data-max-age-seconds="9"')
         .replace(/data-refresh-pending="[^"]+"/, 'data-refresh-pending="false"');
       if (positive) body = body.replace(/(<body [^>]*?data-health=")[^"]+/, '$1green').replace(
@@ -279,7 +298,8 @@ test.describe('App resume presentation', () => {
         } else {
           const now = await page.evaluate(() => Date.now());
           await route.fulfill({status:200, headers:{'Content-Type':'text/html',
-            'Cache-Control':'no-store', 'X-Sentinel-Panel-Status':'CURRENT'},
+            'Cache-Control':'no-store', 'X-Sentinel-Panel-Status':'CURRENT',
+            'X-Sentinel-Server-Time':String(now)},
             body:documentAt(now, kind !== 'negative')});
         }
       } catch (error) {
@@ -316,7 +336,7 @@ test.describe('App resume presentation', () => {
           new MutationObserver(() => window.__pendingHeadlineStates.push(badge.className))
             .observe(badge, {attributes:true, attributeFilter:['class']});
         });
-        await page.clock.runFor(5000);
+        await page.clock.runFor(cycle===0 ? 5000 : 1300);
         await expect.poll(() => fixture.requests.length).toBe(cycle + 1);
         await page.clock.runFor(5001); // First one-second age check after the 9s proof expires.
         await expect(page.locator('#operational-state')).toHaveClass('state checking');
@@ -458,11 +478,11 @@ test.describe('App resume presentation', () => {
         await nested.locator(':scope > summary').click();
         const generated = await page.locator('body').getAttribute('data-generated-at');
         await page.evaluate(() => {
-          window.__resumeRealNow = Date.now;
-          const clock = Date.now() + 120000;
           Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'hidden'});
           document.dispatchEvent(new Event('visibilitychange'));
-          Date.now = () => clock;
+        });
+        await page.clock.fastForward(120000);
+        await page.evaluate(() => {
           Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'visible'});
           document.dispatchEvent(new Event('visibilitychange'));
           window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}));
@@ -477,7 +497,6 @@ test.describe('App resume presentation', () => {
           await expect(page.locator('html')).toHaveClass('checking-status expired-status');
           await expect(page.locator('#operational-state')).toContainText('TRADING STATUS UNKNOWN — LAST KNOWN VALUES');
         } else {
-          await page.evaluate(() => { Date.now = window.__resumeRealNow; });
           release();
           await expect(page.locator('#operational-state')).toContainText('CLIENT PRESENTATION FIXTURE');
           await expect(page.locator('html')).not.toHaveClass('checking-status');
@@ -584,7 +603,10 @@ test.describe("Caesar's Palace on iPhone WebKit", () => {
     await context.setOffline(true);
 
     await expect(page.locator("#dashboard-heartbeat")).toContainText("UNAVAILABLE");
-    await expect(page.locator("#operational-state")).toContainText("TRADING STATUS UNKNOWN — LAST KNOWN VALUES");
+    const status=page.locator('#operational-state');
+    await expect(status).toContainText('LAST KNOWN TRADING STOP');
+    await expect(status).toContainText('offline');
+    await expect(page.locator('.brand img[data-banner-src]')).toHaveCSS('filter','grayscale(1)');
     await context.setOffline(false);
   });
 });

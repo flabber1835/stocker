@@ -7,22 +7,56 @@ import json
 MAX_DOCUMENT_AGE_SECONDS = 45
 
 CURRENT_DOCUMENT_SCRIPT = r"""
-function currentDocument(html, status) {
+function dashboardDeadline(controller, operation) {
+  var timer;
+  var start = performance.now();
+  var signal = controller.signal;
+  var interrupted;
+  var timeout = new Promise(function(_, reject) {
+    interrupted = function() { reject(new Error("Dashboard request interrupted")); };
+    signal.addEventListener("abort", interrupted, {once:true});
+    timer = setTimeout(function() {
+      reject(new Error("Dashboard request deadline exceeded"));
+      controller.abort();
+    }, 15000);
+  });
+  var read = operation().then(function(value) {
+    if (performance.now() - start >= 15000) {
+      controller.abort();
+      throw new Error("Dashboard request deadline exceeded");
+    }
+    return value;
+  });
+  return Promise.race([timeout, read]).finally(function() {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", interrupted);
+  });
+}
+
+function currentDocument(html, status, response, started) {
   if (typeof html !== "string" || html.length > 2097152) {
     throw new Error("Dashboard response exceeds its document bound");
   }
   var next = new DOMParser().parseFromString(html, "text/html");
-  var nextAge = Date.now() - Date.parse(next.body.dataset.generatedAt);
+  var tick = performance.now();
+  var generation = Date.parse(next.body.dataset.generatedAt);
+  var stamp = response.headers.get("X-Sentinel-Server-Time");
+  var serverTime = /^\d{13}$/.test(stamp || "") ? Number(stamp) :
+    Date.parse(response.headers.get("Date")) + 999;
+  var roundTrip = tick - started;
+  var nextAge = serverTime + roundTrip - generation;
   var nextBudget = Number(next.body.dataset.maxAgeSeconds) * 1000;
   if (!next.getElementById("operational-state") ||
       !["CURRENT", "PARTIAL"].includes(status) ||
       next.body.dataset.observationCurrent !== (status === "CURRENT" ? "true" : "false") ||
       next.body.dataset.refreshPending !== "false" ||
       !Number.isFinite(nextAge) || !Number.isFinite(nextBudget) ||
+      !Number.isFinite(roundTrip) || roundTrip < 0 ||
       nextBudget <= 0 || nextBudget > __MAX_AGE_MS__ ||
-      nextAge < -5000 || nextAge >= nextBudget) {
+      serverTime < generation || nextAge < 0 || nextAge >= nextBudget) {
     throw new Error("Dashboard response is incomplete or expired");
   }
+  next.sentinelClock = {generation:generation, budget:nextBudget, age:nextAge, tick:tick};
   return next;
 }
 """.replace('__MAX_AGE_MS__', str(MAX_DOCUMENT_AGE_SECONDS * 1000)).strip()
@@ -77,17 +111,19 @@ button:disabled{opacity:.6}
     busy = true; retry.disabled = true;
     controller = new AbortController();
     var active = controller;
-    var deadline = setTimeout(function(){ active.abort(); }, 15000);
+    var response;
+    var started = performance.now();
     try {
-      var response = await fetch(location.href, {cache:"no-store", credentials:"same-origin", headers:{"X-Sentinel-Refresh":"1"}, signal:active.signal});
+      var html = await dashboardDeadline(active, async function() {
+        response = await fetch(location.href, {cache:"no-store", credentials:"same-origin", headers:{"X-Sentinel-Refresh":"1"}, signal:active.signal});
+        if (!response.ok || !["CURRENT", "PARTIAL"].includes(response.headers.get("X-Sentinel-Panel-Status")) ||
+            !sameOrigin(response)) { throw new Error("Current status is not available"); }
+        return response.text();
+      });
       var documentStatus = response.headers.get("X-Sentinel-Panel-Status");
-      if (!response.ok || !["CURRENT", "PARTIAL"].includes(documentStatus) ||
-          !sameOrigin(response)) {
-        throw new Error("Current status is not available");
-      }
-      var html = await response.text();
-      currentDocument(html, documentStatus);
+      var next = currentDocument(html, documentStatus, response, started);
       if (active.signal.aborted || !visible()) { throw new Error("Launch request interrupted"); }
+      window.sentinelDashboardClock = next.sentinelClock;
       document.open(); document.write(html); document.close();
     } catch (_error) {
       if (visible()) {
@@ -102,7 +138,7 @@ button:disabled{opacity:.6}
         }
       }
     } finally {
-      clearTimeout(deadline); busy = false; controller = null; retry.disabled = false;
+      busy = false; controller = null; retry.disabled = false;
       if (again && visible()) { again = false; load(); }
     }
   }

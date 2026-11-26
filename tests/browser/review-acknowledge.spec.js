@@ -101,9 +101,10 @@ for(const outcome of ['accepted','refused']) {
       if(path!=='/')return route.fulfill({status:404,body:''});
       const navigation=request.isNavigationRequest();
       if(navigation)navigations++;
-      await route.fulfill({status:200,contentType:'text/html',
-        headers:{'X-Sentinel-Panel-Status':'CURRENT'},
-        body:navigation?(navigations===1?documents.initial:documents.done):documents.ready});
+      const body=navigation?(navigations===1?documents.initial:documents.done):documents.ready;
+      await route.fulfill({status:200,contentType:'text/html',body,
+        headers:{'X-Sentinel-Panel-Status':'CURRENT',
+          'X-Sentinel-Server-Time':String(Date.parse(body.match(/data-generated-at="([^"]+)"/)[1]))}});
     });
     await page.goto('http://127.0.0.1:18947/');
     const review=page.locator('#operator-review');

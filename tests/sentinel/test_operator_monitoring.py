@@ -450,8 +450,8 @@ def test_home_screen_heartbeat_and_service_worker_fail_closed() -> None:
         rows=[model.Row("healthy", "Healthy", "CURRENT", OK)], now=NOW))
 
     assert "DASHBOARD HEARTBEAT · UPDATED 0s AGO" in html
-    assert "DASHBOARD UPDATE UNAVAILABLE · LAST KNOWN VALUES" in html
-    assert 'badge.className = offline ? "state neutral"' in html
+    assert "DASHBOARD UPDATE UNAVAILABLE · LAST KNOWN OBSERVATION" in html
+    assert 'showLastVerifiedStatus(offline ? "offline" : "update unavailable"' in html
     assert 'window.addEventListener("offline"' in html
     assert "if (wentOffline){ invalidate(false, true); }" in html
     assert "if (wentOffline){ invalidate(true); }" in html

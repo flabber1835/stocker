@@ -86,7 +86,7 @@ test.describe('First document before current evidence',()=>{
       const state=await page.evaluate(()=>{
         const sheet=document.getElementById('dashboard-stylesheet');
         return {inline:sheet.tagName==='STYLE',ready:!!sheet.sheet&&sheet.sheet.cssRules.length>0,
-          border:getComputedStyle(document.querySelector('.brand')).borderTopWidth};
+          ratio:getComputedStyle(document.querySelector('.brand')).aspectRatio};
       });
       return {...state,cssRequests};
     } finally {releaseCSS();f.release();await page.goto('about:blank',{waitUntil:'commit'});await f.close();}
@@ -94,7 +94,7 @@ test.describe('First document before current evidence',()=>{
   function atomicStyle(state) {
     assert.equal(state.inline,true,'essential styles depended on another request');
     assert.equal(state.ready,true,'meaningful dashboard appeared before its styles');
-    assert.equal(state.border,'4px','meaningful dashboard was unstyled');
+    assert.equal(state.ratio,'3 / 1','meaningful dashboard was unstyled');
     assert.equal(state.cssRequests,0,'essential styles started another request');
   }
   for(const failed of [false,true]) {

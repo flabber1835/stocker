@@ -20,6 +20,7 @@ from __future__ import annotations
 import gzip
 import json
 import os
+from time import time_ns
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -40,7 +41,11 @@ from sentinel.panel import review_controls, review_store
 from sentinel.panel.review_store import ReviewRefused
 from sentinel.panel.pwa import LAUNCH_HTML, MANIFEST, SERVICE_WORKER
 from sentinel.panel.presentation import dashboard_health
-from sentinel.panel.render import REFRESH_SECONDS, STATIC_ASSETS, STYLE_ASSET, deployment_progress_html, render
+from sentinel.panel.banner import MARQUEE_ASSETS
+from sentinel.panel.render import (
+    CONTROLLER_VERSION, REFRESH_SECONDS, STATIC_ASSETS, STYLE_ASSET,
+    deployment_progress_html, render,
+)
 from sentinel.panel.push_enrollment import router as push_enrollment_router
 from sentinel.panel.segment_disclosure import disclose as _shadow_segment_disclosure
 from sentinel.panel.serialization import public_payload
@@ -148,8 +153,9 @@ def _read_panel():
 async def _never_cache_operator_evidence(request, call_next):
     """Cover success and framework-generated error responses uniformly."""
     response = await call_next(request)
-    if not (response.status_code == 200
-            and request.url.path.removeprefix('/static/') in STATIC_ASSETS):
+    asset = request.url.path.removeprefix('/static/')
+    if not (response.status_code in {200, 304} and request.url.path.startswith('/static/')
+            and (asset in STATIC_ASSETS or asset in MARQUEE_ASSETS)):
         response.headers["Cache-Control"] = "no-store"
     response.headers['X-Frame-Options'] = 'DENY'
     response.headers['Content-Security-Policy'] = "frame-ancestors 'none'"
@@ -246,6 +252,7 @@ def _config() -> tuple[Path, str]:
 @_one_panel_build
 def panel(request: Request = None) -> HTMLResponse:
     if (request is not None and request.query_params.get('document') != '1'
+            and request.headers.get('x-sentinel-refresh') != '1'
             and (request.headers.get('sec-fetch-mode') == 'navigate'
                  or request.headers.get('sec-fetch-dest') == 'document'
                  or 'text/html' in request.headers.get('accept', '').lower())):
@@ -253,13 +260,20 @@ def panel(request: Request = None) -> HTMLResponse:
                             'X-Sentinel-Panel-Status': 'CONNECTING'})
     state_dir, dsn = _config()
     p = _read_panel()
-    html = render(p, refresh_seconds=REFRESH_SECONDS)
+    compact = (request is not None and request.headers.get('x-sentinel-refresh') == '1'
+               and request.headers.get('x-sentinel-panel-fragment') == CONTROLLER_VERSION)
+    html = render(p, refresh_seconds=REFRESH_SECONDS, compact=compact,
+                  server_time_ms=time_ns() // 1_000_000)
     phase = install_progress.current()
     if phase:
         html = html.replace(deployment_progress_html(), deployment_progress_html(phase), 1)
     last_known.remember((state_dir, dsn), p)
-    return _compress_document(request, HTMLResponse(html, headers={"Cache-Control": "no-store", **_progress_headers(phase),
-                              'X-Sentinel-Panel-Status': 'CURRENT' if delivery.display_current(p) else 'PARTIAL'}))
+    response = _compress_document(request, HTMLResponse(html, headers={
+        'Cache-Control': 'no-store', **_progress_headers(phase),
+        'X-Sentinel-Panel-Status': 'CURRENT' if delivery.display_current(p) else 'PARTIAL',
+    }))
+    response.headers['X-Sentinel-Server-Time'] = str(time_ns() // 1_000_000)
+    return response
 
 
 @app.get("/panel.json")
@@ -357,6 +371,9 @@ def static_asset(asset: str) -> Response:
         body, media_type = STATIC_ASSETS[asset]
         return Response(body, media_type=media_type,
                         headers={'Cache-Control': 'public, max-age=31536000, immutable'})
+    if asset in MARQUEE_ASSETS:
+        return FileResponse(_STATIC_DIR / asset, media_type='image/gif',
+                            headers={'Cache-Control': 'private, max-age=3600'})
     allowed = {
         "caesars-palace-180.png", "caesars-palace-192.png",
         "caesars-palace-512.png",

@@ -49,12 +49,12 @@ def run(scenario, *, mutation=None, html=None, expected_poll=None):
         assert script.count(guard) == 1
         script = script.replace(guard, '')
     elif mutation == 'wall-clock-visual':
-        guard = 'visualAge + Math.max(0, performance.now() - visualAnchor)'
+        guard = 'sourceClock.age + elapsed'
         assert script.count(guard) == 1
         script = script.replace(guard, 'Math.max(0, Date.now() - generated)')
     elif mutation in {'ignore-transit', 'repeat-early', 'skip-boundary'}:
         guard, replacement = {
-            'ignore-transit': ('var remaining = boundary - Date.now();', 'var remaining = value;'),
+            'ignore-transit': ('var remaining = value - evidenceAge();', 'var remaining = value;'),
             'repeat-early': ('if (performance.now() - earlyStarted < 5000)', 'if (false)'),
             'skip-boundary': ('scheduledBoundary = "expiry";\n      return Math.ceil(remaining);',
                               'return regular;'),

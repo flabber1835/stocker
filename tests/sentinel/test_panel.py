@@ -1385,8 +1385,9 @@ class TestItCannotAct:
             assert event in html
         assert "TRADING STATUS UNKNOWN — LAST KNOWN VALUES" in html
         assert "event.persisted" in html
-        assert "age >= budget" in html and "age < -5000" in html
         script = html.split("<script>", 1)[1].split("</script>", 1)[0]
+        assert "age >= budget" in script and "elapsed >= 0" in script
+        assert "Date.now()" not in script
         assert "VERIFIED THROUGH" not in script, (
             "browser code gained authority to manufacture financial green")
 
@@ -1575,11 +1576,11 @@ class TestReviewedDualAuthority:
         brand = BrandImages()
         brand.feed(html)
         assert brand.images == [
-            (False, {'data-banner-src': '/static/caesars-palace-512.png',
-                     'width': '512', 'height': '512',
+            (False, {'data-banner-src': '/static/caesars-status-green.gif',
+                     'width': '1086', 'height': '362',
                      'alt': "Caesar's Palace", 'hidden': None}),
-            (True, {'src': '/static/caesars-palace-512.png',
-                    'width': '512', 'height': '512',
+            (True, {'class': 'unknown-sign', 'src': '/static/caesars-status-green-still.gif',
+                    'width': '1086', 'height': '362',
                     'alt': "Caesar's Palace"}),
         ]
 

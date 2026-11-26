@@ -38,7 +38,7 @@ def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None, pan
     elif mutation == 'failed-withdrawal':
         script = script.replace('invalidate(false, !transportDelay);\n        heartbeat.textContent', 'heartbeat.textContent')
     elif mutation == 'expired-red':
-        guard = 'badge.className = offline ? "state neutral" : lastKnownStop ? "state fail" : "state checking";'
+        guard = 'badge.className = lastKnown ? (color === "red" ? "state fail" : "state warn")\n      : navigator.onLine ? "state checking" : "state neutral";'
         assert script.count(guard) == 1
         script = script.replace(guard, 'badge.className = "state fail";')
     elif mutation == 'age-withdrawal':
@@ -49,7 +49,7 @@ def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None, pan
         script = script.replace('showResume();\n    refreshDocument();', 'invalidate(true);')
     elif mutation == 'resume-deadline':
         script = script.replace('elapsed < 15000', 'elapsed < 150000').replace(
-            '15000-(Date.now()-resumeStarted)', '150000-(Date.now()-resumeStarted)')
+            '15000-elapsed', '150000-elapsed')
     elif mutation == 'resume-renewal':
         script = script.replace('if (resumeStarted === null)', 'if (true)').replace(
             'resumeStarted = anchor;', 'clearTimeout(resumeTimer); resumeStarted = anchor;')
@@ -88,11 +88,11 @@ def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None, pan
         assert script.count(guard) == 1
         script = script.replace(guard, 'if (false){ showResume(); }')
     elif mutation == 'ordinary-floor':
-        guard = 'if (ordinaryStarted === null && resumeStarted === null && !hardFailure && Date.now() < ordinaryDue){ return; }'
+        guard = 'if (ordinaryStarted === null && resumeStarted === null && !hardFailure && performance.now() < ordinaryDue){ return; }'
         assert script.count(guard) == 1
         script = script.replace(guard, '')
     elif mutation == 'ordinary-deadline':
-        guard = 'if (resumeStarted === null && (!originalCurrent() || Date.now() >= generated+budget)){ invalidate(false); }'
+        guard = 'if (resumeStarted === null && !originalCurrent()){ invalidate(false); }'
         assert script.count(guard) == 1
         script = script.replace(guard, '')
     elif mutation == 'ordinary-renewal':
@@ -100,21 +100,28 @@ def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None, pan
         assert script.count(guard) == 1
         script = script.replace(guard, 'if (true){')
     elif mutation == 'ordinary-resume-interaction':
-        guard = 'if (resumeStarted === null && (!originalCurrent() || Date.now() >= generated+budget)){ invalidate(false); }'
+        guard = 'if (resumeStarted === null && !originalCurrent()){ invalidate(false); }'
         assert script.count(guard) == 1
         script = script.replace(guard, 'if (!originalCurrent()){ invalidate(false); }')
     elif mutation == 'focus-renewal':
-        guard = 'var anchor = !wentToBackground && ordinaryEligible ? ordinaryStarted : Date.now();'
+        guard = 'var anchor = !wentToBackground && ordinaryEligible ? ordinaryStarted : performance.now();'
         assert script.count(guard) == 1
-        script = script.replace(guard, 'var anchor = Date.now();')
+        script = script.replace(guard, 'var anchor = performance.now();')
     elif mutation == 'unowned-focus':
         guard = 'if (wentToBackground || resumeStarted !== null ||\n          (!originalCurrent() && ordinaryEligible && ordinaryStarted !== null))'
         assert script.count(guard) == 1
         script = script.replace(guard, 'if (wentToBackground || !originalCurrent())')
     elif mutation == 'body-transport':
-        guard = 'var html = await response.text();\n      transportDelay = false;'
+        guard = 'return response.text();'
         assert script.count(guard) == 1
-        script = script.replace(guard, 'transportDelay = false;\n      var html = await response.text();')
+        script = script.replace(guard, 'transportDelay = false; return response.text();')
+    elif mutation in {'hard-deadline', 'device-wall-clock'}:
+        guard, replacement = {
+            'hard-deadline': ('Promise.race([timeout, read])', '(timeout.catch(() => {}), read)'),
+            'device-wall-clock': ('serverTime + roundTrip - generation', 'Date.now() - generation'),
+        }[mutation]
+        assert script.count(guard) == 1
+        script = script.replace(guard, replacement)
     elif mutation == 'resume-availability':
         guard = 'if (hardFailure || !navigator.onLine ||'
         assert script.count(guard) == 1
@@ -224,7 +231,7 @@ def test_server_failure_cannot_seed_a_browser_transport_incident():
     assert broken.returncode != 0 and 'server failure does not invalidate browser freshness' in broken.stderr
 
 
-@pytest.mark.parametrize('wake', ['fresh-age', 'invalid-date', 'future-date',
+@pytest.mark.parametrize('wake', ['fresh-age', 'invalid-date',
                                   'visibility', 'initial-hidden', 'offline',
                                   'initial-offline', 'initial-pending', 'online'])
 def test_browser_wake_preserves_negative_authority_and_single_read(wake):
@@ -335,6 +342,30 @@ def test_original_proof_and_owned_transport_use_independent_due_time_clocks(ttl,
 def test_observed_nine_second_proof_and_six_second_response_do_not_flash_red():
     result = run_refresh('fresh', wake='transport-matrix', panel=transport_panel(),
                          case={'latencyMs':6400,'cycles':4,'requireAmber':True})
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize('phase', ['fetch', 'body'])
+def test_hard_deadline_releases_a_stalled_read_and_drops_its_late_result(phase):
+    case = {'phase': phase, 'ignoreAbort': True}
+    result = run_refresh('fresh', wake='deadline-recovery', case=case)
+    assert result.returncode == 0, result.stderr
+    broken = run_refresh('fresh', wake='deadline-recovery', case=case, mutation='hard-deadline')
+    assert broken.returncode != 0 and 'must be released' in broken.stderr
+
+
+@pytest.mark.parametrize('skew', [-600000, 600000])
+def test_current_server_document_does_not_depend_on_device_wall_clock(skew):
+    case = {'deviceSkew': skew}
+    result = run_refresh('fresh', wake='server-clock', case=case)
+    assert result.returncode == 0, result.stderr
+    broken = run_refresh('fresh', wake='server-clock', case=case, mutation='device-wall-clock')
+    assert broken.returncode != 0 and 'valid current request' in broken.stderr
+
+
+@pytest.mark.parametrize('color', ['amber', 'red'])
+def test_partial_refresh_does_not_hide_the_previous_dated_warning(color):
+    result = run_refresh('fresh', wake='retain-warning', case={'warning': color})
     assert result.returncode == 0, result.stderr
 
 
