@@ -152,6 +152,12 @@ They are release-safety rules, not style preferences.
 
 ## Avoid repeated ceremony
 
+Use the [host sparse checkout command](docs/autonomy-checkout-efficiency.md#host-checkout-enforcement)
+when creating a linked worktree for routine Sentinel development, testing, or
+release qualification. The dedicated SEC reconstruction workflow owns the
+historical filing collection. Existing purpose-specific sparse checkouts keep
+their declared input scope.
+
 Repository and remote verification, required reading, and other setup checks
 are once per task, not once per command or message. Do not repeat successful
 checks during the same task without a concrete reason, such as relevant remote

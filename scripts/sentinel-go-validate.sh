@@ -40,6 +40,7 @@ if [ "${SENTINEL_GO_LOCK_HELD:-0}" != "1" ]; then
 fi
 
 go_info "GO lifecycle lock held"
+"$PYTHON" scripts/sentinel_local_delivery/checkout.py check --worktree .
 
 PRODUCTION_RUN=1
 LOCAL_FULL=0
