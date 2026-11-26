@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import logging
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -138,6 +139,53 @@ def service_for(cfg, *, holder="worker-a", refresh=refresh_result,
     return AutomationService(
         config=cfg, holder_id=holder, refresh=refresh, prepare=prepare,
         recover=recover, execute=execute)
+
+
+@pytest.mark.asyncio
+async def test_idle_wait_reuses_only_unchanged_cycle_and_never_delays_execution(conn, monkeypatch):
+    from sentinel import operational_ddl_epoch
+
+    cfg = config()
+    tomorrow = datetime.now(UTC) + timedelta(days=7)
+    obligation = schedule.for_clock(tomorrow, cfg)
+    now = obligation.prepare_at + timedelta(seconds=1)
+    expected = binding(cfg).model_copy(update={'broker': 'alpaca'})
+    store.activate(conn, binding=expected, actor='operator', reason='test activation')
+    store.release_kill(conn, expected_binding=expected, actor='operator', reason='test authority')
+    runtime = service_for(cfg)
+    operational_ddl_epoch.install(conn)
+    conn.commit()
+    try:
+        for _ in range(4):
+            first = await runtime.tick(conn, now=now)
+        assert first.cycle.state is CycleState.WAITING_OPEN
+        calls = []
+        validate = automation_integrity.validate_cycle_lineage
+
+        def traced(conn, cycle):
+            calls.append(cycle.cycle_id)
+            return validate(conn, cycle)
+
+        monkeypatch.setattr(automation_integrity, 'validate_cycle_lineage', traced)
+
+        async def poll(at=now):
+            return await runtime.tick(conn, now=at, _idle_pulse=(
+                first.permit, first.cycle.execute_at, time.monotonic()))
+
+        assert (await poll()).cycle == first.cycle
+        assert calls == [first.cycle.cycle_id]
+        calls.clear()
+        assert (await poll()).cycle == first.cycle
+        assert calls == [], 'warm idle tick replayed the full event history'
+        conn.execute('CREATE TABLE parked_witness_ddl (id integer)')
+        conn.commit()
+        assert (await poll()).cycle == first.cycle
+        assert calls == [first.cycle.cycle_id], 'changed DDL reused a parked result'
+        assert (await poll(first.cycle.execute_at)).cycle.state is CycleState.SUCCEEDED
+    finally:
+        conn.rollback()
+        conn.execute('DROP EVENT TRIGGER IF EXISTS sentinel_operational_evidence_ddl_changed')
+        conn.commit()
 
 
 @pytest.mark.asyncio

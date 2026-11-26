@@ -151,7 +151,7 @@ def broker_reads():
 
 
 @contextmanager
-def idle_authority_phases():
+def idle_authority_phases(diagnostics=None):
     """Attribute one isolated observer request without carrying a proof forward."""
     counts = {}
     rows = {}
@@ -162,12 +162,30 @@ def idle_authority_phases():
     finally:
         _IDLE_AUTHORITY_ROWS.reset(rows_token)
         _IDLE_AUTHORITY_PHASES.reset(token)
-        for phase, (count, elapsed) in counts.items():
-            info("automation_idle_authority_phase phase=%s count=%d elapsed_ms=%d",
-                 phase, count, elapsed // 1_000_000)
-        for kind, (count, total) in rows.items():
-            info("automation_idle_authority_rows kind=%s count=%d rows=%d",
-                 kind, count, total)
+        if diagnostics is None:
+            emit_idle_authority_phases(dict(phases=counts, rows=rows))
+        else:
+            diagnostics.update(phases=counts, rows=rows)
+
+
+def emit_idle_authority_phases(diagnostics):
+    """Emit the child's bounded measurements through the worker's installed sink."""
+    if not isinstance(diagnostics, dict):
+        return
+    for section, expected, maximum, divisor, template in (
+            ('phases', _GUARD_PHASE_NAMES, _MAX_PHASE_NS, 1_000_000,
+             'automation_idle_authority_phase phase=%s count=%d elapsed_ms=%d'),
+            ('rows', {'publication_rows'}, _MAX_PHASE_COUNT, 1,
+             'automation_idle_authority_rows kind=%s count=%d rows=%d')):
+        values = diagnostics.get(section)
+        if not isinstance(values, dict):
+            continue
+        for name in sorted(expected):
+            pair = values.get(name)
+            if (isinstance(pair, (list, tuple)) and len(pair) == 2
+                    and all(type(value) is int for value in pair)
+                    and 0 < pair[0] <= _MAX_PHASE_COUNT and 0 <= pair[1] <= maximum):
+                info(template, name, pair[0], pair[1] // divisor)
 
 
 def authority_rows(kind: str, rows: int) -> None:
