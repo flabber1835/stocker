@@ -56,6 +56,9 @@ class EnvReviewFixes(unittest.TestCase):
                     "sentinel_lock_ownership.py",
                     "sentinel_env.py", "go-archive-format-v1.json"):
                 shutil.copyfile(SCRIPTS / name, scripts / name)
+            checkout = scripts / "sentinel_local_delivery/checkout.py"
+            checkout.parent.mkdir()
+            shutil.copyfile(SCRIPTS / "sentinel_local_delivery/checkout.py", checkout)
             lock_path = root / "deploy.lock"
             launcher = scripts / "sentinel-autonomous-deploy.sh"
             launcher.write_text(launcher.read_text(encoding="utf-8").replace(
