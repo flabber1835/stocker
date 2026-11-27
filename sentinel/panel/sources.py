@@ -276,28 +276,19 @@ def _finite_float(value, *, label: str) -> float:
     return float(number)
 
 
-def _runtime_schema(conn) -> dict[str, set[str]]:
+def _visible_source_columns(conn, expected) -> dict[str, set[str]]:
+    # Same visibility rules as information_schema.columns. Only relation and
+    # column names are needed, so no type, default or collation lookups.
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT table_name, column_name FROM information_schema.columns"
-            " WHERE table_schema = ANY(current_schemas(false))"
-            " AND table_name = ANY(%s)",
-            (list(_RUNTIME_COLUMNS),))
-        rows = cur.fetchall()
-    found = {table: set() for table in _RUNTIME_COLUMNS}
-    for table, column in rows:
-        if str(table) in found:
-            found[str(table)].add(str(column))
-    return found
-
-
-def _automation_schema(conn) -> dict[str, set[str]]:
-    expected = {**_AUTOMATION_COLUMNS, **_AUTHORITY_COLUMNS, **_PUSH_COLUMNS}
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT table_name, column_name FROM information_schema.columns"
-            " WHERE table_schema = ANY(current_schemas(false))"
-            " AND table_name = ANY(%s)",
+            "SELECT c.relname,a.attname FROM pg_catalog.pg_class c"
+            " JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace"
+            " JOIN pg_catalog.pg_attribute a ON a.attrelid=c.oid"
+            " WHERE c.relname=ANY(%s::name[]) AND n.nspname=ANY(current_schemas(false))"
+            " AND c.relkind IN ('r','p','f','v') AND NOT pg_is_other_temp_schema(n.oid)"
+            " AND a.attnum>0 AND NOT a.attisdropped"
+            " AND (pg_has_role(c.relowner,'USAGE') OR"
+            " has_column_privilege(c.oid,a.attnum,'SELECT, INSERT, UPDATE, REFERENCES'))",
             (list(expected),))
         rows = cur.fetchall()
     found = {table: set() for table in expected}
@@ -305,6 +296,15 @@ def _automation_schema(conn) -> dict[str, set[str]]:
         if str(table) in found:
             found[str(table)].add(str(column))
     return found
+
+
+def _runtime_schema(conn) -> dict[str, set[str]]:
+    return _visible_source_columns(conn, _RUNTIME_COLUMNS)
+
+
+def _automation_schema(conn) -> dict[str, set[str]]:
+    expected = {**_AUTOMATION_COLUMNS, **_AUTHORITY_COLUMNS, **_PUSH_COLUMNS}
+    return _visible_source_columns(conn, expected)
 
 
 def _schema_error(found: Mapping[str, set[str]], table: str) -> str | None:
@@ -1995,6 +1995,9 @@ def _matched_market_order_wait(conn, *, account, cycle, now, trading_row=None, p
         return None
     orders = proof["orders"]
     keys = {order["client_key"] for order in orders}
+    has_sales = any(order["side"] == "SELL" for order in orders)
+    if has_sales and (state != "RETRY_WAIT" or failure is not None):
+        return None
     if state == "RETRY_WAIT":
         inflight = diagnostic.get("in_flight_commands" if failure else "working_order_keys")
         if not isinstance(inflight, list) or len(inflight) != len(keys) or set(inflight) != keys:
@@ -2016,6 +2019,8 @@ def _matched_market_order_wait(conn, *, account, cycle, now, trading_row=None, p
         if (recorded is None or recorded.broker_order_id != order["broker_order_id"]
                 or recorded.state != order["state"] or recorded.order_terms != order["terms"]
                 or recorded.side != order["side"]
+                or (recorded.side == "SELL" and (recorded.security_id != order.get("security_id")
+                                                 or recorded.ticker != order.get("symbol")))
                 or recorded.quantity != (None if order["quantity"] is None else Decimal(order["quantity"]))
                 or recorded.notional != (None if order.get("notional") is None else Decimal(order["notional"]))
                 or recorded.filled_quantity != Decimal(order["filled_quantity"])
@@ -2044,6 +2049,8 @@ def _matched_market_order_wait(conn, *, account, cycle, now, trading_row=None, p
         return None
     boundary = min(deadline, closed, proof["valid_until"], _account_valid_until(observed),
                    current.valid_until)
+    if has_sales:
+        boundary = min(boundary, datetime.fromisoformat(diagnostic["observed_at"]) + timedelta(seconds=60))
     if now >= boundary:
         return None
     if plan is None:
@@ -2055,7 +2062,9 @@ def _matched_market_order_wait(conn, *, account, cycle, now, trading_row=None, p
         require_current_display_policy(conn, plan=plan)
     except dual_plan_authority.DualPlanAuthorityRefused:
         return None
-    return model.RecoveryEvidence(phase=model.MARKET_BUY_OBSERVATION, automatic=True,
+    phase = (model.MARKET_BUY_OBSERVATION if any(o["side"] == "BUY" for o in orders)
+             else model.MARKET_SALE_OBSERVATION)
+    return model.RecoveryEvidence(phase=phase, automatic=True,
                                   deadline=boundary)
 
 
@@ -3046,7 +3055,8 @@ def _in_progress_paper_mirror(conn, cycle, active_publication, frontier, *, now=
                 return None
             account_row = model.alpaca_account_row(available=True, expected_account_id=_bound_account_id(conn),
                 market_working=market_working, **account)
-            if account_row.effective_status(now) != model.WARN:
+            expected = model.OK if market_working.phase == model.MARKET_SALE_OBSERVATION else model.WARN
+            if account_row.effective_status(now) != expected:
                 return None
             deadline = market_working.deadline
     elif isinstance(callback, Mapping):

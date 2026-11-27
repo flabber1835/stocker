@@ -144,30 +144,34 @@ def load_evidence(conn, identity: str) -> dict:
     return value
 
 
-def verify_evidence(conn, identity: str) -> None:
-    """Verify stored bytes without decoding another full reference object tree.
+def verify_evidence(conn, identity: str, *related: str) -> None:
+    """Verify the requested identities in one snapshot without returning canonical TEXT.
 
     The manifest binds the exact bytes written by put_evidence. Consumers still
     use load_evidence for canonical JSON/object validation and schema admission.
     No verification result survives this call or substitutes for a later read.
     """
-    row = conn.execute(
-        "SELECT payload,octet_length(canonical_payload),"
-        "CASE WHEN octet_length(canonical_payload)<=%s THEN "
-        "encode(sha256(convert_to(canonical_payload,'UTF8')),'hex') END "
-        "FROM sentinel_snapshot_evidence WHERE evidence_sha256=%s",
-        (MAX_EVIDENCE_BYTES, identity)).fetchone()
-    if row is None:
-        raise SnapshotStorageRefused("missing snapshot evidence: " + identity)
-    payload, size, observed = row
-    if size is not None:
-        from sentinel.feed.acquisition_limits import check
-        check("SNAPSHOT_EVIDENCE_BYTES", size, MAX_EVIDENCE_BYTES)
-        valid = payload is None and observed == identity
-    else:
-        valid = isinstance(payload, dict) and digest(payload) == identity
-    if not valid:
-        raise SnapshotStorageRefused("missing or corrupt snapshot evidence: " + identity)
+    identities = list(dict.fromkeys((identity, *related)))
+    rows = conn.execute(
+        "SELECT evidence_sha256,payload IS NOT NULL,octet_length(canonical_payload),"
+        "CASE WHEN payload IS NULL AND octet_length(canonical_payload)<=%s THEN "
+        "encode(sha256(convert_to(canonical_payload,'UTF8')),'hex') END,"
+        "CASE WHEN canonical_payload IS NULL THEN payload END "
+        "FROM sentinel_snapshot_evidence WHERE evidence_sha256=ANY(%s)",
+        (MAX_EVIDENCE_BYTES, identities)).fetchall()
+    proofs = {key: (has_jsonb, size, observed, legacy) for key, has_jsonb, size, observed, legacy in rows}
+    for key in identities:
+        if key not in proofs:
+            raise SnapshotStorageRefused("missing snapshot evidence: " + key)
+        has_jsonb, size, observed, legacy = proofs[key]
+        if size is None:
+            valid = isinstance(legacy, dict) and digest(legacy) == key
+        else:
+            from sentinel.feed.acquisition_limits import check
+            check("SNAPSHOT_EVIDENCE_BYTES", size, MAX_EVIDENCE_BYTES)
+            valid = not has_jsonb and observed == key
+        if not valid:
+            raise SnapshotStorageRefused("missing or corrupt snapshot evidence: " + key)
 
 
 def begin(conn, *, window: PriceWindow, reference_sha256: str,
@@ -318,8 +322,7 @@ def seal(conn, candidate_id: str, *, expected_keys: Iterable[tuple[str, str]],
         raise SnapshotStorageRefused("snapshot candidate is already sealed")
     from sentinel.feed.rolling_contract import CurrentFormationWindow
     window = ({426: CurrentFormationWindow, 379: FormationWindow}.get(len(axis), PriceWindow))(sessions=axis)
-    verify_evidence(conn, reference)
-    verify_evidence(conn, source)
+    verify_evidence(conn, reference, source)
     bars_hash, coverage_hash = hashlib.sha256(), hashlib.sha256()
     count, seen_sessions, previous_key = 0, set(), None
     actual = _rows(conn, candidate_id, table="sentinel_snapshot_bars",
@@ -395,8 +398,7 @@ def manifest(conn, candidate_id: str) -> SnapshotManifest:
     from sentinel.feed.normalized_layout import require_layout
     require_layout(conn, candidate_id, value)
     if not retired(conn, candidate_id):
-        verify_evidence(conn, value.reference_sha256)
-        verify_evidence(conn, value.source_evidence_sha256)
+        verify_evidence(conn, value.reference_sha256, value.source_evidence_sha256)
     return value
 
 

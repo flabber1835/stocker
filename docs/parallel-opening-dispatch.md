@@ -44,6 +44,14 @@ submitted exit with identified, still-working sales. Its reservation is capped
 by the remaining BIL allocation. A later sale fill contributes cash to a future
 plan. Outstanding orders continue to reconcile past the new-buy cutoff.
 
+For the PAPER dashboard, a complete, current observation of owned working sales
+can explain a pending opening cycle until its next scheduled recovery. The sale
+proof checks native order identity, direction, share quantity and cumulative
+fill against the journal and the displayed plan. It never explains a cash
+shortfall. A basket with a working BIL purchase also needs that precise order
+in both books and the existing purchase and account checks. Uncertain orders,
+unexplained holdings, account blocks and expired observations remain actionable.
+
 LIVE protected buys require the originally authorized share quantity and price
 limit, covered by verified settled cash. A partial sale receipt cannot resize a
 LIVE BIL order. If the full purchase cannot qualify before the cutoff, later

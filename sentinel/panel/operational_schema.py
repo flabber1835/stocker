@@ -172,10 +172,10 @@ class OperationalReadSchemaRefused(ValueError):
     pass
 
 
-def require_schema(conn, *, allow_absent=False):
+def require_schema(conn, *, allow_absent=False, verifier=None):
     """Catalog-only exact pinned contract; partial installs cannot fall back."""
     from sentinel.operational_catalog import require_extension
-    active = require_extension(conn, __name__, allow_absent=allow_absent)
+    active = (verifier or require_extension)(conn, __name__, allow_absent=allow_absent)
     if not active:
         return False
     revisions = conn.execute(f"SELECT scope,revision FROM {REVISION} ORDER BY scope").fetchall()

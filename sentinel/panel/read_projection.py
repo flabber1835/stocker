@@ -9,6 +9,7 @@ import json
 import os
 
 from sentinel import receipt_authentication
+from sentinel.panel import catalog_proof
 from sentinel.panel import authority_reader as financial, model, observer_codec
 from sentinel.panel import operational_schema as schema
 
@@ -44,7 +45,7 @@ def _digest(value):
 
 def subject(conn, database_url, scope):
     """Constant-size current key, only after the exact invalidation contract."""
-    schema.require_schema(conn)
+    _require_display_schema(conn)
     return _subject(conn,database_url,scope)
 
 
@@ -52,9 +53,13 @@ def _subject_facts(conn):
     """Common facts reused only inside this caller's coherent read snapshot."""
     from sentinel import operational_ddl_epoch, operational_schema
     physical=conn.execute('SELECT system_identifier::text,current_database() FROM pg_control_system()').fetchone()
-    installation=operational_schema.installation(conn,required=False)
-    return (physical,installation,operational_ddl_epoch.current(conn),
+    installation=operational_schema.installation(conn,required=False,verifier=catalog_proof.require)
+    return (physical,installation,operational_ddl_epoch.current(conn,catalog_proof.require),
             {key: os.environ.get(key, '') for key in sorted(SUBJECT_ENV)})
+
+
+def _require_display_schema(conn):
+    return schema.require_schema(conn, verifier=catalog_proof.require)
 
 
 def _subject(conn, database_url, scope, *, facts=None):
@@ -108,7 +113,7 @@ def shadow_publication_subjects(conn, database_url, *, version, previous_version
     Removing only the newly published row must reproduce the old signed
     subject. Any other invalidation makes the old receipt ineligible to wait.
     """
-    schema.require_schema(conn)
+    _require_display_schema(conn)
     row = conn.execute(f'SELECT incarnation::text,revision,xmin::text FROM {schema.REVISION} '
         'WHERE scope=%s', ('SHADOW',)).fetchone()
     if row is None:
@@ -421,7 +426,7 @@ def read_owned(conn, database_url, *, include_paper=True, now=None, only_scope=N
     """
     scopes=_selected_scopes(include_paper,only_scope)
     instant = now or datetime.now(timezone.utc)
-    schema.require_schema(conn)
+    _require_display_schema(conn)
     facts_error = None
     if facts is None and native_subjects is None:
         try:

@@ -97,7 +97,7 @@ def subjects(conn, database_url, *, facts=None):
     """
     from sentinel.panel import display_dependencies
 
-    schema.require_schema(conn)
+    read_projection._require_display_schema(conn)
     facts = read_projection._subject_facts(conn) if facts is None else facts
     result = {}
     for scope in ('SHADOW', 'PAPER'):

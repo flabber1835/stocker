@@ -107,8 +107,13 @@ def _replay(conn):
 def validate_control_lineage(conn, control: AutomationControl) -> AutomationControl:
     from sentinel import structural_verification
 
-    generation, enabled, kill_engaged, binding = structural_verification.material(
+    history = structural_verification.material(
         conn, slot='automation-control-history', key=None, load=lambda: _replay(conn))
+    return compare_control(control, history)
+
+
+def compare_control(control: AutomationControl, history) -> AutomationControl:
+    generation, enabled, kill_engaged, binding = history
     if generation != control.generation:
         raise AutomationRefused(
             "automation control generation disagrees with immutable history")

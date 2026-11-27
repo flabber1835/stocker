@@ -10,8 +10,9 @@ from fractions import Fraction
 
 from sentinel import local_paper, operational_evidence
 from sentinel.execution import journal, native_activity
+from sentinel.execution.contract import Side
 from sentinel.execution.numeric import decimal_text, exact_decimal
-from sentinel.execution.states import IN_FLIGHT, CommandState
+from sentinel.execution.states import CommandState
 from sentinel.paper.inspection import _inspection_account_or_refuse
 
 POLL_SECONDS = 60
@@ -62,20 +63,20 @@ def _fact(order):
             if order.filled_average_price is not None else None)
     if order.notional is not None:
         fact["notional"] = decimal_text(order.notional)
+    if order.side is Side.SELL:
+        fact["symbol"] = order.instrument.symbol
     return fact
 
 
 def _commands(conn, bound, *, plan_id=None):
     from sentinel.execution.identity import DeploymentIdentity
-    commands = journal.load_commands(conn, DeploymentIdentity(*bound))
+    commands = journal.in_flight_commands(conn, DeploymentIdentity(*bound))
     facts = []
     market_plans = set()
     for c in commands:
-        if c.state not in IN_FLIGHT:
-            continue
         t = c.order_terms
         if (c.state not in {CommandState.ACKNOWLEDGED, CommandState.PARTIALLY_FILLED}
-                or c.side.value != "BUY" or not c.broker_order_id
+                or not c.broker_order_id
                 or not c.instrument.broker_id
                 or (c.quantity is not None and (not c.remaining.is_finite() or c.remaining <= 0))
                 or t.time_in_force != "day" or t.order_class != "simple" or t.extended_hours
@@ -84,20 +85,37 @@ def _commands(conn, bound, *, plan_id=None):
         if t.order_type == "market":
             market_plans.add(c.identity.plan_id)
             from sentinel.execution.market_buy_policy import MarketBuyPolicy
-            if (MarketBuyPolicy.from_env() is None
-                    or (c.quantity is not None and c.quantity != c.quantity.to_integral_value())
+            if ((c.side is Side.BUY and (MarketBuyPolicy.from_env() is None
+                         or (c.quantity is not None and c.quantity != c.quantity.to_integral_value())))
+                    or (c.side is Side.SELL and (c.quantity is None or c.notional is not None))
                     or (c.state is CommandState.ACKNOWLEDGED and c.filled_quantity != 0)
                     or (c.state is CommandState.PARTIALLY_FILLED
                         and (c.filled_quantity <= 0 or c.filled_average_price is None))):
                 return None
-        elif (t.order_type != "limit" or t.limit_price is None
+        elif (c.side is not Side.BUY or t.order_type != "limit" or t.limit_price is None
                 or not t.limit_price.is_finite() or t.limit_price <= 0):
             return None
-        facts.append(_fact(c))
+        fact = _fact(c)
+        if c.side is Side.SELL:
+            fact["security_id"] = c.security_id
+        facts.append(fact)
     if market_plans and (len(market_plans) != 1 or not _market_working(facts)
             or len({f["asset_id"] for f in facts}) != len(facts)
             or len({f["broker_order_id"] for f in facts}) != len(facts)):
         return None
+    if {c.side for c in commands} == {Side.BUY, Side.SELL}:
+        from sentinel.core.decision import DEFENSIVE_SECURITY_ID
+        from sentinel.execution import market_reservation_record
+        from sentinel.paper.market_reservations import member
+        purchases = [c for c in commands if c.side is Side.BUY]
+        if (len(purchases) != 1 or purchases[0].security_id != DEFENSIVE_SECURITY_ID
+                or purchases[0].notional is None or len(market_plans) != 1):
+            return None
+        basis = market_reservation_record.read(conn, purchases[0].identity.plan_id)
+        if (not basis or basis["deployment"] != purchases[0].identity.deployment.to_dict()
+                or basis["members"] != {purchases[0].client_key: member(purchases[0])}
+                or not {c.client_key for c in commands if c.side is Side.SELL} <= set(basis["sales"])):
+            return None
     return sorted(facts, key=lambda f: f["client_key"])
 
 
@@ -119,7 +137,10 @@ async def _native_orders(reader, commands):
     if any(o.external_replacement for o in orders):
         return None
     native = sorted((_fact(o) for o in orders), key=lambda f: f["client_key"] or "")
-    return native if native == commands else None
+    # The display reader has no strategy identifier resolver. Native asset ID,
+    # ticker, client key and economics must match before retaining the journal ID.
+    expected = [{k: v for k, v in command.items() if k != "security_id"} for command in commands]
+    return commands if native == expected else None
 
 
 def _recorded_order_proof(conn, *, account, now, schema, plan_id=None):
@@ -159,7 +180,7 @@ def recorded_reservation(conn, *, account, now):
 
 
 def recorded_market_working(conn, *, account, now, plan_id):
-    """Match the current plan's working market order without valuing a cash hold."""
+    """Match the current plan's working market orders without valuing sale proceeds."""
     if not plan_id:
         return None
     proof = _recorded_order_proof(conn, account=account, now=now,
@@ -173,6 +194,14 @@ def recorded_market_working(conn, *, account, now, plan_id):
             or native.get("cash") != decimal_text(cash)
             or native.get("buying_power") != decimal_text(power)):
         return None
+    if any(o["side"] == "SELL" for o in commands):
+        # A sale cannot explain a buying-power hold. In a mixed sleeve sweep
+        # only the BIL order's unfilled dollars can explain a discrepancy.
+        unfilled = sum((Fraction(o["notional"]) - Fraction(o["filled_quantity"])
+                        * Fraction(o["filled_average_price"] or "0")
+                        for o in commands if o["side"] == "BUY"), Fraction(0))
+        if Fraction(cash) - Fraction(power) > max(0, unfilled) + 1:
+            return None
     return {"orders": commands, "valid_until": closed}
 
 

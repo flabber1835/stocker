@@ -2376,6 +2376,7 @@ def alert_dispatcher_row(*, installed: Optional[bool],
 
 
 MARKET_BUY_OBSERVATION = "MARKET_BUY_OBSERVATION"
+MARKET_SALE_OBSERVATION = "MARKET_SALE_OBSERVATION"
 
 
 def alpaca_account_row(

@@ -106,14 +106,14 @@ def _signature(value):
     return _receipt_hmac({'purpose': SCHEMA, 'installation': value})
 
 
-def _function_contract(conn):
+def _function_contract(conn, verifier=None):
     # Pin WHEN predicates, signatures, security settings and full definitions,
     # rather than merely recognizing names and trigger event flags.
     from sentinel.operational_catalog import require_extension
-    require_extension(conn, __name__)
+    (verifier or require_extension)(conn, __name__)
 
 
-def installation(conn, *, required=False):
+def installation(conn, *, required=False, verifier=None):
     """Authenticate existing installation metadata without creating anything."""
     exists = conn.execute("SELECT to_regclass('public.sentinel_processed_sessions')").fetchone()[0]
     if exists is None:
@@ -152,7 +152,7 @@ def installation(conn, *, required=False):
              'OPERATIONAL_INSTALLATION_AUTHENTICATION_FAILED')
     system = conn.execute('SELECT system_identifier::text FROM pg_control_system()').fetchone()[0]
     _require(str(system) == value['system_identifier'], 'OPERATIONAL_INSTALLATION_DATABASE_CHANGED')
-    _function_contract(conn)
+    _function_contract(conn, verifier)
     return value
 
 

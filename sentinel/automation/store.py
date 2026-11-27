@@ -77,7 +77,7 @@ def _cycle(row) -> CycleRecord:
     return CycleRecord.model_validate(dict(zip(names, row, strict=True)))
 
 
-def load_control(conn, *, for_update: bool = False) -> AutomationControl:
+def _load_control_row(conn, *, for_update: bool = False) -> AutomationControl:
     suffix = " FOR UPDATE" if for_update else ""
     with conn.cursor() as cur:
         cur.execute(
@@ -88,9 +88,12 @@ def load_control(conn, *, for_update: bool = False) -> AutomationControl:
         raise MissingAutomationState(
             "durable automation control is missing; schema startup does not "
             "repair operational intent")
-    control = _control(row)
+    return _control(row)
+
+
+def load_control(conn, *, for_update: bool = False) -> AutomationControl:
     from sentinel.automation.control_integrity import validate_control_lineage
-    return validate_control_lineage(conn, control)
+    return validate_control_lineage(conn, _load_control_row(conn, for_update=for_update))
 
 
 def control_generation_action(conn, *, generation: int) -> str | None:

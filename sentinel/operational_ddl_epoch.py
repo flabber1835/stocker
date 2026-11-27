@@ -82,9 +82,12 @@ def install(conn):
     require_schema(conn)
 
 
-def current(conn):
+def current(conn, verifier=None):
     """Return the exact independent witness after validating its live guards."""
-    require_schema(conn)
+    if verifier is None:
+        require_schema(conn)
+    else:
+        verifier(conn, __name__)
     row=conn.execute('SELECT incarnation::text,epoch FROM sentinel_operational_ddl_epoch WHERE id=1').fetchone()
     if row is None:
         from sentinel.operational_catalog import OperationalCatalogRefused
