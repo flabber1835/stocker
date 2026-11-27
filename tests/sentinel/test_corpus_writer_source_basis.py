@@ -5,12 +5,14 @@ from pathlib import Path
 
 import pytest
 
+from tests.support.alpaca_coverage_source import CURRENT_STRATEGY
+
 from sentinel import corpus_writer_source_basis as basis
 from sentinel import semantic_source_basis as semantics
 from sentinel import worker_notification_source_basis as diagnostics
 from tests.support import publisher_source_proofs as proofs
 
-EXPECTED_STRATEGY_SHA256 = 'f99c01b114682c4270c035ac7722530757c845fcdfc37b5839619f94d77aefb5'
+EXPECTED_STRATEGY_SHA256 = CURRENT_STRATEGY
 
 
 @pytest.fixture

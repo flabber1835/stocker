@@ -36,7 +36,10 @@ zero difference still records a revision. The difference keeps the original
 capital-flow classification and settlement day. A fee revision never
 qualifies as an ordinary newly posted debit fee or cash funding receipt.
 The existing writer binds the evidence, cash membership, and publication
-cursor in one transaction. Previous cash rows, plan baselines, and
+cursor in one transaction. The ingestion savepoint also rolls back that work
+when an execution caller catches the refusal and commits a separate command
+or diagnostic update. A successful ingestion leaves the outer commit with the
+writer. Previous cash rows, plan baselines, and
 published performance snapshots remain immutable. A correction can change
 newly computed reporting for the affected interval, which should be marked
 as a revision, and invalidates a plan when the existing cash checks require

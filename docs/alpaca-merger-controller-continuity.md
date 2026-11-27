@@ -116,10 +116,14 @@ cannot be retired by this limited repair.
 
 This reviewed change advances the prospective strategy digest from
 `421a1697353ced9bdb0efba82150e900265c8f1bb7e296dbb7f6423b40a6cc81` to
-`f99c01b114682c4270c035ac7722530757c845fcdfc37b5839619f94d77aefb5`.
-The economic source contribution changes in the daily continuity compiler
-and authenticated snapshot correction admission. The canonical engine, profile,
-cash policy and controller rule remain the same. The retained checkpoint can
+`dd92db0ef465e62b3d8e18d1b70d562a611c3c4efe67528f48a87ad143ccc13e`.
+Three source contributions change: daily continuity, snapshot correction
+admission, and the broker reconciliation module. The broker reconciliation
+change is confined to the account runtime function, including native receipt
+restrictions and exact LIVE share increments. The test witness reconstructs
+all three predecessor source files from exact edits against the verified
+`2adeda3b` release. The canonical engine, profile, cash policy and controller
+rule remain the same. The retained checkpoint can
 cross only through the existing state-bound strategy transition. Existing signed
 authority does not authorize the prospective identity automatically.
 

@@ -7,13 +7,15 @@ from pathlib import Path
 
 import pytest
 
+from tests.support import alpaca_coverage_source as alpaca_coverage
+
 from sentinel import economic_manifest, publisher_pipeline_source_basis as basis
 from sentinel import semantic_source_basis as semantics
 from sentinel.feed import operational_snapshot as snapshot
 from sentinel.feed import publisher_pipeline as pipeline, rolling_publisher as lifecycle
 from tests.support.publisher_source_proofs import publisher_baseline
 
-EXPECTED_STRATEGY = 'f99c01b114682c4270c035ac7722530757c845fcdfc37b5839619f94d77aefb5'
+EXPECTED_STRATEGY = alpaca_coverage.CURRENT_STRATEGY
 HELPERS = ('ComparisonRefused', '_operational_source', '_latest', '_legacy_version',
            'published', 'freeze', 'publish', '_checkpoint')
 
@@ -223,7 +225,7 @@ def test_snapshot_identity_changes_only_for_its_exact_prepublication_guard(monke
     current = path.read_bytes()
     # Reconstruct the independently pinned pre-merger compiler. The new
     # supersession functions and publication edge have a distinct current hash.
-    historical = current
+    historical = alpaca_coverage.predecessor(name, current)
     start = historical.index(b'SUPERSESSION_SCHEMA = ')
     stop = historical.index(b'\nclass OperationalSnapshotRefused', start)
     historical = historical[:start] + b'\n' + historical[stop:]
@@ -330,7 +332,7 @@ def test_close_readiness_identity_requires_all_reviewed_compiler_bytes(monkeypat
 def test_state_only_recovery_snapshot_identity_has_exact_predecessor(monkeypatch):
     name = 'sentinel.feed.operational_snapshot'
     path = Path(snapshot.__file__).resolve()
-    current = path.read_bytes()
+    current = alpaca_coverage.predecessor(name, path.read_bytes())
     current_sha = hashlib.sha256(current).hexdigest()
     assert current_sha == economic_manifest.SNAPSHOT_RETIRED_EDGE_SHA256
     assert (economic_manifest.SNAPSHOT_RECOVERY_PREDECESSOR_SHA256
@@ -442,12 +444,16 @@ def test_state_only_recovery_snapshot_identity_has_exact_predecessor(monkeypatch
     assert hashlib.sha256(predecessor).hexdigest() == (
         economic_manifest.SNAPSHOT_RECOVERY_PREDECESSOR_SHA256)
 
-    source = semantics.economic_sources([name], schema='recovery-snapshot-proof')
-    assert source['files'] == [{'module': name, 'sha256':
-        economic_manifest.SNAPSHOT_RECOVERY_PREDECESSOR_SHA256}]
-    identity = economic_manifest.identity(schema='recovery-snapshot-proof')
-    assert {'module': name, 'sha256':
-        economic_manifest.SNAPSHOT_RECOVERY_PREDECESSOR_SHA256} in identity['files']
+    read = Path.read_bytes
+    with monkeypatch.context() as change:
+        change.setattr(Path, 'read_bytes',
+                       lambda candidate: current if candidate == path else read(candidate))
+        source = semantics.economic_sources([name], schema='recovery-snapshot-proof')
+        assert source['files'] == [{'module': name, 'sha256':
+            economic_manifest.SNAPSHOT_RECOVERY_PREDECESSOR_SHA256}]
+        identity = economic_manifest.identity(schema='recovery-snapshot-proof')
+        assert {'module': name, 'sha256':
+            economic_manifest.SNAPSHOT_RECOVERY_PREDECESSOR_SHA256} in identity['files']
 
     retired_guard = b'    if not (old_retired or new_retired):'
     assert current.count(retired_guard) == 1
@@ -459,7 +465,6 @@ def test_state_only_recovery_snapshot_identity_has_exact_predecessor(monkeypatch
             lambda module: changed_retirement if module == name else original_raw(module))
         assert {'module': name, 'sha256': changed_retirement_sha} in (
             economic_manifest.identity(schema='retired-edge-mutant')['files'])
-    read = Path.read_bytes
     with monkeypatch.context() as change:
         change.setattr(Path, 'read_bytes',
             lambda candidate: changed_retirement if candidate == path else read(candidate))

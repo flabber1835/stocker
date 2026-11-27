@@ -94,7 +94,8 @@ def _native_funding_shape(facts):
             facts.account_snapshot_sha256, facts.amounts)
 
 
-def _check_observation(conn, observation, *, commands, request, bound, actions):
+def _check_observation(conn, observation, *, commands, request, bound, actions,
+                       allow_native_receipts):
     if type(observation) is not BrokerObservation or not observation.is_complete:
         raise LiveOrderDeferred("LIVE_CONTEXT_OBSERVATION_INCOMPLETE")
     if not bound.identity.matches_account(observation.account_identity):
@@ -119,14 +120,14 @@ def _check_observation(conn, observation, *, commands, request, bound, actions):
                 or not _only_other_pending_actions(
                     conn, deployment=bound.identity, actions=actions, commands=commands,
                     observation=observation, expected=expected, actual=actual,
-                    requested_security=request.security_id)):
+                    requested_security=request.security_id,
+                    allow_native_receipts=allow_native_receipts)):
             raise LiveOrderDeferred("LIVE_CONTEXT_HELD_BOOK_RECONCILIATION_REQUIRED")
 
 
 def _only_other_pending_actions(conn, *, deployment, actions, commands, observation,
-                                expected, actual, requested_security):
-    from sentinel.execution.share_units import (
-        native_receipt_restrictions, pending_entitlements, scalar_position_restrictions)
+                                expected, actual, requested_security, allow_native_receipts):
+    from sentinel.execution.share_units import pending_entitlements, scalar_position_restrictions
 
     prior = reconcile.expected_book_from_commands(commands)
     increment = Decimal("0.000000001")
@@ -136,7 +137,9 @@ def _only_other_pending_actions(conn, *, deployment, actions, commands, observat
     restricted, explained = scalar_position_restrictions(
         actions=actions, commands=commands, expected=expected, prior=prior,
         observed=actual, increment=increment, pending=pending, mismatches=different)
-    if unexplained := different - explained:
+    if allow_native_receipts and (unexplained := different - explained):
+        from sentinel.execution.share_units import native_receipt_restrictions
+
         native = native_receipt_restrictions(conn, deployment=deployment, actions=actions,
             commands=commands, expected=expected, observation=observation, eligible=unexplained)
         restricted.update(native)
@@ -192,7 +195,8 @@ async def load_live_order_context(
         raise LiveOrderDeferred("LIVE_CONTEXT_ACCOUNT_CHANGED_DURING_OBSERVATION")
     if _native_funding_shape(before.native_funding) != _native_funding_shape(after.native_funding):
         raise LiveOrderDeferred("LIVE_CONTEXT_FUNDING_CHANGED_DURING_OBSERVATION")
-    _check_observation(conn, observation, commands=commands, request=request, bound=bound, actions=actions)
+    _check_observation(conn, observation, commands=commands, request=request, bound=bound, actions=actions,
+                       allow_native_receipts=getattr(broker, "financial_activity_sse", False) is True)
     if (observation.started_at is None or observation.started_at < started
             or observation.observed_at > completed):
         raise LiveOrderDeferred("LIVE_CONTEXT_OBSERVATION_CLOCK_CHANGED")

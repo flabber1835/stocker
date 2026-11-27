@@ -28,12 +28,31 @@ come from Sentinel's own journal before the native position date. A known
 overlapping share-unit event, incompatible fill history, or command in flight
 leaves the ordinary reconciliation restriction or refusal in place.
 
+The same restricted classification can establish a cash-only or mixed merger
+when the complete original group includes its distinct posted cash leg. A
+cash-only group removes the old shares and contains exactly one confirmed
+positive cash payout. A mixed group additionally delivers shares of the
+identified successor at the exact documented ratio. Every share leg must have
+zero cash effect. The cash leg must have zero shares and an actual amount that
+matches the declared payout in that group. Company terms or a price times
+shares cannot substitute for a posted amount. Missing or revised legs remain
+pending and cannot explain the position change.
+
 A stock dividend uses one original executed USD `DIV/SDIV` row with exact
 asset UUID and zero cash. Require the entitled share balance to equal the
 date-bounded owned quantity, the posted share delta to equal `paid_qty`, and
 the fresh position to equal `new_qty = entitled_qty + paid_qty`. Retain the
 published rate as evidence. Its display precision does not change Alpaca's
 exact posted quantity. The sole asset remains restricted.
+
+A documented stock spinoff or rights distribution can explain a newly posted
+child position with its own stable asset ID. Require the executed, zero-cash
+receipt to specify the same exact quantity as the completely observed position,
+with no existing command history for the child. Validate the stated distribution
+rate and position date. This accounts only for custody of that received child.
+The descriptive parent symbol supplies no parent identity, entitlement sizing,
+exercise instructions or changes to its holdings. Other discrepancies stay
+under the usual independent reconciliation checks.
 
 When those proofs agree, classify just the proven old/new quantity differences
 as explained and restrict both identities from submission. A recognized group
@@ -44,8 +63,8 @@ outcomes retain their existing handling. This limited implementation does not
 adopt the successor for later trading. Exact positive account balances get no
 authority beyond the restricted classification.
 
-Incomplete or overlapping groups, missing IDs, lagging position reads, mixed
-consideration, cash in lieu, revised groups, and transfers require additional
+Incomplete or overlapping groups, missing IDs, lagging position reads,
+cash in lieu, revised groups, and transfers require additional
 evidence. No provider completion claim is inferred from a quiet stream. If a
 revision to a recorded group is observed, its original proof cannot be used
 to explain current positions until its native revision is resolved.

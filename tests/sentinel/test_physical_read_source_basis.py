@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.support.alpaca_coverage_source import CURRENT_STRATEGY
+
 from sentinel import close_feed_source_basis as close_basis, physical_read_source_basis as basis
 from sentinel import economic_manifest
 from sentinel.feed.rolling_contract import digest
@@ -264,7 +266,7 @@ def test_other_modules_never_gain_physical_mapping():
 
 
 def test_unsealed_mapping_cannot_retain_the_current_strategy(monkeypatch):
-    current_strategy = 'f99c01b114682c4270c035ac7722530757c845fcdfc37b5839619f94d77aefb5'
+    current_strategy = CURRENT_STRATEGY
     assert digest(production_strategy()[1]) == current_strategy
     monkeypatch.setattr(basis,'PROFILE_SHA256','0'*64)
     assert digest(production_strategy()[1]) != current_strategy

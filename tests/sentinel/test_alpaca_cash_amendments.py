@@ -8,8 +8,10 @@ import pytest
 from sentinel import binding, schema
 from sentinel.execution import alpaca_cash_amendments as revisions, broker_cash
 from sentinel.execution.alpaca_asset_id import AssetIdAlpacaExecutionBroker
+from sentinel.execution.contract import Completeness
 from sentinel.feed import store as feed_store
 from tests.sentinel.test_alpaca_boundary_overlay import Httpx, PAPER, Response, pg, sse
+from tests.sentinel.live_authority_fixtures import live_fixture
 from tests.support.postgres import drop_public_tables
 
 
@@ -126,7 +128,6 @@ def test_internal_fee_revision_requires_qualified_amount_and_existing_zero_witne
     revisions.verify_restored(conn, **bound, expected_commitment=result.commitment)
 
 
-@pytest.mark.parametrize("scope", ("alpaca",), indirect=True)
 def test_selected_activity_sse_applies_cash_replacement_and_publishes_cursor(scope):
     conn, bound = scope
     start = datetime.fromisoformat("2026-08-19T16:00:00+00:00")
@@ -150,8 +151,11 @@ def test_selected_activity_sse_applies_cash_replacement_and_publishes_cursor(sco
                         "created_at": "2026-08-01T00:00:00Z"},
         "/v2beta1/events/activities": activity,
     })
+    live = (live_fixture(operations=("READ", "ACTIVITY_READ"), account_id=ACCOUNT,
+                         deployment_id="revision-tests") if bound["broker"] == "alpaca-live" else None)
     broker = AssetIdAlpacaExecutionBroker(api_key="offline-test", secret_key="offline-test",
-        base_url=PAPER, http_provider=lambda: http)
+        base_url=live.subject.base_url if live else PAPER, http_provider=lambda: http,
+        live_admission=live.admission if live else None)
     result = asyncio.run(broker_cash.ingest_account_cash(
         conn, **bound, broker_adapter=broker, through=through))
     conn.commit()
@@ -172,3 +176,54 @@ def test_selected_activity_sse_applies_cash_replacement_and_publishes_cursor(sco
     assert broker_cash.load_activity_state(conn, **bound) == next_state
     revisions.verify_restored(conn, **bound, expected_commitment=next_state.cash_revision_commitment)
     assert all(method == "GET" for method, *_ in http.calls)
+
+
+def test_refused_intake_rolls_back_staged_receipts_before_caller_commits_other_work(scope):
+    conn, bound = scope
+    start = datetime.fromisoformat("2026-08-19T16:00:00+00:00")
+    through = start + timedelta(days=1)
+    conn.execute("UPDATE sentinel_account_binding SET established_at=%s WHERE id=1", (start,))
+    conn.commit()
+    earlier = _event(1, "100")
+    ordinary = _event(2, "5")
+    valid = _event(3, "98", predecessor=earlier)
+    bad_fork = _event(4, "97", predecessor=earlier)
+
+    class CashReader:
+        financial_activity_sse = True
+        later = False
+
+        async def account_cash_activities(self, *, after, through, since_event_id=None):
+            event = ordinary if self.later else earlier
+            pairs = ((earlier, valid), (earlier, bad_fork)) if self.later else ()
+            return broker_cash.BrokerCashActivityBatch(
+                activities=(broker_cash.BrokerCashActivity(event["ref_id"], "CSD", DAY,
+                                                            Decimal(event["net_amount"]), event),),
+                processed_through=through, completeness=Completeness.COMPLETE,
+                last_activity_id=event["ref_id"],
+                last_event_id=bad_fork["event_id"] if self.later else earlier["event_id"],
+                native_account=(bound["broker"], bound["account_id"], ACCOUNT),
+                cash_revisions=tuple(revisions.decode(*pair, native_account_uuid=ACCOUNT) for pair in pairs))
+
+    broker = CashReader()
+
+    def ingest(upper):
+        return asyncio.run(broker_cash.ingest_account_cash(conn, **bound, broker_adapter=broker, through=upper))
+
+    assert ingest(through).balance_total == Decimal("100")
+    conn.rollback()
+    assert broker_cash.load_activity_state(conn, **bound) is None
+    assert conn.execute("SELECT COUNT(*) FROM sentinel_cash_flows").fetchone() == (0,)
+    original = ingest(through)
+    conn.commit()
+    broker.later = True
+    conn.execute("INSERT INTO sentinel_processed_sessions(cursor_name,session,state)"
+                 " VALUES ('test:unrelated-update',%s,'{}'::jsonb)", (DAY,))
+    with pytest.raises(revisions.CashRevisionRefused, match="already consumed"):
+        ingest(through + timedelta(seconds=1))
+    conn.commit()
+    assert conn.execute("SELECT 1 FROM sentinel_processed_sessions"
+                        " WHERE cursor_name='test:unrelated-update'").fetchone() == (1,)
+    assert broker_cash.load_activity_state(conn, **bound) == original
+    assert conn.execute("SELECT amount FROM sentinel_cash_flows").fetchall() == [(Decimal("100"),)]
+    revisions.verify_restored(conn, **bound, expected_commitment=None)

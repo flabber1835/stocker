@@ -437,9 +437,10 @@ def test_profile_missing_tamper_duplicate_and_unknown_module_are_refused(monkeyp
 
 def test_full_economic_manifest_retains_prior_witness_and_names_current_successor():
     from sentinel import economic_manifest, operation_read_source_basis
+    from tests.support.alpaca_coverage_source import CURRENT_DATA_SEMANTICS
     value = economic_manifest.identity(schema='checkpoint-read-qualification')
     assert value['economic_implementation']['preserved_behavior'] is False
-    assert value['sha256'] == '4e0527eb06780b744fefeadc47e2b18c2cdaacfa77ffa24946a569c5e59b0b1b'
+    assert value['sha256'] == CURRENT_DATA_SEMANTICS
     assert value['sha256'] != economic_manifest.PREDECESSOR_DATA_SEMANTICS_SHA256
     assert operation_read_source_basis._profile()['base_revision'] == '277160861e2353d8ad93d15da8e2615ebdb11c18'
 

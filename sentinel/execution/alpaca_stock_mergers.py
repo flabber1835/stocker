@@ -30,8 +30,8 @@ def _scope(broker, account_id):
 
 
 def _candidate(raw):
-    return raw.get('activity_type') in {'MA', 'CIL'} or (
-        raw.get('activity_type') == 'DIV' and raw.get('activity_subtype') == 'SDIV')
+    return raw.get('activity_type') in {'MA', 'CIL', 'SPIN'} or (
+        (raw.get('activity_type'), raw.get('activity_subtype')) in {('DIV', 'SDIV'), ('VOF', 'VDST')})
 
 
 def _check_raw(raw, *, native, key):
@@ -145,51 +145,75 @@ def _day(value):
 @dataclass(frozen=True)
 class Movement:
     group: tuple[str, str]
-    old_asset: str
-    new_asset: str
+    old_asset: str | None
+    new_asset: str | None
     old_quantity: Fraction
     new_quantity: Fraction
     position_date: date
     effective_date: date
 
 
-def _posted(raw, *, observed_at):
+def _posted(raw, *, observed_at, cash=Fraction(0)):
+    from sentinel.execution.alpaca import _activity_settle_date
+
     executed = datetime.fromisoformat(raw['executed_at'].replace('Z', '+00:00'))
     return (raw.get('status') == 'executed' and raw.get('currency') == 'USD'
-            and not raw.get('previous_id') and not _money_or_qty(raw['net_amount'])
+            and not raw.get('previous_id') and _money_or_qty(raw['net_amount']) == cash
             and executed.utcoffset() is not None and executed <= observed_at
-            and _day(raw['settle_date']) <= observed_at.date())
+            and _activity_settle_date(raw['settle_date']) <= observed_at.date())
 
 
 def _movement(group, rows, *, observed_at):
-    if len(rows) != 2:
+    subtype = rows[0].get('activity_subtype')
+    sizes = {'SMA': 2, 'SCMA': 3, 'CMA': 2}
+    if len(rows) != sizes.get(subtype):
         return None
     try:
-        quantities = []
-        for raw in rows:
-            if (raw.get('activity_type') != 'MA' or raw.get('activity_subtype') != 'SMA'
-                    or not _posted(raw, observed_at=observed_at)):
-                return None
-            quantities.append((_money_or_qty(raw['qty']), raw))
-        quantities.sort(key=lambda item: item[0])
-        (removed, old), (received, new) = quantities
+        if any((raw.get('activity_type'), raw.get('activity_subtype')) != ('MA', subtype)
+               for raw in rows):
+            return None
+        quantities = [(_money_or_qty(raw['qty']), raw) for raw in rows]
+        old_legs = [(qty, raw) for qty, raw in quantities if qty < 0]
+        cash_legs = [raw for qty, raw in quantities if qty == 0]
+        new_legs = [(qty, raw) for qty, raw in quantities if qty > 0]
+        if (len(old_legs), len(cash_legs), len(new_legs)) != {
+                'SMA': (1, 0, 1), 'SCMA': (1, 1, 1), 'CMA': (1, 1, 0)}[subtype]:
+            return None
+        (removed, old), = old_legs
         detail = old['details']
-        fields = ('position_date', 'effective_date', 'acquiree_qty', 'acquirer_qty',
-                  'acquirer_rate', 'acquiree_rate', 'acquiree_cusip', 'acquirer_cusip')
-        if any(detail[key] != new['details'][key] for key in fields):
+        common = ('position_date', 'effective_date', 'acquiree_qty', 'acquiree_cusip')
+        if (any(detail[key] != raw['details'][key] for raw in rows for key in common)
+                or any(raw['details'].get('cash_in_lieu') is not None for raw in rows)):
             return None
         position, effective = _day(detail['position_date']), _day(detail['effective_date'])
-        old_qty, new_qty = (_money_or_qty(detail[key]) for key in ('acquiree_qty', 'acquirer_qty'))
-        old_rate, new_rate = (_money_or_qty(detail[key]) for key in ('acquiree_rate', 'acquirer_rate'))
-        old_asset, new_asset = old['asset'], new['asset']
-        if (position > effective or effective > observed_at.date() or min(old_qty, new_qty, old_rate, new_rate) <= 0
-                or removed != -old_qty or received != new_qty or new_qty * old_rate != old_qty * new_rate
-                or any(raw['details'].get(field) is not None for raw in rows
-                       for field in ('cash_rate', 'cash_payout', 'cash_in_lieu'))
-                or not _uuid(old_asset['id']) or not _uuid(new_asset['id']) or old_asset['id'] == new_asset['id']
-                or any(not _CUSIP.fullmatch(detail[key]) or leg.get('cusip') != detail[key]
-                       for key, leg in (('acquiree_cusip', old_asset), ('acquirer_cusip', new_asset)))
-                or old_asset['cusip'] == new_asset['cusip']):
+        old_qty, old_asset = _money_or_qty(detail['acquiree_qty']), old['asset']
+        if (position > effective or effective > observed_at.date() or removed != -old_qty
+                or not _uuid(old_asset['id']) or not _CUSIP.fullmatch(detail['acquiree_cusip'])
+                or old_asset.get('cusip') != detail['acquiree_cusip']
+                or not _posted(old, observed_at=observed_at)):
+            return None
+        if cash_legs:
+            cash, = cash_legs
+            payout = _money_or_qty(cash['details']['cash_payout'])
+            if (payout <= 0 or not _posted(cash, observed_at=observed_at, cash=payout)
+                    or any(_money_or_qty(raw['details']['cash_payout']) != payout for raw in rows)):
+                return None
+        elif any(raw['details'].get(field) is not None for raw in rows
+                 for field in ('cash_rate', 'cash_payout')):
+            return None
+        if not new_legs:
+            return Movement(group, old_asset['id'], None, old_qty, Fraction(0), position, effective)
+        (received, new), = new_legs
+        fields = ('acquirer_qty', 'acquirer_rate', 'acquiree_rate', 'acquirer_cusip')
+        new_qty, new_rate, old_rate = (_money_or_qty(detail[key]) for key in fields[:3])
+        new_asset = new['asset']
+        if (any(detail[key] != raw['details'][key] for raw in rows for key in fields)
+                or min(new_qty, new_rate, old_rate) <= 0 or received != new_qty
+                or new_qty * old_rate != old_qty * new_rate
+                or not _posted(new, observed_at=observed_at) or not _uuid(new_asset['id'])
+                or old_asset['id'] == new_asset['id'] or old_asset['cusip'] == new_asset.get('cusip')
+                or not _CUSIP.fullmatch(detail['acquirer_cusip'])
+                or new_asset.get('cusip') != detail['acquirer_cusip']):
             return None
         return Movement(group, old_asset['id'], new_asset['id'], old_qty, new_qty, position, effective)
     except (KeyError, ValueError, TypeError, AttributeError, ArithmeticError):
@@ -218,8 +242,34 @@ def _stock_dividend(group, rows, *, observed_at):
         return None
 
 
+def _child_distribution(group, rows, *, observed_at):
+    if len(rows) != 1:
+        return None
+    raw, = rows
+    kind = raw.get('activity_type')
+    if kind != 'SPIN' and (kind, raw.get('activity_subtype')) != ('VOF', 'VDST'):
+        return None
+    try:
+        detail = raw['details']
+        asset = raw['asset']['id']
+        paid, entitled = (_money_or_qty(detail[key]) for key in ('new_qty', 'source_qty'))
+        position, effective = _day(detail['position_date']), _day(detail['ex_date'])
+        paid_rate, source_rate = (
+            (_money_or_qty(detail['new_rate']), _money_or_qty(detail['source_rate']))
+            if kind == 'SPIN' else (_money_or_qty(detail['rate']), Fraction(1)))
+        if (not _posted(raw, observed_at=observed_at) or not _uuid(asset)
+                or min(paid, entitled, paid_rate, source_rate) <= 0 or _money_or_qty(raw['qty']) != paid
+                or paid * source_rate != entitled * paid_rate
+                or position > effective or effective > observed_at.date()
+                or any(detail.get(key) is not None for key in ('cash_payout', 'cash_in_lieu'))):
+            return None
+        return Movement(group, None, asset, Fraction(0), paid, position, effective)
+    except (KeyError, ValueError, TypeError, AttributeError, ArithmeticError):
+        return None
+
+
 def movements(raw_events, *, observed_at):
-    """Recognize positively provable stock-only groups."""
+    """Recognize complete, exactly identified share-changing groups."""
     groups = defaultdict(list)
     assets = defaultdict(set)
     for row in raw_events:
@@ -236,12 +286,14 @@ def movements(raw_events, *, observed_at):
     recognized = []
     for group, rows in sorted(groups.items()):
         item = (_movement(group, rows, observed_at=observed_at)
-                or _stock_dividend(group, rows, observed_at=observed_at))
+                or _stock_dividend(group, rows, observed_at=observed_at)
+                or _child_distribution(group, rows, observed_at=observed_at))
         if item is not None:
             recognized.append(item)
     # A later compound asset movement needs date-ordered ownership replay.
     return tuple(item for item in recognized
-                 if assets[item.old_asset] == assets[item.new_asset] == {item.group})
+                 if (item.old_asset is None or assets[item.old_asset] == {item.group})
+                 and (item.new_asset is None or assets[item.new_asset] == {item.group}))
 
 
 def explain(*, movements, commands, expected, observation, eligible):
@@ -253,21 +305,41 @@ def explain(*, movements, commands, expected, observation, eligible):
         positions[position.instrument.broker_id].append(position)
     restrictions = {}
     for item in movements:
+        if item.old_asset is None:
+            successors = positions.get(item.new_asset, ())
+            if len(successors) != 1:
+                continue
+            child, = successors
+            cid = child.instrument.security_id
+            if (cid in restrictions or expected.get(cid, 0)
+                    or Fraction(child.quantity) != item.new_quantity
+                    or any(c.security_id == cid or c.instrument.broker_id == item.new_asset for c in commands)
+                    or any(o.is_working and (o.instrument.security_id == cid
+                        or o.instrument.broker_id == item.new_asset) for o in observation.orders)
+                    or not eligible(item, (), {cid: item.new_asset})):
+                continue
+            restrictions[cid] = 'CORPORATE_ACTION_RECEIPT_RESTRICTED: ' + ':'.join(item.group)
+            continue
         old_ids = {c.security_id for c in commands if c.instrument.broker_id == item.old_asset}
-        successors = positions.get(item.new_asset, ())
         same_asset = item.old_asset == item.new_asset
-        if (len(old_ids) != 1 or len(successors) != 1
-                or (not same_asset and item.old_asset in positions)):
+        if len(old_ids) != 1 or (not same_asset and item.old_asset in positions):
             continue
-        successor, = successors
         old, = old_ids
-        new = successor.instrument.security_id
-        if ((old == new) != same_asset or old in restrictions or new in restrictions
+        if (old in restrictions
                 or (not same_asset and any(p.instrument.security_id == old for p in observation.positions))
-                or Fraction(expected.get(old, 0)) != item.old_quantity
-                or Fraction(successor.quantity) - Fraction(expected.get(new, 0)) != item.new_quantity):
+                or Fraction(expected.get(old, 0)) != item.old_quantity):
             continue
-        pair = {old: item.old_asset, new: item.new_asset}
+        pair = {old: item.old_asset}
+        if item.new_asset is not None:
+            successors = positions.get(item.new_asset, ())
+            if len(successors) != 1:
+                continue
+            successor, = successors
+            new = successor.instrument.security_id
+            if ((old == new) != same_asset or new in restrictions
+                    or Fraction(successor.quantity) - Fraction(expected.get(new, 0)) != item.new_quantity):
+                continue
+            pair[new] = item.new_asset
         intersect = tuple(c for c in commands
             if c.security_id in pair or c.instrument.broker_id in pair.values())
         if (any(c.state in IN_FLIGHT or pair.get(c.security_id) != c.instrument.broker_id for c in intersect)
@@ -276,7 +348,7 @@ def explain(*, movements, commands, expected, observation, eligible):
                 or not eligible(item, intersect, pair)):
             continue
         reason = 'CORPORATE_ACTION_RECEIPT_RESTRICTED: ' + ':'.join(item.group)
-        restrictions.update({old: reason, new: reason})
+        restrictions.update(dict.fromkeys(pair, reason))
     return restrictions
 
 

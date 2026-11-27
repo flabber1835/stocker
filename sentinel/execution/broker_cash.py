@@ -428,7 +428,7 @@ def _native_cash_ledger(conn, *, broker: str, account_id: str):
 
 
 def _current_cash_ledger(conn, *, activity_state: CashActivityState):
-    if (activity_state.broker != "alpaca"
+    if (activity_state.broker not in {"alpaca", "alpaca-live"}
             or activity_state.activity_identity_scheme != ACTIVITY_IDENTITY_SCHEME
             or _membership_state(conn, activity_state.broker, activity_state.account_id) != activity_state):
         raise BrokerCashAuthorityRefused(
@@ -737,11 +737,24 @@ async def ingest_account_cash(
         through: Optional[datetime] = None, qualify_postings: bool = False) -> CashActivityState:
     """Fetch one complete bounded interval and advance its cursor atomically.
 
-    No row is written until the adapter has proved that the whole paginated
-    interval completed.  The caller holds Sentinel's session writer lock; its
-    commit/rollback therefore covers events and cursor together.
+    The caller owns the writer lock and outer transaction. A refusal can be
+    caught and followed by a separate durable command update, so staged rows
+    also need a rollback boundary inside that transaction.
     """
+    from psycopg.pq import TransactionStatus
+
     prior = load_activity_state(conn, broker=broker, account_id=account_id)
+    if conn.info.transaction_status != TransactionStatus.INTRANS:
+        raise BrokerCashAuthorityRefused("cash activity ingestion requires a caller-owned transaction")
+    with conn.transaction():
+        return await _ingest_account_cash(
+            conn, prior=prior, broker_adapter=broker_adapter, broker=broker,
+            account_id=account_id, through=through, qualify_postings=qualify_postings)
+
+
+async def _ingest_account_cash(
+        conn, *, prior, broker_adapter, broker: str, account_id: str,
+        through: Optional[datetime], qualify_postings: bool) -> CashActivityState:
     upper = through or datetime.now(timezone.utc)
     if upper.tzinfo is None:
         raise BrokerCashAuthorityRefused(

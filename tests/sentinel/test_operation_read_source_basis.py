@@ -12,11 +12,12 @@ import pytest
 from sentinel import economic_manifest as economic, operation_read_source_basis as basis
 from sentinel.feed.rolling_contract import digest
 from sentinel.strategy import production_strategy
+from tests.support import alpaca_coverage_source as alpaca_coverage
 
 BASE = '277160861e2353d8ad93d15da8e2615ebdb11c18'
 FIXTURE = Path(__file__).resolve().parents[1]/'support/operation-read-277-sources.json'
 FIXTURE_SHA = '3d7fd186d316c3285cde43af4735cb389c66fe72196ce749a89e0acc14e640c0'
-STRATEGY = 'f99c01b114682c4270c035ac7722530757c845fcdfc37b5839619f94d77aefb5'
+STRATEGY = alpaca_coverage.CURRENT_STRATEGY
 SEMANTICS = '38c750bd9bb244bc71600aaeba8c4aad22d2095747f4199e9ac4e0bd433425cb'
 
 
@@ -70,6 +71,8 @@ def reconstruct(module, raw):
 @pytest.mark.parametrize('module',sorted(basis.BASELINES))
 def test_full_reviewed_compiler_reconstructs_actual_independent_predecessor(module):
     raw=current(module)
+    if module == 'sentinel.execution.reconcile':
+        raw = alpaca_coverage.predecessor(module, raw)
     reconstruct(module,raw)
     from tests.sentinel.test_fractional_source_basis import qualified_predecessor
     assert sha(qualified_predecessor(module,raw))==basis.CANDIDATES[module]!=basis.BASELINES[module]
@@ -164,9 +167,11 @@ def test_current_strategy_and_reviewed_operation_read_contributions_remain_exact
     profile=economic.manifest()
     assert value['sha256']==value['implementation_sha256']!=SEMANTICS
     assert value['economic_implementation']['preserved_behavior'] is False
-    current = {item['module']:item['sha256'] for item in value['files']}
-    assert all(current[module] == profile['input_compilers'][module]
-               for module in basis.BASELINES)
+    contributions = {item['module']:item['sha256'] for item in value['files']}
+    feed = 'sentinel.execution.feed_actions'
+    reconcile = 'sentinel.execution.reconcile'
+    assert contributions[feed] == profile['input_compilers'][feed]
+    assert contributions[reconcile] == sha(current(reconcile))
     assert digest(production_strategy()[1])==STRATEGY
 
 

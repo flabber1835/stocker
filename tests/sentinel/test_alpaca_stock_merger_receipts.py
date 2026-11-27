@@ -72,6 +72,45 @@ def test_exact_fractional_merger_works_in_both_arrival_orders_and_restricts_both
         assert restricted == dict.fromkeys(('old', 'new'), 'CORPORATE_ACTION_RECEIPT_RESTRICTED: ca:group')
 
 
+@pytest.mark.parametrize('subtype', ['CMA', 'SCMA'])
+def test_merger_with_cash_requires_a_distinct_verified_cash_posting(subtype):
+    old, new = legs()
+    for raw in (old, new):
+        raw['activity_subtype'] = subtype
+        raw['details'].update(cash_rate='21', cash_payout='5.25')
+    cash = dict(old, asset=None, qty='0', net_amount='5.25',
+                ref_id='00000000-0000-4000-8000-000000000003', event_id=f'01{3:024d}')
+    securities = (old, new) if subtype == 'SCMA' else (old,)
+    assert mergers.movements(securities, observed_at=NOW) == ()
+    assert mergers.movements((dict(cash, net_amount='5.24'), *securities), observed_at=NOW) == ()
+    assert mergers.movements((dict(cash, previous_id=old['ref_id']), *securities), observed_at=NOW) == ()
+    positions = position_view() if subtype == 'SCMA' else replace(position_view(), positions=())
+    movement, = mergers.movements((cash, *reversed(securities)), observed_at=NOW)
+    restricted = mergers.explain(movements=(movement,), commands=(prior_command(),),
+        expected={'old': Decimal('0.25')}, observation=positions, eligible=lambda *_: True)
+    assert set(restricted) == ({'old', 'new'} if subtype == 'SCMA' else {'old'})
+
+
+@pytest.mark.parametrize('kind,subtype', [('SPIN', None), ('VOF', 'VDST')])
+def test_child_receipt_never_assumes_ownership_from_the_parent_symbol(kind, subtype):
+    _, raw = legs()
+    raw.update(activity_type=kind, activity_subtype=subtype, qty='0.375')
+    raw['details'] = dict(ca_id='child', group_id='one', source_symbol='DUPLICATE',
+        new_qty='0.375', source_qty='1.5', position_date=DAY.isoformat(),
+        ex_date=NOW.date().isoformat(), rate='0.25', new_rate='0.25', source_rate='1')
+    movement, = mergers.movements((raw,), observed_at=NOW)
+    commands = (prior_command(),)
+    observed = position_view(add=(BrokerPosition(OLD, Decimal('0.25')),))
+    restricted = mergers.explain(movements=(movement,), commands=commands,
+        expected={'old': Decimal('0.25')}, observation=observed, eligible=lambda *_: True)
+    assert set(restricted) == {'new'}
+    assert mergers.movements((dict(raw, asset=None),), observed_at=NOW) == ()
+    restricted = mergers.explain(movements=(movement,), commands=commands,
+        expected={'old': Decimal('0.25'), 'new': Decimal('0.1')},
+        observation=observed, eligible=lambda *_: True)
+    assert restricted == {}
+
+
 @pytest.mark.parametrize('damage', [None, 'missing asset', 'bad balance', 'wrong actual'])
 def test_dividend_requires_one_exact_same_asset_share_receipt(damage):
     raw, _ = legs()

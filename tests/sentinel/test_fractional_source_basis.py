@@ -9,8 +9,13 @@ import pytest
 
 from sentinel import fractional_execution_source_basis as basis, economic_manifest
 from sentinel.execution import reconcile
+from tests.support import alpaca_coverage_source as alpaca_coverage
 
 PREVIOUS = Path(__file__).parents[1] / 'support/fractional-reconcile-aed1.py.txt'
+
+
+def installed_predecessor():
+    return alpaca_coverage.predecessor(basis.MODULE, Path(reconcile.__file__).read_bytes())
 
 
 def qualified_predecessor(module, raw):
@@ -59,7 +64,7 @@ def opening_predecessor(raw):
 
 
 def test_opening_source_witness_reconstructs_installed_reconcile_exactly():
-    current = economic_manifest.previous_source(basis.MODULE, Path(reconcile.__file__).read_bytes())
+    current = economic_manifest.previous_source(basis.MODULE, installed_predecessor())
     prior = opening_predecessor(current)
     before, after = ast.parse(prior), ast.parse(current)
     assert len(before.body) == len(after.body)
@@ -77,7 +82,7 @@ def test_opening_source_witness_reconstructs_installed_reconcile_exactly():
 
 
 def test_checkpoint_read_source_reconstructs_both_reviewed_predecessors():
-    raw = Path(reconcile.__file__).read_bytes()
+    raw = installed_predecessor()
     profile = economic_manifest._retired_source_profile()
     delta = profile['reverse'][basis.MODULE]
     retired = economic_manifest._reverse_source_edit(basis.MODULE, raw, delta['successor'])
@@ -101,7 +106,7 @@ def test_checkpoint_read_source_reconstructs_both_reviewed_predecessors():
 
 
 def test_only_execution_definitions_change_and_action_input_bytes_stay_exact():
-    current = economic_manifest.previous_source(basis.MODULE, Path(reconcile.__file__).read_bytes())
+    current = economic_manifest.previous_source(basis.MODULE, installed_predecessor())
     prior = qualified_predecessor(basis.MODULE, current)
     assert prior != current
     before, after = ast.parse(prior), ast.parse(current)
@@ -118,6 +123,27 @@ def test_only_execution_definitions_change_and_action_input_bytes_stay_exact():
     assert changed == allowed
     assert economic_manifest.local_imports(prior, module_name=basis.MODULE) == economic_manifest.local_imports(current, module_name=basis.MODULE)
     assert basis.contribution(basis.MODULE, current) == basis.BEFORE
+
+
+def test_alpaca_receipt_reconciliation_changes_only_the_account_runtime():
+    current = Path(reconcile.__file__).read_bytes()
+    prior = installed_predecessor()
+    before, after = ast.parse(prior), ast.parse(current)
+    assert len(before.body) == len(after.body)
+    changed = []
+    for left, right in zip(before.body, after.body):
+        if ast.dump(left) != ast.dump(right):
+            assert left.name == right.name
+            changed.append(left.name)
+        else:
+            assert ast.get_source_segment(prior.decode(), left) == ast.get_source_segment(current.decode(), right)
+    assert changed == ['reconcile']
+    assert economic_manifest.local_imports(prior, module_name=basis.MODULE) == (
+        economic_manifest.local_imports(current, module_name=basis.MODULE))
+    assert basis.contribution(basis.MODULE, current) == hashlib.sha256(current).hexdigest()
+
+    with pytest.raises(AssertionError, match='not the reviewed Alpaca successor'):
+        alpaca_coverage.predecessor(basis.MODULE, current + b'\n# other change\n')
 
 
 def test_unknown_execution_or_action_source_never_inherits_qualified_identity():
@@ -225,7 +251,8 @@ def test_complete_runtime_transition_keeps_exact_pre_fractional_executable():
     assert recovery["execution/reconcile.py"] == basis._profile()["recovery_after"]
     raw = Path(reconcile.__file__).read_bytes()
     assert actual["execution/reconcile.py"] == hashlib.sha256(raw).hexdigest()
-    predecessor = economic_manifest.previous_source(basis.MODULE, raw)
+    predecessor = economic_manifest.previous_source(
+        basis.MODULE, alpaca_coverage.predecessor(basis.MODULE, raw))
     assert hashlib.sha256(predecessor).hexdigest() == basis._profile()["opening_after"]
     assert runtime_basis.predecessor_view(actual, previous=recovery) == recovery
     assert runtime_basis.predecessor_view(edited, previous=recovery) is edited
