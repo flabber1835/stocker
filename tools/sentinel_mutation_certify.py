@@ -55,13 +55,15 @@ MUTANTS = (
         name="submit-before-send-pending",
         relative_path="sentinel/execution/executor.py",
         original=(
-            "    pending = recovery.prepare_send(command)\n"
-            "    journal.save_command(conn, pending, previous=command.state)\n\n"
+            "        journal.save_command(conn, pending, previous=command.state)\n"
+            "        if type(broker) is GuardedExecutionBroker:\n"
+            "            submission_group.checkpointed(command.client_key)\n\n"
             "    try:\n"
             "        settled = await recovery.dispatch(broker, pending)\n"
         ),
         replacement=(
-            "    pending = recovery.prepare_send(command)\n\n"
+            "        if type(broker) is GuardedExecutionBroker:\n"
+            "            submission_group.checkpointed(command.client_key)\n\n"
             "    try:\n"
             "        settled = await recovery.dispatch(broker, pending)\n"
             "        journal.save_command(conn, pending, previous=command.state)\n"

@@ -64,4 +64,3 @@ def observe(*, batch, after, events, decode):
                        and (after is None or row["event_id"] > after))
         windows.append(TradeWindow(batch.native_account, after, batch.last_event_id, batch.processed_through,
                                    trades, decode))
-
