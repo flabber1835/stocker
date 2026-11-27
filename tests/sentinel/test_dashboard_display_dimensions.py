@@ -301,7 +301,7 @@ const heartbeat={textContent:''};
 const context={document:{body:{dataset:{health:p.health}},documentElement:{classList:{
   add:(...values)=>values.forEach(value=>classes.add(value)), remove:(...values)=>values.forEach(value=>classes.delete(value)),
   contains:(value)=>classes.has(value)}}},
-  navigator:{onLine:p.online},badge,heartbeat,generated:p.generated,verifiedWarning:null,
+  navigator:{onLine:p.online},badge,heartbeat,generated:p.generated,verifiedWarning:null,readFailure:null,
   invalidated:!p.online,hardFailure:false,refreshDelayed:false,originalCurrent:()=>p.current,
   withdrawPreparation:()=>{},clockReversed:()=>false,refreshDocument:()=>{}};
 vm.runInNewContext(p.script+';rememberWarning();'+p.action+'(false,false);',context);
