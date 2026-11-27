@@ -73,5 +73,6 @@ activity/order captures and independent balance reconciliation. An unfunded
 account can establish identity/reachability/response shape; it cannot prove
 financial behavior absent from that account. Keep provider completeness,
 settlement and live authority NOT_PROVEN until their separate evidence is
-accepted. Backups and restores remain disabled; this checklist does not authorize
-them or substitute fabricated recovery evidence.
+accepted. Qualify backup and restore evidence under the applicable deployment
+policy. The [backed PAPER release policy](paper-backed-release-20261024.md)
+governs PAPER durability separately.

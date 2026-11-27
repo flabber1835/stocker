@@ -1,16 +1,51 @@
 """Choose the legal denomination without changing an attempted command."""
 from dataclasses import replace
+from datetime import datetime, timezone
 from decimal import Decimal
 from fractions import Fraction
 import json
 
 from sentinel.execution import fractional_progress, journal
 from sentinel.execution.contract import BrokerAssetRules, Side
-from sentinel.execution.guarded import OrderEvidenceNotReady
+from sentinel.execution.guarded import BrokerAuthorityRefused, OrderEvidenceNotReady
 from sentinel.execution.market_buy_policy import MARKET_BUY_BUFFER_BPS
 from sentinel.execution.numeric import exact_decimal
 from sentinel.execution.opening_prices import QUOTE_SOURCE, RegularQuotes
 from sentinel.execution.states import CommandState as S
+
+
+def _attach_rules(delta, rules):
+    evidence = json.dumps({"fractionable": rules.fractionable,
+        "asset_id": rules.instrument.broker_id, "observed_at": rules.observed_at.isoformat()}, sort_keys=True)
+    return replace(delta, detail="asset trading rules: " + evidence)
+
+
+def _whole_sale(delta):
+    whole = Decimal(Fraction(delta.quantity) // 1)
+    residual = "FRACTIONAL_SELL_RESIDUAL: " + str(exact_decimal(Fraction(delta.quantity) - Fraction(whole)))
+    concrete = (replace(delta, remaining=whole.copy_negate(),
+        desired=exact_decimal(Fraction(delta.held) - Fraction(whole))) if whole else None)
+    return concrete, residual
+
+
+async def choose_live_sale(broker, *, delta, instrument):
+    """Allow a smaller vested SELL only on fresh, explicitly whole-share rules."""
+    if delta.side is not Side.SELL:
+        raise ValueError("LIVE whole-share fallback accepts only a reduction")
+    if delta.quantity == delta.quantity.to_integral_value():
+        return delta, None
+    try:
+        rules = await broker.asset_rules(instrument=instrument)
+        if type(rules) is not BrokerAssetRules:
+            raise ValueError("exact native asset rules are required")
+        rules.require_current(instrument, datetime.now(timezone.utc))
+    except BrokerAuthorityRefused:
+        raise
+    except Exception as exc:
+        raise OrderEvidenceNotReady(f"current fractional eligibility unavailable: {exc}") from exc
+    if rules.fractionable:
+        return delta, None
+    return _whole_sale(_attach_rules(delta, rules))
 
 
 async def choose(broker, *, conn, deployment, projection, delta, instrument):
@@ -21,17 +56,13 @@ async def choose(broker, *, conn, deployment, projection, delta, instrument):
             raise ValueError("asset rules do not describe the selected native instrument")
     except Exception as exc:
         raise OrderEvidenceNotReady(f"current fractional eligibility unavailable: {exc}") from exc
-    evidence = json.dumps({"fractionable": rules.fractionable,
-        "asset_id": instrument.broker_id, "observed_at": rules.observed_at.isoformat()}, sort_keys=True)
-    delta = replace(delta, detail="asset trading rules: " + evidence)
+    delta = _attach_rules(delta, rules)
     residual = None
     if delta.side is Side.SELL:
         if not rules.fractionable and delta.quantity != delta.quantity.to_integral_value():
-            whole = Decimal(Fraction(delta.quantity) // 1)
-            residual = "FRACTIONAL_SELL_RESIDUAL: " + str(exact_decimal(Fraction(delta.quantity) - Fraction(whole)))
-            if whole == 0:
+            delta, residual = _whole_sale(delta)
+            if delta is None:
                 raise OrderEvidenceNotReady(residual)
-            delta = replace(delta, remaining=whole.copy_negate(), desired=exact_decimal(Fraction(delta.held) - Fraction(whole)))
         return delta, residual
     if delta.notional is None or rules.fractionable:
         return delta, None

@@ -20,6 +20,19 @@ for that order. Reconstruct the last accepted cumulative quantity and value
 before admitting the amendment. This extra read occurs only on a correction
 or bust and remains within the exact authenticated account.
 
+A working order can publish ordinary fills and amendments in the same cursor
+interval. Replay all new events for that owned order in publication order,
+including ordinary fills before and after its first amendment. When the
+durable fill cache is incomplete, corroborate its last accepted cumulative
+quantity and price against a unique earlier publication state.
+The first bounded activity read supplies the greatest accepted event ID and
+the exact bytes for new effects. An additional history read can supply older
+predecessors and must agree on the overlapping bytes. It cannot enlarge that
+first boundary. A repeated ordinary fill must also agree with any retained
+native cash posting. If the current exact order already reflects an execution that
+the accepted prefix does not contain, keep the cursor pending until a fresh
+complete read can explain it.
+
 The journal retains original fills and immutable amendment evidence. The active
 execution projection excludes replaced fills and includes replacements so a
 replay, a correction of a correction, and a restart use the same economics.

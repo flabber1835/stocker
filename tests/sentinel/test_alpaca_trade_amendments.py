@@ -171,3 +171,139 @@ def test_cash_cursor_and_owned_execution_update_share_one_transaction(conn, bust
     with pytest.raises(broker_cash.BrokerCashAuthorityRefused, match="disagrees with the cash cursor"):
         read_cursor()
     conn.rollback()
+
+
+def _mixed_order(conn, *, live_namespace, cache_original):
+    live = live_fixture(operations=("READ", "ACTIVITY_READ"), account_id=ACCOUNT_UUID) if live_namespace else None
+    if live:
+        conn.execute("DELETE FROM sentinel_account_binding")
+        owner = binding.bind(conn, deployment_id=live.subject.deployment_id,
+                             broker="alpaca-live", broker_account_id=ACCOUNT_UUID)
+    else:
+        owner = binding.require(conn)
+    conn.execute("UPDATE sentinel_account_binding SET established_at=%s WHERE id=1", (START,))
+    instrument = BrokerInstrument("SEC-AAPL", "AAPL", ASSET)
+    command = Command(CommandIdentity(owner.identity, "mixed-prefix", instrument.security_id),
+        instrument, Side.BUY, Decimal(10), state=CommandState.PARTIALLY_FILLED,
+        broker_order_id=ORDER, filled_quantity=Decimal(4), filled_average_price=Decimal(100))
+    journal.save_command(conn, command)
+    original = _quantity(_trade(1, key=command.client_key), "4")
+    if cache_original:
+        journal.record_fills(conn, (AlpacaExecutionBroker._activity_execution_fill(original),))
+    order = full_order(id=ORDER, asset_id=ASSET, client_order_id=command.client_key, qty="10",
+        submitted_at=START.isoformat(), status="partially_filled", filled_qty="4", filled_avg_price="100")
+    broker, http = _adapter(order=order, live=live)
+    scope = {"broker": owner.broker, "account_id": owner.broker_account_id}
+    return owner, command, broker, http, scope, order, original
+
+
+def _quantity(event, value):
+    event.update(qty=value, net_amount=str(-Decimal(value) * Decimal(event["price"])))
+    return event
+
+
+def _visible_rows(rows, params):
+    after = params.get("since_id")
+    through = params.get("until_id")
+    return tuple(event for event in rows if (after is None or event["event_id"] >= after)
+                 and (through is None or event["event_id"] <= through))
+
+
+@pytest.mark.parametrize("live_namespace", [False, True])
+@pytest.mark.parametrize("cache_original", [False, True])
+def test_owned_ordinary_fills_before_and_after_correction_converge_atomically(conn, live_namespace, cache_original):
+    owner, command, broker, http, scope, order, original = _mixed_order(
+        conn, live_namespace=live_namespace, cache_original=cache_original)
+    key = command.client_key
+    earlier = _quantity(_trade(2, key=key), "2")
+    revision = _quantity(_trade(3, key=key, prior=original), "3")
+    later = _quantity(_trade(4, key=key), "4")
+    source = [original]
+    http.routes["/v2beta1/events/activities"] = lambda params: Response(text=sse(*_visible_rows(source, params)))
+
+    def ingest(upper):
+        return asyncio.run(broker_cash.ingest_account_cash(conn, broker_adapter=broker, through=upper, **scope))
+
+    original_cursor = ingest(UPPER)
+    conn.commit()
+    assert original_cursor.last_event_id == original["event_id"]
+    source.extend((earlier, revision, later))
+    order["filled_qty"] = "9"
+    state = ingest(UPPER + timedelta(seconds=1))
+    assert state.trade_amendments_applied
+    assert state.last_event_id == later["event_id"]
+    conn.commit()
+
+    assert conn.execute(f"SELECT quantity FROM {journal.ACTIVE_FILLS} active ORDER BY quantity").fetchall() == [
+        (Decimal(2),), (Decimal(3),), (Decimal(4),)]
+    assert conn.execute("SELECT COUNT(*) FROM sentinel_fills").fetchone() == (4,)
+    revised, = journal.load_commands(conn, owner.identity)
+    assert revised.filled_quantity == Decimal(9) and revised.state is CommandState.PARTIALLY_FILLED
+    with feed_store.connect(conn.info.dsn) as restarted:
+        saved = broker_cash.load_activity_state(restarted, **scope)
+        assert saved.last_event_id == later["event_id"]
+        assert saved.trade_amendment_commitment == state.trade_amendment_commitment
+        amendments.verify_restored(restarted, expected_commitment=saved.trade_amendment_commitment)
+    assert not ingest(UPPER + timedelta(seconds=2)).trade_amendments_applied
+    assert conn.execute("SELECT COUNT(*) FROM sentinel_fills").fetchone() == (4,)
+
+
+def test_predecessor_history_may_not_add_an_ordinary_fill_beyond_the_accepted_prefix(conn):
+    owner, command, broker, http, scope, order, original = _mixed_order(
+        conn, live_namespace=False, cache_original=True)
+    revision = _quantity(_trade(2, key=command.client_key, prior=original), "3")
+    later = _quantity(_trade(3, key=command.client_key), "6")
+    source = [original]
+
+    def stream(params):
+        visible = _visible_rows(source, params)
+        if params.get("until_id") == revision["event_id"] and later not in source:
+            source.append(later)
+        return Response(text=sse(*visible))
+
+    http.routes["/v2beta1/events/activities"] = stream
+
+    def ingest(upper):
+        return asyncio.run(broker_cash.ingest_account_cash(conn, broker_adapter=broker, through=upper, **scope))
+
+    old = ingest(UPPER)
+    conn.commit()
+    source.append(revision)
+    order["filled_qty"] = "9"
+    with pytest.raises(amendments.TradeAmendmentPending, match="await concordant exact order"):
+        ingest(UPPER + timedelta(seconds=1))
+    conn.commit()
+    assert later in source
+    assert broker_cash.load_activity_state(conn, **scope) == old
+    assert journal.load_commands(conn, owner.identity)[0].filled_quantity == Decimal(4)
+    assert conn.execute("SELECT COUNT(*) FROM sentinel_fills").fetchone() == (1,)
+
+    accepted = ingest(UPPER + timedelta(seconds=2))
+    assert accepted.last_event_id == later["event_id"]
+    assert journal.load_commands(conn, owner.identity)[0].filled_quantity == Decimal(9)
+    assert conn.execute(f"SELECT quantity FROM {journal.ACTIVE_FILLS} active ORDER BY quantity").fetchall() == [
+        (Decimal(3),), (Decimal(6),)]
+
+
+def test_replayed_ordinary_fill_cannot_change_its_archived_native_cash(conn):
+    owner, command, broker, http, scope, order, original = _mixed_order(
+        conn, live_namespace=False, cache_original=True)
+    revision = _quantity(_trade(2, key=command.client_key, prior=original), "3")
+    source = [original]
+    http.routes["/v2beta1/events/activities"] = lambda params: Response(text=sse(*_visible_rows(source, params)))
+
+    def ingest(upper):
+        return asyncio.run(broker_cash.ingest_account_cash(conn, broker_adapter=broker, through=upper, **scope))
+
+    old = ingest(UPPER)
+    conn.commit()
+    # Both amounts fit rounding around the gross execution principal. Once
+    # posted, the old exact cash amount is immutable.
+    source[:] = [dict(original, net_amount="-399.999"), revision]
+    order["filled_qty"] = "3"
+    with pytest.raises(broker_cash.BrokerCashAuthorityRefused, match="changed a retained fill cash posting"):
+        ingest(UPPER + timedelta(seconds=1))
+    conn.commit()
+    assert broker_cash.load_activity_state(conn, **scope) == old
+    assert journal.load_commands(conn, owner.identity)[0].filled_quantity == Decimal(4)
+    assert conn.execute("SELECT COUNT(*) FROM sentinel_fills").fetchone() == (1,)

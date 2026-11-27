@@ -108,6 +108,7 @@ class BrokerCashActivityBatch:
     last_event_id: Optional[str] = None
     trade_amendments: tuple[TradeAmendment, ...] = ()
     trade_history: tuple[dict, ...] = ()
+    trade_publications: tuple[dict, ...] = ()
     native_account: tuple[str, str, str] | None = None
     cash_revisions: tuple[CashRevision, ...] = ()
     security_transfers: tuple[dict, ...] = ()
@@ -861,13 +862,15 @@ async def _ingest_account_cash(
         raise BrokerCashAuthorityRefused(
             "broker cash activity batch changed its requested upper boundary")
     if batch.trade_amendments and (not financial_sse or batch.last_event_id is None
-            or batch.trade_amendments[-1].event_id > batch.last_event_id):
+            or batch.trade_amendments[-1].event_id > batch.last_event_id
+            or any(row["event_id"] > batch.last_event_id for row in batch.trade_publications)):
         raise BrokerCashAuthorityRefused("trade amendments require qualified bounded activity replay")
     from sentinel.execution import alpaca_trade_amendments
     try:
         amendments_applied = await alpaca_trade_amendments.apply(
             conn, broker_adapter=broker_adapter, broker=broker, account_id=account_id,
-            amendments=batch.trade_amendments, trade_history=batch.trade_history)
+            amendments=batch.trade_amendments, trade_history=batch.trade_history,
+            trade_publications=batch.trade_publications)
     except alpaca_trade_amendments.TradeAmendmentRefused as exc:
         raise BrokerCashAuthorityRefused(str(exc)) from exc
 

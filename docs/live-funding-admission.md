@@ -70,6 +70,22 @@ must still be current at the final transport check. Fractional support in a
 generated fixture does not grant LIVE account authority or prove vendor behavior.
 See [Alpaca fractional trading](https://docs.alpaca.markets/us/docs/fractional-trading).
 
+If an asset is active and tradeable but its current rules explicitly prohibit
+fractional orders, the executor may send the whole-share portion of an otherwise
+authorized sale. Read fresh rules for the exact native asset before creating its
+command. An absent, stale, or mismatched rules response defers instead. The
+whole-share command keeps the normal LIVE identity, sell reservation, journal,
+session and transport checks. A pending, working or uncertain order cannot be
+resized to take the fallback.
+
+The durable plan keeps the exact target. A 12.345-share exit can send 12 shares
+and leaves 0.345 shares visibly pending. No whole share is sold twice, since a
+retry reconciles actual shares and derives the remaining sale from the saved
+target. Purchases and completion of the intended reductions wait for the
+remaining shares. If the asset becomes fractionable again, the still-required
+amount can use the ordinary fractional sale path. A fallback is never used to
+create a buy or round a fractional exit up.
+
 An authenticated split can create an exact share amount the broker cannot
 represent at its nine-decimal increment. Retain that amount as a rational
 entitlement with a blocked share target. Carry the original evidence across

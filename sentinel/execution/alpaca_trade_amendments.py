@@ -101,13 +101,15 @@ def parse(event, *, account_uuid: str) -> TradeAmendment:
                           native_asset_id, client_key, side, executed_at, native_json, replacement)
 
 
-def active_native_fills(events, *, account_uuid, decode_fill):
-    """Project an owned order's bounded Activity SSE read in publication order."""
+def _native_fill_states(events, *, account_uuid, decode_fill):
+    """Yield the current working projection and its exact change."""
     from sentinel.execution.alpaca import MalformedBrokerPayload
 
     active = {}
     seen = set()
+    yield active, None, None
     for raw in events:
+        old = None
         if raw.get("previous_id") or raw["details"].get("execution_type") in _EFFECTS:
             event = parse(raw, account_uuid=account_uuid)
             old = active.pop(event.previous_activity_id, None)
@@ -126,6 +128,14 @@ def active_native_fills(events, *, account_uuid, decode_fill):
         seen.add(ref)
         if fill is not None:
             active[ref] = fill
+        yield active, old, fill
+
+
+def active_native_fills(events, *, account_uuid, decode_fill):
+    """Project an owned order's bounded Activity SSE read in publication order."""
+    active = {}
+    for active, _, _ in _native_fill_states(events, account_uuid=account_uuid, decode_fill=decode_fill):
+        pass
     return tuple(active.values())
 
 
@@ -238,15 +248,34 @@ def _backfill_predecessors(*, active, order, command, event, trade_history, obse
     earlier = tuple(row for row in history if row["event_id"] < event.event_id)
     if any(not _PUBLICATION_ID.fullmatch(row["event_id"]) or not _uuid(row["ref_id"]) for row in earlier):
         raise TradeAmendmentRefused("owned predecessor does not have native publication identity")
-    fills = active_native_fills(earlier, account_uuid=event.account_uuid,
-                                 decode_fill=AlpacaExecutionBroker._activity_execution_fill)
     before = replace(order, state=command.state, filled_quantity=command.filled_quantity,
                      filled_average_price=command.filled_average_price)
-    fill_integrity._validate_fill_set(fills, {order.broker_order_id: before},
+    if command.filled_quantity and command.filled_average_price is None:
+        raise TradeAmendmentRefused("predecessor replay lacks the prior owned order average")
+    described = None
+    quantity = gross = Fraction(0)
+    for current, removed, added in _native_fill_states(
+            earlier, account_uuid=event.account_uuid, decode_fill=AlpacaExecutionBroker._activity_execution_fill):
+        if removed is not None:
+            quantity -= Fraction(removed.quantity)
+            gross -= Fraction(removed.quantity) * Fraction(removed.price)
+        if added is not None:
+            quantity += Fraction(added.quantity)
+            gross += Fraction(added.quantity) * Fraction(added.price)
+        if (quantity != Fraction(command.filled_quantity)
+                or quantity and not fill_integrity.gross_matches_serialized_average(
+                    quantity, gross, command.filled_average_price)):
+            continue
+        candidate = {journal.fill_fingerprint(fill): fill for fill in current.values()}
+        if not active.keys() <= candidate.keys():
+            continue
+        if described is not None and described != candidate:
+            raise TradeAmendmentRefused("predecessor replay has ambiguous prior owned fill states")
+        described = candidate
+    if described is None:
+        raise TradeAmendmentRefused("predecessor replay omitted the last proved owned fill state")
+    fill_integrity._validate_fill_set(described.values(), {order.broker_order_id: before},
         observed_at=observed_at, history_complete=True, position_leading_order_ids=())
-    described = {journal.fill_fingerprint(fill): fill for fill in fills}
-    if not active.keys() <= described.keys():
-        raise TradeAmendmentRefused("predecessor replay omitted existing owned fill identity")
     found = []
     for key, fill in described.items():
         old = active.get(key)
@@ -256,10 +285,80 @@ def _backfill_predecessors(*, active, order, command, event, trade_history, obse
             found.append(owned)
         elif (old.quantity, old.price, old.filled_at) != (fill.quantity, fill.price, fill.filled_at):
             raise TradeAmendmentRefused("predecessor replay changed existing fill economics")
+        elif (old.cash_amount is not None and fill.cash_amount is not None
+                and old.cash_amount != fill.cash_amount):
+            raise TradeAmendmentRefused("predecessor replay changed an existing fill cash posting")
     return found
 
 
-async def apply(conn, *, broker_adapter, broker, account_id, amendments, trade_history=()):
+def _order_publications(conn, *, active, order, group, trade_history, trade_publications, observed_at):
+    """Return new ordinary fills and the amendments in the first accepted prefix."""
+    from zoneinfo import ZoneInfo
+
+    from sentinel.execution import fill_integrity, journal
+    from sentinel.execution.alpaca import AlpacaExecutionBroker
+    from sentinel.feed import calendar
+
+    order_id = order.broker_order_id
+    account_uuid = group[0][1].account_uuid
+    history = {row["event_id"]: row for row in trade_history
+               if row["details"].get("order_id") == order_id}
+    confirmed = {}
+    ordinary = []
+    for row in trade_publications:
+        if row["details"].get("order_id") != order_id:
+            continue
+        event_id = row["event_id"]
+        if (event_id in confirmed or not _PUBLICATION_ID.fullmatch(event_id)
+                or row.get("activity_type") != "TRD" or history.get(event_id) != row
+                or row.get("account_id", account_uuid) != account_uuid):
+            raise TradeAmendmentRefused("owned trade publication differs from its corroborating history")
+        confirmed[event_id] = row
+        if not row.get("previous_id") and row["details"].get("execution_type") not in _EFFECTS:
+            _uuid(row["ref_id"])
+            fill = AlpacaExecutionBroker._activity_execution_fill(row)
+            ordinary.append((event_id, journal.fill_fingerprint(fill), fill))
+    for _, event, _ in group:
+        if confirmed.get(event.event_id) != json.loads(event.native_json):
+            raise TradeAmendmentRefused("owned trade amendment is absent from the accepted publication prefix")
+    effects = [(event.event_id, key.removeprefix(PREFIX), None, event) for key, event, _ in group]
+    if not ordinary:
+        return effects
+    if order.submitted_at is None or order.submitted_at.utcoffset() is None:
+        raise TradeAmendmentRefused("ordinary publications lack the owned order submission clock")
+    rows = conn.execute(
+        "SELECT f.fill_key,f.broker_order_id,f.client_key,f.quantity,f.price,f.filled_at,cash.state"
+        " FROM sentinel_fills f" + journal.FILL_CASH_JOIN_SQL + " WHERE f.fill_key=ANY(%s)",
+        (*journal.FILL_CASH_PREFIXES, [key for _, key, _ in ordinary])).fetchall()
+    archived = {}
+    for key, *row in rows:
+        archived.setdefault(key, []).append(row)
+    day = order.submitted_at.astimezone(ZoneInfo(calendar.EXCHANGE_TZ)).date()
+    _, closed = calendar.session_window(day)
+    additions = []
+    for event_id, key, fill in ordinary:
+        if (fill.asset_id != order.instrument.broker_id or fill.side is not order.side
+                or fill.client_key not in (None, order.client_key)
+                or not order.submitted_at <= fill.filled_at <= min(closed, observed_at)):
+            raise TradeAmendmentRefused("ordinary publication contradicts the exact owned order")
+        if fill.cash_amount is not None:
+            fill_integrity.validate_posted_cash(fill.side, fill.quantity, fill.price, fill.cash_amount)
+        if key in archived:
+            known = archived[key]
+            if (len(known) != 1
+                    or known[0][:5] != [order_id, order.client_key, fill.quantity, fill.price, fill.filled_at]):
+                raise TradeAmendmentRefused("ordinary publication changed a retained fill")
+            if known[0][5] is not None:
+                posted = fill_integrity._posted_cash(known[0][5], order_id=order_id,
+                    client_key=order.client_key, side=order.side, qty=fill.quantity, price=fill.price)
+                if fill.cash_amount is not None and fill.cash_amount != posted:
+                    raise TradeAmendmentRefused("ordinary publication changed a retained fill cash posting")
+        elif key not in active:
+            additions.append((event_id, key, replace(fill, client_key=order.client_key), None))
+    return sorted(additions + effects, key=lambda entry: entry[0])
+
+
+async def apply(conn, *, broker_adapter, broker, account_id, amendments, trade_history=(), trade_publications=()):
     """Stage native rebooking in the cash cursor owner's transaction."""
     from sentinel import binding
     from sentinel.execution import fill_integrity, journal
@@ -342,8 +441,17 @@ async def apply(conn, *, broker_adapter, broker, account_id, amendments, trade_h
         fill_integrity._validate_fill_set(
             active.values(), {order_id: before}, observed_at=lookup.request_completed_at,
             history_complete=True, position_leading_order_ids=())
-        for key, event, _ in group:
-            previous = active.pop(key.removeprefix(PREFIX), None)
+        publications = _order_publications(conn, active=active, order=order, group=group,
+            trade_history=trade_history, trade_publications=trade_publications,
+            observed_at=lookup.request_completed_at)
+        for _, key, fill, event in publications:
+            if event is None:
+                if key in active:
+                    raise TradeAmendmentRefused("ordinary publication repeats an active owned fill")
+                active[key] = fill
+                replacements.append(fill)
+                continue
+            previous = active.pop(key, None)
             if previous is None:
                 raise TradeAmendmentRefused("amendment predecessor is missing or already reversed")
             replacement = event.replacement

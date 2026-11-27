@@ -2310,7 +2310,7 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
                 raw=event,
             ))
             last_ref = ref_id
-        trade_history = ()
+        trade_history = trade_publications = ()
         if amendments:
             # A delayed revision can reference an execution older than the cash
             # cursor or absent from a cumulative-only command's cache.
@@ -2320,9 +2320,19 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
                            require_account_history=True, verify_snapshot_replay=True,
                            expected_account_uuid=amendments[0].account_uuid))
             revised_orders = {event.broker_order_id for event in amendments}
+            event_head = events[-1]["event_id"]
             trade_history = tuple(event for event in history
-                                  if event.get("activity_type") == "TRD"
+                                  if event["event_id"] <= event_head
+                                  and event.get("activity_type") == "TRD"
                                   and event["details"].get("order_id") in revised_orders)
+            trade_publications = tuple(event for event in events
+                                       if event.get("activity_type") == "TRD"
+                                       and event["details"].get("order_id") in revised_orders)
+            retained_history = {event["event_id"]: event for event in trade_history}
+            for event in trade_publications:
+                if retained_history.get(event["event_id"]) != event:
+                    raise MalformedBrokerPayload(
+                        "Alpaca trade history disagrees with the bounded publication", raw_event=event)
         return broker_cash.BrokerCashActivityBatch(
             activities=tuple(activities),
             processed_through=upper,
@@ -2332,6 +2342,7 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
                            if events else since_event_id),
             trade_amendments=tuple(amendments),
             trade_history=trade_history,
+            trade_publications=trade_publications,
             native_account=native_account[0] if native_account else None,
             cash_revisions=revisions,
             security_transfers=tuple(security_transfers),

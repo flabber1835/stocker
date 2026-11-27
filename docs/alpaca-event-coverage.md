@@ -64,15 +64,23 @@ Alpaca's partner Activity SSE documentation does not establish retail access.
 | Event | Software acceptance boundary |
 | --- | --- |
 | Ordinary fills, partial fills, cancel and unknown transport outcome | Existing guarded order lifecycle and owned command reconciliation remain in force. |
-| Revised fill or bust | Exact owned order and unambiguous active predecessor required. Reversal/replacement, cursor and command update are atomic. A prior action changing the security's share units can still require separate recovery. |
+| Revised fill or bust | Exact owned order and unambiguous active predecessor required. Ordinary fills and amendments in the same bounded publication are applied in order. Fill, reversal/replacement, cursor and command updates are atomic. A prior action changing the security's share units can still require separate recovery. |
 | Cash deposit/withdrawal, dividend, compensation, withholding, fee and interest | Named cash postings are attributed by their actual signed amounts. Same-type, same-settlement cash revisions with exact predecessor evidence apply a durable difference once. Ambiguous classifications and date changes remain pending. |
 | Effective stock merger for a held, pending or reference security | Shared strategy recovers with complete source terms and exact entitlement. Corrections can replace an unconsumed publication. Missing cash-in-lieu terms and revisions after consumption remain unresolved. |
 | Forward and reverse splits | PAPER and LIVE carry exact share units, including quantities smaller than the broker order increment. Affected orders wait for proof of the actual disposition. An exactly explained pending split can leave unrelated reductions available. |
+| Fractional orders in LIVE | Exact fractional orders require current native eligibility. An asset explicitly restricted to whole-share orders can make a smaller sale through the regular command journal. The fractional remainder stays open, and purchases wait while that sale remains incomplete. |
 | Stock, cash and mixed mergers, and same-asset stock dividends | Complete exact native groups explain restricted broker inventory in either environment. Cash or mixed groups need the distinct posted cash leg. These receipts grant no disposal or purchase. |
 | Spinoff and rights distributions | Exact receipts for newly delivered child assets can explain custody. Parent identity and share changes need separate evidence. |
 | Other reorganizations and distributions | Complete production share-group handling still needs authoritative identities, exact dated allocations, and complete related postings. |
 | In-kind transfer | Exact, account-bound zero-cash postings can explain restricted inventory. Missing asset identity or later dependent transactions remain pending. Capital-flow valuation requires separate evidence. |
 | Newly introduced or contradictory event | Preserve uncertainty. Do not synthesize a fill, cash amount, position, entitlement or spending authority. |
+
+A merger revision after the strategy has used the original terms can change
+share quantities, controller returns and later plans. Recovery requires replay
+from the last unaffected authenticated checkpoint and separate reconciliation of
+orders already prepared or sent. For a merger with a fractional remainder, the
+strategy requires the contractual cash-in-lieu rate. An account posting verifies
+cash paid to that account and belongs to execution reconciliation.
 
 Primary contracts are [corporate actions](https://docs.alpaca.markets/us/reference/corporateactions-1),
 [Trading API account activities](https://docs.alpaca.markets/us/docs/account-activities),
