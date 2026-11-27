@@ -1,4 +1,8 @@
-"""Private opening rehearsal. Real scheduler, journal, recovery, fractional execution and cash reservations."""
+"""Dispatch and restart regression with prepared strategy inputs and fixture buy admission.
+
+The scheduler, journal, recovery, fractional execution and cash reservations
+run here. Elapsed times describe this private fixture with a delayed venue.
+"""
 import asyncio
 import hashlib
 from dataclasses import replace
@@ -338,6 +342,7 @@ async def test_scheduled_open_resumes_funded_basket_after_worker_loss(pg, databa
         assert native.peak_working_buys == 2, "the second purchase waited for the first to fill"
     else:
         assert native.peak >= 2, "the disposal basket submitted its sales serially"
-    print(f"sales={sales} purchases={len(rows)-sales} starting_equity_exposure={100*(nav-initial_cash)/nav if sales==1 else starting_exposure} "
+    print(f"scope=dispatch_restart_fixture strategy=prepared buy_admission=fixture venue=simulated "
+          f"sales={sales} purchases={len(rows)-sales} starting_equity_exposure={100*(nav-initial_cash)/nav if sales==1 else starting_exposure} "
           f"restart=1 peak_posts={native.peak} peak_working_buys={native.peak_working_buys} first_post_seconds={native.first_acceptance-started:.2f} "
           f"opening_to_confirmed_seconds={monotonic()-started:.2f}")

@@ -16,16 +16,22 @@ allocation stays charged and its original command remains pending. A mismatch
 between reads that straddle settlement earns one fresh account and book check.
 An unexplained change still stops new submissions.
 
+During one purchase callback the native cash reader can also provide its
+bounded trade-publication interval. The reader takes the interval through the
+current account-book observation and proves its account UUID and publication
+cursor. A fully filled order may carry its verified debit into the next
+contiguous interval if no trade event names that order. New executions must
+match the native order, quantity and price. A cursor gap, correction, bust,
+changed order or incomplete fill history requires a fresh full native fill
+read or stops the purchase. The callback discards this evidence on exit.
+
 For a group of named PAPER instruments or order keys, the guarded reader may
 bracket a bounded batch of identical GET operations with a single current
 authority check on each side. It verifies each result against its requested
 identity and refuses a changed account. Each batch finishes before its result
 is used. The financial writer serializes cash ingestion and journal changes.
-Within that writer callback, a matched fully filled order supplies its original
-identity and terms to subsequent checks. Every such check still reads the
-current native fills, open orders, positions and cash. A reopened order,
-corrected quantity, conflicting cash movement or changed account withdraws
-the proof. A new callback starts with no retained native order facts.
+Each purchase checks current open orders, positions, cash and buying power.
+A reopened order or an unexplained change in the account withdraws the proof.
 Independent instrument and exchange-clock reads can proceed while a sibling
 is awaiting a network response. Each order still receives its own mutation
 check and its original, single-use deadline check at the native request.
@@ -79,3 +85,16 @@ LIVE protected buys require the originally authorized share quantity and price
 limit, covered by verified settled cash. A partial sale receipt cannot resize a
 LIVE BIL order. If the full purchase cannot qualify before the cutoff, later
 proceeds stay in cash for the next plan.
+
+## Measuring the opening window
+
+The dispatch and restart test uses a prepared strategy and supplies purchase
+admission. Its elapsed time measures that fixture. A full opening measurement
+uses the exact candidate and its installed strategy files, the normal scheduler,
+signed authority, backup checks, strategy verification, sizing and final order
+checks. Run the clock at wall speed through the original cutoff. Match planned
+orders and durable commands to an independent private venue ledger and its final
+cash and holdings. Record separately how many orders reached the venue by the
+cutoff, how many filled by then and when the scheduler confirmed the result.
+Show a worker loss separately when exercised and observe the actual dashboard
+at those same times. All venue timings from these tests describe a simulator.

@@ -1,6 +1,7 @@
 """Only exact original callback and candidate metadata enter the display join."""
 from dataclasses import replace
 from datetime import timedelta
+from decimal import Decimal
 from types import SimpleNamespace
 import inspect
 import textwrap
@@ -8,6 +9,7 @@ import textwrap
 import pytest
 
 from sentinel.panel import model, sources
+from sentinel.execution.contract import OrderTerms
 from tests.sentinel.test_opening_health_continuity import NOW, OPEN, executing_panel, clean_skip_panel
 
 
@@ -28,6 +30,30 @@ def test_exact_fenced_callback_is_carried_without_borrowing_old_broker_liveness(
     assert fact.opening.started_at==cycle['observation_callback']['started_at']
     assert fact.opening.deadline==cycle['observation_callback']['deadline']
     assert broker.is_stale(NOW) and broker.as_of<NOW-timedelta(hours=12)
+
+
+def dispatch_order(state):
+    return model.RunOrder(security_id='AAA', ticker='AAA', client_key='opening-test',
+        broker_order_id='native-1' if state == 'ACKNOWLEDGED' else None, side='BUY',
+        notional=Decimal('100'), filled_quantity=Decimal(0), state=state, observed_at=NOW,
+        order_terms=OrderTerms().to_dict())
+
+
+@pytest.mark.parametrize('state,known', [('PLANNED', True), ('SEND_PENDING', True),
+    ('ACKNOWLEDGED', True), ('UNKNOWN', False), ('REJECTED', False), ('CANCEL_PENDING', False)])
+def test_current_callback_covers_dispatch_but_cannot_resolve_uncertain_orders(state, known):
+    cycle, current, broker = callback_case()
+    run = current.trading_run.model_copy(update={'orders': [dispatch_order(state)]})
+    current = replace(current, trading_run=run)
+    fact = sources._execution_progress_fact(cycle, current, broker, now=NOW)
+    assert (fact is not None) == known
+    assert run.model_copy(update={'state': 'RECONCILING'}).callback_order_states_known() == (state == 'ACKNOWLEDGED')
+
+
+def test_unknown_dispatch_guard_has_an_executed_falsifier(monkeypatch):
+    monkeypatch.setattr(model.TradingRun, 'callback_order_states_known', lambda run: True)
+    with pytest.raises(AssertionError):
+        test_current_callback_covers_dispatch_but_cannot_resolve_uncertain_orders('UNKNOWN', False)
 
 
 @pytest.mark.parametrize('fault',['missing_callback','foreign_cycle','foreign_plan','wrong_state',

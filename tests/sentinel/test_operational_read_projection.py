@@ -783,6 +783,34 @@ def test_verifier_restart_reuses_current_completed_proof_with_original_expiry(mo
     assert result[0][0].effective_status(NOW+timedelta(seconds=100))==model.FAIL
 
 
+@pytest.mark.parametrize('elapsed', [599, 601])
+def test_restarting_an_unfinished_verification_cannot_renew_its_signed_wait(monkeypatch, elapsed):
+    from threading import Event
+    from sentinel.panel.verification_monitor import paper_unknown
+    value = resumed_reader(monkeypatch, instant=NOW+timedelta(seconds=elapsed), fault='pending')
+    reader = value.reader
+    reader.unknown = paper_unknown
+    assert reader.answer is None and reader.prior_check_until == NOW+timedelta(seconds=600)
+    started, release = Event(), Event()
+    original = reader.runner
+    def delayed(*args, **kwargs):
+        started.set()
+        assert release.wait(5)
+        return original(*args, **kwargs)
+    reader.runner = delayed
+    try:
+        rows = reader.read('fixture')[0]
+        assert started.wait(2) and reader.pending is not None
+        assert rows[0].status == (model.WARN if elapsed < 600 else model.UNKNOWN)
+        assert rows[0].valid_until == (reader.prior_check_until if elapsed < 600 else None)
+    finally:
+        release.set()
+        if reader.pending is not None:
+            reader.pending.join(2)
+    assert reader.read('fixture', allow_start=False)[0][0].status == model.OK
+    assert reader.prior_check_until is None
+
+
 def test_restored_negative_result_stays_failed_and_retries_ordinary_check(monkeypatch):
     value=resumed_reader(monkeypatch,state='MISMATCH')
     result=value.reader.read('fixture',allow_start=False)
@@ -855,12 +883,13 @@ def test_removing_first_read_subject_guard_has_a_falsifier(monkeypatch):
 
 
 def test_removing_restart_expiry_guard_has_a_falsifier(monkeypatch):
-    body=inspect.getsource(projection.decode)
-    needle='or not observed <= now <= expiry'
+    from sentinel.panel import verification_service
+    body=inspect.getsource(verification_service._restore_readers)
+    needle='if now > row[2] or row[2] !='
     assert body.count(needle)==1
-    namespace=dict(projection.__dict__)
-    exec(compile(body.replace(needle,'or False'),'removed restored expiry','exec'),namespace)
-    monkeypatch.setattr(projection,'decode',namespace['decode'])
+    namespace=dict(vars(verification_service))
+    exec(compile(body.replace(needle,'if row[2] !='),'removed restored expiry','exec'),namespace)
+    monkeypatch.setattr(verification_service,'_restore_readers',namespace['_restore_readers'])
     with pytest.raises(AssertionError):
         test_restart_never_reuses_changed_tampered_pending_or_expired_proof(
             monkeypatch,None,NOW+timedelta(seconds=601))

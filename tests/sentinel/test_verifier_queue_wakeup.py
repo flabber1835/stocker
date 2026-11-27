@@ -683,7 +683,7 @@ def replace_method(monkeypatch, owner, name, old, new):
 
 
 def test_stale_queue_guard_has_executed_falsifier(monkeypatch):
-    replace_method(monkeypatch,reader.Reader,'_work','if current != key:','if False:')
+    replace_method(monkeypatch,reader.Reader,'_read_allocated','if current != key:','if False:')
     with pytest.raises(AssertionError):test_stale_queued_identity_never_spawns_and_current_retry_keeps_original_budgets()
 
 

@@ -21,6 +21,19 @@ both require the same snapshot slot. A background observation waiting for that
 slot must yield without holding a snapshot or writer lock. Its original work
 deadline and the clocks on any displayed evidence still apply.
 
+A display worker that yields to a foreground database owner hands its
+allocation back to the verifier immediately. The worker reports a typed
+scheduling outcome across the process boundary. The parent may retain a
+completed proof for the identical subject only through its original expiry.
+Otherwise it publishes a dated verification-in-progress row while it waits to
+retry. All attempts in that wait share the first admission's absolute deadline
+and remaining work budget. A genuine SQL timeout, worker failure, expired
+budget or regressing clock remains visible. Only a completed verification can
+clear a recorded failure. The database writer does not wait for the display.
+After a verifier restart, an authenticated checking receipt for the current
+subject can only shorten the replacement attempt's waiting indication. A new
+worker must acquire the slot and measure the current subject independently.
+
 The full automation authority check uses the authenticated control row returned
 by the database-time leadership fence. Both operations formerly replayed the
 same control history in succession. The signed authority check, revocation
@@ -37,6 +50,12 @@ history floors also participate in the acquisition identity.
 Reuse of a stored monthly response based solely on its date range would publish
 different inputs. Content-addressed block reuse remains subject to the
 canonical source, security mapping, corporate actions and normalization.
+
+The backup-maintenance journal also explains a separate burst of database
+file reads during normalization. The 10:10 Pacific pass verified newly archived
+WAL in two passes, recording 68 hash operations, and deferred discretionary
+maintenance while the close was active. Both passes belong to the restore
+contract. The database sampler alone could not identify the individual files.
 
 ## Private qualification
 

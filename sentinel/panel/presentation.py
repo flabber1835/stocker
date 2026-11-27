@@ -1308,10 +1308,10 @@ def _missed_buy_history_warning(panel, row: Row, paper: Row) -> bool:
 
 def _opening_reporting_deadline(panel):
     """A current saved opening can proceed while independent reporting is absent."""
-    from sentinel.panel.delivery import row_current
+    from sentinel.panel.delivery import opening_refresh_deadline
 
     cycle = panel.row('automation_cycle')
-    if (not panel.local_paper_mode or panel.source_errors or not panel.observation_current
+    if (not panel.local_paper_mode or panel.source_errors
             or len({row.key for row in panel.rows}) != len(panel.rows)
             or cycle is None or cycle.operational_fact is None
             or cycle.operational_fact.kind != 'AUTOMATION_CYCLE'
@@ -1321,8 +1321,15 @@ def _opening_reporting_deadline(panel):
             or not _enabled_policy(panel.row('automation'))):
         return None
     state = cycle.operational_fact.state
-    if state not in {'WAITING_OPEN', 'EXECUTING'} or cycle.recovery.phase != 'AUTOMATION_'+state:
+    if state not in {'WAITING_OPEN', 'EXECUTING', 'RECONCILING'} or cycle.recovery.phase != 'AUTOMATION_'+state:
         return None
+    refresh = None
+    if not panel.observation_current:
+        if state == 'WAITING_OPEN' or set(panel.observation_changed_scopes) != {'PAPER'}:
+            return None
+        refresh = opening_refresh_deadline(panel)
+        if refresh is None:
+            return None
     if state == 'WAITING_OPEN':
         saved = panel.row('paper_plan')
         schedule = cycle.operational_fact.schedule
@@ -1337,21 +1344,40 @@ def _opening_reporting_deadline(panel):
             return None
         run, fact = saved.trading_run, broker.operational_fact
         if (broker.is_stale(panel.now) or broker.is_future(panel.now)
+                or broker.effective_status(panel.now) not in {'ok', 'warn'}
+                or broker.recovery is None or broker.recovery.phase != 'BROKER_CALLBACK_REFRESH'
+                or not _aware(broker.recovery.deadline) or not broker.recovery.active(panel.now)
+                or not run.callback_order_states_known()
+                or state == 'RECONCILING' and not run.orders
                 or run.state != state or fact is None or fact.kind != 'EXECUTION_PROGRESS'
                 or fact.state != state or fact.opening is None or run.updated_at != cycle.as_of
                 or (fact.opening.cycle_id, fact.opening.plan_id) != (run.intent.cycle_id, run.intent.plan_id)
                 or not run.intent.execute_at <= run.updated_at <= fact.opening.started_at <= panel.now):
             return None
-        plan, deadline = run.intent, fact.opening.deadline
-    keys = ('automation', 'automation_leader', 'authority', 'runtime_identity', 'feed', 'shadow_verification')
+        plan = run.intent
+        deadline = min(fact.opening.deadline, _row_boundary(broker))
+    keys = ('automation', 'automation_leader', 'authority', 'runtime_identity', 'feed')
     account = panel.row('alpaca_account')
+    shadow = panel.row('shadow_verification')
+    source = panel.row('feed')
+    verified = (_current_health_fact(panel, 'shadow_verification')
+                and _current_input_session(panel, str(plan.decision_session)))
+    checking = (state != 'WAITING_OPEN' and not verified and shadow is not None
+                and shadow.effective_status(panel.now) == 'warn' and shadow.required_current
+                and not shadow.is_future(panel.now) and not shadow.is_stale(panel.now)
+                and shadow.recovery is not None and shadow.recovery.phase == 'FINANCIAL_VERIFICATION'
+                and shadow.recovery.active(panel.now) and shadow.valid_until == shadow.recovery.deadline
+                and source is not None and source.operational_fact is not None
+                and (source.operational_fact.kind, source.operational_fact.state) == ('MARKET_DATA', 'READY')
+                and source.operational_fact.sessions_behind == 0
+                and source.operational_fact.session == plan.decision_session)
     if (not all(_current_health_fact(panel, key) for key in keys)
             or not _fresh_worker(panel, 'automation_leader')
             or account is None or not account.can_show_paper_account(panel.now)
-            or not _current_input_session(panel, str(plan.decision_session))
-            or not all(row_current(panel, row) for row in (saved, cycle, account))):
+            or not (verified or checking)):
         return None
-    limits = [deadline, cycle.recovery.deadline, panel.observation_valid_until, _row_boundary(account),
+    limits = [deadline, refresh, cycle.recovery.deadline, panel.observation_valid_until, _row_boundary(account),
+              _row_boundary(shadow), _row_boundary(saved),
               *(_row_boundary(panel.row(key)) for key in keys)]
     earliest = min(limit for limit in limits if limit is not None)
     return earliest if panel.now < earliest else None
@@ -1373,7 +1399,10 @@ def _health_facts(panel, classifications, *, boundaries) -> dict:
         if not current:
             continue
         if (reporting_deadline is not None and row.operational_fact is not None
-                and row.operational_fact.state == 'NOT_REPORTED'):
+                and row.operational_fact.state == 'NOT_REPORTED'
+                and (row.valid_until is None or panel.now < row.valid_until)):
+            if boundaries is not None and row.valid_until is not None:
+                boundaries.append(row.valid_until)
             warnings.append(row.key)
             continue
         if (missed_buy and status == 'warn'

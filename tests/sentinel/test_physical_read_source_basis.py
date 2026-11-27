@@ -30,6 +30,12 @@ def predecessor_sources():
 
 
 def physical_predecessor(module, raw):
+    if (module == 'sentinel.feed.rolling_store' and hashlib.sha256(raw).hexdigest()
+            == '62eba292f30e06efdc58a9e9745c4bbbeaa3b490c3dae9718293947ed089de89'):
+        sources = {name: economic_manifest._module_raw(name) for name in economic_manifest._BROKER_READ_BASE}
+        reviewed = economic_manifest._before_broker_reads({**sources, module: raw})[module]
+        assert hashlib.sha256(reviewed).hexdigest() == economic_manifest.OPENING_SESSION_STORAGE[module]
+        raw = opening_predecessor('feed/rolling_store.py', raw)
     if (module == 'sentinel.feed.rolling_store'
             and hashlib.sha256(raw).hexdigest() == economic_manifest.OPENING_SESSION_STORAGE[module]):
         raw = opening_predecessor('feed/rolling_store.py', raw)

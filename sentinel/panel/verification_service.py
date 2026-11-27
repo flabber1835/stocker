@@ -238,10 +238,15 @@ def _restore_readers(conn, readers, database_url, *, now):
                         or row[2].isoformat() != row[3].get('valid_until')):
                     continue
                 rows, _, _, errors = read_projection.decode(row[3],row[4],
-                    current_subject=key,scope=scope,now=now)
-                if (row[2] != row[1]+timedelta(seconds=financial.FRESH_SECONDS)
-                        or any(item.recovery is not None
-                               and item.recovery.phase == 'FINANCIAL_VERIFICATION' for item in rows)):
+                    current_subject=key,scope=scope,now=min(now,row[2]))
+                if any(item.recovery is not None and item.recovery.phase == 'FINANCIAL_VERIFICATION'
+                       for item in rows):
+                    # Only an upper bound survives. Never resume a missing
+                    # worker or turn its checking rows into a completed answer.
+                    reader.prior_check_until = row[2]
+                    reader.prior_check_subject = key
+                    continue
+                if now > row[2] or row[2] != row[1]+timedelta(seconds=financial.FRESH_SECONDS):
                     continue
                 reader.answer = (key,observer_codec.pack(rows,errors,observed_at=row[1]),None,now)
                 previous[scope] = (row[3],row[4])
@@ -527,7 +532,8 @@ def _refresh_readers(conn, readers, database_url, owner_id, previous, stopped, d
                 on_publication=on_publication):
             continue
         options = {}
-        if local_paper.enabled():
+        local = local_paper.enabled()
+        if local or getattr(reader, 'attempt_outcome', None) == 'DEFERRED':
             with conn.transaction(force_rollback=True):
                 conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
                 now = datetime.now(timezone.utc)
@@ -538,7 +544,7 @@ def _refresh_readers(conn, readers, database_url, owner_id, previous, stopped, d
                 if occupied:
                     options.update(scan_occupied=True,
                                    defer_refresh_until=now+timedelta(seconds=OWNER_POLL_SECONDS))
-                else:
+                elif local:
                     if (scope == 'SHADOW' and previous.get(scope) is not None
                             and reader.pending is None and reader.answer is None
                             and reader.execution_slot is not None

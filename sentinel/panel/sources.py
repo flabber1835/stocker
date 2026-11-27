@@ -3518,7 +3518,7 @@ def _execution_progress_fact(cycle, trading_row, broker, *, now):
             or any(cycle.get(key) for key in ('terminal_reason', 'callback_failure', 'exception_type'))
             or run.state == 'EXECUTING' and (cycle.get('failure_code') or cycle.get('failure_detail'))
             or run.state == 'RECONCILING' and not model.submitted_commands_progress(cycle)
-            or any(order.state not in {'ACKNOWLEDGED', 'PARTIALLY_FILLED', 'FILLED'} for order in run.orders)
+            or not run.callback_order_states_known()
             or broker.effective_status(now) not in {model.OK, model.WARN}
             or broker.recovery is None or broker.recovery.phase != 'BROKER_CALLBACK_REFRESH'):
         return None

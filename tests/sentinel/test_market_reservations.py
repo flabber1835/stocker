@@ -288,6 +288,84 @@ def test_one_complete_reread_when_native_account_changes_during_funding(database
         reader.observe.assert_awaited_once()
 
 
+@pytest.mark.parametrize("change,replays", [("none", 0), ("gap", 1), ("prior_order_event", 1), ("new_scope", 1)])
+def test_native_activity_cursor_carries_only_unchanged_terminal_cash(change, replays):
+    from sentinel.execution.alpaca import NativeBrokerFill
+    from sentinel.execution.trade_activity_window import TradeWindow
+
+    _, plan = case()
+    commands = [command(plan, sid) for sid in ("AAA", "BBB")]
+    orders = [native(c, state=S.FILLED, filled_quantity=D(3), filled_average_price=D(15),
+                     submitted_at=NOW-timedelta(seconds=10)) for c in commands]
+    fills = [NativeBrokerFill(o.client_key, o.broker_order_id, D(3), D(15), NOW-timedelta(seconds=3),
+            activity_id="fill-"+o.client_key, asset_id=o.instrument.broker_id, side=Side.BUY, cash_amount=D(-45))
+             for o in orders]
+    raw = [{"details":{"order_id":f.broker_order_id, "client_order_id":f.client_key, "execution_type":"fill"},
+            "ref_id":f.activity_id, "at":NOW.isoformat()} for f in fills]
+    decode = {f.activity_id:f for f in fills}
+    scope = ("plan","projection",("alpaca","TEST","test-native"),None)
+    cache = funding.VerifiedFillCash()
+    broker = SimpleNamespace(supports_owned_order_fills=True, owned_order_fills=AsyncMock())
+    observation = book(*orders)
+    inputs = dict(broker=broker, commands={c.client_key:c for c in commands}, observation=observation,cache=cache)
+    window = TradeWindow(scope[2],None,"head-1",NOW,(raw[0],),lambda row:decode[row["ref_id"]])
+    start,cached = asyncio.run(funding._filled_cash(orders[:1], **inputs,window=window,scope=scope))
+    assert start == {commands[0].client_key:-45}
+    broker.owned_order_fills.assert_not_awaited()
+    cache.scope,cache.cursor,cache.through,cache.terminal=scope,"head-1",NOW,cached
+    recent = tuple(raw if change=="prior_order_event" else raw[1:])
+    next_window = replace(window,after="unseen" if change=="gap" else "head-1", cursor="head-2",trades=recent)
+    async def fetch(*,orders,**kw):
+        assert [o.client_key for o in orders]==[commands[0].client_key]
+        return (fills[0],)
+    broker.owned_order_fills.side_effect=fetch
+    scope = ("unrelated", *scope[1:]) if change=="new_scope" else scope
+    debits,verified = asyncio.run(funding._filled_cash(orders,**inputs,window=next_window,scope=scope))
+    assert debits==dict.fromkeys((c.client_key for c in commands),-45) and len(verified)==2
+    assert broker.owned_order_fills.await_count==replays
+
+
+def test_broken_event_contiguity_guard_is_detected(monkeypatch):
+    monkeypatch.setattr(funding, "_filled_cash", _compiled(funding._filled_cash,"cache.cursor == window.after","True"))
+    with pytest.raises(AssertionError):
+        test_native_activity_cursor_carries_only_unchanged_terminal_cash("gap",1)
+
+
+def test_native_window_binds_account_time_frontier_and_refuses_amendments():
+    from sentinel.execution import trade_activity_window as native
+    account = ("alpaca","TEST","native-uuid")
+    batch = SimpleNamespace(native_account=account,trade_amendments=(),processed_through=NOW,last_event_id="x")
+    state = SimpleNamespace(broker="alpaca",account_id="TEST",processed_through=NOW,last_event_id="x")
+    observation = replace(book(),account_identity=BrokerAccountIdentity(*account[:2],raw={"id":account[2]}))
+    with native.capture() as captured:
+        native.observe(batch=batch,after=None,events=[],decode=lambda x:x)
+        window, = captured
+        assert window.covers(state,observation)
+        assert not replace(window,cursor="others").covers(state,observation)
+        assert not replace(window,account=("alpaca","TEST","wrong-uuid")).covers(state,observation)
+        assert not window.covers(state,replace(observation,observed_at=NOW+timedelta(microseconds=1)))
+    batch.trade_amendments=(object(),)
+    with native.capture() as captured:
+        native.observe(batch=batch,after="x",events=[],decode=lambda x:x)
+        assert not captured
+
+
+def test_real_cash_adapter_shares_only_fresh_native_trade_publications():
+    from sentinel.execution import trade_activity_window
+    from tests.sentinel.test_alpaca_trade_amendments import _adapter, _trade, START, UPPER, ACCOUNT_UUID
+    first, second = _trade(1), _trade(2)
+    broker, _ = _adapter(first, second)
+    with trade_activity_window.capture() as captured:
+        result = asyncio.run(broker.account_cash_activities(after=START, through=UPPER,
+            since_event_id=first["event_id"]))
+        window, = captured
+    assert result.native_account[2] == ACCOUNT_UUID
+    assert window.after == first["event_id"] and window.cursor == second["event_id"]
+    assert [row["event_id"] for row in window.trades] == [second["event_id"]]
+    fill, = window.fills(window.trades)
+    assert fill.activity_id == second["ref_id"] and fill.cash_amount == D("-112.50")
+
+
 def test_confirmed_rejection_does_not_block_independently_reserved_sibling(database, subject):
     from sentinel.execution.contract import BrokerExactOrderLookup
     plan = subject["plan"]

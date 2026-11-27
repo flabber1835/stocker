@@ -14,7 +14,7 @@ from datetime import date
 from itertools import islice, zip_longest
 from typing import Iterable, Mapping
 
-from sentinel.feed import calendar, rolling_work
+from sentinel.feed import broker_read_material, calendar, rolling_work
 from sentinel.feed.rolling_contract import (
     CanonicalBar, CanonicalBenchmark, FormationWindow, PriceWindow, RestartRequirement, snapshot_window,
     SnapshotManifest, canonical_json, digest,
@@ -379,6 +379,7 @@ def seal(conn, candidate_id: str, *, expected_keys: Iterable[tuple[str, str]],
     return manifest
 
 
+@broker_read_material.sealed
 def manifest(conn, candidate_id: str) -> SnapshotManifest:
     _pin_reader(conn)
     with conn.cursor() as cur:

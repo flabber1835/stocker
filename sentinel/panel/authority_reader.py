@@ -3,7 +3,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
-from threading import Lock, Thread
+from threading import Event, Lock, Thread
 import time
 import uuid
 
@@ -41,7 +41,7 @@ def retry_observation_read(operation, *, clock=time.monotonic, sleep=time.sleep)
 
 
 def _retry_read(operation, retryable, *, clock, sleep):
-    from sentinel.snapshot_scan_admission import DiscretionaryScanDeferred, WAIT_SECONDS
+    from sentinel.snapshot_scan_admission import DiscretionaryScanDeferred
     work_deadline = clock() + DEADLINE_SECONDS
     retry_deadline = work_deadline
     while True:
@@ -52,16 +52,13 @@ def _retry_read(operation, retryable, *, clock, sleep):
             return result
         except retryable as error:
             now = clock()
-            # Keep the native admission budget while giving up the lock and
-            # transaction between attempts. An ordinary SQL refusal retains
-            # its own shorter window, including after a discretionary yield.
-            wait = WAIT_SECONDS if isinstance(error, DiscretionaryScanDeferred) else CORPUS_LOCK_RETRY_SECONDS
-            retry_deadline = min(retry_deadline, now + wait)
+            if type(error) is DiscretionaryScanDeferred:
+                raise  # Return the process and its memory slot to the parent.
+            retry_deadline = min(retry_deadline, now + CORPUS_LOCK_RETRY_SECONDS)
             remaining = retry_deadline - now
             if remaining <= 0:
                 raise
-            poll = 3.0 if isinstance(error, DiscretionaryScanDeferred) else CORPUS_LOCK_POLL_SECONDS
-            sleep(min(poll, remaining))
+            sleep(min(CORPUS_LOCK_POLL_SECONDS, remaining))
             if clock() >= retry_deadline:
                 raise
 
@@ -150,6 +147,10 @@ class Reader:
         self.pending_clock = None
         self.work_started = None
         self.work_clock = None
+        self.work_remaining = DEADLINE_SECONDS
+        self.scan_available = Event()
+        self.prior_check_until = None
+        self.prior_check_subject = None
         self.queue_deadline_clock = self.queue_deadline_at = None
         self.queue_last_clock = self.queue_last_at = None
         self.attempt_deadline_clock = None
@@ -187,7 +188,7 @@ class Reader:
             outcome=self.attempt_outcome, admitted_at=self.attempt_admitted_at,
             deadline=self.attempt_deadline, completed_at=self.attempt_completed_at,
             work_started_at=self.work_started,
-            work_deadline=(min(self.work_started+timedelta(seconds=DEADLINE_SECONDS),
+            work_deadline=(min(self.work_started+timedelta(seconds=self.work_remaining),
                 self.attempt_deadline) if self.work_started is not None else None),
             supersession_started_at=self.supersession_at,
             supersession_deadline=(self.supersession_at+timedelta(
@@ -251,7 +252,8 @@ class Reader:
                 or tick < self.queue_last_clock or instant < self.queue_last_at):
             raise ValueError('financial queue clock regressed')
         self.queue_last_clock, self.queue_last_at = tick, instant
-        if not (tick < self.queue_deadline_clock and instant < self.queue_deadline_at
+        if not ((self.attempt_outcome == 'DEFERRED'
+                 or tick < self.queue_deadline_clock and instant < self.queue_deadline_at)
                 and tick < self.attempt_deadline_clock and instant < self.attempt_deadline):
             raise TimeoutError('financial verification queue deadline expired')
         if self.work_allowed is not None and self.work_allowed() is not True:
@@ -261,15 +263,16 @@ class Reader:
             raise ValueError('financial verification supersession budget expired')
         return tick, instant
 
-    def _work(self, key, database_url, include_paper):
+    def _read_allocated(self, key, database_url, include_paper):
         acquired = False
         answer = None
         phase = 'QUEUE' if self.execution_slot is not None else 'TRANSPORT'
         try:
             if self.execution_slot is not None:
+                resumed = self.attempt_outcome == 'DEFERRED'
                 remaining = max(0, min(DEADLINE_SECONDS,
-                    self.queue_deadline_clock-self.clock(),
-                    (self.queue_deadline_at-self.wall_clock()).total_seconds()))
+                    (self.attempt_deadline_clock if resumed else self.queue_deadline_clock)-self.clock(),
+                    ((self.attempt_deadline if resumed else self.queue_deadline_at)-self.wall_clock()).total_seconds()))
                 acquired = remaining > 0 and self.execution_slot.acquire(timeout=remaining)
                 if not acquired:
                     raise TimeoutError('financial verification slot wait expired')
@@ -296,13 +299,14 @@ class Reader:
                         tick, instant = self._queued_admission()
                     else:
                         tick, instant = self.clock(), self.wall_clock()
-                    remaining = DEADLINE_SECONDS if self.execution_slot is None else min(DEADLINE_SECONDS,
+                    remaining = min(self.work_remaining,
                         self.attempt_deadline_clock-tick,
                         (self.attempt_deadline-instant).total_seconds())
                     if remaining <= 0:
                         raise TimeoutError('financial verification work deadline expired')
                     self.work_started, self.work_clock = instant, tick
                     self.attempt_outcome = 'RUNNING'
+                    self.diagnostic = None
             if answer is None:
                 phase = 'TRANSPORT'
                 value = self.runner(self.observer, database_url, include_paper, key,
@@ -324,6 +328,51 @@ class Reader:
         finally:
             if acquired:
                 self.execution_slot.release()
+        return answer
+
+    def _wait_for_scan(self, diagnostic):
+        """The monitor signals native availability; no child, slot or database lock is held."""
+        with self.lock:
+            instant, tick = self.wall_clock(), self.clock()
+            elapsed = max(tick-self.work_clock, (instant-self.work_started).total_seconds())
+            if tick < self.work_clock or instant < self.work_started:
+                raise ValueError('financial observation clock regressed during yield')
+            remaining = self.work_remaining - elapsed
+            if remaining <= 0:
+                raise TimeoutError('financial observation work budget expired')
+            if self.prior_check_until is not None:
+                remaining_wait = (self.prior_check_until-instant).total_seconds()
+                if remaining_wait <= 0:
+                    raise TimeoutError('prior verification waiting indication expired')
+                self.attempt_deadline = min(self.attempt_deadline, self.prior_check_until)
+                self.attempt_deadline_clock = min(self.attempt_deadline_clock, tick+remaining_wait)
+            self.work_remaining = remaining
+            self.work_started = self.work_clock = None
+            self.attempt_outcome = 'DEFERRED'
+            self.diagnostic = diagnostic
+            self.scan_available.clear()
+        if self.completion is not None:
+            self.completion.set()
+        while True:
+            with self.lock:
+                tick, instant = self._queued_admission()
+                left = min(self.attempt_deadline_clock-tick,
+                    (self.attempt_deadline-instant).total_seconds())
+            if self.scan_available.wait(min(1, left)):
+                return
+
+    def _work(self, key, database_url, include_paper):
+        while True:
+            answer = self._read_allocated(key, database_url, include_paper)
+            if answer[2] is None or answer[2].outcome != 'DEFERRED':
+                break
+            try:
+                self._wait_for_scan(answer[2])
+            except Exception as exc:
+                diagnostic = (observer_failure.failure('FOREGROUND_WAIT_EXHAUSTED', 'QUEUE', error=exc)
+                    if isinstance(exc, TimeoutError) else observer_failure.classify(exc, transport=True, phase='QUEUE'))
+                answer = (key, None, diagnostic, self.wall_clock())
+                break
         with self.lock:
             self.attempt_completed_at = answer[3]
             self.diagnostic = answer[2]
@@ -348,7 +397,12 @@ class Reader:
                 detail = 'current financial identity unreadable: '+self.identity_failure.safe_detail()
             return self.unknown(include_paper, detail)
         with self.lock:
+            if self.attempt_outcome == 'DEFERRED' and allow_start and not scan_occupied:
+                self.scan_available.set()
             if key != self.configuration:
+                if key != self.prior_check_subject:
+                    self.prior_check_until = None
+                    self.prior_check_subject = None
                 healthy_change = (self.completed is not None and self.failure is None
                     and self.pending is None and self.supersession_at is None)
                 previous_key = self.configuration
@@ -429,6 +483,8 @@ class Reader:
                                     or self.expected_keys == frozenset({'paper_reconciliation'})):
                                 self.retained = rows
                             self.completed = (rows, value['errors'], observed)
+                            self.prior_check_until = None
+                            self.prior_check_subject = None
                             negative = [row for row in rows if row.status in {
                                 model.FAIL, model.UNKNOWN}
                                 and not model.observed_opening_cutoff(row, now=observed)]
@@ -481,7 +537,10 @@ class Reader:
             if self.completed is not None:
                 rows, errors, observed = self.completed
                 age = self.wall_clock()-observed
-                if timedelta(0) <= age <= timedelta(seconds=FRESH_SECONDS):
+                scan_wait_expired = (self.attempt_outcome == 'DEFERRED' and (
+                    age >= timedelta(seconds=FRESH_SECONDS)
+                    or any(row.valid_until is not None and self.wall_clock() >= row.valid_until for row in rows)))
+                if timedelta(0) <= age <= timedelta(seconds=FRESH_SECONDS) and not scan_wait_expired:
                     fresh = (rows, {}, [], errors)
                 else:
                     self.completed = None
@@ -578,6 +637,7 @@ class Reader:
                 self.pending_at = self.wall_clock()
                 self.work_started = None
                 self.work_clock = None
+                self.work_remaining = DEADLINE_SECONDS
                 self.queue_deadline_clock = (coalesced[2] if coalesced is not None
                     else self.pending_clock+DEADLINE_SECONDS)
                 self.queue_deadline_at = (coalesced[3] if coalesced is not None
@@ -610,7 +670,9 @@ class Reader:
             if fresh is not None:
                 if self.pending is not None and self.pending_key == key:
                     rows, details, history, errors = fresh
-                    rows = [replace(row, detail=row.detail+' · background refresh running; last verified '+observed.isoformat()
+                    activity = ('background refresh waiting for database access' if self.attempt_outcome == 'DEFERRED'
+                                else 'background refresh running')
+                    rows = [replace(row, detail=row.detail+' · '+activity+'; last verified '+observed.isoformat()
                                     +' · reason '+self.check_reason)
                             if row.status == model.OK else row for row in rows]
                     return rows, details, history, errors
@@ -625,18 +687,24 @@ class Reader:
                         deadline_clock = self.queue_deadline_clock
                         deadline = self.queue_deadline_at
                     else:
-                        deadline_clock = min(self.work_clock+DEADLINE_SECONDS,
+                        deadline_clock = min(self.work_clock+self.work_remaining,
                                              self.attempt_deadline_clock)
-                        deadline = min(self.work_started+timedelta(seconds=DEADLINE_SECONDS),
+                        deadline = min(self.work_started+timedelta(seconds=self.work_remaining),
                                        self.attempt_deadline)
                         detail = self.scope_label+' is running'
                     detail += (' · elapsed '+str(max(0, int(self.clock()-self.pending_clock)))
                                +'s · deadline '+deadline.isoformat())
                 detail += ' · reason '+self.check_reason
+                if self.attempt_outcome == 'DEFERRED':
+                    detail = 'Verification is waiting for database access. Trading has priority.'
+                    deadline_clock = self.attempt_deadline_clock
+                    deadline = self.attempt_deadline
                 if self._supersession_boundary() is not None:
                     deadline = min(deadline, self._supersession_boundary())
                     deadline_clock = min(deadline_clock,
                         self.supersession_clock+observer_failure.SUPERSESSION_SECONDS)
+                if self.prior_check_until is not None:
+                    deadline = min(deadline, self.prior_check_until)
                 if (self.failure is None
                         and self.pending_clock <= self.clock() < deadline_clock
                         and self.pending_at <= self.wall_clock()
@@ -644,7 +712,8 @@ class Reader:
                     if self.pending_key != key:
                         detail = ('current financial evidence changed; waiting for the previous '
                                   'bounded check to finish before checking current evidence')
-                    return self.unknown(include_paper, detail, self.retained,
+                    return self.unknown(include_paper, detail,
+                                        None if self.attempt_outcome == 'DEFERRED' else self.retained,
                                         checking_until=deadline)
             if (self.pending is None and self.failure is None
                     and self._supersession_boundary() is not None):

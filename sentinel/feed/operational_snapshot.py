@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from fractions import Fraction
 
 from sentinel import backup_runtime_authority, identity
-from sentinel.feed import calendar, publication, rolling_jobs as jobs, rolling_store, store
+from sentinel.feed import broker_read_material, calendar, publication, rolling_jobs as jobs, rolling_store, store
 from sentinel.feed.rolling_contract import FormationWindow, PriceWindow, digest
 from sentinel.feed.observation_timing import latest_acquirable_session
 
@@ -181,6 +181,7 @@ def validate(conn, lease, request):
             raise OperationalSnapshotRefused("OPERATIONAL_VALIDATION_CHANGED")
 
 
+@broker_read_material.sealed
 def _bound_and_manifest(conn, pub):
     binding = pub.evidence.get("rolling_snapshot")
     if not isinstance(binding, dict) or binding.get("schema") != SCHEMA:

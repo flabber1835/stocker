@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -215,6 +216,41 @@ class TestPostgresOwnershipStore:
 
 
 class TestMigrationCannotReArm:
+    def test_broker_guard_rechecks_ownership_without_replaying_gateway_audit(self, monkeypatch, caplog):
+        from sentinel.execution.guarded import BrokerOperation
+        from sentinel.paper import validation
+
+        conn = object()
+        bound = B.AccountBinding("nas-1", "sim", "ACC-123", 1)
+        current = bound
+        monkeypatch.setattr(B, "load", lambda _conn: current)
+        audit_reads = []
+
+        def read_audit(store):
+            audit_reads.append(store.conn)
+            return False
+
+        monkeypatch.setattr(handover, "ownership_established", read_audit)
+        assert handover.assert_no_legacy_path(conn) == bound
+        assert "no event establishing Sentinel ownership" in caplog.text
+
+        def check_account():
+            validation._validate_broker_grant(
+                conn, None, BrokerOperation.IDENTIFY_ACCOUNT, BrokerAccountIdentity("sim", "OTHER"),
+                now_provider=None, strategy_provider=None)
+
+        for _ in range(2):
+            with pytest.raises(validation.PaperActivationRefused, match="identity does not match"):
+                check_account()
+        current = replace(bound, ownership_state="UNINITIALIZED")
+        with pytest.raises(handover.MigrationRefused, match="UNINITIALIZED"):
+            check_account()
+        current = None
+        with pytest.raises(B.AccountNotBound):
+            check_account()
+
+        assert audit_reads == [conn]
+
     def test_a_bound_account_REFUSES_migration_before_touching_the_broker(self, conn):
         """The de-arming, and the ordering matters: the refusal happens before
         any broker call, so a command that could liquidate never reaches one."""

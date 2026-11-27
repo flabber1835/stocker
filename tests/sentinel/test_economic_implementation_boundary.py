@@ -258,7 +258,11 @@ def test_daily_session_reads_bind_exact_compiler_and_storage(changed, monkeypatc
         return raw + b'\n# altered source\n' if name == changed else raw
 
     monkeypatch.setattr(economic, '_module_raw', modified)
-    assert economic.identity(schema='daily-session-test')['sha256'] != installed
+    if changed in {'sentinel.feed.normalized_layout', 'sentinel.feed.rolling_store'}:
+        with pytest.raises(economic.EconomicManifestRefused, match='BROKER_READ_MATERIAL_'):
+            economic.identity(schema='daily-session-test')
+    else:
+        assert economic.identity(schema='daily-session-test')['sha256'] != installed
 
 
 @pytest.mark.parametrize('restored', [
@@ -268,9 +272,10 @@ def test_opening_read_optimization_requires_one_complete_storage_version(restore
     from tests.support.opening_predecessor import predecessor
 
     original = economic._module_raw
+    before_guarded_reads = economic._before_broker_reads({name: original(name) for name in economic._BROKER_READ_BASE})
     previous = {'sentinel.' + path[:-3].replace('/', '.'): path for path in restored}
     monkeypatch.setattr(economic, '_module_raw', lambda name:
-        predecessor(previous[name], original(name)) if name in previous else original(name))
+        predecessor(previous[name], original(name)) if name in previous else before_guarded_reads.get(name) or original(name))
     same_economics = economic.identity(schema='daily-session-test')['sha256'] == alpaca_coverage.CURRENT_DATA_SEMANTICS
     assert same_economics == (len(restored) == 2)
 
@@ -445,8 +450,15 @@ def test_all_local_edges_have_explicit_economic_or_reviewed_port_ownership():
         record = migration['modules'].get(name, {})
         installed = record.get('module', name)
         current_edges = economic.local_imports(economic._module_raw(installed), module_name=installed)
-        assert current_edges == record.get('dependencies', edges)
         allowed_ports = set(ports) | set(migration['ports'])
+        expected_edges = set(record.get('dependencies', edges))
+        if name in economic._BROKER_READ_BASE:
+            sources = {key: economic._module_raw(key) for key in economic._BROKER_READ_BASE}
+            old = economic._before_broker_reads(sources)[name]
+            assert set(economic.local_imports(old, module_name=installed)) == expected_edges
+            expected_edges.add('sentinel.feed.broker_read_material')
+            allowed_ports.add('sentinel.feed.broker_read_material')
+        assert set(current_edges) == expected_edges
         assert {edge for edge in current_edges if edge.startswith('sentinel.')} <= current_closure | allowed_ports
 
 

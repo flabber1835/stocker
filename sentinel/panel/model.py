@@ -508,6 +508,12 @@ class TradingRun(BaseModel):
     below_whole_share: dict[str, OpeningEstimate] = Field(default_factory=dict, max_length=100)
     unsent_at_cutoff: dict[str, UnsentOpeningDelta] = Field(default_factory=dict, max_length=100)
 
+    def callback_order_states_known(self) -> bool:
+        states = {'ACKNOWLEDGED', 'PARTIALLY_FILLED', 'FILLED'}
+        if self.state == 'EXECUTING':
+            states.update({'PLANNED', 'SEND_PENDING'})
+        return all(order.state in states for order in self.orders)
+
     def required_sales_filled(self) -> bool:
         """Every saved sale must have its complete, confirmed command fills."""
         for leg in self.intent.legs:
@@ -2543,21 +2549,13 @@ def backup_restore_row(
         missing.append("restore drill")
     if runtime_at is None:
         missing.append("runtime restore chain")
-    if missing:
-        return Row(
-            "backup_restore", "Backup / Restore", "MISSING EVIDENCE", FAIL,
-            "missing " + " and ".join(missing), as_of, required_current=True,
-            operational_fact=(OperationalFact(kind='BACKUP_REPORT', state='NOT_REPORTED')
-                              if len(missing) == 3 and not any((base_proof, runtime_proof, restore_proof,
-                                                               maintenance_proof, recovery)) else None))
-    assert base_at is not None and restore_at is not None and runtime_at is not None
-    base_age = now - base_at
-    restore_age = now - restore_at
+    base_age = now - base_at if base_at else None
+    restore_age = now - restore_at if restore_at else None
     lag_failures = []
     hard_failures = []
-    if base_age > timedelta(hours=26):
+    if base_age is not None and base_age > timedelta(hours=26):
         lag_failures.append("base backup exceeds 26h objective")
-    if restore_age > timedelta(days=31):
+    if restore_age is not None and restore_age > timedelta(days=31):
         hard_failures.append("restore drill exceeds 31d objective")
     if runtime_valid_until is None or now > runtime_valid_until:
         lag_failures.append("runtime restore-chain proof is past its cadence")
@@ -2565,8 +2563,8 @@ def backup_restore_row(
     restore_proof = dict(restore_proof or {})
     runtime_proof = dict(runtime_proof or {})
     base_name_value = str(base_proof.get("base_backup") or "")
-    system_id = str(base_proof.get("system_identifier") or "")
-    if not all(base_proof.get(key) for key in (
+    system_id = str((base_proof if base_at else runtime_proof).get("system_identifier") or "")
+    if base_at and not all(base_proof.get(key) for key in (
             "base_backup", "marker", "marker_lsn", "marker_wal",
             "system_identifier")):
         hard_failures.append("complete base/WAL proof is malformed")
@@ -2580,19 +2578,40 @@ def backup_restore_row(
             or not runtime_proof.get("recoverable_through_wal")
             or wal_segments < 1):
         hard_failures.append("runtime restore-chain authority is invalid")
-    if (str(runtime_proof.get("base_backup") or "") != base_name_value
-            or str(runtime_proof.get("system_identifier") or "") != system_id):
+    if base_at and (str(runtime_proof.get("base_backup") or "") != base_name_value
+                    or str(runtime_proof.get("system_identifier") or "") != system_id):
         hard_failures.append("runtime chain disagrees with base backup")
     # A monthly semantic drill normally names an older daily base generation.
     # It remains valid through its 31-day objective as long as it proves the
     # same database system identity; requiring it to name today's base would
     # make every successful daily backup falsely turn the panel red.
-    if (restore_proof.get("physical_only") is not False
+    if restore_at and (restore_proof.get("physical_only") is not False
             or not restore_proof.get("base_backup")
             or str(restore_proof.get("system_identifier") or "") != system_id
             or not restore_proof.get("marker")
             or not restore_proof.get("target_lsn")):
         hard_failures.append("full semantic restore proof is invalid")
+    if missing:
+        reports = ((base_at, base_proof), (restore_at, restore_proof), (runtime_at, runtime_proof))
+        coherent = all(not proof if stamp is None else stamp <= now for stamp, proof in reports)
+        # The writer's verified WAL chain names the selected base even when
+        # separate operator backup and drill reports have not arrived yet.
+        current_chain = (runtime_at is not None and system_id and runtime_proof.get('base_backup')
+                         and not lag_failures and not hard_failures)
+        report_only = coherent and not any((maintenance_proof, recovery)) and (len(missing) == 3 or current_chain)
+        deadlines = []
+        if report_only and current_chain:
+            deadlines.append(runtime_valid_until)
+            if base_at:
+                deadlines.append(base_at + timedelta(hours=26))
+            if restore_at:
+                deadlines.append(restore_at + timedelta(days=31))
+        return Row(
+            "backup_restore", "Backup / Restore", "MISSING EVIDENCE", FAIL,
+            "missing " + " and ".join(missing), as_of, required_current=True,
+            valid_until=min(deadlines) if deadlines else None,
+            operational_fact=OperationalFact(kind='BACKUP_REPORT', state='NOT_REPORTED') if report_only else None)
+    assert base_age is not None and restore_age is not None
     base_name = base_name_value or "invalid"
     value = (
         f"BASE {base_age.total_seconds() / 3600:.1f}h · "

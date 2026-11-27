@@ -29,6 +29,7 @@ from sentinel.panel.presentation import (
     dashboard_health, describe,
 )
 from sentinel.panel.overview import overview_html
+from sentinel.panel.run_progress import order_summary
 from sentinel.panel.styles import CSS
 from sentinel.panel.banner import BANNER_SCRIPT
 from sentinel.panel.dom_refresh import SCRIPT as DOM_REFRESH_SCRIPT
@@ -212,11 +213,19 @@ STATIC_ASSETS = {
 }
 
 
+def _display_value(row: Row, value: str) -> str:
+    if row.key == 'broker' and row.as_of is not None and ' positions' in row.value:
+        observed = row.as_of.astimezone(ZoneInfo('America/Los_Angeles')).strftime('%b %d, %I:%M:%S %p Pacific')
+        return f'{value} in the {observed} broker snapshot'
+    return value
+
+
 def _row_html(r: Row, now: datetime, *, refresh_pending: bool = False, current: bool = True,
               activation_pending: bool = False, historical_warning: bool = False,
               live: bool = False) -> str:
     st = r.effective_status(now)
     label, value, explanation = describe(r, st, now=now if current and not refresh_pending else None, live=live)
+    value = _display_value(r, value)
     # Retained HTML is presentation only. Mutating an OK required-current row
     # to WARN would make the authority classifier invent a failure.
     display_status = ('neutral' if not current or refresh_pending and st not in {FAIL, UNKNOWN, PENDING}
@@ -228,6 +237,8 @@ def _row_html(r: Row, now: datetime, *, refresh_pending: bool = False, current: 
         display_status = WARN
     if activation_pending:
         value = 'Awaiting PAPER activation'
+    if r.key == 'broker':
+        explanation += ' See the trading run for submitted orders and fills.'
     detail = r.detail
     if refresh_pending or not current:
         value = 'LAST KNOWN · ' + value.removeprefix('LAST KNOWN · ')
@@ -563,6 +574,12 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
         if (status in {FAIL, UNKNOWN} and delivery.row_current(panel, row)
                 and not activation_wait_history(panel, row)):
             label, value, _ = describe(row, status, live=panel.is_live_trading)
+            value = _display_value(row, value)
+            if row.key == 'trading_run' and not refresh_pending:
+                counts = (order_summary(row.trading_run) if row.can_show_trading_run(now)
+                          else 'Order counts unavailable.')
+                if counts:
+                    value += ' · ' + counts
             kind = ' class="review-warning"' if row.key in historical_warning_keys else ''
             reasons.append(f'<li{kind}><a href="#status-{_esc(row.key)}" '
                            'onclick="document.getElementById(\'system-details\').open=true">'

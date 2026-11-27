@@ -62,9 +62,14 @@
       ]
     },
     "feed/rolling_store.py": {
-      "after": "7dca4426c630fd0f8c124e3b1dc9d1457e0d96780e56e04888a45f70fdc0ccc1",
+      "after": "62eba292f30e06efdc58a9e9745c4bbbeaa3b490c3dae9718293947ed089de89",
       "before": "1af0c19730e73345245a791d736ff98eef78bab2e48e088bcf0cd94a834d32cf",
       "edits": [
+        [
+          16,
+          17,
+          "from sentinel.feed import calendar, rolling_work\n"
+        ],
         [
           146,
           148,
@@ -81,28 +86,33 @@
           "    verify_evidence(conn, reference)\n    verify_evidence(conn, source)\n"
         ],
         [
+          381,
           382,
-          383,
           ""
         ],
         [
+          383,
           384,
-          386,
+          ""
+        ],
+        [
+          385,
+          387,
           "        cur.execute(\"SELECT snapshot_id,manifest FROM sentinel_price_candidates \"\n                    \"WHERE candidate_id=%s\", (candidate_id,))\n"
         ],
         [
-          389,
-          392,
+          390,
+          393,
           "    value = SnapshotManifest.model_validate(row[1])\n    if value.snapshot_id != row[0]:\n"
         ],
         [
-          393,
-          393,
+          394,
+          394,
           "    axis, reference, source, _ = _parent(conn, candidate_id)\n"
         ],
         [
-          400,
           401,
+          402,
           "        verify_evidence(conn, value.reference_sha256)\n        verify_evidence(conn, value.source_evidence_sha256)\n"
         ]
       ]
@@ -254,67 +264,67 @@
       ]
     },
     "paper/execution.py": {
-      "after": "ed3a4ade1a01f6524a98a4c30bbfc6ee9c3b452802a946ff3cfdbdeb1c946f96",
+      "after": "cf81eded47bc7190e3ae3b3d2fd876005209a76cdfb79deba8ab494cfee57540",
       "before": "fa04225bb4e3537915f71671e4c59ef939a22ad0b6e9c765b25a413fa3779830",
       "edits": [
         [
           407,
-          410,
+          411,
           ""
         ],
         [
-          412,
           413,
+          414,
           "                                     candidate_key=None):\n"
         ],
         [
-          421,
           422,
+          423,
           "                        candidate_key=candidate_key)\n"
         ],
         [
-          435,
-          453,
+          436,
+          454,
           ""
         ],
         [
-          455,
           456,
+          457,
           "                settled_reconciliation, settled_account, sizing_funds = market_settled\n"
         ],
         [
-          498,
           499,
+          500,
           "            if retained_cohort:\n"
         ],
         [
-          713,
-          719,
+          714,
+          720,
           ""
         ],
         [
-          724,
-          733,
+          725,
+          734,
           "                            allow_restrictions=market_policy.fractional)\n                        funds = check_execution_cash(confirmed, cash, activity, observed_at, fee_wait=True)\n                        market_settled = (confirmed, cash, funds)\n"
         ],
         [
-          787,
           788,
+          789,
           "                def market_buy_window_open():\n"
         ],
         [
-          799,
           800,
+          801,
           ""
         ],
         [
-          802,
-          824,
+          803,
+          825,
           "                            <= clock() < cutoff)\n"
         ],
         [
-          842,
-          847,
+          843,
+          848,
           ""
         ]
       ]
@@ -362,9 +372,19 @@
       ]
     },
     "paper/validation.py": {
-      "after": "47720dcaf10819a662fed4f1fdae03e12184894d5d9d8ec6d5e5da5bf9e0fec3",
+      "after": "abdc32bb5a0c9817f8e70d98d61cc159364157dde91e3bead91332f07ebd488e",
       "before": "9f5ba046236fd01bb91d7c73cca2ade4442ba878037d5cf7dcf1af85eb8f0cef",
       "edits": [
+        [
+          264,
+          265,
+          "    from sentinel.handover import assert_no_legacy_path\n"
+        ],
+        [
+          266,
+          267,
+          "    binding = assert_no_legacy_path(conn)\n"
+        ],
         [
           421,
           423,

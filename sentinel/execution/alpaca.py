@@ -2377,7 +2377,7 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
                 if retained_history.get(event["event_id"]) != event:
                     raise MalformedBrokerPayload(
                         "Alpaca trade history disagrees with the bounded publication", raw_event=event)
-        return broker_cash.BrokerCashActivityBatch(
+        batch = broker_cash.BrokerCashActivityBatch(
             activities=tuple(activities),
             processed_through=upper,
             completeness=contract.Completeness.COMPLETE,
@@ -2391,6 +2391,9 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
             cash_revisions=revisions,
             security_transfers=tuple(security_transfers),
         )
+        from sentinel.execution import trade_activity_window
+        trade_activity_window.observe(batch=batch, after=since_event_id, events=events, decode=self._activity_execution_fill)
+        return batch
 
     async def account_fill_interval_evidence(
             self, *, session: date,

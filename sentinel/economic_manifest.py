@@ -15,7 +15,7 @@ from pathlib import Path
 import re
 from functools import lru_cache
 
-MANIFEST_SHA256 = 'f6dea6fd3e87b11a56ab6423e28fa5453992af163e6cdeb79266a0ccb1ebe415'
+MANIFEST_SHA256 = 'd613063b2fb67946e8dd7914300ed182fa438fe46452caaa8b741437f4a73631'
 MANIFEST = Path(__file__).with_name('economic-implementation-v2.json')
 PREDECESSOR = 'b2e308bb664718da373175f1a7d988d07b159ae2'
 PREDECESSOR_DATA_SEMANTICS_SHA256 = '38c750bd9bb244bc71600aaeba8c4aad22d2095747f4199e9ac4e0bd433425cb'
@@ -55,6 +55,24 @@ OPENING_SESSION_STORAGE = {
 CLOSE_ANCHOR_STORAGE = {
     **OPENING_SESSION_STORAGE,
     'sentinel.feed.normalized_layout': '1f1cf9d9921dcbf856157079e1c3c121f8415de73072a4838ce3bb640b6c1f5b',
+}
+
+# Two physical data readers acquire a scoped optimization. Recover the exact
+# predecessor source before applying its existing economic compiler contracts.
+_BROKER_READ_BASE = {
+    'sentinel.feed.rolling_store': ('manifest', CLOSE_ANCHOR_STORAGE['sentinel.feed.rolling_store']),
+    'sentinel.feed.operational_snapshot': ('_bound_and_manifest',
+        '758282bc0bab1bc0692283fda7b6069c51a0eb2affb614be650396927ac26ca9'),
+}
+_BROKER_READ_SOURCES = {
+    'sentinel.feed.broker_read_material': 'aece98164aff2daa9f8a77de76ce68f2ec8654621c909263e887b5eecd9c3a5b',
+    'sentinel.feed.shadow_readiness_memo': 'd72c1bd4dbc273ffc3f059459b241692d1f5d40e47f9a50f600cad3455eae003',
+    'sentinel.feed.readiness_scope': '5cc8b9d3e399c85b4fcbced003b6b413694ae56cd036ec0ee5051da49850ee1c',
+    'sentinel.feed.rolling_contract': 'afd3e3ead4b35d4d5ccb21857bb2e02cbec235a081978c0e627b6c9a398293a8',
+    'sentinel.prepared_opening_material': '60fb299baa0135d58882e98d1ab5d0df6dd8f7e610e434f1376b1e37e9bd2a75',
+    'sentinel.operational_ddl_epoch': 'cdf5e06bd5b98e651c72b64601db31d5ca05736cc74d17efd3dfe7781dab204a',
+    'sentinel.feed.normalized_layout': CLOSE_ANCHOR_STORAGE['sentinel.feed.normalized_layout'],
+    'sentinel.feed.read_contract': CLOSE_ANCHOR_STORAGE['sentinel.feed.read_contract'],
 }
 
 
@@ -277,6 +295,27 @@ def page_contribution(module, raw, profile=None):
             else witness['alpaca_page']['before'])
 
 
+def _before_broker_reads(compilers):
+    marker = b'@broker_read_material.sealed\n'
+    if not any(marker in compilers[name] for name in _BROKER_READ_BASE):
+        return compilers
+    if any(_sha(_module_raw(name)) != sha for name, sha in _BROKER_READ_SOURCES.items()):
+        raise EconomicManifestRefused('BROKER_READ_MATERIAL_SOURCE_CHANGED')
+    previous = dict(compilers)
+    addition = b'from sentinel.feed import broker_read_material, '
+    for name, (definition, sha) in _BROKER_READ_BASE.items():
+        raw = compilers[name]
+        declaration = b'def ' + definition.encode('ascii') + b'('
+        if raw.count(addition) != 1 or raw.count(marker + declaration) != 1:
+            raise EconomicManifestRefused('BROKER_READ_MATERIAL_CALLER_CHANGED:' + name)
+        old = raw.replace(addition, b'from sentinel.feed import ', 1).replace(marker + declaration, declaration, 1)
+        edges = set(local_imports(old, module_name=name)) | {'sentinel.feed.broker_read_material'}
+        if _sha(old) != sha or local_imports(raw, module_name=name) != sorted(edges):
+            raise EconomicManifestRefused('BROKER_READ_MATERIAL_PREDECESSOR_CHANGED:' + name)
+        previous[name] = old
+    return previous
+
+
 def identity(*, schema):
     from sentinel.physical_read_source_basis import contribution
     from sentinel import close_feed_source_basis, performance_source_basis, operation_read_source_basis
@@ -286,15 +325,15 @@ def identity(*, schema):
     profile = _retired_source_profile()
     retirement = profile['modules']
     port_digests = {name: _sha(_module_raw(name)) for name in profile['ports']}
-    close_compilers = {
+    close_compilers = _before_broker_reads({
         name: _module_raw(retirement.get(name, {}).get('module', name))
-        for name in CLOSE_READINESS_COMPILERS}
+        for name in CLOSE_READINESS_COMPILERS})
     exact_close_readiness = all(_sha(raw) == CLOSE_READINESS_COMPILERS[name]
                                 for name, raw in close_compilers.items())
     daily_compilers = {name: _module_raw(name) for name in DAILY_SESSION_COMPILERS}
     exact_daily_session_reads = (
         all(_sha(raw) == DAILY_SESSION_COMPILERS[name][0] for name, raw in daily_compilers.items())
-        and {name: _sha(_module_raw(name)) for name in DAILY_SESSION_STORAGE}
+        and {name: _sha(close_compilers.get(name) or _module_raw(name)) for name in DAILY_SESSION_STORAGE}
         in (DAILY_SESSION_STORAGE, OPENING_SESSION_STORAGE, CLOSE_ANCHOR_STORAGE))
     for name in sorted(expected):
         transition = retirement.get(name)

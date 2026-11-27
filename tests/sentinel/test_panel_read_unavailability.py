@@ -152,20 +152,14 @@ def test_mixed_typed_refusals_share_first_window_and_original_work_budget(cost, 
     assert clock.now == expected
 
 
-@pytest.mark.parametrize('ordinary', [False, True])
-def test_background_yield_keeps_original_admission_budget_and_releases_before_retry(ordinary):
-    from sentinel.snapshot_scan_admission import DiscretionaryScanDeferred, WAIT_SECONDS
+def test_background_yield_releases_child_without_repeating_the_proof():
+    from sentinel.snapshot_scan_admission import DiscretionaryScanDeferred
     clock = Clock()
     def attempt():
-        if ordinary and clock.now >= 30:
-            raise QueryCanceled('ordinary read timeout after financial owner finished')
         raise DiscretionaryScanDeferred('foreground work')
-    def sleep(seconds):
-        assert seconds == (.5 if ordinary and clock.now >= 30 else 3)
-        clock.now += seconds
-    with pytest.raises(QueryCanceled if ordinary else DiscretionaryScanDeferred):
-        reader.retry_observation_read(attempt, clock=clock, sleep=sleep)
-    assert clock.now == (30 + reader.CORPUS_LOCK_RETRY_SECONDS if ordinary else WAIT_SECONDS)
+    with pytest.raises(DiscretionaryScanDeferred):
+        reader.retry_observation_read(attempt, clock=clock, sleep=clock.sleep)
+    assert not clock.waits
 
 
 def test_admitted_full_read_may_finish_after_retry_window_but_not_work_deadline():

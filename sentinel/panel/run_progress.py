@@ -6,6 +6,36 @@ from sentinel.panel import model
 from sentinel.paper_plan_preview import project_original_intent, quantity
 
 
+def confirmed_sent(order: model.RunOrder) -> bool:
+    return order.broker_order_id is not None or order.filled_quantity > 0
+
+
+def order_summary(run: model.TradingRun) -> str:
+    """Summarize distinct journal commands, keeping unconfirmed transport explicit."""
+    if not run.orders:
+        if run.unsent_at_cutoff:
+            counts = ['0 recorded orders']
+        elif run.state in {'FAILED', 'ABANDONED', 'SUPERSEDED', 'RETRY_WAIT', 'RECONCILING', 'EXECUTING'}:
+            return 'No orders recorded. Submission and fill counts are unavailable.'
+        else:
+            return ''
+    else:
+        counts = [f'{len(run.orders)} recorded order' + ('s' if len(run.orders) != 1 else ''),
+                  f'{sum(confirmed_sent(order) for order in run.orders)} confirmed sent',
+                  f'{sum(order.state == "FILLED" for order in run.orders)} fully filled']
+        for states, label in (({'ACKNOWLEDGED', 'PARTIALLY_FILLED'}, 'working'),
+                              ({'PLANNED'}, 'still planned'), ({'SEND_PENDING'}, 'awaiting submission confirmation'),
+                              ({'UNKNOWN'}, 'with outcome unknown'), ({'CANCEL_PENDING'}, 'awaiting cancellation confirmation'),
+                              ({'CANCELLED', 'REJECTED', 'SUPERSEDED'}, 'ended without a full fill')):
+            number = sum(order.state in states for order in run.orders)
+            if number:
+                counts.append(f'{number} {label}')
+    if run.unsent_at_cutoff:
+        number = len(run.unsent_at_cutoff)
+        counts.append(f'{number} trade' + ('s' if number != 1 else '') + ' with an unsent remainder at cutoff')
+    return ' · '.join(counts)
+
+
 def project_run(plan, authority, commands, *, purchase_allocations=(), below_whole_share=None):
     """Recover original proposed deltas from their immutable sizing snapshot."""
     intent = project_original_intent(plan,authority)

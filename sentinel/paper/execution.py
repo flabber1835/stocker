@@ -408,6 +408,7 @@ async def _execute_current_paper_plan(
             from . import market_reservations
             reserved = market_reservations.load(conn, plan) if fractional_postings else None
             terminal_receipts = {}
+            fill_cash = market_reservations.VerifiedFillCash()
 
             def check_execution_cash(result, account, activity, observed_at, *, fee_wait=False,
                                      candidate_key=None, owned_sales=()):
@@ -439,7 +440,7 @@ async def _execute_current_paper_plan(
                         current = await market_reservations.current_book(
                             conn, binding=binding, expected_account=confirmed_account, clock=clock, account=account,
                             broker=broker, basis=reserved, plan=plan, projection=target_projection,
-                            candidate_key=candidate["client_key"], terminal_receipts=terminal_receipts,
+                            candidate_key=candidate["client_key"], terminal_receipts=terminal_receipts, fill_cash=fill_cash,
                             settled_observation=market_settled[0].observation if market_settled else None,
                             sweep_due=lambda: bool(reserved["sales"] and defensive_cash_sweep_due()))
                         _market_buy_candidate_or_refuse(conn, plan=plan, projection=target_projection,

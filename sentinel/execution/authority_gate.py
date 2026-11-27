@@ -46,7 +46,7 @@ from sentinel.execution.guarded import (
     LiveExecutionGrant,
     PaperPreparationGrant,
 )
-from sentinel.feed import publication
+from sentinel.feed import broker_read_material, publication
 from sentinel.opening_stage_log import authority_rows, guard_phase
 from sentinel.standing_observation_authority import (
     require_standing_observation_authority,
@@ -361,6 +361,7 @@ def build_fresh_execution_check(
         raise TypeError("connection_factory must be callable")
     endpoint = TradingEndpoint.parse(paper_base_url)
     live = endpoint.environment is TradingEnvironment.LIVE
+    material = broker_read_material.ReadScope()
     if type(publish_operational_evidence) is not bool:
         raise TypeError('publish_operational_evidence must be bool')
     if live and not publish_operational_evidence:
@@ -389,7 +390,10 @@ def build_fresh_execution_check(
             assert_paper_url(paper_base_url)
         with guard_phase("connection_setup"):
             connection = connection_factory()
-        with closing(connection) as conn:
+        read_grant = (grant if not live and not publish_operational_evidence and bind_strategy_to_grant
+                      and isinstance(grant, AutomationExecutionGrant) and grant.operation_scope == 'EXECUTE'
+                      and operation in _READ_OPERATIONS else None)
+        with closing(connection) as conn, material.enter(read_grant):
             if not publish_operational_evidence:
                 # This separate authority reader must never contend with its
                 # caller's financial transaction through diagnostic triggers.

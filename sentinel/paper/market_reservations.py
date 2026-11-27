@@ -1,8 +1,8 @@
 """Fixed-dollar PAPER purchases funded together by a single reconciled balance."""
 from __future__ import annotations
 
-from dataclasses import replace
-from datetime import timedelta
+from dataclasses import dataclass, field, replace
+from datetime import datetime, timedelta
 from fractions import Fraction
 
 from sentinel.core.decision import DEFENSIVE_SECURITY_ID
@@ -22,6 +22,14 @@ WORKING = {S.ACKNOWLEDGED, S.PARTIALLY_FILLED}
 
 class ReservationBookChanged(OrderEvidenceNotReady):
     """Cash, holdings and order endpoints may have straddled an owned fill."""
+
+
+@dataclass
+class VerifiedFillCash:
+    scope: tuple | None = None
+    cursor: str | None = None
+    through: datetime | None = None
+    terminal: dict = field(default_factory=dict)
 
 
 def member(command):
@@ -249,7 +257,7 @@ def recovery_route(conn, *, cycle, deployment, reconciliation, config, now, in_f
         diagnostic=diagnostic)
 
 
-def _native_cash(orders, fills, commands, observation):
+def _native_cash(orders, fills, commands, observation, *, reused=None):
     """Price and cash come from complete native executions under their exact keys."""
     indexed = {order.broker_order_id: order for order in orders}
     rows = {}
@@ -257,13 +265,17 @@ def _native_cash(orders, fills, commands, observation):
         fill_integrity.validate(replace(observation, fills=tuple(fills), fill_history_complete=True), indexed)
         for f in fills:
             order = indexed[f.broker_order_id]
+            if reused and order.client_key in reused:
+                continue
             cash = getattr(f, "cash_amount", None)
             posted = None if cash is None else {"order_id": order.broker_order_id,
                 "client_key": order.client_key, "amount": decimal_text(cash)}
             rows.setdefault((order.client_key, order.broker_order_id), []).append(
                 (journal.fill_fingerprint(f), f.quantity, f.price, posted))
-        result = {}
+        result = dict(reused or {})
         for order in orders:
+            if order.client_key in result:
+                continue
             command = replace(commands[order.client_key], state=order.state, broker_order_id=order.broker_order_id,
                 filled_quantity=order.filled_quantity, filled_average_price=order.filled_average_price)
             result[order.client_key] = fill_integrity.fill_economics(command, rows).cash
@@ -274,18 +286,66 @@ def _native_cash(orders, fills, commands, observation):
         raise OrderEvidenceNotReady(f"reserved purchase lacks confirmed native fill cash: {exc}") from exc
 
 
+async def _filled_cash(orders, *, broker, commands, observation, window, scope, cache):
+    """Re-read only fills missing from the current bounded trade publications."""
+    if not orders:
+        return {}, {}
+    if not getattr(broker, "supports_owned_order_fills", False):
+        raise OrderEvidenceNotReady("reserved purchases require exact native fill coverage")
+    if window is None or cache is None:
+        fills = await broker.owned_order_fills(orders=orders, identity=observation.account_identity,
+                                              through=observation.observed_at)
+        return _native_cash(orders, fills, commands, observation), {}
+    previous = (cache.terminal if cache.scope == scope and cache.cursor == window.after
+                and cache.through is not None and cache.through <= window.through else {})
+    events = window.by_order(orders)
+    fills, replay, reused = [], [], {}
+    for order in orders:
+        key = order.client_key
+        prior = previous.get(key)
+        if prior and order == prior[0] and not events[key]:
+            fills.extend(prior[1])
+            reused[key] = prior[2]
+        elif not prior and events[key]:
+            current = window.fills(events[key])
+            if sum((Fraction(f.quantity) for f in current), Fraction(0)) == Fraction(order.filled_quantity):
+                fills.extend(current)
+            else:
+                replay.append(order)
+        else:
+            replay.append(order)
+    if replay:
+        fills.extend(await broker.owned_order_fills(orders=replay, identity=observation.account_identity,
+                                                    through=observation.observed_at))
+    debits = _native_cash(orders, fills, commands, observation, reused=reused)
+    by_id = {}
+    for fill in fills:
+        by_id.setdefault(fill.broker_order_id, []).append(fill)
+    verified = {o.client_key: (o, tuple(by_id[o.broker_order_id]), debits[o.client_key])
+                for o in orders if o.state is S.FILLED}
+    return debits, verified
+
+
 async def current_book(conn, *, binding, expected_account, clock, account, broker, sweep_due,
                        settled_observation, **reservation):
     """Re-sample a moving native book once, under the same reservation and writer."""
     from .cash import _broker_cash_state_or_refuse
+    from sentinel.execution import trade_activity_window
+
+    async def read_activity(observation):
+        with trade_activity_window.capture() as intervals:
+            state = await _broker_cash_state_or_refuse(conn, broker=broker, binding=binding, through=clock())
+        if len(intervals) == 1 and intervals[0].covers(state, observation):
+            return state, intervals[0]
+        return state, None
 
     for attempt in range(2):
         _assert_available_account(account, binding.identity, require_equity=True)
         if expected_account and account.identity.account_id != expected_account:
             raise PaperActivationRefused("reserved purchase changed its expected account")
-        activity = await _broker_cash_state_or_refuse(conn, broker=broker, binding=binding, through=clock())
         try:
-            return await prove(conn, deployment=binding.identity, broker=broker, account=account, activity=activity,
+            return await prove(conn, deployment=binding.identity, broker=broker, account=account, activity=None,
+                               read_activity=read_activity,
                                settled_observation=settled_observation, sweep_due=sweep_due(), **reservation)
         except ReservationBookChanged:
             if attempt:
@@ -295,15 +355,14 @@ async def current_book(conn, *, binding, expected_account, clock, account, broke
 
 
 async def prove(conn, *, basis, plan, projection, deployment, broker, account, activity, candidate_key,
-                settled_observation=None, sweep_due=False, terminal_receipts=None):
+                settled_observation=None, sweep_due=False, terminal_receipts=None, read_activity=None,
+                fill_cash=None):
     """A reservation fixes a maximum. Current native facts must still explain it."""
     _require_writer(conn)
     commands = _commands(conn, basis=basis, plan=plan, projection=projection, deployment=deployment)
     candidate = commands.get(candidate_key)
     if candidate is None or candidate.state is not S.SEND_PENDING or candidate.broker_order_id is not None:
         raise PaperActivationRefused("only an exact unsent reserved purchase may use this authority")
-    if _activity_identity(activity) != basis["activity"]:
-        raise OrderEvidenceNotReady("account cash activities changed after the purchase reservation")
     funds = PostingFunds.from_dict(basis["funds"])
     known = {key: c for key, c in commands.items() if key != candidate_key and c.state is not S.PLANNED}
     observation = settled_observation
@@ -315,6 +374,13 @@ async def prove(conn, *, basis, plan, projection, deployment, broker, account, a
                 and observation.completeness is Completeness.INCONSISTENT):
             raise ReservationBookChanged("reserved purchase lacks a consistent native account book")
         raise OrderEvidenceNotReady("reserved purchase lacks a complete native account book")
+    window = None
+    if read_activity is not None:
+        activity, window = await read_activity(observation)
+    if _activity_identity(activity) != basis["activity"]:
+        raise OrderEvidenceNotReady("account cash activities changed after the purchase reservation")
+    if window and any(datetime.fromisoformat(row["at"]) > observation.observed_at for row in window.trades):
+        raise ReservationBookChanged("native trade publication arrived after the account book")
     expected_positions = {k: Fraction(v) for k, v in basis["positions"].items()}
     orders = {}
     if basis["sales"] and not sweep_due:
@@ -376,13 +442,9 @@ async def prove(conn, *, basis, plan, projection, deployment, broker, account, a
     if {k: v for k, v in expected_positions.items() if v} != _positions(observation):
         raise ReservationBookChanged("native holdings do not match the reserved purchases and ownership baseline")
     filled = [o for o in orders.values() if o.filled_quantity]
-    debits = {}
-    if filled:
-        if not getattr(broker, "supports_owned_order_fills", False):
-            raise OrderEvidenceNotReady("reserved purchases require exact native fill coverage")
-        fills = await broker.owned_order_fills(orders=filled, identity=observation.account_identity,
-                                              through=observation.observed_at)
-        debits = _native_cash(filled, fills, commands, observation)
+    scope = (basis["plan"], basis["projection"], window.account, activity.trade_amendment_commitment) if window else None
+    debits, verified = await _filled_cash(filled, broker=broker, commands=commands, observation=observation,
+                                          window=window, scope=scope, cache=fill_cash)
     baseline_sale_cash = sum((Fraction(sale["cash"]) for sale in basis["sales"].values()), Fraction(0))
     if Fraction(account.cash) != Fraction(funds.account_cash) + sum(debits.values(), Fraction(0)) - baseline_sale_cash:
         raise ReservationBookChanged("fresh cash does not match the reserved account and posted purchases")
@@ -401,4 +463,9 @@ async def prove(conn, *, basis, plan, projection, deployment, broker, account, a
         raise OrderEvidenceNotReady("reserved purchases exceed current spendable cash or buying power")
     if terminal_receipts is not None:
         terminal_receipts.update((k, order) for k, order in orders.items() if order.state is S.FILLED)
+    if fill_cash is not None:
+        fill_cash.scope = scope
+        fill_cash.cursor = window.cursor if window else None
+        fill_cash.through = window.through if window else None
+        fill_cash.terminal = verified
     return observation

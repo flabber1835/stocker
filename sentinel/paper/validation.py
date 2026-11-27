@@ -262,9 +262,9 @@ def _validate_broker_grant(
         strategy_provider, dual_shadow_observation_id: str | None = None,
         dual_shadow_starting_cash: Decimal | str | None = None) -> None:
     """Fresh database-only grant proof run before and after every broker read."""
-    from sentinel.handover import assert_no_legacy_path
+    from sentinel.handover import require_owned_binding
 
-    binding = assert_no_legacy_path(conn)
+    binding = require_owned_binding(conn)
     reported = (result.identity if isinstance(result, BrokerAccountSnapshot)
                 else result if isinstance(result, BrokerAccountIdentity)
                 else None)
