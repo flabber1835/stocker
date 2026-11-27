@@ -12,7 +12,13 @@ may await a broker response together. Each starts only after its own committed
 SEND_PENDING checkpoint. Its worker owns its single-use pretransport proof,
 final broker checks and exact client ID. The worker records the response before
 finishing. The writer drains started requests before reconciliation or release
-of ownership. A definitive refusal or ambiguity stops the next dispatch group.
+of ownership. On a definitive refusal or ambiguous response the writer stops
+the entire group's unsent requests immediately, before waiting to persist
+that response. Each worker checks the shared stop before its checkpoint and
+before writing native request headers, including after slow TLS setup. A
+worker that has already crossed its write boundary retains its real outcome.
+Only an exact, single-use no-transport proof restores a pending sibling to
+PLANNED. Rate-limit recovery cannot send a new order through a stopped group.
 An interrupted request remains recoverable using its original key. Startup
 reconciliation retains the existing UNKNOWN policy and same-security exclusion.
 
@@ -31,9 +37,14 @@ its journal acknowledgement. A new fill still requires book reconciliation.
 Sales remain bounded by unreserved holdings.
 Independent sales can reach the broker before the first sale pays out.
 
-The sell-funded BIL purchase normally follows complete settlement of the
+In PAPER the sell-funded BIL purchase normally follows confirmed fills of the
 required sales. In the last minute of the original opening purchase window,
 one defensive BIL purchase may use confirmed spendable cash from a fully
 submitted exit with identified, still-working sales. Its reservation is capped
 by the remaining BIL allocation. A later sale fill contributes cash to a future
 plan. Outstanding orders continue to reconcile past the new-buy cutoff.
+
+LIVE protected buys require the originally authorized share quantity and price
+limit, covered by verified settled cash. A partial sale receipt cannot resize a
+LIVE BIL order. If the full purchase cannot qualify before the cutoff, later
+proceeds stay in cash for the next plan.

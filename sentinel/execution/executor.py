@@ -47,7 +47,7 @@ from fractions import Fraction
 from typing import Callable, Mapping, Optional, Sequence
 
 from sentinel.execution import commands as C
-from sentinel.execution import journal, reconcile as R, recovery
+from sentinel.execution import journal, reconcile as R, recovery, submission_group
 from sentinel.execution.contract import Completeness, ExecutionBroker, Side
 from sentinel.execution.identity import (
     ALPACA_LIVE_BROKER, ALPACA_PAPER_BROKER, CommandIdentity, DeploymentIdentity)
@@ -804,11 +804,7 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                 except BaseException:
                     conn.rollback()
                     raise
-            from sentinel.execution.live_transport import independent_dispatch_scope
-            scope = (independent_dispatch_scope(item[0] for item in prepared)
-                     if deployment.broker == ALPACA_LIVE_BROKER else nullcontext())
-            with scope:
-                outcomes = await _dispatch_independent(conn, broker, prepared, reserved=bool(funded_group))
+            outcomes = await _dispatch_independent(conn, broker, prepared, reserved=bool(funded_group))
             for (command, _, residual, partial_allocation), outcome in zip(prepared, outcomes):
                 sid = command.security_id
                 if outcome is None or isinstance(outcome, _ProvenUnsentPurchaseDeferral):
@@ -1412,20 +1408,40 @@ MAX_PARALLEL_SUBMITS = 4
 
 async def _dispatch_independent(conn, broker, prepared, *, reserved):
     """Start in plan order, reuse slots after receipt, drain before releasing the writer."""
+    with submission_group.independent_dispatch_scope(item[0] for item in prepared):
+        return await _dispatch_group(conn, broker, prepared, reserved)
+
+
+async def _dispatch_group(conn, broker, prepared, reserved):
     results = [None] * len(prepared)
     pending = {}
     cursor = 0
     stopped = False
     failure = None
+    group_key = prepared[0][0].client_key
+
+    async def send(command, already_planned):
+        try:
+            return await _persist_and_send(conn, broker, command, already_planned=reserved or already_planned,
+                                           report_scoped_buy_deferral=reserved)
+        except _ProvenUnsentPurchaseDeferral:
+            raise
+        except BaseException:
+            # A journal or worker failure must reach siblings before the coordinator
+            # gets scheduled to collect this task's exception.
+            submission_group.stop(group_key)
+            raise
+
     try:
         while pending or (not stopped and cursor < len(prepared)):
+            stopped = stopped or submission_group.stopped(group_key)
             while not stopped and cursor < len(prepared) and len(pending) < MAX_PARALLEL_SUBMITS:
                 command, already_planned, _, _ = prepared[cursor]
-                task = asyncio.create_task(_persist_and_send(
-                    conn, broker, command, already_planned=reserved or already_planned,
-                    report_scoped_buy_deferral=reserved))
+                task = asyncio.create_task(send(command, already_planned))
                 pending[task] = cursor
                 cursor += 1
+            if not pending:
+                break
             completed, _ = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
             for task in completed:
                 index = pending.pop(task)
@@ -1438,8 +1454,11 @@ async def _dispatch_independent(conn, broker, prepared, *, reserved):
                     stopped = True
                 else:
                     results[index] = result
-                    if result.state is not CommandState.ACKNOWLEDGED:
+                    if result is None or result.state is not CommandState.ACKNOWLEDGED:
                         stopped = True
+    except BaseException:
+        submission_group.stop(group_key)
+        raise
     finally:
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
@@ -1467,6 +1486,8 @@ async def _persist_and_send(conn, broker, command: C.Command, *,
     """
     section = getattr(broker, "submission_lock", None) or nullcontext()
     async with section:
+        if submission_group.stopped(command.client_key):
+            return None
         if not already_planned:
             journal.save_command(conn, command)
         pending = recovery.prepare_send(command)
@@ -1481,15 +1502,21 @@ async def _persist_and_send(conn, broker, command: C.Command, *,
         if (type(broker) is GuardedExecutionBroker
                 and isinstance(exc, PreTransportAuthorityRefused)
                 and getattr(exc, '_not_transported', None) is not None):
+            scoped = report_scoped_buy_deferral and isinstance(
+                exc, (InsufficientPurchaseCash, PurchaseInstrumentUnavailable))
+            if not scoped:
+                submission_group.stop(command.client_key)
             async with section:
                 journal.restore_proven_unsent(conn, pending, broker=broker, refusal=exc)
-            if report_scoped_buy_deferral and isinstance(
-                    exc, (InsufficientPurchaseCash, PurchaseInstrumentUnavailable)):
+            if scoped:
                 raise _ProvenUnsentPurchaseDeferral(str(exc)) from exc
             if isinstance(exc, OrderEvidenceNotReady):
                 from dataclasses import replace
                 return replace(command, detail=str(exc))
+        submission_group.stop(command.client_key)
         raise
+    if settled.state is not CommandState.ACKNOWLEDGED:
+        submission_group.stop(command.client_key)
     async with section:
         journal.save_command(conn, settled, previous=pending.state)
 

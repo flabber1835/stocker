@@ -86,7 +86,7 @@ class _PaperSubmitWindow:
     client_key: str
     side: Side
     economics: tuple
-    window: tuple[datetime, datetime]
+    window: tuple[datetime, datetime] | None
     task: object
     used: bool = False
     headers_started: bool = False
@@ -123,6 +123,12 @@ def recheck_paper_before_headers(adapter, *, client_key):
 
 
 def _check_paper_scope_clock(scope):
+    from sentinel.execution import submission_group
+    if submission_group.stopped(scope.client_key):
+        scope.refusal = OrderEvidenceNotReady("independent submission stopped before PAPER transport")
+        raise scope.refusal
+    if scope.window is None:
+        return
     opened, closed = scope.window
     try:
         now = scope.adapter._now()
@@ -684,6 +690,7 @@ class GuardedExecutionBroker(ExecutionBroker):
             self._active_submit_keys.discard(client_key)
 
     async def _submit_attempt(self, *, client_key, instrument, side, quantity, order_terms, notional):
+        from sentinel.execution import submission_group
         economics = (client_key, instrument, side, quantity, order_terms, notional)
 
         def prove_unsent(exc):
@@ -693,9 +700,13 @@ class GuardedExecutionBroker(ExecutionBroker):
 
         try:
             async with self.submission_lock:
+                if submission_group.stopped(client_key):
+                    raise OrderEvidenceNotReady("independent submission stopped before broker checks")
                 live_permit, paper_window = await self._prepare_submit(
                     client_key=client_key, instrument=instrument, side=side,
                     quantity=quantity, order_terms=order_terms, notional=notional)
+                if submission_group.stopped(client_key):
+                    raise OrderEvidenceNotReady("independent submission stopped during broker checks")
         except PreTransportAuthorityRefused as exc:
             # Issued only before the inner submit call. An inner transport
             # exception, even one with the same class, cannot acquire a proof.
@@ -716,7 +727,7 @@ class GuardedExecutionBroker(ExecutionBroker):
                 if _transport_prevented(live_permit, exc):
                     prove_unsent(exc)
                 raise
-        if paper_window is not None:
+        if paper_window is not None or submission_group.member(client_key):
             scope = _PaperSubmitWindow(
                 self._inner, client_key, side, (instrument, quantity, order_terms, notional),
                 paper_window, asyncio.current_task())

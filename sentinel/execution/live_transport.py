@@ -13,10 +13,11 @@ from zoneinfo import ZoneInfo
 
 from sentinel.authority.live import LiveAdapterAdmission, require_live_adapter_admission
 from sentinel.execution.commands import Command
+from sentinel.execution import submission_group
 from sentinel.execution.contract import (
     BrokerAccountSnapshot, BrokerAssetRules, BrokerInstrument, BrokerPosition, OrderTerms, Side,
 )
-from sentinel.execution.guarded import PreTransportAuthorityRefused
+from sentinel.execution.guarded import OrderEvidenceNotReady, PreTransportAuthorityRefused
 from sentinel.execution.live_order_policy import require_live_order
 from sentinel.execution.live_settlement import LiveFundingAdmission
 from sentinel.execution.states import IN_FLIGHT, CommandState
@@ -24,6 +25,10 @@ from sentinel.trading_environment import TradingEndpoint
 
 
 class LiveTransportRefused(PreTransportAuthorityRefused):
+    pass
+
+
+class _GroupStopped(LiveTransportRefused, OrderEvidenceNotReady):
     pass
 
 
@@ -61,26 +66,12 @@ class _MutationPermit:
 
 
 _ACTIVE: ContextVar[_MutationPermit | None] = ContextVar("sentinel_live_mutation", default=None)
-_DISPATCH_KEYS = ContextVar("sentinel_live_dispatch_keys", default=frozenset())
 _MAX_PERMIT_LIFETIME = timedelta(seconds=30)
 
 
-@contextmanager
-def independent_dispatch_scope(commands):
-    """Identify active siblings, without issuing or changing a mutation permit."""
-    keys = {c.client_key for c in commands}
-    token = _DISPATCH_KEYS.set(keys)
-    try:
-        yield
-    finally:
-        keys.clear()
-        _DISPATCH_KEYS.reset(token)
-
-
 def awaiting_sibling_receipt(request, command, order):
-    keys = _DISPATCH_KEYS.get()
-    return (request.client_key != command.client_key and request.client_key in keys
-            and command.client_key in keys and request.identity.plan_id == command.identity.plan_id
+    return (request.client_key != command.client_key and submission_group.member(request.client_key)
+            and submission_group.member(command.client_key) and request.identity.plan_id == command.identity.plan_id
             and request.identity.deployment == command.identity.deployment
             and request.security_id != command.security_id and command.side is request.side
             and command.state is CommandState.SEND_PENDING and command.broker_order_id is None
@@ -131,6 +122,8 @@ def _consume_live_mutation_permit(
             or permit.exact_request != expected):
         raise LiveTransportRefused("LIVE mutation requires the exact guarded transport permit")
     permit.used = True
+    if operation == "SUBMIT" and submission_group.stopped(command_key):
+        raise _GroupStopped("independent submission stopped before LIVE transport")
     try:
         permit.recheck()
     except LiveTransportRefused:
@@ -163,6 +156,10 @@ def recheck_live_before_headers(adapter, *, client_key):
             or permit.owner_task is not asyncio.current_task() or permit.exact_request[0] != client_key):
         raise LiveTransportRefused("LIVE order header write does not match its consumed permit")
     permit.headers_started = True
+    if submission_group.stopped(client_key):
+        exc = _GroupStopped("independent submission stopped before LIVE order headers")
+        permit.prevented_exception = exc
+        raise exc
     now = permit.clock()
     if not isinstance(now, datetime) or now.utcoffset() is None or not permit.issued_at <= now < permit.expires_at:
         exc = LiveTransportRefused("LIVE order expired before its first request byte")

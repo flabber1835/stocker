@@ -1980,6 +1980,15 @@ So:
    issuer authority, and submit the authorized increases
 ```
 
+For the reviewed fractional PAPER policy an independent group of fixed-dollar
+buys can share one reconciled funding basis. The cash ledger reserves each
+original client key and fee allowance before any order is sent. Following a
+full exit, BIL alone may use already evidenced cash once in the final minute
+while other exact owned sales are working. The remaining sale proceeds stay
+in cash for the next plan. Execution still requires a complete account book,
+current buying power, and the original opening cutoff. See
+[fractional PAPER cash and order scheduling](fractional-paper-execution.md#cash-and-order-scheduling).
+
 Steps 4-7 are skipped when there is nothing to settle for: a pure-buy session
 has no proceeds to wait on, and an unconditional extra round trip is latency for
 nothing.
@@ -2426,10 +2435,11 @@ Numbered from 15 to continue `sentinel-architecture.md` §12.
     UNEXPLAINED NAV permit reductions and refuse increases; an unobserved NAV
     permits nothing. Partial authorisation emits NO plan rather than a reduced
     one.
-46  An increase is sized against an observation taken AFTER the reductions
-    settled. Submitted is not settled.
+46  Only positively evidenced, available cash can fund an increase. An open
+    reduction promises no proceeds.
 47  Settled means no reduction is still WORKING and the read that established
-    it was COMPLETE. An unsettled reduction defers every increase.
+    it was COMPLETE. Unsettled reductions defer increases except for the
+    single partially funded, final-minute defensive PAPER purchase in §13.
 48  Refused and deferred are different answers. An increase that can never be
     authorised on this evidence is refused with its own reason, before any
     settle is spent on it.

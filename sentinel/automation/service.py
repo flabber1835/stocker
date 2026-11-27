@@ -1950,7 +1950,7 @@ class AutomationService:
         if (result.failure_code in {"OWNED_MARKET_ORDERS_WORKING", "RESERVED_MARKET_READY"}
                 and cycle.control_generation == permit.control_generation
                 and result.last_clean_reconciliation_id == result.transport_reconciliation_id
-                and cycle.broker == "alpaca" and current_working_receipt(result.diagnostic, plan_id=cycle.plan_id,
+                and cycle.broker in {"alpaca", "alpaca-live"} and current_working_receipt(result.diagnostic, plan_id=cycle.plan_id,
                     observation_id=result.last_clean_reconciliation_id, now=now)
                 and now < cycle.execution_close_at + timedelta(minutes=10)
                 and (result.disposition is ExecuteDisposition.RECONCILE or (

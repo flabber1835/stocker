@@ -15,7 +15,7 @@ from pathlib import Path
 import re
 from functools import lru_cache
 
-MANIFEST_SHA256 = '8554db5ad31a9e8bb6f00a4aae262095ae3750bf2be55420eab5b78b894a5dfb'
+MANIFEST_SHA256 = '68fe3e0956c5dcfd242dab12dd87a87b55906f2581b5710310c980fb55ad6b42'
 MANIFEST = Path(__file__).with_name('economic-implementation-v2.json')
 PREDECESSOR = 'b2e308bb664718da373175f1a7d988d07b159ae2'
 PREDECESSOR_DATA_SEMANTICS_SHA256 = '38c750bd9bb244bc71600aaeba8c4aad22d2095747f4199e9ac4e0bd433425cb'
@@ -43,6 +43,13 @@ DAILY_SESSION_STORAGE = {
     'sentinel.feed.rolling_store': '1af0c19730e73345245a791d736ff98eef78bab2e48e088bcf0cd94a834d32cf',
     'sentinel.feed.normalized_layout': '5952fb94d212d55b9a8f52254c82f4589df34ed51254fbcdbf63f095f87d051a',
     'sentinel.feed.read_contract': 'ac6a4c2b407f9f437b837c394fa1e25fdc3b5dd0849edaed9c2c4ed460567c01',
+}
+
+
+OPENING_SESSION_STORAGE = {
+    **DAILY_SESSION_STORAGE,
+    'sentinel.feed.rolling_store': 'c2815eab087fda80080d87722b4a7872f2a96cd895d1f4f265bc79066d928e8b',
+    'sentinel.feed.normalized_layout': 'c71243a8621e0c90a3cbe1f3fe658b304a0ab20adbc245395bec6af1b7090206',
 }
 
 
@@ -282,7 +289,8 @@ def identity(*, schema):
     daily_compilers = {name: _module_raw(name) for name in DAILY_SESSION_COMPILERS}
     exact_daily_session_reads = (
         all(_sha(raw) == DAILY_SESSION_COMPILERS[name][0] for name, raw in daily_compilers.items())
-        and all(_sha(_module_raw(name)) == checksum for name, checksum in DAILY_SESSION_STORAGE.items()))
+        and {name: _sha(_module_raw(name)) for name in DAILY_SESSION_STORAGE}
+        in (DAILY_SESSION_STORAGE, OPENING_SESSION_STORAGE))
     for name in sorted(expected):
         transition = retirement.get(name)
         installed = transition['module'] if transition else name

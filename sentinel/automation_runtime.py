@@ -1963,7 +1963,8 @@ class ProductionAutomation:
                         "RUNNING reconciliation"),
                     diagnostic=result_diagnostic)
             if in_flight:
-                if self._dual_run_enabled and deployment.broker == "alpaca":
+                if ((self._dual_run_enabled and deployment.broker == "alpaca")
+                        or (getattr(self, "_live_run_enabled", False) and deployment.broker == "alpaca-live")):
                     from sentinel.paper.market_reservations import recovery_route
                     routed = recovery_route(conn, cycle=cycle, deployment=deployment, reconciliation=result,
                         config=self.automation_config, now=_now_utc(), in_flight=in_flight,

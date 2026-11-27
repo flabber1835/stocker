@@ -29,7 +29,7 @@ from sentinel.execution.contract import (
     BrokerObservation, BrokerOrder, BrokerPosition, CommandOutcome, Completeness, ExecutionBroker,
     MalformedBrokerEvidence, OrderTerms, Side)
 from sentinel.execution.guarded import BrokerAuthorityRefused, PreTransportAuthorityRefused, require_paper_submit_window
-from sentinel.execution import activity_stream, broker_cash, contract, journal
+from sentinel.execution import activity_stream, broker_cash, contract, journal, submission_group
 from sentinel.execution.identity import is_sentinel_key
 from sentinel.execution.numeric import decimal_text
 from sentinel.execution.states import CommandState, CommandState as S, TERMINAL
@@ -1415,18 +1415,27 @@ class AlpacaExecutionBroker(ExecutionBroker):
 
         try:
             async with self._httpx.AsyncClient(timeout=20.0, event_hooks={"request": [attach_wire_check]}) as client:
-                self._require_transport_authority(
-                    operation="SUBMIT", command_key=client_key, terms=order_terms,
-                    instrument=instrument, side=side, quantity=quantity, notional=notional)
-                resp = await client.post(
-                    f"{self.base_url}/v2/orders",
-                    headers=self._headers(), json=body)
-        except BrokerAuthorityRefused:
+                try:
+                    self._require_transport_authority(
+                        operation="SUBMIT", command_key=client_key, terms=order_terms,
+                        instrument=instrument, side=side, quantity=quantity, notional=notional)
+                    resp = await client.post(f"{self.base_url}/v2/orders", headers=self._headers(), json=body)
+                    outcome = self._read_submit_response(resp, client_key=client_key, instrument=instrument,
+                        side=side, quantity=quantity, order_terms=order_terms, notional=notional)
+                except BaseException:
+                    submission_group.stop(client_key)
+                    raise
+                if outcome.state is not S.ACKNOWLEDGED:
+                    submission_group.stop(client_key)
+                return outcome
+        except (BrokerAuthorityRefused, MalformedBrokerPayload):
             raise
         except Exception as exc:  # noqa: BLE001
+            submission_group.stop(client_key)
             return CommandOutcome(
                 state=S.UNKNOWN, detail=f"{type(exc).__name__}: {exc}")
 
+    def _read_submit_response(self, resp, *, client_key, instrument, side, quantity, order_terms, notional):
         if resp.status_code in (200, 201):
             try:
                 payload = resp.json()

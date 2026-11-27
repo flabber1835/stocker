@@ -176,9 +176,10 @@ def recovery_route(conn, *, cycle, deployment, reconciliation, config, now, in_f
     from sentinel.execution import fractional_progress, target_reprojection
     from sentinel.execution.market_buy_policy import MarketBuyPolicy
 
-    policy = MarketBuyPolicy.from_env()
+    live = deployment.broker == "alpaca-live"
+    policy = None if live else MarketBuyPolicy.from_env()
     observation = reconciliation.observation
-    if (deployment.broker != "alpaca" or not policy or not policy.fractional or not reconciliation.clean
+    if ((not live and (deployment.broker != "alpaca" or not policy or not policy.fractional)) or not reconciliation.clean
             or config.debug_window_for(cycle) is not None or not reconciliation.observation_id
             or reconciliation.cash_plan_superseded or observation is None or not observation.is_complete
             or not deployment.matches_account(observation.account_identity)
@@ -196,16 +197,21 @@ def recovery_route(conn, *, cycle, deployment, reconciliation, config, now, in_f
     plan = journal.latest_plan(conn)
     if not plan or plan.plan_id != cycle.plan_id or plan.fingerprint() != cycle.plan_fingerprint:
         return None
-    projection = target_reprojection.load_projection(conn, plan_id=plan.plan_id)
-    if not fractional_progress.is_fractional(projection):
-        return None
-    basis = load(conn, plan)
     cutoff = min(cycle.execution_close_at, cycle.execution_open_at + timedelta(minutes=10),
                  cycle.execute_at + timedelta(seconds=config.maximum_execution_lateness_seconds))
-    ready = False
     sales_only = all(c.side is Side.SELL for c in active.values())
+    diagnostic = {"working_order_keys": sorted(active), "plan_id": cycle.plan_id,
+                  "observed_at": observation.observed_at.isoformat()}
+    evidence = {"last_clean_reconciliation_id": str(reconciliation.observation_id),
+                "transport_reconciliation_id": str(reconciliation.observation_id)}
+    if live and (not sales_only or any(c.order_terms != OrderTerms() or c.quantity is None for c in active.values())):
+        return None
+    projection = target_reprojection.load_projection(conn, plan_id=plan.plan_id)
+    if not live and not fractional_progress.is_fractional(projection):
+        return None
+    ready = False
     working_assets = {c.security_id for c in active.values()}
-    if (sales_only and actionable_deltas is not None and now < cycle.execution_close_at
+    if (sales_only and projection is not None and actionable_deltas is not None and now < cycle.execution_close_at
             and any(p.instrument.security_id not in working_assets
                     and p.quantity > projection.target_basket.get(p.instrument.security_id, 0)
                     for p in observation.positions)):
@@ -213,11 +219,15 @@ def recovery_route(conn, *, cycle, deployment, reconciliation, config, now, in_f
                      if delta.side is Side.SELL and delta.security_id not in working_assets]
         if remaining:
             return ExecuteResult(disposition=ExecuteDisposition.READY_TO_EXECUTE,
-                last_clean_reconciliation_id=str(reconciliation.observation_id),
-                transport_reconciliation_id=str(reconciliation.observation_id),
+                **evidence,
                 reduction_only_continuation=True, reduction_only_required=True,
                 diagnostic={"working_order_keys": sorted(active), "plan_id": cycle.plan_id,
                             "remaining_reductions": remaining})
+    if live:
+        return ExecuteResult(disposition=ExecuteDisposition.RECONCILE, **evidence,
+            failure_code="OWNED_MARKET_ORDERS_WORKING", failure_detail="owned LIVE sales await broker settlement",
+            diagnostic=diagnostic)
+    basis = load(conn, plan)
     if basis and active.keys() <= (set(basis["members"]) | set(basis["sales"])):
         if remaining_keys(conn, basis=basis, plan=plan, deployment=deployment, projection=projection,
                           reconciliation=reconciliation):
@@ -229,12 +239,10 @@ def recovery_route(conn, *, cycle, deployment, reconciliation, config, now, in_f
         return None
     ready = ready and now < cutoff
     return ExecuteResult(disposition=ExecuteDisposition.READY_TO_EXECUTE if ready else ExecuteDisposition.RECONCILE,
-        last_clean_reconciliation_id=str(reconciliation.observation_id),
-        transport_reconciliation_id=str(reconciliation.observation_id),
+        **evidence,
         failure_code="RESERVED_MARKET_READY" if ready else "OWNED_MARKET_ORDERS_WORKING",
         failure_detail="owned market orders and reserved opening work positively matched",
-        diagnostic={"working_order_keys": sorted(active), "plan_id": cycle.plan_id,
-                    "observed_at": observation.observed_at.isoformat()})
+        diagnostic=diagnostic)
 
 
 def _native_cash(orders, fills, commands, observation):
@@ -294,8 +302,14 @@ async def prove(conn, *, basis, plan, projection, deployment, broker, account, a
                 # This same writer may have a POST outstanding. Its FULL cash remains reserved.
                 continue
             lookup = await broker.find_by_client_key(key)
-            if (lookup.client_key != key or not deployment.matches_account(lookup.stable_identity)
-                    or lookup.order is None or not _matches(command, lookup.order)):
+            if lookup.client_key != key or not deployment.matches_account(lookup.stable_identity):
+                raise OrderEvidenceNotReady("reserved purchase lookup changed account or command")
+            if (lookup.order is None and command.state is S.REJECTED and command.broker_order_id is None
+                    and command.filled_quantity == 0):
+                # The journal already holds a definitive pre-acceptance rejection. Its
+                # full allocation remains charged for the life of the basket.
+                continue
+            if lookup.order is None or not _matches(command, lookup.order):
                 raise OrderEvidenceNotReady("a previously submitted purchase lacks exact broker evidence")
             orders[key] = lookup.order
         order = orders[key]
