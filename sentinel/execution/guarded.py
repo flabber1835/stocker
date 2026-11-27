@@ -81,33 +81,57 @@ class OrderEvidenceNotReady(PreTransportAuthorityRefused):
 
 
 @dataclass
-class _PaperReductionWindow:
+class _PaperSubmitWindow:
     adapter: object
     client_key: str
+    side: Side
+    economics: tuple
     window: tuple[datetime, datetime]
     task: object
+    used: bool = False
+    headers_started: bool = False
     refusal: OrderEvidenceNotReady | None = None
 
 
-_PAPER_REDUCTION_WINDOW: ContextVar[_PaperReductionWindow | None] = ContextVar(
-    "_PAPER_REDUCTION_WINDOW", default=None)
+_PAPER_SUBMIT_WINDOW: ContextVar[_PaperSubmitWindow | None] = ContextVar(
+    "_PAPER_SUBMIT_WINDOW", default=None)
 
 
-def require_paper_reduction_window(adapter, *, client_key):
-    """At native dispatch, retain exact proof if the recovery sale never posts."""
-    scope = _PAPER_REDUCTION_WINDOW.get()
+def require_paper_submit_window(adapter, *, client_key, side, instrument, quantity, terms, notional):
+    """Consume the order's own clock check at the last boundary before POST."""
+    scope = _PAPER_SUBMIT_WINDOW.get()
     if scope is None:
         return
-    if (scope.adapter is not adapter or scope.client_key != client_key
+    if (scope.used or scope.adapter is not adapter
+            or scope.client_key != client_key or scope.side is not side
+            or scope.economics != (instrument, quantity, terms, notional)
             or scope.task is not asyncio.current_task()):
-        raise PreTransportAuthorityRefused("PAPER reduction window belongs to a different order")
+        raise PreTransportAuthorityRefused("PAPER submission requires its own unused order window")
+    scope.used = True
+    _check_paper_scope_clock(scope)
+
+
+def recheck_paper_before_headers(adapter, *, client_key):
+    scope = _PAPER_SUBMIT_WINDOW.get()
+    if scope is None:
+        return
+    if (scope.headers_started or not scope.used or scope.adapter is not adapter
+            or scope.client_key != client_key or scope.task is not asyncio.current_task()):
+        raise PreTransportAuthorityRefused("PAPER order header write does not match its dispatch")
+    scope.headers_started = True
+    _check_paper_scope_clock(scope)
+
+
+def _check_paper_scope_clock(scope):
     opened, closed = scope.window
     try:
-        now = adapter._now()
+        now = scope.adapter._now()
     except (MalformedBrokerEvidence, TypeError, ValueError):
         now = None
     if not isinstance(now, datetime) or now.utcoffset() is None or not opened <= now < closed:
-        scope.refusal = OrderEvidenceNotReady("PAPER reduction is outside the plan's regular session")
+        reason = ("PAPER reduction is outside the plan's regular session" if scope.side is Side.SELL
+                  else "PAPER BUY is outside the plan's opening window")
+        scope.refusal = OrderEvidenceNotReady(reason)
         raise scope.refusal
 
 
@@ -385,6 +409,10 @@ class GuardedExecutionBroker(ExecutionBroker):
             raise TypeError("LIVE policy or grant cannot authorize PAPER execution")
         self._live_policy = live_policy
         self._unsent_proofs = {}
+        self._active_submit_keys = set()
+        # Funding and the journal share the writer's database connection. Serialize
+        # their use while allowing independently authorized HTTP requests to overlap.
+        self.submission_lock = asyncio.Lock()
         if protected_funding is not None and not callable(protected_funding):
             raise TypeError("protected_funding must be a canonical funding callback")
         self._protected_funding = protected_funding
@@ -645,20 +673,33 @@ class GuardedExecutionBroker(ExecutionBroker):
             side: Side, quantity: Decimal | None,
             order_terms: OrderTerms = OrderTerms(),
             notional: Decimal | None = None) -> CommandOutcome:
-        # A proof is valid only for the immediately preceding guarded attempt.
-        # It cannot survive a later attempt that might cross transport.
-        self._unsent_proofs.clear()
+        if client_key in self._active_submit_keys:
+            raise PreTransportAuthorityRefused("the same order already has a submission in progress")
+        self._active_submit_keys.add(client_key)
+        self._unsent_proofs.pop(client_key, None)
         try:
-            live_permit, paper_reduction_window = await self._prepare_submit(client_key=client_key,
-                                       instrument=instrument, side=side,
-                                       quantity=quantity, order_terms=order_terms, notional=notional)
+            return await self._submit_attempt(client_key=client_key, instrument=instrument, side=side,
+                                              quantity=quantity, order_terms=order_terms, notional=notional)
+        finally:
+            self._active_submit_keys.discard(client_key)
+
+    async def _submit_attempt(self, *, client_key, instrument, side, quantity, order_terms, notional):
+        economics = (client_key, instrument, side, quantity, order_terms, notional)
+
+        def prove_unsent(exc):
+            nonce = object()
+            self._unsent_proofs[client_key] = (nonce, economics)
+            exc._not_transported = nonce
+
+        try:
+            async with self.submission_lock:
+                live_permit, paper_window = await self._prepare_submit(
+                    client_key=client_key, instrument=instrument, side=side,
+                    quantity=quantity, order_terms=order_terms, notional=notional)
         except PreTransportAuthorityRefused as exc:
             # Issued only before the inner submit call. An inner transport
             # exception, even one with the same class, cannot acquire a proof.
-            nonce = object()
-            self._unsent_proofs[nonce] = (client_key, instrument, side, quantity,
-                                         order_terms, notional)
-            exc._not_transported = nonce
+            prove_unsent(exc)
             raise
         kwargs = dict(client_key=client_key, instrument=instrument,
                       side=side, quantity=quantity)
@@ -673,35 +714,33 @@ class GuardedExecutionBroker(ExecutionBroker):
                     return await self._inner.submit(**kwargs)
             except PreTransportAuthorityRefused as exc:
                 if _transport_prevented(live_permit, exc):
-                    nonce = object()
-                    self._unsent_proofs[nonce] = (client_key, instrument, side, quantity, order_terms, notional)
-                    exc._not_transported = nonce
+                    prove_unsent(exc)
                 raise
-        if paper_reduction_window is not None:
-            scope = _PaperReductionWindow(
-                self._inner, client_key, paper_reduction_window, asyncio.current_task())
-            token = _PAPER_REDUCTION_WINDOW.set(scope)
+        if paper_window is not None:
+            scope = _PaperSubmitWindow(
+                self._inner, client_key, side, (instrument, quantity, order_terms, notional),
+                paper_window, asyncio.current_task())
+            token = _PAPER_SUBMIT_WINDOW.set(scope)
             try:
                 return await self._inner.submit(**kwargs)
             except OrderEvidenceNotReady as exc:
                 if scope.refusal is exc:
-                    nonce = object()
-                    self._unsent_proofs[nonce] = (client_key, instrument, side, quantity, order_terms, notional)
-                    exc._not_transported = nonce
+                    prove_unsent(exc)
                 raise
             finally:
-                _PAPER_REDUCTION_WINDOW.reset(token)
+                _PAPER_SUBMIT_WINDOW.reset(token)
         return await self._inner.submit(**kwargs)
 
     def consume_not_transported(self, exc, command) -> None:
         """Validate a single-use, exact-command proof before journal restoration."""
         nonce = getattr(exc, '_not_transported', None)
-        actual = self._unsent_proofs.pop(nonce, None)
+        actual = self._unsent_proofs.get(command.client_key)
         expected = (command.client_key, command.instrument, command.side,
                     command.quantity, command.order_terms, command.notional)
         if (not isinstance(exc, PreTransportAuthorityRefused)
-                or actual is None or actual != expected):
+                or nonce is None or actual != (nonce, expected)):
             raise ValueError('no matching unused pre-transport submission proof')
+        del self._unsent_proofs[command.client_key]
 
     @staticmethod
     def _require_selected_buy_terms(*, side: Side, order_terms: OrderTerms):
@@ -756,6 +795,9 @@ class GuardedExecutionBroker(ExecutionBroker):
                               quantity: Decimal | None, order_terms: OrderTerms,
                               notional: Decimal | None = None):
         from sentinel.execution.contract import BrokerInstrumentUnavailable
+        from sentinel.execution.alpaca import AlpacaExecutionBroker, require_order_transport_versions
+        if isinstance(self._inner, AlpacaExecutionBroker):
+            require_order_transport_versions()
 
         if (isinstance(self._grant, AutomationExecutionGrant)
                 and self._grant.reduction_only_reconciliation_id is not None
@@ -851,7 +893,7 @@ class GuardedExecutionBroker(ExecutionBroker):
         # order by asset ID. Its fresh rules read below also verifies the
         # complete instrument and active/tradable status.
         revalidate_by_asset_rules = (
-            fractional and side is Side.SELL and not self._live
+            fractional and not self._live
             and type(self._inner) is AssetIdAlpacaExecutionBroker)
         if self.capabilities.pre_submit_instrument_revalidation and not revalidate_by_asset_rules:
             if not instrument.broker_id:
@@ -888,6 +930,10 @@ class GuardedExecutionBroker(ExecutionBroker):
                 rules.require_current(instrument, self._inner._now())
                 if (notional is not None or (quantity is not None and quantity != quantity.to_integral_value())) and not rules.fractionable:
                     raise ValueError("asset is not currently fractionable; unresolved fractional amount retained")
+            except BrokerInstrumentUnavailable as exc:
+                if side is Side.BUY and exc.instrument == instrument:
+                    raise PurchaseInstrumentUnavailable(f"BUY_INSTRUMENT_UNAVAILABLE: {exc}") from exc
+                raise OrderEvidenceNotReady(f"fractional eligibility unavailable: {exc}") from exc
             except Exception as exc:
                 raise OrderEvidenceNotReady(f"fractional eligibility unavailable: {exc}") from exc
 
@@ -1004,6 +1050,8 @@ class GuardedExecutionBroker(ExecutionBroker):
             opened, closed = calendar.session_window(now.date())
             if not opened <= now < closed:
                 raise OrderEvidenceNotReady("fractional market reductions require the regular session")
+            if not self._live:
+                paper_reduction_window = opened, closed
         if paper_reduction_window is not None:
             opened, closed = paper_reduction_window
             now = self._inner._now()
@@ -1056,6 +1104,8 @@ class GuardedExecutionBroker(ExecutionBroker):
                         raise OrderEvidenceNotReady(
                             f"market BUY refused at final next-open freshness boundary: {detail}")
                     raise ValueError(detail)
+                if not self._live:
+                    paper_reduction_window = earliest, latest
                 if quote is not None:
                     quote_age = now - quote.quoted_at[instrument.security_id]
                     if quote_age > timedelta(seconds=60):

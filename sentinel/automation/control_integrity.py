@@ -22,9 +22,8 @@ def _detail(value: Any) -> dict[str, Any]:
     return dict(value)
 
 
-def validate_control_lineage(
-        conn, control: AutomationControl) -> AutomationControl:
-    """Replay immutable control events and require exact authority agreement.
+def _replay(conn):
+    """Derive control authority from immutable control events.
 
     Generation 1 is schema genesis: disabled, kill engaged, no binding. Every
     later generation must have exactly one event. Liveness verdict/check fields
@@ -102,6 +101,14 @@ def validate_control_lineage(
                 f"automation control history contains unknown action {action!r}")
         generation = event_generation
 
+    return generation, enabled, kill_engaged, binding
+
+
+def validate_control_lineage(conn, control: AutomationControl) -> AutomationControl:
+    from sentinel import structural_verification
+
+    generation, enabled, kill_engaged, binding = structural_verification.material(
+        conn, slot='automation-control-history', key=None, load=lambda: _replay(conn))
     if generation != control.generation:
         raise AutomationRefused(
             "automation control generation disagrees with immutable history")

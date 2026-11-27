@@ -79,14 +79,15 @@ def _dual_mutation_observation_or_refuse(result) -> BrokerObservation:
 async def _settled_account_evidence_bracket(
         *, conn, broker: ExecutionBroker, binding, expected_account: str,
         deployment, initial_result, actions, dual_mode: bool, clock,
-        allow_restrictions: bool = False):
+        allow_restrictions: bool = False, owned_sales=None):
     """Bracket a second complete book read with stable account snapshots."""
     initial_observation = initial_result.observation
     if allow_restrictions:
         _clean_or_refuse(initial_result, purpose="initial market funding evidence",
                          allow_restrictions=True)
     if not _account_evidence_is_quiescent(
-            conn, deployment=deployment, observation=initial_observation):
+            conn, deployment=deployment, observation=initial_observation) and not (
+                owned_sales and owned_sales(initial_observation)):
         raise PaperRetryableRefused(
             "account evidence remains pending while broker work is in flight")
     started_at = clock()
@@ -106,7 +107,7 @@ async def _settled_account_evidence_bracket(
             "owned share units or restrictions changed inside the market funding bracket")
     if not _account_evidence_is_quiescent(
             conn, deployment=deployment,
-            observation=confirmed_observation):
+            observation=confirmed_observation) and not (owned_sales and owned_sales(confirmed_observation)):
         raise PaperRetryableRefused(
             "account evidence bracket observed broker work in flight")
     after = await broker.account_snapshot()

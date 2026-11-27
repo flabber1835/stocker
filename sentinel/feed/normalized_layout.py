@@ -363,13 +363,25 @@ class SessionBlockWriter:
             rolling_work.checkpoint()
 
 
+def _candidate_headers(conn, candidate_id):
+    # Keep the lookup correlated to this candidate. A large array of hashes
+    # otherwise makes PostgreSQL scan headers belonging to every publication.
+    return conn.execute("""
+        SELECT r.kind,r.session,r.block_sha256,b.kind,b.session,b.normalization_version,b.calendar_version
+        FROM sentinel_candidate_blocks r
+        LEFT JOIN LATERAL (
+            SELECT kind,session,normalization_version,calendar_version
+            FROM sentinel_normalized_blocks WHERE block_sha256=r.block_sha256 OFFSET 0
+        ) b ON true
+        WHERE r.candidate_id=%s ORDER BY r.kind,r.session
+        """, (candidate_id,)).fetchall()
+
+
 def seal_layout(conn, candidate_id, manifest):
-    refs = conn.execute('SELECT kind,session,block_sha256 FROM sentinel_candidate_blocks '
-        'WHERE candidate_id=%s ORDER BY kind,session', (candidate_id,)).fetchall()
+    refs = _candidate_headers(conn, candidate_id)
     if not refs:
         return None
-    _require_references(conn, refs, manifest)
-    references = [dict(kind=kind,session=str(day),block_sha256=sha) for kind,day,sha in refs]
+    references = _require_references(refs, manifest)
     value = dict(schema=LAYOUT_SCHEMA,candidate_id=str(candidate_id),snapshot_id=manifest.snapshot_id,references=references)
     encoded = canonical_json(value)
     conn.execute('INSERT INTO sentinel_candidate_layouts VALUES(%s,%s,%s::jsonb,%s::jsonb,%s,%s)',
@@ -380,28 +392,27 @@ def seal_layout(conn, candidate_id, manifest):
 def require_layout(conn, candidate_id, manifest):
     if not available(conn):
         return
-    refs = conn.execute('SELECT kind,session,block_sha256 FROM sentinel_candidate_blocks WHERE candidate_id=%s ORDER BY kind,session', (candidate_id,)).fetchall()
+    refs = _candidate_headers(conn, candidate_id)
     record = conn.execute('SELECT layout,layout_sha256 FROM sentinel_candidate_layouts WHERE candidate_id=%s', (candidate_id,)).fetchone()
     if not refs and record is None:
         return  # Authenticated legacy physical generation.
-    _require_references(conn, refs, manifest)
     expected = dict(schema=LAYOUT_SCHEMA,candidate_id=str(candidate_id),snapshot_id=manifest.snapshot_id,
-        references=[dict(kind=kind,session=str(day),block_sha256=sha) for kind,day,sha in refs])
+                    references=_require_references(refs, manifest))
     if record is None or record[0] != expected or record[1] != digest(expected):
         raise LayoutRefused('NORMALIZED_LAYOUT_BINDING_CHANGED')
 
 
-def _require_references(conn, refs, manifest):
-    expected = [(kind,str(day)) for kind in ('BARS','BENCHMARKS') for day in manifest.window.sessions]
-    if [(kind,str(day)) for kind,day,_sha in refs] != expected:
+def _require_references(rows, manifest):
+    expected = [(kind, str(day)) for kind in ('BARS', 'BENCHMARKS') for day in manifest.window.sessions]
+    if [(row[0], str(row[1])) for row in rows] != expected:
         raise LayoutRefused('NORMALIZED_LAYOUT_AXIS_CHANGED')
-    blocks = conn.execute('SELECT block_sha256,kind,session,normalization_version,calendar_version '
-        'FROM sentinel_normalized_blocks WHERE block_sha256=ANY(%s)',
-        ([sha for _kind,_day,sha in refs],)).fetchall()
-    headers = {sha:(kind,str(day),normalization,calendar) for sha,kind,day,normalization,calendar in blocks}
-    for kind,day,sha in refs:
-        if headers.get(sha) != (kind,str(day),manifest.normalization_version,manifest.calendar_version):
+    references = []
+    for kind, day, sha, block_kind, block_day, normalization, calendar in rows:
+        if (block_kind, block_day, normalization, calendar) != (
+                kind, day, manifest.normalization_version, manifest.calendar_version):
             raise LayoutRefused('NORMALIZED_LAYOUT_BLOCK_HEADER_CHANGED')
+        references.append(dict(kind=kind, session=str(day), block_sha256=sha))
+    return references
 
 
 def release_retired(conn, *, limit=32):

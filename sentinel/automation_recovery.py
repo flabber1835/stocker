@@ -45,7 +45,9 @@ from sentinel import (
 )
 from sentinel import automation_runtime as base
 from sentinel.automation.model import (
+    BackupProofBusy,
     ClosingDataPending,
+    ExecutionEntryBackupBusy,
     NonRetryableCallbackRefused,
     TransientInfrastructureFailure,
 )
@@ -346,7 +348,13 @@ class ProductionAutomation(base.ProductionAutomation):
             dual_plan_authority._REGENESIS_FLAT_SIZING_REQUIRED.reset(token)
 
     async def execute(self, context):
-        self._require_backup_for_new_mutation("automation new order execution")
+        try:
+            self._require_backup_for_new_mutation("automation new order execution")
+        except BackupProofBusy as exc:
+            if (type(exc) is BackupProofBusy and not self._live_run_enabled
+                    and context.cycle.broker == "alpaca"):
+                raise ExecutionEntryBackupBusy(str(exc), reason=exc.reason) from exc
+            raise
         await self._require_external_execution_clock(context)
         return await super().execute(context)
 

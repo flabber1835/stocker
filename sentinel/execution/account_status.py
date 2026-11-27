@@ -69,6 +69,7 @@ def _commands(conn, bound, *, plan_id=None):
     from sentinel.execution.identity import DeploymentIdentity
     commands = journal.load_commands(conn, DeploymentIdentity(*bound))
     facts = []
+    market_plans = set()
     for c in commands:
         if c.state not in IN_FLIGHT:
             continue
@@ -81,6 +82,7 @@ def _commands(conn, bound, *, plan_id=None):
                 or (plan_id is not None and c.identity.plan_id != plan_id)):
             return None
         if t.order_type == "market":
+            market_plans.add(c.identity.plan_id)
             from sentinel.execution.market_buy_policy import MarketBuyPolicy
             if (MarketBuyPolicy.from_env() is None
                     or (c.quantity is not None and c.quantity != c.quantity.to_integral_value())
@@ -92,13 +94,15 @@ def _commands(conn, bound, *, plan_id=None):
                 or not t.limit_price.is_finite() or t.limit_price <= 0):
             return None
         facts.append(_fact(c))
-    if any(f["terms"]["order_type"] == "market" for f in facts) and len(facts) != 1:
+    if market_plans and (len(market_plans) != 1 or not _market_working(facts)
+            or len({f["asset_id"] for f in facts}) != len(facts)
+            or len({f["broker_order_id"] for f in facts}) != len(facts)):
         return None
     return sorted(facts, key=lambda f: f["client_key"])
 
 
 def _market_working(facts):
-    return bool(facts and len(facts) == 1 and facts[0]["terms"]["order_type"] == "market")
+    return bool(facts and all(f["terms"]["order_type"] == "market" for f in facts))
 
 
 def _reserved(facts):
@@ -169,7 +173,7 @@ def recorded_market_working(conn, *, account, now, plan_id):
             or native.get("cash") != decimal_text(cash)
             or native.get("buying_power") != decimal_text(power)):
         return None
-    return {"order": commands[0], "valid_until": closed}
+    return {"orders": commands, "valid_until": closed}
 
 
 def _healthy_cash_snapshot(snapshot):

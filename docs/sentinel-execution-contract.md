@@ -1,5 +1,7 @@
 # Sentinel — the execution and recovery contract
 
+[Parallel opening dispatch](parallel-opening-dispatch.md) defines the funded order group, per-order broker boundary and restart behavior. [Opening status and reference validation](nov27-opening-evidence.md) defines the evidence required to report working orders and missed purchases.
+
 [Unconfirmed cash postings](paper-unconfirmed-native-postings.md) defines the
 account evidence and fee reservations required for backed fractional PAPER
 execution while a dividend or fee awaits confirmation in the cash balance.

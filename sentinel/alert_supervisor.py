@@ -100,10 +100,12 @@ def main(*, serve_health=False):
         signal.signal(signum, stop)
     reader = None
     if serve_health:
-        from sentinel.alert_liveness import observe
+        from sentinel.alert_liveness import AlertSchemaCheck, observe
         from sentinel.supervisor_health import WarmHealthReader
 
-        reader = WarmHealthReader(observe, path=Path('/tmp/sentinel-alert-health.sock'),
+        from functools import partial
+        reader = WarmHealthReader(partial(observe, schema_check=AlertSchemaCheck()),
+                                  path=Path('/tmp/sentinel-alert-health.sock'),
                                   max_pulse_age=1.5)
     try:
         while not stopped:

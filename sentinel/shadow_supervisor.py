@@ -174,23 +174,55 @@ def _wait_for_next_attempt(poll, hint, config):
     if hint is None or poll['close_at'] is None:
         _poll_after_worker(**poll)
         return
-    cutoff = min(poll['close_at'], hint.started_at + timedelta(seconds=_UNCHANGED_PROOF_SECONDS))
+    acquisition_at = poll['close_at']
+    due = hint.started_at + timedelta(seconds=_UNCHANGED_PROOF_SECONDS)
+    cutoff = min(acquisition_at, due, hint.observation[2])
     poll['close_at'] = cutoff
     poll['deadline'] = min(poll['deadline'], hint.deadline)
-    checked_at = shadow_budget.now()
+    checked_at, checked_tick = shadow_budget.now(), time.monotonic()
+    limit = hint.deadline
+    interval = config.poll_seconds
+    reserved = False
     while True:
         _poll_after_worker(**poll)
-        observed_at = shadow_budget.now()
-        if poll['stopping']() or not hint.current() or not checked_at <= observed_at < cutoff:
+        observed_at, observed_tick = shadow_budget.now(), time.monotonic()
+        if poll['stopping']() or observed_at < checked_at or observed_tick < checked_tick:
             return
-        # A newly published row, a due close, clock reversal, or a failed
-        # bounded observation immediately restores ordinary full work.
+        if observed_at >= cutoff or observed_tick >= limit:
+            if reserved or cutoff != due:
+                return
+            cutoff = _opening_refresh_cutoff(hint, due, acquisition_at, observed_at, observed_tick)
+            if cutoff is None:
+                return
+            limit = hint.started + (cutoff - hint.started_at).total_seconds()
+            if observed_at >= cutoff or observed_tick >= limit:
+                return
+            # A full proof has expired. Only an independently reobserved
+            # unchanged publication can postpone its optional maintenance.
+            reserved = True
+            interval = min(interval, 30)
+            poll.update(close_at=cutoff, idle_work=None)
         refreshed = _observe_schedule(config, poll['stopping'])
-        checked_at = shadow_budget.now()
-        if (refreshed != hint.observation or not hint.current()
-                or not observed_at <= checked_at < cutoff):
+        checked_at, checked_tick = shadow_budget.now(), time.monotonic()
+        if (refreshed != hint.observation or not observed_at <= checked_at < cutoff
+                or not observed_tick <= checked_tick < limit):
             return
-        poll['deadline'] = min(time.monotonic() + config.poll_seconds, hint.deadline)
+        poll['deadline'] = min(checked_tick + interval, limit)
+
+
+def _opening_refresh_cutoff(hint, due, acquisition_at, observed_at, observed_tick):
+    health_until = hint.observation[2]
+    if due.date() != health_until.date():
+        return None
+    try:
+        opened, closed = calendar.session_window(due.date())
+    except (calendar.CalendarUnavailable, calendar.NonSessionDate):
+        return None
+    cutoff = min(opened + timedelta(minutes=10), closed, health_until, acquisition_at)
+    elapsed_at = hint.started_at + timedelta(seconds=observed_tick - hint.started)
+    if opened <= min(due, observed_at, elapsed_at) and max(due, observed_at, elapsed_at) < cutoff:
+        return cutoff
+    return None
 
 
 def _diagnostic(stage, outcome, *, error=None, started=None, attempt=None,

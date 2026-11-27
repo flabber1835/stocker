@@ -134,7 +134,7 @@ reference values. Sizing dollars does not remove canonical price-domain or
 entry-cancellation requirements. A fractional-capable broker cannot resurrect
 an entry canceled by Wealth Core.
 
-## Cash and serialization
+## Cash and order scheduling
 
 The new projection records a terminal owned-command prefix, its exact shares at
 the effective session, and fixed purchase budgets. Its event-sequence boundary
@@ -154,12 +154,34 @@ to cents. Do not request an opening quote to translate a dollar entry into share
 Final notional funding requires dollars and fee headroom, not a quote-based
 estimate of shares. Whole-share fallback still requires its fresh quote.
 
-Keep reductions before dependent increases. Required reductions must positively
-settle, and the account/cash equation must reconcile before spending proceeds.
-Submit at most one unresolved market BUY across the account. Reconcile its actual
-fills and cash before proceeding, including after restart. UNKNOWN and pending
-cancellation retain their obligations. No same-plan budget recycling follows
-from a balance change, elapsed time or order absence.
+Keep reductions before dependent increases. For independent PAPER dollar buys,
+reserve the exact order keys, fixed dollars and one fee allowance per order
+together under the account writer lock. Start from a complete reconciled book
+and cap their sum at the smaller of available cash after pending debits and
+native buying power. Retain that account, plan and projection evidence through
+restart. Each send still requires current broker authority. Only exact owned
+siblings can explain a broker hold or cash debit. Ambiguity, an unrelated
+order, a changed account or unproved cash movement stops further sends.
+Share-denominated market purchases retain their individual settlement gate.
+
+When a full exit has BIL as its sole purchase, wait normally for the reductions.
+During the final minute of the authorized opening window one BIL order may use
+already reconciled cash while positively identified plan sells finish. Require
+a stable book and cash proof. Open sell quantities and unposted credits have no
+spending value. Keep subsequent proceeds as cash for the next plan. No opening
+purchase may start after cutoff.
+
+Recovery may re-enter the ordinary executor for exact reserved, unsent members
+or the final-minute BIL purchase while previously acknowledged orders remain.
+Require a fresh complete account book matching every outstanding journal key,
+the current plan, its projection and the current generation. A positively
+identified working order can wait for its next observation without using an
+infrastructure-failure retry. After the purchase cutoff recovery observes the
+existing DAY orders without starting more purchases.
+If a restart leaves other sales unsent, a complete observation must first match
+each working order to its own sale. A positive remaining reduction on a different
+security can then re-enter the existing reduction-only executor during the
+regular session.
 
 Send USD notional in cents, rounded downward within the fixed allocation after
 fee headroom. Validate share requests at the supported nine-decimal increment;

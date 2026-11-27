@@ -517,7 +517,12 @@ def heartbeat_lease(
 
 
 def require_leader(conn, permit: LeaderPermit) -> LeaderPermit:
-    """Fresh database-time fence check with no surviving read transaction.
+    """Prove current leadership without retaining a transaction."""
+    return require_leader_with_control(conn, permit)[0]
+
+
+def require_leader_with_control(conn, permit: LeaderPermit) -> tuple[LeaderPermit, AutomationControl]:
+    """Fresh database-time fence and validated control with no surviving read transaction.
 
     Callers use the returned permit only as a proof. Mutating store operations
     perform their own conditional SQL fence after this boundary, so this
@@ -525,7 +530,7 @@ def require_leader(conn, permit: LeaderPermit) -> LeaderPermit:
     holding AccessShare locks across scheduler sleeps or broker work.
     """
     try:
-        load_control(conn)
+        control = load_control(conn)
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT l.acquired_at,l.expires_at"
@@ -537,7 +542,7 @@ def require_leader(conn, permit: LeaderPermit) -> LeaderPermit:
                 " AND l.expires_at > clock_timestamp()",
                 (permit.control_generation, permit.holder_id, permit.fence_token))
             row = cur.fetchone()
-            if row is None:
+            if row is None or control.generation != permit.control_generation:
                 cur.execute(
                     "SELECT EXISTS(SELECT 1 FROM sentinel_automation_control"
                     " WHERE id=1),EXISTS(SELECT 1 FROM sentinel_automation_lease"
@@ -551,7 +556,7 @@ def require_leader(conn, permit: LeaderPermit) -> LeaderPermit:
         result = permit.model_copy(
             update={"acquired_at": row[0], "expires_at": row[1]})
         conn.rollback()
-        return result
+        return result, control
     except BaseException:
         conn.rollback()
         raise
@@ -614,8 +619,8 @@ def latest_cycle(conn, *, include_historical: bool = False) -> CycleRecord | Non
     return _cycle(row) if row is not None else None
 
 
-def waiting_open_witness(conn, cycle_id: str):
-    """Small, read-only subject for an ordinary cycle still before its wake."""
+def idle_cycle_witness(conn, spec: CycleSpec):
+    """Prove all ordinary idle lineage dependencies within a bounded read budget."""
     from sentinel import operational_ddl_epoch
     from sentinel.operational_catalog import OperationalCatalogRefused
 
@@ -623,27 +628,49 @@ def waiting_open_witness(conn, cycle_id: str):
         with conn.transaction(force_rollback=True):
             conn.execute("SET LOCAL statement_timeout='750ms'")
             row = conn.execute('''
-                SELECT system_identifier::text, current_database(), pg_postmaster_start_time(),
+                WITH waiting AS MATERIALIZED (
+                    SELECT c.cycle_id,c.deployment_id,c.broker,c.broker_account_id,c.takeover_epoch,
+                           c.decision_session,c.control_generation FROM sentinel_automation_cycles c
+                    WHERE c.cycle_id=ANY(%s) AND c.control_generation=%s
+                      AND NOT c.historical_state_only
+                      AND ((c.state='WAITING_OPEN' AND clock_timestamp()<c.execute_at) OR
+                           (c.state IN ('SUCCEEDED','MISSED_STATE_ONLY','SUPERSEDED')
+                            AND clock_timestamp()<c.execution_close_at))
+                      AND NOT EXISTS (SELECT 1 FROM sentinel_automation_cycles other
+                           WHERE other.cycle_id<>c.cycle_id AND
+                           (other.state NOT IN ('SUCCEEDED','MISSED_STATE_ONLY','SUPERSEDED','BLOCKED')
+                            OR (NOT other.historical_state_only AND
+                                (other.decision_session,other.created_at)>=(c.decision_session,c.created_at))))
+                ), lineage AS MATERIALIZED (
+                    SELECT h.cycle_id, h.failure_code,
+                           concat_ws(':',h.tableoid,h.xmin,h.ctid) AS version
+                    FROM sentinel_automation_cycles h JOIN waiting c ON
+                         h.cycle_id=c.cycle_id OR
+                         ((h.deployment_id,h.broker,h.broker_account_id,h.takeover_epoch,h.decision_session)
+                         =(c.deployment_id,c.broker,c.broker_account_id,c.takeover_epoch,c.decision_session)
+                         AND h.control_generation<c.control_generation)
+                    LIMIT 33
+                )
+                SELECT c.cycle_id, system_identifier::text, current_database(), pg_postmaster_start_time(),
                        floor(pg_snapshot_xmax(pg_current_snapshot())::text::numeric/4294967296)::bigint,
-                       pg_relation_filenode(c.tableoid), c.xmin::text, c.ctid::text,
+                       pg_relation_filenode('sentinel_automation_cycles'::regclass),
                        pg_relation_filenode('sentinel_automation_cycle_events'::regclass),
-                       current_setting('session_replication_role'), pg_current_xact_id_if_assigned(),
-                       to_regclass('public.sentinel_operational_ddl_epoch') IS NOT NULL,
-                       ARRAY(SELECT concat_ws(':',e.tableoid,e.xmin,e.ctid)
-                             FROM sentinel_automation_cycle_events e WHERE e.cycle_id=c.cycle_id
-                             ORDER BY e.seq LIMIT 257)
-                FROM sentinel_automation_cycles c CROSS JOIN pg_control_system()
-                WHERE c.cycle_id=%s AND c.state='WAITING_OPEN' AND NOT c.historical_state_only
-                  AND clock_timestamp()<c.execute_at
-                  AND NOT EXISTS (SELECT 1 FROM sentinel_automation_cycles other
-                       WHERE other.cycle_id<>c.cycle_id AND
-                       (other.state NOT IN ('SUCCEEDED','MISSED_STATE_ONLY','SUPERSEDED','BLOCKED')
-                        OR (NOT other.historical_state_only AND
-                            (other.decision_session,other.created_at)>=(c.decision_session,c.created_at))))
-                ''', (cycle_id,)).fetchone()
-            if row is None or row[8:11] != ('origin', None, True) or not 0 < len(row[11]) <= 256:
+                       ARRAY(SELECT concat_ws(':',h.cycle_id,h.version) FROM lineage h ORDER BY h.cycle_id),
+                       ARRAY(SELECT concat_ws(':',e.cycle_id,e.seq,e.tableoid,e.xmin,e.ctid)
+                             FROM sentinel_automation_cycle_events e JOIN lineage h USING (cycle_id)
+                             ORDER BY e.cycle_id,e.seq LIMIT 257)
+                FROM waiting c CROSS JOIN pg_control_system()
+                WHERE current_setting('session_replication_role')='origin'
+                  AND pg_current_xact_id_if_assigned() IS NULL
+                  AND to_regclass('public.sentinel_operational_ddl_epoch') IS NOT NULL
+                  AND NOT EXISTS (SELECT FROM lineage WHERE failure_code='STALE_PREFLIGHT_RECOVERED')
+                  AND NOT EXISTS (SELECT FROM sentinel_automation_cycle_events e JOIN lineage h USING(cycle_id)
+                      WHERE e.from_state IS NULL AND e.detail ?| ARRAY[
+                        'owner_paper_continuation','paper_debug_configuration','recovery_authorization_generation'])
+                ''', ([spec.cycle_id, spec.generation_cycle_id], spec.control_generation)).fetchone()
+            if row is None or not 0 < len(row[7]) <= 32 or not 0 < len(row[8]) <= 256:
                 return None
-            return row, operational_ddl_epoch.current(conn)
+            return row[0], row[1:], operational_ddl_epoch.current(conn)
     except (psycopg.Error, OperationalCatalogRefused):
         return None
 
@@ -842,11 +869,15 @@ def _immutable_cycle(record: CycleRecord) -> dict[str, Any]:
     }
 
 
-def _cycles_in_scope(conn, spec: CycleSpec, *, current_generation=False) -> list[CycleRecord]:
-    generation = ' AND control_generation=%s' if current_generation else ''
+def _cycles_in_scope(conn, spec: CycleSpec, *, current_generation=False, predecessors_only=False) -> list[CycleRecord]:
+    generation = ''
+    if current_generation:
+        generation = ' AND control_generation=%s'
+    elif predecessors_only:
+        generation = ' AND control_generation<%s'
     key = (spec.deployment_id, spec.broker, spec.broker_account_id,
            spec.takeover_epoch, spec.decision_session)
-    if current_generation:
+    if generation:
         key += (spec.control_generation,)
     with conn.cursor() as cur:
         cur.execute(
@@ -912,8 +943,9 @@ def prospective_predecessors(conn, *, spec: CycleSpec, now: datetime | None,
             except AutomationRefused:
                 return None
             return sorted(cycle.cycle_id for cycle in prior)
+        validated, histories = {}, {}
         for cycle in prior:
-            integrity.validate_cycle_lineage(conn, cycle)
+            integrity.validate_cycle_lineage(conn, cycle, _validated=validated, _events=histories, _scope=prior)
             if (cycle.control_generation >= spec.control_generation
                     or not _unsent_retirement(cycle, spec,
                         debug=config is not None and config.debug_window_for(spec) is not None,
@@ -921,7 +953,7 @@ def prospective_predecessors(conn, *, spec: CycleSpec, now: datetime | None,
                 return None
         ids = sorted(cycle.cycle_id for cycle in prior)
         plans = [cycle.plan_id for cycle in prior if cycle.plan_id is not None]
-        if integrity.predecessors_reached_transport(conn, prior):
+        if integrity.predecessors_reached_transport(conn, prior, _events=histories):
             return None
         with conn.cursor() as cur:
             cur.execute("SELECT EXISTS(SELECT 1 FROM sentinel_commands c "
@@ -943,8 +975,7 @@ def _existing_current_cycle(conn, *, permit, spec):
     try:
         if spec.control_generation != permit.control_generation:
             raise StaleLeaderRefused('cycle identity does not match the leader generation')
-        require_leader(conn, permit)
-        control = load_control(conn)
+        _, control = require_leader_with_control(conn, permit)
         if control.binding is None or any(
                 getattr(spec, key) != value
                 for key, value in control.binding.model_dump().items()):

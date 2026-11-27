@@ -56,11 +56,36 @@ class _MutationPermit:
     clock: Callable[[], datetime]
     recheck: Callable[[], None]
     used: bool = False
+    headers_started: bool = False
     prevented_exception: BaseException | None = None
 
 
 _ACTIVE: ContextVar[_MutationPermit | None] = ContextVar("sentinel_live_mutation", default=None)
+_DISPATCH_KEYS = ContextVar("sentinel_live_dispatch_keys", default=frozenset())
 _MAX_PERMIT_LIFETIME = timedelta(seconds=30)
+
+
+@contextmanager
+def independent_dispatch_scope(commands):
+    """Identify active siblings, without issuing or changing a mutation permit."""
+    keys = {c.client_key for c in commands}
+    token = _DISPATCH_KEYS.set(keys)
+    try:
+        yield
+    finally:
+        keys.clear()
+        _DISPATCH_KEYS.reset(token)
+
+
+def awaiting_sibling_receipt(request, command, order):
+    keys = _DISPATCH_KEYS.get()
+    return (request.client_key != command.client_key and request.client_key in keys
+            and command.client_key in keys and request.identity.plan_id == command.identity.plan_id
+            and request.identity.deployment == command.identity.deployment
+            and request.security_id != command.security_id and command.side is request.side
+            and command.state is CommandState.SEND_PENDING and command.broker_order_id is None
+            and order.broker_order_id and order.state is CommandState.ACKNOWLEDGED
+            and command.filled_quantity == order.filled_quantity == 0)
 
 
 def _submit_tuple(*, command_key, instrument, side, quantity, terms):
@@ -73,13 +98,14 @@ def require_live_mutation_permit(
         side: Side | None = None, quantity: Decimal | None = None,
         broker_order_id: str | None = None, certificate_sha256: str | None = None) -> None:
     """Consume one exact permit immediately before one actual LIVE mutation."""
+    permit = _ACTIVE.get()
+    fresh = type(permit) is _MutationPermit and not permit.used
     try:
         _consume_live_mutation_permit(adapter, operation=operation, command_key=command_key,
             terms=terms, instrument=instrument, side=side, quantity=quantity,
             broker_order_id=broker_order_id, certificate_sha256=certificate_sha256)
     except LiveTransportRefused as exc:
-        permit = _ACTIVE.get()
-        if (type(permit) is _MutationPermit and permit.adapter is adapter
+        if (fresh and permit.adapter is adapter
                 and permit.owner_task is asyncio.current_task()
                 and permit.operation == operation):
             permit.prevented_exception = exc
@@ -127,6 +153,21 @@ def _transport_prevented(permit, exception):
     return (type(permit) is _MutationPermit
             and permit.prevented_exception is exception
             and permit.owner_task is asyncio.current_task())
+
+
+def recheck_live_before_headers(adapter, *, client_key):
+    """Connection setup may outlast a previously valid exact mutation permit."""
+    permit = _ACTIVE.get()
+    if (type(permit) is not _MutationPermit or not permit.used or permit.headers_started
+            or permit.operation != "SUBMIT" or permit.adapter is not adapter
+            or permit.owner_task is not asyncio.current_task() or permit.exact_request[0] != client_key):
+        raise LiveTransportRefused("LIVE order header write does not match its consumed permit")
+    permit.headers_started = True
+    now = permit.clock()
+    if not isinstance(now, datetime) or now.utcoffset() is None or not permit.issued_at <= now < permit.expires_at:
+        exc = LiveTransportRefused("LIVE order expired before its first request byte")
+        permit.prevented_exception = exc
+        raise exc
 
 
 @contextmanager

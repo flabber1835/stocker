@@ -377,16 +377,17 @@ def seal(conn, candidate_id: str, *, expected_keys: Iterable[tuple[str, str]],
 
 
 def manifest(conn, candidate_id: str) -> SnapshotManifest:
+    _pin_reader(conn)
     with conn.cursor() as cur:
-        cur.execute("SELECT snapshot_id,manifest FROM sentinel_price_candidates "
-                    "WHERE candidate_id=%s", (candidate_id,))
+        cur.execute("SELECT snapshot_id,manifest,session_axis,reference_sha256,source_evidence_sha256 "
+                    "FROM sentinel_price_candidates WHERE candidate_id=%s", (candidate_id,))
         row = cur.fetchone()
     if row is None or row[1] is None:
         raise SnapshotStorageRefused("candidate has no sealed manifest")
-    value = SnapshotManifest.model_validate(row[1])
-    if value.snapshot_id != row[0]:
+    snapshot_id, raw, axis, reference, source = row
+    value = SnapshotManifest.model_validate(raw)
+    if value.snapshot_id != snapshot_id:
         raise SnapshotStorageRefused("snapshot manifest content identity differs")
-    axis, reference, source, _ = _parent(conn, candidate_id)
     if (value.window.model_dump(mode="json")["sessions"] != axis
             or value.reference_sha256 != reference
             or value.source_evidence_sha256 != source):

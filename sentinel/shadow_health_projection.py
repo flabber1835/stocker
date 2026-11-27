@@ -386,7 +386,7 @@ def scheduling_subject(config, source):
             FROM sentinel_readiness_snapshots ORDER BY computed_at DESC,snapshot_id DESC LIMIT 1
             ''').fetchone()
         subject = _digest([projection.model_dump(), ddl, setup, physical, binding, evidence, blocks])
-        return subject, verdict
+        return subject, verdict, _utc(projection.current_until)
     finally:
         conn.rollback()
         conn.close()

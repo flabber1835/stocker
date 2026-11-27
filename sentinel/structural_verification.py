@@ -78,6 +78,26 @@ def _unprojected_command_started(conn, slot, key):
 
 
 def _inventory(conn, slot, key=None):
+    if slot == 'held-share-basis':
+        from sentinel import dual_plan_authority
+        # This loader reads exactly one plan's held_share_targets field.
+        return conn.execute("""
+            SELECT t.oid, pg_relation_filenode(t.oid),
+                   floor(pg_snapshot_xmax(pg_current_snapshot())::text::numeric/4294967296),
+                   s.tableoid,s.xmin::text,s.ctid::text
+            FROM pg_class t LEFT JOIN sentinel_processed_sessions s ON s.cursor_name=%s
+            WHERE t.oid='sentinel_processed_sessions'::regclass
+            """, (dual_plan_authority.CURSOR_PREFIX + key,)).fetchone()
+    if slot == 'automation-control-history':
+        # One MVCC snapshot includes the relation even for an empty genesis
+        # history. Rewrites, repairs and inserts must invalidate a prior replay.
+        return conn.execute("""
+            SELECT t.oid, pg_relation_filenode(t.oid),
+                   floor(pg_snapshot_xmax(pg_current_snapshot())::text::numeric/4294967296),
+                   e.seq,e.xmin::text,e.ctid::text
+            FROM pg_class t LEFT JOIN sentinel_automation_events e ON true
+            WHERE t.oid='sentinel_automation_events'::regclass ORDER BY e.seq
+            """).fetchall()
     # Do not detoast multi-megabyte state just to discover whether it changed.
     relation = conn.execute(
         "SELECT 'sentinel_processed_sessions'::regclass::oid, "

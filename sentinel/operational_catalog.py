@@ -56,42 +56,43 @@ def capture_extension(conn, module):
     pairs = _pairs(module)
     index_pairs = _index_pairs(module)
     functions = sorted(module.extension_functions)
-    names = sorted(tables)
-    relations = conn.execute(
-        'SELECT c.relname,c.relkind,c.relpersistence,c.relispartition,c.relrowsecurity,'
+    trigger_tables = {table for table, _ in pairs}
+    index_names = {name for _, name in index_pairs}
+    catalog_rows = conn.execute(
+        'SELECT c.oid,c.relname,c.relkind,c.relpersistence,c.relispartition,c.relrowsecurity,'
         'c.relforcerowsecurity,c.relhasrules,c.reloptions '
         'FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace '
-        'WHERE n.nspname=\'public\' AND c.relname=ANY(%s) ORDER BY c.relname', (names,)).fetchall()
+        'WHERE n.nspname=\'public\' AND c.relname=ANY(%s) ORDER BY c.relname',
+        (sorted(tables | trigger_tables | index_names),)).fetchall()
+    relations = [row[1:] for row in catalog_rows if row[1] in tables]
+    table_oids = [row[0] for row in catalog_rows if row[1] in tables]
+    trigger_oids = [row[0] for row in catalog_rows if row[1] in tables | trigger_tables]
+    index_oids = [row[0] for row in catalog_rows if row[1] in index_names]
     columns = conn.execute(
         'SELECT c.relname,a.attname,format_type(a.atttypid,a.atttypmod),a.attnotnull,'
         'a.attgenerated,a.attidentity,pg_get_expr(d.adbin,d.adrelid) '
-        'FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace '
-        'JOIN pg_attribute a ON a.attrelid=c.oid '
+        'FROM pg_class c JOIN pg_attribute a ON a.attrelid=c.oid '
         'LEFT JOIN pg_attrdef d ON d.adrelid=c.oid AND d.adnum=a.attnum '
-        'WHERE n.nspname=\'public\' AND c.relname=ANY(%s) AND a.attnum>0 AND NOT a.attisdropped '
-        'ORDER BY c.relname,a.attnum', (names,)).fetchall()
+        'WHERE a.attrelid=ANY(%s::oid[]) AND a.attnum>0 AND NOT a.attisdropped '
+        'ORDER BY c.relname,a.attnum', (table_oids,)).fetchall()
     constraints = conn.execute(
         'SELECT c.relname,k.conname,k.contype,pg_get_constraintdef(k.oid,true),'
         'k.convalidated,k.condeferrable,k.condeferred,k.connoinherit '
         'FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid '
-        'JOIN pg_namespace n ON n.oid=c.relnamespace '
-        'WHERE n.nspname=\'public\' AND c.relname=ANY(%s) '
-        'ORDER BY c.relname,k.conname', (names,)).fetchall()
+        'WHERE k.conrelid=ANY(%s::oid[]) '
+        'ORDER BY c.relname,k.conname', (table_oids,)).fetchall()
     indexes = conn.execute(
         'SELECT t.relname,i.relname,pg_get_indexdef(i.oid),x.indisunique,x.indisprimary,'
         'x.indisvalid,x.indisready,x.indislive '
         'FROM pg_index x JOIN pg_class i ON i.oid=x.indexrelid '
-        'JOIN pg_class t ON t.oid=x.indrelid JOIN pg_namespace n ON n.oid=t.relnamespace '
-        'WHERE n.nspname=\'public\' AND (t.relname=ANY(%s) OR i.relname=ANY(%s)) '
-        'ORDER BY t.relname,i.relname',
-        (names, sorted({name for _, name in index_pairs}))).fetchall()
+        'JOIN pg_class t ON t.oid=x.indrelid '
+        'WHERE x.indrelid=ANY(%s::oid[]) OR x.indexrelid=ANY(%s::oid[]) '
+        'ORDER BY t.relname,i.relname', (table_oids, index_oids)).fetchall()
     all_triggers = conn.execute(
         'SELECT c.relname,t.tgname,pg_get_triggerdef(t.oid,true),t.tgenabled '
         'FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid '
-        'JOIN pg_namespace n ON n.oid=c.relnamespace '
-        'WHERE n.nspname=\'public\' AND NOT t.tgisinternal '
-        'AND (c.relname=ANY(%s) OR t.tgname=ANY(%s)) '
-        'ORDER BY c.relname,t.tgname', (names, sorted({name for _, name in pairs}))).fetchall()
+        'WHERE NOT t.tgisinternal AND t.tgrelid=ANY(%s::oid[]) '
+        'ORDER BY c.relname,t.tgname', (trigger_oids,)).fetchall()
     triggers = [row for row in all_triggers if row[0] in tables or tuple(row[:2]) in pairs]
     definitions = conn.execute(
         'SELECT p.proname,pg_get_function_identity_arguments(p.oid),pg_get_function_result(p.oid),'
@@ -100,14 +101,14 @@ def capture_extension(conn, module):
         'FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace '
         'JOIN pg_language l ON l.oid=p.prolang '
         'WHERE n.nspname=\'public\' AND p.proname=ANY(%s) ORDER BY p.proname,p.oid::regprocedure::text',
-        (functions,)).fetchall()
+        (functions,)).fetchall() if functions else []
     event_names = sorted(getattr(module, 'extension_event_triggers', ()))
     event_triggers = conn.execute(
         'SELECT e.evtname,e.evtevent,e.evtenabled,e.evttags,'
         'n.nspname,p.proname,pg_get_function_identity_arguments(p.oid) '
         'FROM pg_event_trigger e JOIN pg_proc p ON p.oid=e.evtfoid '
         'JOIN pg_namespace n ON n.oid=p.pronamespace '
-        'WHERE e.evtname=ANY(%s) ORDER BY e.evtname', (event_names,)).fetchall()
+        'WHERE e.evtname=ANY(%s) ORDER BY e.evtname', (event_names,)).fetchall() if event_names else []
     views = []
     for name in sorted(getattr(module, 'extension_views', ())):
         row = conn.execute('SELECT pg_get_viewdef(to_regclass(%s),true)', ('public.'+name,)).fetchone()

@@ -193,6 +193,11 @@ def derive(conn, *, projection, deployment, ignore_key=None, require_terminal=Fa
             # Completing a clipped notional order leaves its unspent allocation
             # intact. Only a remainder too small for another order is dust.
             continue
+        if (sid == "SENTINEL:BIL" and len(buys) == 1 and buys[0].state is S.FILLED
+                and buys[0].notional is not None):
+            from sentinel.execution.market_reservation_record import completed_partial_sweep
+            if completed_partial_sweep(conn, command=buys[0], projection=projection, deployment=deployment):
+                continue
         budgets[sid] = exact_decimal(Fraction(available // Fraction("0.01"), 100))
         if buys and buys[-1].state is S.REJECTED:
             blocked[sid] = REJECTED_FOR_PLAN

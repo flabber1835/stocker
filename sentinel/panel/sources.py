@@ -1975,13 +1975,16 @@ def _matched_market_order_wait(conn, *, account, cycle, now, trading_row=None, p
     if state not in {"EXECUTING", "RECONCILING", "RETRY_WAIT"} or any(
             cycle.get(key) for key in ("terminal_reason", "callback_failure", "exception_type")):
         return None
-    if state == "RETRY_WAIT" and (cycle.get("retry_phase") != "RECOVER"
-                                  or failure != "COMMANDS_IN_FLIGHT"):
+    if state == "RETRY_WAIT" and cycle.get("retry_phase") != "RECOVER":
         return None
     if failure not in {None, "COMMANDS_IN_FLIGHT"} or (failure is None and cycle.get("failure_detail")):
         return None
     diagnostic = cycle.get("diagnostic") or {}
     if state == "RETRY_WAIT":
+        from sentinel.execution.market_reservation_record import current_working_receipt
+        if failure is None and not current_working_receipt(diagnostic, plan_id=cycle.get("plan_id"),
+                observation_id=cycle.get("clean_reconciliation_id"), now=now):
+            return None
         if (diagnostic.get("clean") is not True or diagnostic.get("runtime_state") != "RUNNING"
                 or any(diagnostic.get(field) != [] for field in (
                     "unresolved", "foreign_orders", "foreign_positions"))):
@@ -1990,9 +1993,12 @@ def _matched_market_order_wait(conn, *, account, cycle, now, trading_row=None, p
         conn, account=account, now=now, plan_id=cycle.get("plan_id"))
     if proof is None:
         return None
-    order = proof["order"]
-    if state == "RETRY_WAIT" and diagnostic.get("in_flight_commands") != [order["client_key"]]:
-        return None
+    orders = proof["orders"]
+    keys = {order["client_key"] for order in orders}
+    if state == "RETRY_WAIT":
+        inflight = diagnostic.get("in_flight_commands" if failure else "working_order_keys")
+        if not isinstance(inflight, list) or len(inflight) != len(keys) or set(inflight) != keys:
+            return None
     current = trading_row if trading_row is not None else _current_trading_run(conn)
     run = current.trading_run if current is not None else None
     if (run is None or current.valid_until is None or not current.can_show_trading_run(now)
@@ -2002,16 +2008,20 @@ def _matched_market_order_wait(conn, *, account, cycle, now, trading_row=None, p
             or run.intent.plan_id != cycle.get("plan_id")
             or run.updated_at != cycle.get("updated_at")):
         return None
-    recorded = next((item for item in run.orders if item.client_key == order["client_key"]), None)
-    if (recorded is None or recorded.broker_order_id != order["broker_order_id"]
-            or recorded.state != order["state"] or recorded.order_terms != order["terms"]
-            or recorded.side != order["side"]
-            or recorded.quantity != (None if order["quantity"] is None else Decimal(order["quantity"]))
-            or recorded.notional != (None if order.get("notional") is None else Decimal(order["notional"]))
-            or recorded.filled_quantity != Decimal(order["filled_quantity"])
-            or recorded.filled_average_price != (
-                Decimal(order["filled_average_price"]) if order["filled_average_price"] else None)):
+    recorded_orders = {item.client_key: item for item in run.orders}
+    if len(recorded_orders) != len(run.orders):
         return None
+    for order in orders:
+        recorded = recorded_orders.get(order["client_key"])
+        if (recorded is None or recorded.broker_order_id != order["broker_order_id"]
+                or recorded.state != order["state"] or recorded.order_terms != order["terms"]
+                or recorded.side != order["side"]
+                or recorded.quantity != (None if order["quantity"] is None else Decimal(order["quantity"]))
+                or recorded.notional != (None if order.get("notional") is None else Decimal(order["notional"]))
+                or recorded.filled_quantity != Decimal(order["filled_quantity"])
+                or recorded.filled_average_price != (
+                    Decimal(order["filled_average_price"]) if order["filled_average_price"] else None)):
+            return None
     opened, closed = (cycle.get(key) for key in ("execute_at", "execution_close_at"))
     observed = account.get("observed_at")
     if (not all(isinstance(value, datetime) and value.utcoffset() is not None
@@ -3132,9 +3142,17 @@ def _partial_buy_only_cutoff_run(conn, cycle, *, now):
     return row if row.trading_run.required_sales_filled() else None
 
 
-def _cutoff_planned_buys_are_only_active_commands(conn, run, commands):
-    """Match the global active journal set to the no-transport BUY identities."""
+def _cutoff_planned_buys_are_only_active_commands(conn, run, commands, *, cycle, proof):
+    """Require the exact current journal set, including any proven retired stubs."""
     planned = {order.client_key for order in run.orders if order.state == 'PLANNED'}
+    retired = set(proof.get('retired_unsent_buy_keys', ()))
+    if retired:
+        from time import monotonic
+        from sentinel.execution.retired_unsent import retired_at_cutoff
+        if not retired_at_cutoff(conn, cycle, current_keys=planned, retired_keys=retired,
+                                 deadline=monotonic() + 4.0):
+            return False
+        planned |= retired
     if commands['counts'] != ({'PLANNED': len(planned)} if planned else {}):
         return False
     if not planned:
@@ -3237,7 +3255,7 @@ def _recoverable_superseded_wait(conn, cycle) -> MissedOpenUnattendedWait | None
     observation = _latest_observation(conn)
     active_clear = (not commands['counts'] if partial_run is None else
         _cutoff_planned_buys_are_only_active_commands(
-            conn, partial_run.trading_run, commands))
+            conn, partial_run.trading_run, commands, cycle=previous, proof=proof))
     if (not active_clear or observation is None
             or observation['completeness'] != 'COMPLETE'
             or observation['runtime_state'] != 'RUNNING'

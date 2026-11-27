@@ -17,7 +17,7 @@ from sentinel.execution.live_order_policy import LiveOrderDeferred, LiveOrderRef
 from sentinel.execution.live_settlement import (
     LiveFundingAdmission, account_snapshot_sha256, positions_sha256,
 )
-from sentinel.execution.live_transport import LiveOrderContext
+from sentinel.execution.live_transport import LiveOrderContext, awaiting_sibling_receipt
 from sentinel.execution.plan import ExecutionPlan
 from sentinel.execution.states import IN_FLIGHT, CommandState
 
@@ -108,6 +108,8 @@ def _check_observation(conn, observation, *, commands, request, bound, actions,
             raise LiveOrderRefused("LIVE_CONTEXT_FOREIGN_OR_CHANGED_ORDER")
         if order.client_key == request.client_key:
             raise LiveOrderDeferred("LIVE_CONTEXT_REQUEST_ALREADY_OBSERVED_RECOVER_FIRST")
+        if awaiting_sibling_receipt(request, command, order):
+            continue
         if (order.state is not command.state or order.filled_quantity != command.filled_quantity
                 or order.filled_average_price != command.filled_average_price):
             raise LiveOrderDeferred("LIVE_CONTEXT_JOURNAL_RECONCILIATION_REQUIRED")

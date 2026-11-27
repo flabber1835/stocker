@@ -1,0 +1,39 @@
+# Opening order dispatch
+
+The account writer settles a whole group of fixed-dollar purchase reservations
+against one clean account observation before any member may reach the broker.
+Each reservation charges the exact original principal and fee allowance. Its
+stable command key remains the recovery identity for the lifetime of the order.
+Allocation follows the approved plan order. Fixed-share market buys continue
+to use fresh individual funding evidence and quotes.
+
+One writer prepares and checkpoints commands. Up to four independent requests
+may await a broker response together. Each starts only after its own committed
+SEND_PENDING checkpoint. Its worker owns its single-use pretransport proof,
+final broker checks and exact client ID. The worker records the response before
+finishing. The writer drains started requests before reconciliation or release
+of ownership. A definitive refusal or ambiguity stops the next dispatch group.
+An interrupted request remains recoverable using its original key. Startup
+reconciliation retains the existing UNKNOWN policy and same-security exclusion.
+
+Each PAPER order checks its applicable exchange window at the native POST.
+The HTTP transport checks it again after socket and TLS setup, before writing
+the order request headers. A fractional order sent by native asset ID uses one
+current asset lookup to verify identity, tradability and denomination at submit.
+The native write check is qualified against the HTTPX and httpcore versions in
+the release lock. Changing either version requires exercising the mock-socket
+deadline test before selecting the new version for order submission.
+LIVE dispatch retains its independent signed, request-bound mutation permit,
+funding policy and capital limits. For LIVE protected buys each permit charges
+the original maximum principal of every outstanding commitment. An exact native
+receipt for an unfilled sibling in the same active dispatch can arrive before
+its journal acknowledgement. A new fill still requires book reconciliation.
+Sales remain bounded by unreserved holdings.
+Independent sales can reach the broker before the first sale pays out.
+
+The sell-funded BIL purchase normally follows complete settlement of the
+required sales. In the last minute of the original opening purchase window,
+one defensive BIL purchase may use confirmed spendable cash from a fully
+submitted exit with identified, still-working sales. Its reservation is capped
+by the remaining BIL allocation. A later sale fill contributes cash to a future
+plan. Outstanding orders continue to reconcile past the new-buy cutoff.

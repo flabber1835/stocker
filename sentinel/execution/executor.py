@@ -39,9 +39,11 @@ import asyncio
 import logging
 import inspect
 import time
+from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
 from datetime import date
 from decimal import Decimal
+from fractions import Fraction
 from typing import Callable, Mapping, Optional, Sequence
 
 from sentinel.execution import commands as C
@@ -292,6 +294,9 @@ async def execute_session(*, broker: ExecutionBroker, conn,
                           buy_deferrals: Optional[Mapping[str, str]] = None,
                           informational_current_book: bool = False,
                           market_buy_window_open: Callable[[], bool] | None = None,
+                          reserve_market_buys=None, reserved_market_buy_keys=None,
+                          defensive_cash_sweep_due: Callable[[], bool] | None = None,
+                          defensive_sweep_attempted: Callable[[], bool] | None = None,
                           reductions_only: bool = False,
                           ) -> SessionResult:
     """TWO PHASES: reduce, settle, re-observe, re-size, increase.
@@ -415,6 +420,9 @@ async def execute_session(*, broker: ExecutionBroker, conn,
             buy_deferrals=buy_deferrals,
             informational_current_book=informational_current_book,
             market_buy_window_open=market_buy_window_open,
+            reserve_market_buys=reserve_market_buys, reserved_market_buy_keys=reserved_market_buy_keys,
+            defensive_cash_sweep_due=defensive_cash_sweep_due,
+            defensive_sweep_attempted=defensive_sweep_attempted,
             reductions_only=reductions_only)
 
 
@@ -436,6 +444,9 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                                   buy_deferrals: Optional[Mapping[str, str]] = None,
                                   informational_current_book: bool = False,
                                   market_buy_window_open: Callable[[], bool] | None = None,
+                                  reserve_market_buys=None, reserved_market_buy_keys=None,
+                                  defensive_cash_sweep_due: Callable[[], bool] | None = None,
+                                  defensive_sweep_attempted: Callable[[], bool] | None = None,
                                   reductions_only: bool = False,
                                   ) -> SessionResult:
     from sentinel.execution import market_buy_sizing
@@ -602,8 +613,10 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
             if delta.classification is C.DeltaClass.NONE:
                 continue
             try:
-                current_binding = _binding(conn)
                 if observed_account is unread:
+                    # This writer owns the binding throughout the basket. Read it
+                    # alongside the native identity once for this authorization.
+                    current_binding = _binding(conn)
                     observed_account = await broker.identify_account()
                 C.authorize(delta=delta, runtime=runtime, binding=current_binding,
                             observed_account=observed_account,
@@ -620,6 +633,7 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
         return out
 
     posting_funds = None
+    reserved_by_security = {}
     live_sale_residuals = {}
 
     async def submit_all(candidates, obs, commands):
@@ -633,17 +647,34 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
             # executor's own fresh reconciliation, not only the caller's older
             # preflight.
             await mutation_authority(rec)
+        independent_sales = ((deployment.broker in {ALPACA_PAPER_BROKER, ALPACA_LIVE_BROKER}
+                              or (fractional and informational_current_book))
+                             and all(d.side is Side.SELL for d in authorized_candidates)
+                             and len(authorized_candidates) > 1)
+        live_protected_buys = (deployment.broker == ALPACA_LIVE_BROKER
+                               and len(authorized_candidates) > 1
+                               and all(d.side is Side.BUY for d in authorized_candidates))
+        funded_group = (fractional and informational_current_book and callable(reserve_market_buys)
+                        and (posting_funds is not None or reserved_by_security)
+                        and all(d.side is Side.BUY for d in authorized_candidates))
+        ceiling = posting_funds.cash_ceiling if posting_funds is not None else None
+        prepared = []
         for index, delta in enumerate(authorized_candidates):
             residual = None
             partial_allocation = False
+            reserved = reserved_by_security.get(delta.security_id)
             if fractional:
                 from sentinel.execution.fractional_orders import choose
                 from sentinel.execution.guarded import OrderEvidenceNotReady
                 try:
                     delta, residual = await choose(broker, conn=conn, deployment=deployment,
                         projection=target_projection, delta=delta, instrument=instruments[delta.security_id])
-                    if delta.notional is not None and posting_funds is not None:
-                        principal = fractional_progress.funded_notional(delta.notional, posting_funds.cash_ceiling)
+                    if reserved is not None:
+                        if delta.notional is None or reserved.notional > delta.notional:
+                            raise OrderEvidenceNotReady("original reservation exceeds the current eligible dollar allocation")
+                        delta = replace(delta, notional=reserved.notional)
+                    elif delta.notional is not None and posting_funds is not None:
+                        principal = fractional_progress.funded_notional(delta.notional, ceiling)
                         if principal is None:
                             if posting_funds.credit_can_fund_order():
                                 posting_deferred.append(delta.security_id)
@@ -655,6 +686,13 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                     deferred.append(delta.security_id)
                     deferral_reasons[delta.security_id] = str(exc)
                     continue
+            if funded_group and delta.notional is None:
+                # Fixed-share market buys depend on a fresh quote and individual
+                # cash check. Preserve plan order across the denomination boundary.
+                if prepared:
+                    deferred.extend(item.security_id for item in authorized_candidates[index:])
+                    break
+                funded_group = False
             elif deployment.broker == ALPACA_LIVE_BROKER and delta.side is Side.SELL:
                 from sentinel.execution.fractional_orders import choose_live_sale
                 from sentinel.execution.guarded import OrderEvidenceNotReady
@@ -699,10 +737,24 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
             # same-issuer race between two candidates in this serial basket.
             if not issuer_admitted(delta, reserve=True):
                 continue
-            command, already_planned = _command_for_delta(
-                conn=conn, deployment=deployment, plan_id=plan.plan_id,
-                delta=delta, instrument=instruments[delta.security_id],
-                order_terms=order_terms)
+            if reserved is not None:
+                candidate = C.build(delta=delta, identity=reserved.identity,
+                                    instrument=instruments[delta.security_id], order_terms=order_terms)
+                if not _same_command_economics(reserved, candidate):
+                    raise C.CommandRefused("current evidence contradicts the original reserved command")
+                command, already_planned = reserved, True
+            else:
+                command, already_planned = _command_for_delta(
+                    conn=conn, deployment=deployment, plan_id=plan.plan_id,
+                    delta=delta, instrument=instruments[delta.security_id],
+                    order_terms=order_terms)
+            if funded_group or independent_sales or (live_protected_buys and order_terms.order_type == "limit"):
+                if funded_group and reserved is None:
+                    from sentinel.execution.market_buy_policy import MARKET_BUY_HEADROOM
+                    from sentinel.execution.numeric import exact_decimal
+                    ceiling = exact_decimal(Fraction(ceiling) - Fraction(command.notional) - Fraction(MARKET_BUY_HEADROOM))
+                prepared.append((command, already_planned, residual, partial_allocation))
+                continue
             try:
                 sent = await _persist_and_send(
                     conn, broker, command, already_planned=already_planned,
@@ -742,6 +794,39 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                 settlement_deferred.extend(
                     item.security_id for item in authorized_candidates[index + 1:])
                 break
+        if prepared:
+            if funded_group and not reserved_by_security:
+                group = tuple(item[0] for item in prepared)
+                try:
+                    journal.reserve_planned_commands(conn, group)
+                    reserve_market_buys(group, rec, posting_funds)
+                    conn.commit()
+                except BaseException:
+                    conn.rollback()
+                    raise
+            from sentinel.execution.live_transport import independent_dispatch_scope
+            scope = (independent_dispatch_scope(item[0] for item in prepared)
+                     if deployment.broker == ALPACA_LIVE_BROKER else nullcontext())
+            with scope:
+                outcomes = await _dispatch_independent(conn, broker, prepared, reserved=bool(funded_group))
+            for (command, _, residual, partial_allocation), outcome in zip(prepared, outcomes):
+                sid = command.security_id
+                if outcome is None or isinstance(outcome, _ProvenUnsentPurchaseDeferral):
+                    deferred.append(sid)
+                    deferral_reasons[sid] = str(outcome) if outcome else "dispatch stopped after a sibling refusal or uncertain response"
+                    continue
+                if outcome.state is CommandState.PLANNED:
+                    deferred.append(sid)
+                    deferral_reasons[sid] = outcome.detail
+                    continue
+                submitted.append(outcome)
+                commands += (outcome,)
+                if residual is not None:
+                    deferred.append(sid)
+                    deferral_reasons[sid] = restrictions[sid] = residual
+                if partial_allocation:
+                    deferred.append(sid)
+                    deferral_reasons[sid] = "original dollar allocation exceeded verified available funds"
         return commands
 
     # 3. PHASE ONE — REDUCTIONS. A purchase that fails must never prevent a
@@ -811,6 +896,13 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
     #    with no reductions there are no proceeds to wait for, and with no
     #    increases there is nothing the second read would inform.
     settle_note = ""
+    exit_sweep = False
+    if (fractional and informational_current_book and plan.target_exposure == 0
+            and any(d.security_id == "SENTINEL:BIL" for d in increases)
+            and defensive_sweep_attempted is not None and defensive_sweep_attempted()):
+        increases = [d for d in increases if d.security_id != "SENTINEL:BIL"]
+        deferred.append("SENTINEL:BIL")
+        deferral_reasons["SENTINEL:BIL"] = "this exit plan already attempted its defensive cash sweep"
     if live_sale_residuals and increases:
         deferred.extend(delta.security_id for delta in increases)
         increases = []
@@ -850,7 +942,15 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                 runtime = rec.runtime_state
                 if rec.observation is not None:
                     observation = rec.observation
-            if not settled:
+            if (not settled and settled_rec is not None and settled_rec.clean
+                    and not settled_rec.cash_plan_superseded
+                    and plan.target_exposure == 0 and fractional and informational_current_book
+                    and len(increases) == 1 and increases[0].security_id == "SENTINEL:BIL"
+                    and reserve_market_buys is not None and defensive_cash_sweep_due is not None
+                    and defensive_cash_sweep_due()
+                    and _owned_exit_sales(conn, deployment, plan.plan_id, settled_rec, outstanding_reduction_keys)):
+                exit_sweep = True
+            if not settled and not exit_sweep:
                 deferred.extend(d.security_id for d in increases)
                 increases = []
                 settle_note = (
@@ -913,7 +1013,20 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
             deferred.extend(d.security_id for d in increases)
             increases = []
             settle_note = f"increases deferred with restricted reductions: {restricted_reductions}"
-    if market and increases and (open_commands or any(order.is_working for order in observation.orders)):
+    if (market and increases and fractional and informational_current_book
+            and reserve_market_buys is not None and reserved_market_buy_keys is not None and rec.clean):
+        keys = reserved_market_buy_keys(rec)
+        if keys:
+            rows = journal.load_commands(conn, deployment, plan_id=plan.plan_id, client_keys=tuple(keys))
+            if ({c.client_key for c in rows} != set(keys)
+                    or any(c.state is not CommandState.PLANNED or c.side is not Side.BUY
+                           or c.notional is None for c in rows)):
+                raise C.CommandRefused("previously reserved purchase identities changed")
+            reserved_by_security = {c.security_id: c for c in rows}
+            deferred.extend(d.security_id for d in increases if d.security_id not in reserved_by_security)
+            increases = [d for d in increases if d.security_id in reserved_by_security]
+    if (market and increases and not reserved_by_security and not exit_sweep
+            and (open_commands or any(order.is_working for order in observation.orders))):
         deferred.extend(delta.security_id for delta in increases)
         increases = []
         settle_note = "market BUY awaits complete account-wide order reconciliation"
@@ -941,7 +1054,7 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
         try:
             if increase_authority is not None:
                 await increase_authority(observation)
-            if increase_reconciliation_authority is not None:
+            if increase_reconciliation_authority is not None and not reserved_by_security:
                 funds = await increase_reconciliation_authority(rec)
                 if fractional and informational_current_book and isinstance(funds, fractional_progress.PostingFunds):
                     posting_funds = funds
@@ -1041,6 +1154,28 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                          detail=detail,
                          deferral_reasons=deferral_reasons,
                          restricted_securities=restrictions)
+
+
+def _owned_exit_sales(conn, deployment, plan_id, reconciliation, required_keys):
+    """Only fully accounted-for exit orders may remain beside the late BIL buy."""
+    rows = journal.load_commands(conn, deployment, plan_id=plan_id)
+    sales = {c.client_key: c for c in rows if c.side is Side.SELL}
+    if (not required_keys or not set(required_keys) <= sales.keys()
+            or any(c.state not in {CommandState.FILLED, CommandState.ACKNOWLEDGED,
+                                   CommandState.PARTIALLY_FILLED, CommandState.SUPERSEDED}
+                   for c in sales.values())
+            or not any(c.filled_quantity > 0 for c in sales.values())):
+        return False
+    working = {order.client_key: order for order in reconciliation.observation.orders if order.is_working}
+    active = {key: c for key, c in sales.items() if c.state in {
+        CommandState.ACKNOWLEDGED, CommandState.PARTIALLY_FILLED}}
+    if not active or active.keys() != working.keys():
+        return False
+    for key, command in active.items():
+        if not command.broker_order_id:
+            return False
+        recovery._assert_order_matches_command(command, working[key], where="defensive exit sale")
+    return True
 
 
 async def _settle_reductions(*, broker: ExecutionBroker, conn,
@@ -1272,6 +1407,47 @@ def _command_for_delta(*, conn, deployment: DeploymentIdentity, plan_id: str,
                    **({} if order_terms is None else {"order_terms": order_terms})), False
 
 
+MAX_PARALLEL_SUBMITS = 4
+
+
+async def _dispatch_independent(conn, broker, prepared, *, reserved):
+    """Start in plan order, reuse slots after receipt, drain before releasing the writer."""
+    results = [None] * len(prepared)
+    pending = {}
+    cursor = 0
+    stopped = False
+    failure = None
+    try:
+        while pending or (not stopped and cursor < len(prepared)):
+            while not stopped and cursor < len(prepared) and len(pending) < MAX_PARALLEL_SUBMITS:
+                command, already_planned, _, _ = prepared[cursor]
+                task = asyncio.create_task(_persist_and_send(
+                    conn, broker, command, already_planned=reserved or already_planned,
+                    report_scoped_buy_deferral=reserved))
+                pending[task] = cursor
+                cursor += 1
+            completed, _ = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+            for task in completed:
+                index = pending.pop(task)
+                try:
+                    result = task.result()
+                except _ProvenUnsentPurchaseDeferral as exc:
+                    results[index] = exc
+                except Exception as exc:
+                    failure = failure or exc
+                    stopped = True
+                else:
+                    results[index] = result
+                    if result.state is not CommandState.ACKNOWLEDGED:
+                        stopped = True
+    finally:
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+    if failure is not None:
+        raise failure
+    return results
+
+
 async def _persist_and_send(conn, broker, command: C.Command, *,
                             already_planned: bool = False,
                             report_scoped_buy_deferral: bool = False) -> C.Command:
@@ -1289,11 +1465,12 @@ async def _persist_and_send(conn, broker, command: C.Command, *,
     reconciliation to ask the broker what happened. That is the whole design,
     and it only works if the writes stay in this order.
     """
-    if not already_planned:
-        journal.save_command(conn, command)
-
-    pending = recovery.prepare_send(command)
-    journal.save_command(conn, pending, previous=command.state)
+    section = getattr(broker, "submission_lock", None) or nullcontext()
+    async with section:
+        if not already_planned:
+            journal.save_command(conn, command)
+        pending = recovery.prepare_send(command)
+        journal.save_command(conn, pending, previous=command.state)
 
     try:
         settled = await recovery.dispatch(broker, pending)
@@ -1304,7 +1481,8 @@ async def _persist_and_send(conn, broker, command: C.Command, *,
         if (type(broker) is GuardedExecutionBroker
                 and isinstance(exc, PreTransportAuthorityRefused)
                 and getattr(exc, '_not_transported', None) is not None):
-            journal.restore_proven_unsent(conn, pending, broker=broker, refusal=exc)
+            async with section:
+                journal.restore_proven_unsent(conn, pending, broker=broker, refusal=exc)
             if report_scoped_buy_deferral and isinstance(
                     exc, (InsufficientPurchaseCash, PurchaseInstrumentUnavailable)):
                 raise _ProvenUnsentPurchaseDeferral(str(exc)) from exc
@@ -1312,7 +1490,8 @@ async def _persist_and_send(conn, broker, command: C.Command, *,
                 from dataclasses import replace
                 return replace(command, detail=str(exc))
         raise
-    journal.save_command(conn, settled, previous=pending.state)
+    async with section:
+        journal.save_command(conn, settled, previous=pending.state)
 
     if settled.state is CommandState.UNKNOWN:
         log.warning("sentinel: %s is UNKNOWN after submit (%s). No overlapping "

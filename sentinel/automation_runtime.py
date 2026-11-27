@@ -1963,6 +1963,16 @@ class ProductionAutomation:
                         "RUNNING reconciliation"),
                     diagnostic=result_diagnostic)
             if in_flight:
+                if self._dual_run_enabled and deployment.broker == "alpaca":
+                    from sentinel.paper.market_reservations import recovery_route
+                    routed = recovery_route(conn, cycle=cycle, deployment=deployment, reconciliation=result,
+                        config=self.automation_config, now=_now_utc(), in_flight=in_flight,
+                        actionable_deltas=lambda plan: self._actionable_current_plan_deltas(
+                            conn, plan=plan, effective_session=cycle.effective_session,
+                            observation=result.observation, reconciliation=result,
+                            minimum_quantity_increment=broker.capabilities.minimum_quantity_increment))
+                    if routed is not None:
+                        return routed.model_copy(update={"diagnostic": {**result_diagnostic, **routed.diagnostic}})
                 from sentinel.execution.protected_funding import ProtectedCohortContinuation
                 cohort = getattr(result, "protected_cohort", None)
                 if (isinstance(cohort, ProtectedCohortContinuation)
