@@ -436,6 +436,8 @@ class GuardedExecutionBroker(ExecutionBroker):
         self._unsent_proofs = {}
         self._active_submit_keys = set()
         self._sizing_rules = {}
+        self._reserved_market_inputs = {}
+        self._reserved_account_book = None
         # Funding and the journal share the writer's database connection. Serialize
         # their use while allowing independently authorized HTTP requests to overlap.
         self.submission_lock = asyncio.Lock()
@@ -682,6 +684,90 @@ class GuardedExecutionBroker(ExecutionBroker):
             if isinstance(value, BaseException):
                 raise value
         return dict(zip(keys, values, strict=True))
+
+    async def _prefetch_reserved_market_inputs(self, commands):
+        """Group GETs only. Each member still needs its own current financial proof."""
+        from sentinel.execution import submission_group
+        if not (self.supports_sizing_asset_batch and 2 <= len(commands) <= 4
+                and isinstance(self._grant, (AutomationExecutionGrant, ManualExecutionGrant))
+                and getattr(self._grant, "operation_scope", "EXECUTE") == "EXECUTE"):
+            return
+        owned = submission_group.owner(commands[0].client_key)
+        if owned is None or any(submission_group.owner(c.client_key) is not owned
+                or c.side is not Side.BUY or c.notional is None for c in commands):
+            return
+        async def rules_for(command):
+            return await self._inner.asset_rules(instrument=command.instrument)
+
+        try:
+            clock = await self.market_clock()
+            if not clock.is_open:
+                return
+            rules = await self._read_groups(BrokerOperation.ASSET_RULES, commands, rules_for)
+        except Exception:
+            # No SEND_PENDING or POST is authorized by this optional prefetch.
+            # Each member still enters its usual guarded read and refusal path.
+            return
+        self._reserved_market_inputs = {
+            command.client_key: (owned, command.instrument, clock, rule)
+            for command, rule in zip(commands, rules, strict=True)
+            if type(rule) is BrokerAssetRules and rule.instrument == command.instrument}
+
+    def _take_market_inputs(self, key, instrument):
+        from sentinel.execution import submission_group
+        entry = self._reserved_market_inputs.pop(key, None)
+        if entry is None:
+            return None
+        owner, expected, clock, rules = entry
+        if owner is not submission_group.owner(key) or expected != instrument:
+            return None
+        now = self._inner._now()
+        if not (timedelta(0) <= now - clock.timestamp <= timedelta(seconds=30)
+                and now.date() == clock.timestamp.date() and now < clock.next_close):
+            return None
+        try:
+            rules.require_current(instrument, now)
+        except ValueError:
+            return None
+        return clock, rules
+
+    async def _current_reserved_account(self, key):
+        """Read both native endpoints in order and bind their results to this funding call."""
+        from sentinel.execution import submission_group
+        if not (self.supports_sizing_asset_batch and self.submission_lock.locked()
+                and key in self._active_submit_keys and submission_group.owner(key) is not None
+                and submission_group.known_unsent(key)):
+            raise OrderEvidenceNotReady("reserved funding requires the active unsent submission")
+        if isinstance(self._grant, ManualExecutionGrant):
+            expected_account = self._grant.confirm_paper_account
+        elif isinstance(self._grant, AutomationExecutionGrant) and self._grant.operation_scope == "EXECUTE":
+            expected_account = self._grant.broker_account_id
+        else:
+            raise BrokerAuthorityRefused("reserved funding requires PAPER execution authority")
+
+        async def read():
+            account = await self._inner.account_snapshot()
+            if not (isinstance(account, BrokerAccountSnapshot) and account.identity.broker == "alpaca"
+                    and account.identity.account_id == expected_account):
+                raise OrderEvidenceNotReady("reserved funding account differs from the authorized account")
+            return account, await self._inner.observe()
+
+        account, observation = await self._read(BrokerOperation.OBSERVE, read)
+        if (not isinstance(observation, BrokerObservation)
+                or observation.account_identity is None
+                or observation.account_identity.broker != account.identity.broker
+                or observation.account_identity.account_id != account.identity.account_id
+                or observation.account_identity.raw.get("id") != account.identity.raw.get("id")):
+            raise OrderEvidenceNotReady("reserved account and observation identify different accounts")
+        self._reserved_account_book = key, asyncio.current_task(), account, observation
+        return account
+
+    def _take_reserved_observation(self, key, account):
+        receipt = self._reserved_account_book
+        if receipt is None or receipt[0] != key or receipt[1] is not asyncio.current_task() or receipt[2] is not account:
+            return None
+        self._reserved_account_book = None
+        return receipt[3]
 
     async def market_clock(self):
         if not self.supports_market_clock:
@@ -964,9 +1050,10 @@ class GuardedExecutionBroker(ExecutionBroker):
         # race where account/instrument/authority I/O begins inside the opening
         # window but reaches POST after the certified next-open deadline.
         clock = None
+        prefetched = self._take_market_inputs(client_key, instrument) if funding_lock is not None else None
         if (side is Side.BUY or fractional) and self.supports_market_clock:
             try:
-                clock = await self.market_clock()
+                clock = prefetched[0] if prefetched else await self.market_clock()
             except BrokerAuthorityRefused as exc:
                 raise PreTransportAuthorityRefused(
                     f"broker clock authority unavailable before increase: {exc}") from exc
@@ -1015,8 +1102,10 @@ class GuardedExecutionBroker(ExecutionBroker):
                     f"durable={instrument}, current={current}")
 
         async def current_rules():
+            nonlocal prefetched
             try:
-                rules = await self.asset_rules(instrument=instrument)
+                rules = prefetched[1] if prefetched else await self.asset_rules(instrument=instrument)
+                prefetched = None
                 now = self._inner._now()
             except BrokerInstrumentUnavailable as exc:
                 if side is Side.BUY and exc.instrument == instrument:
@@ -1053,7 +1142,10 @@ class GuardedExecutionBroker(ExecutionBroker):
             from sentinel.execution.numeric import exact_decimal
             from fractions import Fraction
             try:
-                account = await self.account_snapshot()
+                if funding_lock is not None and self.supports_sizing_asset_batch and submission_group.known_unsent(client_key):
+                    account = await self._current_reserved_account(client_key)
+                else:
+                    account = await self.account_snapshot()
                 estimate = exact_decimal(Fraction(notional) + Fraction(MARKET_BUY_HEADROOM))
                 spendable = available_purchase_cash(account)
                 if (account.status.upper() != "ACTIVE" or account.trading_blocked
@@ -1069,6 +1161,8 @@ class GuardedExecutionBroker(ExecutionBroker):
             except Exception as exc:
                 raise PreTransportAuthorityRefused(
                     f"notional funding unavailable before transport: {type(exc).__name__}: {exc}") from exc
+            finally:
+                self._reserved_account_book = None
         elif protected and not self._live:
             try:
                 account = await self.account_snapshot()

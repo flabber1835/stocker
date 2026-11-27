@@ -365,9 +365,13 @@ async def prove(conn, *, basis, plan, projection, deployment, broker, account, a
         raise PaperActivationRefused("only an exact unsent reserved purchase may use this authority")
     funds = PostingFunds.from_dict(basis["funds"])
     known = {key: c for key, c in commands.items() if key != candidate_key and c.state is not S.PLANNED}
-    observation = settled_observation
-    if known or observation is None or basis["sales"]:
-        observation = await broker.observe()
+    from sentinel.execution.guarded import GuardedExecutionBroker
+    observation = (broker._take_reserved_observation(candidate_key, account)
+                   if type(broker) is GuardedExecutionBroker else None)
+    if observation is None:
+        observation = settled_observation
+        if known or observation is None or basis["sales"]:
+            observation = await broker.observe()
     if not observation.is_complete or not deployment.matches_account(observation.account_identity):
         from sentinel.execution.contract import Completeness
         if (deployment.matches_account(observation.account_identity)

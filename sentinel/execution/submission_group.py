@@ -30,6 +30,11 @@ def member(key):
     return group is not None and key in group.keys
 
 
+def owner(key):
+    group = _CURRENT.get()
+    return group if group is not None and key in group.keys and not group.stopped else None
+
+
 def checkpointed(key):
     group = _CURRENT.get()
     if group is not None and key in group.keys:

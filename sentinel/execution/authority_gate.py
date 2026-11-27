@@ -320,8 +320,7 @@ def _authority_operation(
 
 def _result_accounts(result: object) -> tuple[BrokerAccountIdentity, ...]:
     if isinstance(result, tuple):
-        return tuple(identity for lookup in result if isinstance(lookup, BrokerExactOrderLookup)
-                     for identity in (lookup.identity_before, lookup.identity_after))
+        return tuple(identity for item in result for identity in _result_accounts(item))
     if isinstance(result, BrokerAccountIdentity):
         return (result,)
     if isinstance(result, BrokerAccountSnapshot):

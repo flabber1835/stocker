@@ -1436,6 +1436,12 @@ async def _dispatch_group(conn, broker, prepared, reserved):
         while pending or (not stopped and cursor < len(prepared)):
             stopped = stopped or submission_group.stopped(group_key)
             while not stopped and cursor < len(prepared) and len(pending) < MAX_PARALLEL_SUBMITS:
+                if reserved and type(broker) is GuardedExecutionBroker and cursor % MAX_PARALLEL_SUBMITS == 0:
+                    await broker._prefetch_reserved_market_inputs(
+                        tuple(item[0] for item in prepared[cursor:cursor + MAX_PARALLEL_SUBMITS]))
+                    if submission_group.stopped(group_key):
+                        stopped = True
+                        break
                 command, already_planned, _, _ = prepared[cursor]
                 task = asyncio.create_task(send(command, already_planned))
                 pending[task] = cursor
