@@ -204,6 +204,13 @@ def command(state=CommandState.PLANNED) -> Command:
         state=state)
 
 
+_READ_COMPOSITIONS = {
+    'find_reserved_orders': BrokerOperation.FIND_BY_CLIENT_KEY,
+    'resolve_sizing_instruments': BrokerOperation.RESOLVE_INSTRUMENT,
+    'sizing_asset_rules': BrokerOperation.ASSET_RULES,
+}
+
+
 def test_protocol_introspection_forces_every_broker_method_through_guard():
     """Adding any protocol coroutine without a wrapper/operation breaks CI."""
     from sentinel.execution import authority_gate
@@ -217,9 +224,44 @@ def test_protocol_introspection_forces_every_broker_method_through_guard():
     }
     operation_names = {operation.value for operation in BrokerOperation}
 
-    assert protocol_methods == guarded_methods == operation_names
+    assert protocol_methods == operation_names
+    assert guarded_methods == protocol_methods | _READ_COMPOSITIONS.keys()
+    assert _READ_COMPOSITIONS.keys().isdisjoint(protocol_methods)
     assert authority_gate._READ_OPERATIONS == set(BrokerOperation) - {
         BrokerOperation.SUBMIT, BrokerOperation.CANCEL}
+
+
+@pytest.mark.parametrize('method,operation', _READ_COMPOSITIONS.items())
+@pytest.mark.parametrize('revocation', ['before', 'after'])
+def test_composed_reads_obey_the_original_operation_at_both_boundaries(monkeypatch, method, operation, revocation):
+    from sentinel.execution.alpaca_asset_id import AssetIdAlpacaExecutionBroker
+    from tests.sentinel.test_limit_day_transport import broker_for
+
+    inner, _ = broker_for(AssetIdAlpacaExecutionBroker)
+    events = []
+    async def before(_grant, checked):
+        assert checked is operation
+        events.append('before')
+        if revocation == 'before':
+            raise BrokerAuthorityRefused('withdrawn before read')
+    async def after(_grant, checked, _value):
+        assert checked is operation
+        events.append('after')
+        raise BrokerAuthorityRefused('withdrawn after read')
+    async def native(*_args, **_kwargs):
+        events.append('native')
+        return INSTRUMENT, None
+    native_name, argument = {
+        'find_reserved_orders': ('find_by_client_key', ['original-client-key']),
+        'resolve_sizing_instruments': ('resolve_instrument_and_rules', {'SEC-AAA': 'AAA'}),
+        'sizing_asset_rules': ('asset_rules', INSTRUMENT),
+    }[method]
+    monkeypatch.setattr(inner, native_name, native)
+    guard = ExecutionBrokerGuard(before, after, lambda *_a: pytest.fail('read attempted mutation'))
+    broker = GuardedExecutionBroker(inner=inner, grant=manual_grant(), guard=guard)
+    with pytest.raises(BrokerAuthorityRefused, match=f'withdrawn {revocation}'):
+        run(getattr(broker, method)(argument))
+    assert events == (['before'] if revocation == 'before' else ['before', 'native', 'after'])
 
 
 def test_owned_order_fill_support_requires_a_concrete_adapter():
