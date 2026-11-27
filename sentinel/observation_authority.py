@@ -102,27 +102,44 @@ def accepted_boundary_sha256(
 
 
 def current_metadata_snapshot_identity(conn) -> Mapping:
-    with readers.pinned(conn, commit=False) as pub:
-        if readers.is_rolling(pub):
-            return _rolling_metadata_snapshot_identity(conn, pub)
-        return _legacy_metadata_snapshot_identity(conn)
+    before = _metadata_read_snapshot(conn)
+    with readers.pinned_binding(conn, commit=False) as (pub, bound):
+        if bound is None:
+            return _legacy_metadata_snapshot_identity(conn)
+        if before is not None:
+            result = _rolling_metadata_snapshot_identity(conn, pub, pinned=bound)
+            if before == _metadata_read_snapshot(conn):
+                return result
+        return _rolling_metadata_snapshot_identity(conn, pub)
 
 
-def _rolling_metadata_snapshot_identity(conn, pub) -> Mapping:
+def _metadata_read_snapshot(conn):
+    from psycopg import Connection
+    from sentinel.feed import broker_read_material
+
+    if not isinstance(conn, Connection):
+        return None
+    snapshot = broker_read_material._snapshot(conn)
+    if snapshot is not None and snapshot[0] is not None and len(snapshot[-1]) == len(broker_read_material._sources):
+        return snapshot
+    return None
+
+
+def _rolling_metadata_snapshot_identity(conn, pub, *, pinned=None) -> Mapping:
     from sentinel.core.rolling_inputs import SnapshotReferences
     from sentinel.feed import operational_snapshot, rolling_store, calendar
 
     slot = _metadata_slot.get()
-    if slot is None:
+    if slot is None and pinned is None:
         binding = operational_snapshot._bound(conn, pub)
         refs = SnapshotReferences(conn, candidate_id=binding['candidate_id'],
                                   snapshot_id=binding['snapshot_id'])
         return _reference_metadata_identity(conn, refs)
 
-    binding, manifest = operational_snapshot._bound_and_manifest(conn, pub)
+    binding, manifest = pinned if pinned is not None else operational_snapshot._bound_and_manifest(conn, pub)
     key = None
     candidate = binding['candidate_id']
-    if manifest.provider == 'ALPACA_OPENFIGI' and not rolling_store.retired(conn, candidate):
+    if slot is not None and manifest.provider == 'ALPACA_OPENFIGI' and not rolling_store.retired(conn, candidate):
         # The pinned binding just authenticated both content-addressed input
         # blobs. The additional comparison proof is consumed by SnapshotReferences.
         row = _comparison_validation_token(conn, candidate)
