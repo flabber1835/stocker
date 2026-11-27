@@ -88,10 +88,15 @@ def opening_refresh_deadline(panel):
     state = cycle.operational_fact.state
     plan_row = panel.row('paper_plan')
     plan = plan_row.paper_plan if plan_row is not None else None
-    if (state == 'WAITING_OPEN' and plan is not None and plan_row.status == model.OK
-            and any(stamp is not None and generated < stamp <= panel.now
-                    for stamp in (plan.execution_open_at, plan.execute_at))):
-        return boundary
+    if state == 'WAITING_OPEN' and plan is not None and plan_row.status == model.OK:
+        bell = plan.execution_open_at
+        schedule = cycle.operational_fact.schedule
+        if schedule is not None:
+            if schedule.execution_start != plan.execute_at or bell not in (None, schedule.market_open):
+                return None
+            bell = schedule.market_open
+        if any(stamp is not None and generated < stamp <= panel.now for stamp in (bell, plan.execute_at)):
+            return boundary
     trading = panel.row('trading_run')
     run = trading.trading_run if trading is not None else None
     broker = panel.row('broker')

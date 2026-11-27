@@ -1325,7 +1325,7 @@ def _opening_reporting_deadline(panel):
         return None
     refresh = None
     if not panel.observation_current:
-        if state == 'WAITING_OPEN' or set(panel.observation_changed_scopes) != {'PAPER'}:
+        if state != 'WAITING_OPEN' and set(panel.observation_changed_scopes) != {'PAPER'}:
             return None
         refresh = opening_refresh_deadline(panel)
         if refresh is None:
@@ -1338,6 +1338,21 @@ def _opening_reporting_deadline(panel):
                 or schedule.execution_start != saved.paper_plan.execute_at):
             return None
         plan, deadline = saved.paper_plan, saved.paper_plan.execute_at
+        if not panel.observation_current:
+            review = panel.operator_review
+            trading = panel.row('trading_run')
+            run = trading.trading_run if trading is not None else None
+            environment = panel.row('trading_environment')
+            if (not panel.observation_retained
+                    or environment is not None and (
+                        environment.status != 'ok' or environment.value != 'PAPER · simulation')
+                    or review is None or review.status != 'REVIEW' or review.active
+                    or any(r.key not in review.warnings for r in panel.rows if r.operational_fact
+                           and r.operational_fact.state == 'NOT_REPORTED')
+                    or run is None or run.state != state or run.orders or not trading.can_show_trading_run(panel.now)
+                    or (run.intent.cycle_id, run.intent.plan_id, run.intent.effective_session, run.intent.execute_at)
+                        != (plan.cycle_id, plan.plan_id, plan.effective_session, plan.execute_at)):
+                return None
     else:
         saved, broker = panel.row('trading_run'), panel.row('broker')
         if saved is None or not saved.can_show_trading_run(panel.now) or broker is None:
@@ -1661,6 +1676,7 @@ def dashboard_health(panel) -> dict:
         from sentinel.panel.delivery import closing_refresh_deadline, opening_refresh_deadline
         opening = opening_refresh_deadline(panel)
         if opening is not None:
+            opening = min(opening, boundary) if boundary is not None else opening
             return _with_trading_continuity(panel, dict(status='pending', color='blue', label='Checking opening status · last verified values dated',
                         valid_until=opening.isoformat(), plan_readiness='unavailable',
                         active_conditions=facts['active'], review_conditions=facts['warnings'],

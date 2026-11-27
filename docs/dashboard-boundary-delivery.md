@@ -79,3 +79,21 @@ document stays partial throughout. A document with no current regions, or
 with a refresh already pending, follows the ordinary cadence. Hidden tabs
 defer foreground refreshes until visible. Each region keeps its original
 evidence deadline even when the next response is also partial.
+
+## November 27 opening bell
+
+A five-second partial response at the bell showed a trading stop solely because
+the independent strategy supervisor had never reported. The signed dashboard
+on both sides already recorded this absence as a warning. A missing report
+contributes no evidence of a new stop when the financial display crosses that
+clock boundary.
+
+While a saved PAPER plan is waiting for its original dispatch time, the human
+display may retain that warning only for the same independent reports already
+listed in its authenticated operator review. The saved plan, waiting run,
+cycle schedule, enabled policy, leader, account and strategy evidence must
+still match and meet their original deadlines. A changed review head withdraws
+that review. The lease and original display window bound this interpretation.
+A partial page reports that current status is being checked. The current health
+endpoint and acknowledgement keep their strict gates. A reported stop,
+unreadable worker evidence, or a new financial failure retains its own verdict.
