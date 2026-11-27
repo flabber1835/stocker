@@ -150,6 +150,83 @@ def _deploy_for_wait(tmp_path):
     return obj
 
 
+def test_readiness_probe_requires_complete_retained_runtime_identity(tmp_path, monkeypatch):
+    """The real readiness entry must pass the identity its signed child checks."""
+    from sentinel import local_paper
+    from sentinel.authority.model import AuthorityRefused
+
+    obj = _deploy_for_wait(tmp_path)
+    image = 'sha256:' + 'b' * 64
+    obj.runtime_digest = image
+    obj.test_digest = image
+    monkeypatch.setenv('SENTINEL_GIT_COMMIT', obj.commit)
+    monkeypatch.setenv('SENTINEL_RUNTIME_IMAGE_DIGEST', image)
+    monkeypatch.setenv('SENTINEL_IMAGE_SOURCE_REVISION', obj.commit)
+    calls = []
+
+    def signed_reader(command, **_kwargs):
+        calls.append(list(command))
+        forwarded = [command[index + 1] for index, item in enumerate(command[:-1])
+                     if item == '--env']
+        values = dict(item.split('=', 1) for item in forwarded)
+        local_paper.validate_runtime_identity({'deployment_artifacts': {
+            'schema': 'sentinel.runtime-artifacts/1',
+            'git_commit': values.get('SENTINEL_GIT_COMMIT'),
+            'runtime_image_digest': values.get('SENTINEL_RUNTIME_IMAGE_DIGEST'),
+            'test_image_digest': values.get('SENTINEL_TEST_IMAGE_DIGEST'),
+        }})
+        assert forwarded.count('SENTINEL_TEST_IMAGE_DIGEST=' + image) == 1
+        return SimpleNamespace(returncode=0, stderr='', stdout=json.dumps({
+            'ready': True, 'rolling': True,
+            'checks': [{'name': 'rolling source', 'status': 'PASS'}],
+            'failures': [],
+        }))
+
+    obj.runner.run = signed_reader
+    assert obj._readiness_verdict()['ready'] is True
+    assert len(calls) == 1
+
+    # Falsify the specific missing-field failure seen in the installed release.
+    complete_args = obj._retained_reader_args
+
+    def without_test_image():
+        args = complete_args()
+        index = args.index('SENTINEL_TEST_IMAGE_DIGEST=' + image)
+        return args[:index - 1] + args[index + 1:]
+    monkeypatch.setattr(obj, '_retained_reader_args', without_test_image)
+    with pytest.raises(AuthorityRefused, match='test image digest'):
+        obj._readiness_verdict()
+    assert len(calls) == 2
+
+
+def test_retained_data_and_plan_readers_share_one_test_image(tmp_path):
+    obj = _deploy_for_wait(tmp_path)
+    image = 'sha256:' + 'b' * 64
+    obj.runtime_digest = image
+    obj.test_digest = image
+    obj.reviewed_validation = None
+    calls = []
+    obj.runner.run = lambda command, **_kwargs: (calls.append(list(command)) or
+        SimpleNamespace(returncode=0, stderr='', stdout='{}'))
+
+    obj._base_cli(['check-data'])
+    obj._base_cli(['current-paper-plan'])
+    assert len(calls) == 2
+    for command in calls:
+        assert command.count('SENTINEL_TEST_IMAGE_DIGEST=' + image) == 1
+
+
+@pytest.mark.parametrize('test_image', [None, 'sha256:bad'])
+def test_retained_readers_refuse_missing_test_image_before_child(tmp_path, test_image):
+    obj = _deploy_for_wait(tmp_path)
+    obj.runtime_digest = 'sha256:' + 'b' * 64
+    obj.test_digest = test_image
+    obj.runner.run = lambda *_a, **_k: pytest.fail('unbound child was launched')
+
+    with pytest.raises(core.DeployRefused, match='selected commit'):
+        obj._readiness_verdict()
+
+
 def _freshness_failure(detail="missing latest closed session",
                        missing=None):
     missing = list(missing or ["2026-08-17"])

@@ -382,6 +382,7 @@ def test_generated_installer_programs_refuse_legacy_provider_then_read_rolling(
     # actual installer; this focused fixture must model that boundary too.
     task.commit = "f" * 40
     task.runtime_digest = "sha256:" + "e" * 64
+    task.test_digest = task.runtime_digest
     task.env = {}
     with pytest.raises(operational_snapshot.OperationalSnapshotRefused,
                        match="ALPACA_OPENFIGI_SOURCE_REQUIRED"):
