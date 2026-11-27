@@ -17,6 +17,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timezone
 from decimal import Decimal, InvalidOperation
+from enum import Enum
 from typing import Optional, Sequence
 from urllib.parse import quote
 
@@ -2755,11 +2756,21 @@ def _base_restore_increase_fence_reason(conn, deployment, today: date) -> str:
             "executable even if Alpaca open-order enumeration omitted one")
     return ""
 
-def upgrade_restore_reason(conn) -> str:
+class UpgradeRestoreFence(Enum):
+    MISSING_ACCOUNT_BINDING = "restore-grade recovery has no durable account binding"
+    PURCHASES_REQUIRE_DATABASE_ANCHOR = (
+        "backup-capable behavioral database predates the physical "
+        "incarnation anchor. One explicit adopt-restored-account "
+        "takeover is required before exposure increases; this prevents "
+        "an already-restored database from silently self-certifying")
+
+
+def upgrade_restore_fence(conn) -> UpgradeRestoreFence | None:
+    """Observe the operator repair prerequisite without initializing an anchor."""
     from sentinel import local_paper
     from sentinel.backup_runtime_authority import _live_origin_selected
     if not _live_origin_selected() and local_paper.backups_suspended_for_account(conn):
-        return ""
+        return None
     with conn.cursor() as cur:
         cur.execute(
             "SELECT state FROM sentinel_processed_sessions"
@@ -2770,22 +2781,23 @@ def upgrade_restore_reason(conn) -> str:
         cur.execute(
             "SELECT takeover_epoch FROM sentinel_account_binding WHERE id=1")
         bound = cur.fetchone()
+        if bound is None:
+            return UpgradeRestoreFence.MISSING_ACCOUNT_BINDING
+        if anchor is not None or int(bound[0]) > 1:
+            return None
         cur.execute(
             "SELECT to_regclass('public.sentinel_backup_recovery_markers')")
         marker_relation = cur.fetchone()[0]
-        marker_count = 0
         if marker_relation is not None:
-            cur.execute("SELECT COUNT(*) FROM sentinel_backup_recovery_markers")
-            marker_count = int(cur.fetchone()[0])
-    if bound is None:
-        return "restore-grade recovery has no durable account binding"
-    if anchor is None and marker_count > 0 and int(bound[0]) <= 1:
-        return (
-            "backup-capable behavioral database predates the physical "
-            "incarnation anchor. One explicit adopt-restored-account "
-            "takeover is required before exposure increases; this prevents "
-            "an already-restored database from silently self-certifying")
-    return ""
+            cur.execute("SELECT EXISTS(SELECT 1 FROM sentinel_backup_recovery_markers)")
+            if cur.fetchone()[0]:
+                return UpgradeRestoreFence.PURCHASES_REQUIRE_DATABASE_ANCHOR
+    return None
+
+
+def upgrade_restore_reason(conn) -> str:
+    fence = upgrade_restore_fence(conn)
+    return fence.value if fence is not None else ""
 
 def postmaster_day_order_fence_reason(
         conn, today, *, recovery_generation=None) -> str:

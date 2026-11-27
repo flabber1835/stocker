@@ -64,6 +64,42 @@ def test_explicit_initial_recovery_retains_binding_keys_and_zero_transport(conn,
     conn.rollback()
 
 
+def test_new_plan_can_dispatch_after_explicit_repair_of_an_untraded_account(conn, appliance):
+    from sentinel.execution import executor
+    from sentinel.execution.plan import ExecutionPlan
+
+    deployment = binding.require(conn).identity
+    broker = appliance[1]
+    asset = BrokerInstrument("s", "AAA", "asset")
+    before = date(2026, 8, 13)
+    after = date(2026, 8, 14)
+
+    def run(session, plan_id):
+        plan = ExecutionPlan(
+            plan_id=plan_id, decision_session=session - timedelta(days=1),
+            effective_session=session, target_exposure=Decimal(1),
+            target_basket={"s": Decimal(1)}, data_version=1,
+            deployment_id=deployment.deployment_id, broker=deployment.broker,
+            broker_account_id=deployment.broker_account_id, takeover_epoch=deployment.takeover_epoch,
+            account_nav=broker.equity, account_cash=broker.cash)
+        executor.adopt_plan(conn, plan)
+        return asyncio.run(executor.execute_session(
+            broker=broker, conn=conn, deployment=deployment, plan=plan,
+            instruments={"s": asset}, today=session))
+
+    blocked = run(before, "unanchored")
+    assert blocked.deferred == ("s",) and not blocked.submitted
+    assert alpaca.upgrade_restore_fence(conn) is alpaca.UpgradeRestoreFence.PURCHASES_REQUIRE_DATABASE_ANCHOR
+    assert not anchor_rows(conn)
+    invoke(conn, appliance)
+    assert alpaca.upgrade_restore_fence(conn) is None
+    resumed = run(after, "next-plan")
+    assert len(resumed.submitted) == 1
+    assert resumed.submitted[0].state is CommandState.ACKNOWLEDGED
+    assert resumed.submitted[0].identity.plan_id == "next-plan"
+    assert sum(call.startswith("submit:") for call in broker.calls) == 1
+
+
 def test_lost_acknowledgement_resumes_exact_authenticated_anchor_without_new_reads(conn, appliance):
     original = invoke(conn, appliance)
     calls = list(appliance[1].calls)

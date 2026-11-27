@@ -531,6 +531,31 @@ def _actionable_delta_evidence(delta: execution_commands.Delta) -> dict:
             "remaining_notional": str(delta.notional) if delta.notional is not None else None}
 
 
+def _remaining_purchase_fence(conn, plan, reconciliation, actionable):
+    """Identify a plan-specific operator wait only after proving purchase-only work."""
+    from sentinel.execution import alpaca, fractional_progress, protected_limits
+    if (plan.broker not in {"alpaca", "alpaca-live"} or not actionable
+            or not reconciliation.clean or not all(delta.is_increase for delta in actionable)):
+        return None
+    observation = reconciliation.observation
+    deployment = DeploymentIdentity(plan.deployment_id, plan.broker, plan.broker_account_id, plan.takeover_epoch)
+    if (not deployment.matches_account(observation.account_identity)
+            or not timedelta(0) <= _now_utc() - observation.observed_at <= timedelta(seconds=60)
+            or any(order.is_working for order in observation.orders)):
+        return None
+    fence = alpaca.upgrade_restore_fence(conn)
+    if fence is not alpaca.UpgradeRestoreFence.PURCHASES_REQUIRE_DATABASE_ANCHOR:
+        return None
+    # Some projections intentionally omit a target whose share conversion is
+    # pending. Do not retire a cycle while that target could still become a sale.
+    projection = target_reprojection.load_projection(conn, plan_id=plan.plan_id)
+    if (projection is None or projection.pending_share_targets
+            or fractional_progress.share_restrictions(projection)
+            or protected_limits.unavailable_opening_intents(projection)):
+        return None
+    return fence
+
+
 def _all_target_deltas(
         target_basket, observation, *, minimum_quantity_increment) -> tuple:
     security_ids = set(target_basket)
@@ -2132,9 +2157,8 @@ class ProductionAutomation:
                             states=(CommandState.CANCELLED,
                                     CommandState.REJECTED))
                         from sentinel.execution.fractional_progress import is_fractional
-                        fractional_projection = is_fractional(target_reprojection.load_projection(
-                            conn, plan_id=cycle.plan_id))
-                        if terminal_refusals and fractional_projection:
+                        if terminal_refusals and is_fractional(target_reprojection.load_projection(
+                                conn, plan_id=cycle.plan_id)):
                             pending_reductions = {delta.security_id for delta in actionable
                                                   if delta.side is Side.SELL}
                             terminal_refusals = tuple(c for c in terminal_refusals
@@ -2186,6 +2210,13 @@ class ProductionAutomation:
                                     "delta after the execution close; the plan "
                                     "will never be late-submitted"),
                                 diagnostic=result_diagnostic)
+                        fence = _remaining_purchase_fence(conn, plan, result, actionable)
+                        if fence is not None:
+                            return ExecuteResult(
+                                disposition=ExecuteDisposition.SUPERSEDED, **evidence,
+                                failure_code=fence.name, failure_detail=fence.value,
+                                diagnostic={**result_diagnostic, "unsent_actionable_deltas": [
+                                    _actionable_delta_evidence(delta) for delta in actionable]})
                         return ExecuteResult(
                             disposition=ExecuteDisposition.READY_TO_EXECUTE,
                             **evidence,
@@ -2368,6 +2399,7 @@ class ProductionAutomation:
                     CommandState.REJECTED, CommandState.CANCELLED})
             actionable = ()
             posting_deadline = None
+            purchase_fence = None
             completion_proof_ms = None
             # An executor result carries the last reconciliation it needed to
             # authorize transport; for a pure BUY that observation predates
@@ -2462,6 +2494,11 @@ class ProductionAutomation:
                                    cycle.execute_at + timedelta(seconds=self.automation_config.maximum_execution_lateness_seconds))
                     if cycle.execute_at <= _now_utc() < deadline:
                         posting_deadline = deadline.isoformat()
+                if (reconciliation_id is not None and result.session.deferred
+                        and not result.session.deferral_reasons and not posting_wait
+                        and not result.session.settlement_deferred):
+                    purchase_fence = _remaining_purchase_fence(
+                        conn, result.plan, final_reconciliation, actionable)
             return ExecuteResult(
                 disposition=disposition,
                 last_clean_reconciliation_id=reconciliation_id,
@@ -2472,11 +2509,13 @@ class ProductionAutomation:
                               else "COMMANDS_IN_FLIGHT"
                               if in_flight else "CASH_POSTING_WAIT"
                               if posting_deadline else "CORPORATE_ACTION_PENDING"
-                              if result.session.restricted_securities else "ACTIONABLE_DELTA_REMAINS"
+                              if result.session.restricted_securities else purchase_fence.name
+                              if purchase_fence is not None else "ACTIONABLE_DELTA_REMAINS"
                               if actionable else "MISSING_RECONCILIATION_ID"
                               if reconciliation_id is None
                               else "EXECUTION_INCOMPLETE"),
                 failure_detail=(None if disposition is ExecuteDisposition.SUCCEEDED
+                                else purchase_fence.value if purchase_fence is not None
                                 else result.session.detail
                                 or "paper execution requires re-observation"),
                 diagnostic={**result.to_dict(),
