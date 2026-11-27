@@ -12,12 +12,16 @@ from sentinel.execution.guarded import BrokerAuthorityRefused, OrderEvidenceNotR
 from sentinel.execution.fractional_progress import PostingFunds
 from sentinel.execution.market_buy_policy import MARKET_BUY_HEADROOM
 from sentinel.execution.numeric import decimal_text, exact_decimal
-from sentinel.execution.protected_funding import _activity_identity, _require_writer
+from sentinel.execution.protected_funding import _activity_identity, _assert_available_account, _require_writer
 from sentinel.execution.states import CommandState as S, IN_FLIGHT
 from .model import PaperActivationRefused
 
 
 WORKING = {S.ACKNOWLEDGED, S.PARTIALLY_FILLED}
+
+
+class ReservationBookChanged(OrderEvidenceNotReady):
+    """Cash, holdings and order endpoints may have straddled an owned fill."""
 
 
 def member(command):
@@ -264,12 +268,34 @@ def _native_cash(orders, fills, commands, observation):
                 filled_quantity=order.filled_quantity, filled_average_price=order.filled_average_price)
             result[order.client_key] = fill_integrity.fill_economics(command, rows).cash
         return result
+    except fill_integrity.FillHistoryIncomplete as exc:
+        raise ReservationBookChanged(f"reserved purchase lacks confirmed native fill cash: {exc}") from exc
     except (ValueError, ArithmeticError) as exc:
         raise OrderEvidenceNotReady(f"reserved purchase lacks confirmed native fill cash: {exc}") from exc
 
 
+async def current_book(conn, *, binding, expected_account, clock, account, broker, sweep_due,
+                       settled_observation, **reservation):
+    """Re-sample a moving native book once, under the same reservation and writer."""
+    from .cash import _broker_cash_state_or_refuse
+
+    for attempt in range(2):
+        _assert_available_account(account, binding.identity, require_equity=True)
+        if expected_account and account.identity.account_id != expected_account:
+            raise PaperActivationRefused("reserved purchase changed its expected account")
+        activity = await _broker_cash_state_or_refuse(conn, broker=broker, binding=binding, through=clock())
+        try:
+            return await prove(conn, deployment=binding.identity, broker=broker, account=account, activity=activity,
+                               settled_observation=settled_observation, sweep_due=sweep_due(), **reservation)
+        except ReservationBookChanged:
+            if attempt:
+                raise
+            settled_observation = None
+            account = await broker.account_snapshot()
+
+
 async def prove(conn, *, basis, plan, projection, deployment, broker, account, activity, candidate_key,
-                settled_observation=None, sweep_due=False):
+                settled_observation=None, sweep_due=False, terminal_receipts=None):
     """A reservation fixes a maximum. Current native facts must still explain it."""
     _require_writer(conn)
     commands = _commands(conn, basis=basis, plan=plan, projection=projection, deployment=deployment)
@@ -284,6 +310,10 @@ async def prove(conn, *, basis, plan, projection, deployment, broker, account, a
     if known or observation is None or basis["sales"]:
         observation = await broker.observe()
     if not observation.is_complete or not deployment.matches_account(observation.account_identity):
+        from sentinel.execution.contract import Completeness
+        if (deployment.matches_account(observation.account_identity)
+                and observation.completeness is Completeness.INCONSISTENT):
+            raise ReservationBookChanged("reserved purchase lacks a consistent native account book")
         raise OrderEvidenceNotReady("reserved purchase lacks a complete native account book")
     expected_positions = {k: Fraction(v) for k, v in basis["positions"].items()}
     orders = {}
@@ -296,14 +326,32 @@ async def prove(conn, *, basis, plan, projection, deployment, broker, account, a
             orders[order.client_key] = order
         elif order.is_working:
             raise OrderEvidenceNotReady("an unrelated working order prevents reserved purchases")
+    for key, order in (terminal_receipts or {}).items():
+        if key not in known:
+            continue
+        if (not _matches(known[key], order) or order.state is not S.FILLED
+                or key in orders and orders[key] != order):
+            raise OrderEvidenceNotReady("previously filled reserved order changed")
+        orders[key] = order
+    from sentinel.execution import submission_group
+    unsent = {key for key, c in known.items() if c.state is S.SEND_PENDING and c.broker_order_id is None
+              and submission_group.known_unsent(key)}
+    missing = [key for key in known if key not in orders and key not in unsent]
+    if missing and callable(getattr(broker, "find_reserved_orders", None)):
+        lookups = await broker.find_reserved_orders(missing)
+    else:
+        lookups = {key: await broker.find_by_client_key(key) for key in missing}
     for key, command in known.items():
         if key not in orders:
-            if command.state is S.SEND_PENDING and command.broker_order_id is None:
-                # This same writer may have a POST outstanding. Its FULL cash remains reserved.
+            if key in unsent:
                 continue
-            lookup = await broker.find_by_client_key(key)
+            lookup = lookups[key]
             if lookup.client_key != key or not deployment.matches_account(lookup.stable_identity):
                 raise OrderEvidenceNotReady("reserved purchase lookup changed account or command")
+            if lookup.order is None and command.state is S.SEND_PENDING and command.broker_order_id is None:
+                if submission_group.member(key):
+                    # The active writer owns this outstanding request. Its full amount remains charged.
+                    continue
             if (lookup.order is None and command.state is S.REJECTED and command.broker_order_id is None
                     and command.filled_quantity == 0):
                 # The journal already holds a definitive pre-acceptance rejection. Its
@@ -326,7 +374,7 @@ async def prove(conn, *, basis, plan, projection, deployment, broker, account, a
             change = Fraction(order.filled_quantity)
         expected_positions[asset] = expected_positions.get(asset, Fraction(0)) + change
     if {k: v for k, v in expected_positions.items() if v} != _positions(observation):
-        raise OrderEvidenceNotReady("native holdings do not match the reserved purchases and ownership baseline")
+        raise ReservationBookChanged("native holdings do not match the reserved purchases and ownership baseline")
     filled = [o for o in orders.values() if o.filled_quantity]
     debits = {}
     if filled:
@@ -337,18 +385,20 @@ async def prove(conn, *, basis, plan, projection, deployment, broker, account, a
         debits = _native_cash(filled, fills, commands, observation)
     baseline_sale_cash = sum((Fraction(sale["cash"]) for sale in basis["sales"].values()), Fraction(0))
     if Fraction(account.cash) != Fraction(funds.account_cash) + sum(debits.values(), Fraction(0)) - baseline_sale_cash:
-        raise OrderEvidenceNotReady("fresh cash does not match the reserved account and posted purchases")
+        raise ReservationBookChanged("fresh cash does not match the reserved account and posted purchases")
     # The bank may already have withheld part of a known working order. Reserve every
     # unfilled dollar locally regardless; never add such holds back to buying power.
     holds = sum((Fraction(o.notional) + debits.get(k, 0) for k, o in orders.items() if o.is_working and o.side is Side.BUY),
                 Fraction(0))
     gap = Fraction(account.cash) - Fraction(account.buying_power)
     if abs(gap) > 1 and abs(gap - holds) > 1:
-        raise OrderEvidenceNotReady("unexplained native buying-power hold on reserved account")
+        raise ReservationBookChanged("unexplained native buying-power hold on reserved account")
     outstanding = sum((Fraction(c.notional) + Fraction(MARKET_BUY_HEADROOM) + debits.get(k, 0)
                        for k, c in commands.items() if k in basis["members"]), Fraction(0))
     estimate = Fraction(candidate.notional) + Fraction(MARKET_BUY_HEADROOM)
     if (outstanding > Fraction(account.cash) - Fraction(funds.reserved_debit)
             or estimate > Fraction(account.buying_power)):
         raise OrderEvidenceNotReady("reserved purchases exceed current spendable cash or buying power")
+    if terminal_receipts is not None:
+        terminal_receipts.update((k, order) for k, order in orders.items() if order.state is S.FILLED)
     return observation

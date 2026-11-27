@@ -222,6 +222,72 @@ def test_terminal_native_fill_can_fund_sibling_without_recycling_cash(database, 
             asyncio.run(funding.prove(database, **params, account=account))
 
 
+@pytest.mark.parametrize("previous", [S.SEND_PENDING, S.ACKNOWLEDGED])
+@pytest.mark.parametrize("owned", [True, False])
+def test_completed_order_absent_from_open_list_before_next_buy(database, subject, previous, owned):
+    from sentinel.execution.alpaca import NativeBrokerFill
+    from sentinel.execution.contract import BrokerExactOrderLookup
+
+    plan = subject["plan"]
+    first, second = (command(plan, sid) for sid in ("AAA", "BBB"))
+    with journal.writer_lock(database, recovery_only=True):
+        basis = enroll(database, (first, second), subject, book())
+        database.commit()
+        first = transition(database, first, S.SEND_PENDING)
+        transition(database, second, S.SEND_PENDING)
+        order = native(first, state=S.FILLED, filled_quantity=D(3), filled_average_price=D(15),
+                       submitted_at=NOW - timedelta(seconds=5))
+        if previous is S.ACKNOWLEDGED:
+            transition(database, first, previous, broker_order_id=order.broker_order_id)
+        held = first.instrument if owned else command(plan, "FOREIGN").instrument
+        observation = replace(book(), positions=(BrokerPosition(held, D(3)),))
+        lookup = BrokerExactOrderLookup(first.client_key, NOW, NOW, ACCOUNT, ACCOUNT, order)
+        fill = NativeBrokerFill(first.client_key, order.broker_order_id, D(3), D(15), NOW,
+            activity_id="native-fill", asset_id=first.instrument.broker_id, side=Side.BUY, cash_amount=D(-45))
+        broker = SimpleNamespace(observe=AsyncMock(return_value=observation), supports_owned_order_fills=True,
+            find_by_client_key=AsyncMock(return_value=lookup), owned_order_fills=AsyncMock(return_value=(fill,)))
+        params = dict(basis=basis, **subject, broker=broker, activity=None, candidate_key=second.client_key,
+            terminal_receipts={}, account=BrokerAccountSnapshot(ACCOUNT, D(100), D(55), D(55), D(1), "ACTIVE"))
+        if owned:
+            assert asyncio.run(funding.prove(database, **params)) is observation
+            # A later buy must see fresh economics even with the verified terminal identity.
+            broker.owned_order_fills.return_value = ()
+            with pytest.raises(OrderEvidenceNotReady, match="confirmed native fill cash"):
+                asyncio.run(funding.prove(database, **params))
+            assert broker.owned_order_fills.await_count == 2
+        else:
+            with pytest.raises(OrderEvidenceNotReady, match="holdings"):
+                asyncio.run(funding.prove(database, **params))
+        broker.find_by_client_key.assert_awaited_once_with(first.client_key)
+
+
+@pytest.mark.parametrize("settles", [True, False])
+def test_one_complete_reread_when_native_account_changes_during_funding(database, subject, settles):
+    from sentinel.execution.contract import Completeness
+
+    plan = subject["plan"]
+    candidate = command(plan, "AAA")
+    account = BrokerAccountSnapshot(ACCOUNT, D(100), D(100), D(100), D(1), "ACTIVE")
+    unstable = replace(book(), completeness=Completeness.INCONSISTENT)
+    stable = book()
+    reader = SimpleNamespace(account_snapshot=AsyncMock(return_value=account),
+                             observe=AsyncMock(return_value=stable if settles else unstable))
+    with journal.writer_lock(database, recovery_only=True):
+        basis = enroll(database, (candidate,), subject, book())
+        database.commit()
+        transition(database, candidate, S.SEND_PENDING)
+        operation = funding.current_book(database, binding=SimpleNamespace(identity=DEPLOY), expected_account="TEST",
+            account=account, clock=lambda: NOW, basis=basis, broker=reader, plan=plan, projection=subject["projection"],
+            candidate_key=candidate.client_key, settled_observation=unstable, sweep_due=lambda: False)
+        if settles:
+            assert asyncio.run(operation) is stable
+        else:
+            with pytest.raises(funding.ReservationBookChanged):
+                asyncio.run(operation)
+        reader.account_snapshot.assert_awaited_once()
+        reader.observe.assert_awaited_once()
+
+
 def test_confirmed_rejection_does_not_block_independently_reserved_sibling(database, subject):
     from sentinel.execution.contract import BrokerExactOrderLookup
     plan = subject["plan"]

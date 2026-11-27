@@ -9,7 +9,7 @@ def predecessor(module, raw):
     # checks, including their original guard-removal tests.
     fixture = Path(__file__).with_name("parallel-opening-predecessor.json")
     data = fixture.read_bytes()
-    assert hashlib.sha256(data).hexdigest() == "7da99772c2220798f2b4a69528eb288495b57d9bf7638a97edb7d82be927c12b"
+    assert hashlib.sha256(data).hexdigest() == "537ed6dc0bafa9ef23f3824be2163b2035761d24d1b942ec4b96bb87e641e757"
     inventory = json.loads(data)
     assert inventory["predecessor"] == "43c9691fc4a8ae5c414c590a8f374f56c108abf8"
     record = inventory["modules"].get(module)

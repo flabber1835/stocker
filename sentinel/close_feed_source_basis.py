@@ -13,6 +13,7 @@ LAYOUT_SHA256 = '589e8a87edfb31ca29f47b58e73cdf22c2f517bb9ff674d4983bd28681dd692
 SESSION_LAYOUT_SHA256 = '8ba563c4bc749174ce631c125aa59360b046545770b34438234995fdb311ce25'
 SHARED_SESSION_LAYOUT_SHA256 = '5952fb94d212d55b9a8f52254c82f4589df34ed51254fbcdbf63f095f87d051a'
 INDEXED_HEADER_LAYOUT_SHA256 = 'c71243a8621e0c90a3cbe1f3fe658b304a0ab20adbc245395bec6af1b7090206'
+ANCHOR_BLOCK_LAYOUT_SHA256 = '1f1cf9d9921dcbf856157079e1c3c121f8415de73072a4838ce3bb640b6c1f5b'
 FEED = Path(__file__).with_name('feed')
 
 
@@ -21,7 +22,8 @@ def contribution(raw: bytes) -> str:
     if actual != COMPILER_SHA256:
         return predecessor.contribution(MODULE, raw)
     if hashlib.sha256(FEED.joinpath('normalized_layout.py').read_bytes()).hexdigest() not in {
-            LAYOUT_SHA256, SESSION_LAYOUT_SHA256, SHARED_SESSION_LAYOUT_SHA256, INDEXED_HEADER_LAYOUT_SHA256}:
+            LAYOUT_SHA256, SESSION_LAYOUT_SHA256, SHARED_SESSION_LAYOUT_SHA256,
+            INDEXED_HEADER_LAYOUT_SHA256, ANCHOR_BLOCK_LAYOUT_SHA256}:
         return actual
     if (hashlib.sha256(FEED.joinpath('read_contract.py').read_bytes()).hexdigest()
             != predecessor.READ_CONTRACT_SHA256):

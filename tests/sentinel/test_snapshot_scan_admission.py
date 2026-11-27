@@ -106,3 +106,37 @@ def test_standing_scan_waiter_reserves_foreground_while_shared_lock_holder_is_ex
             holder.execute('SELECT pg_advisory_unlock_shared(%s)', (gate.LOCK_KEY,))
             thread.join(3)
         assert not thread.is_alive()
+
+
+def test_background_scan_releases_slot_to_foreground_at_checkpoint_boundary(pg):
+    from sentinel.execution.journal import WRITER_LOCK_KEY
+    with psycopg.connect(pg.sync_dsn) as display, psycopg.connect(pg.sync_dsn) as scheduler:
+        display.execute('CREATE TEMP TABLE sentinel_processed_sessions(cursor_name text PRIMARY KEY, session date)')
+        display.commit()
+        received = Event()
+        def foreground():
+            with gate.admitted(scheduler):
+                received.set()
+        with gate.discretionary():
+            thread = Thread(target=foreground)
+            try:
+                with pytest.raises(psycopg.errors.LockNotAvailable):
+                    with committed_read.proof_connection(display, serialize_snapshot=True):
+                        thread.start()
+                        deadline = time.monotonic()+3
+                        while not gate.occupied(display) and time.monotonic()<deadline:
+                            time.sleep(.01)
+                        assert gate.occupied(display)
+                        committed_read.checkpoint(display, cursor='rolling-daily-checkpoint:v1',
+                            read=lambda _: pytest.fail('started another expensive checkpoint'))
+            finally:
+                if thread.ident is not None:
+                    thread.join(3)
+            assert received.is_set() and not thread.is_alive()
+            scheduler.execute('SELECT pg_advisory_lock(%s)', (WRITER_LOCK_KEY,))
+            with pytest.raises(psycopg.errors.LockNotAvailable):
+                with gate.admitted(display):
+                    pytest.fail('background verifier started while financial writer was active')
+            scheduler.execute('SELECT pg_advisory_unlock(%s)', (WRITER_LOCK_KEY,))
+            with gate.admitted(display):
+                gate.yield_if_contended(display)

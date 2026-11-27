@@ -206,16 +206,7 @@ def bind_context(conn, context):
     _require_context(checkpoint, context)
     _require_backed_owner_scope(conn, checkpoint.runtime_identity, context)
     if process_binding(checkpoint.runtime_identity) != process_binding(context['runtime']):
-        from sentinel import local_paper
-        if local_paper.require_bound_account(conn):
-            actual = identity.rehearsal_identity()
-            local_paper.require_runtime(conn, actual)
-            artifacts = actual['deployment_artifacts']
-            if (context['runtime'].get('git_commit') != artifacts['git_commit']
-                    or context['runtime'].get('runtime_image_digest') != artifacts['runtime_image_digest']
-                    or context['runtime'].get('environment_identity_sha256') != actual['identity_hash']):
-                raise Refused('LOCAL_PAPER_RETAINED_PROCESS_IDENTITY_CHANGED')
-        elif read(conn, context, checkpoint) is None:
+        if not require_retained_process(conn, checkpoint.runtime_identity, context) and read(conn, context, checkpoint) is None:
             raise Refused('RETAINED_RUNTIME_ADMISSION_REQUIRED')
     from sentinel import rolling_daily_checkpoint as daily
     current = daily.read(conn)
@@ -223,6 +214,23 @@ def bind_context(conn, context):
     _require_retained_strategy(conn, checkpoint, context, stored)
     context['runtime'] = checkpoint.runtime_identity
     context['strategy'] = stored
+
+
+def require_retained_process(conn, retained_runtime, context):
+    """Recheck the actual executable and local account for cross-release reuse."""
+    if process_binding(retained_runtime) == process_binding(context['runtime']):
+        return True
+    from sentinel import local_paper
+    if not local_paper.require_bound_account(conn):
+        return False
+    actual = identity.rehearsal_identity()
+    local_paper.require_runtime(conn, actual)
+    artifacts = actual['deployment_artifacts']
+    if (context['runtime'].get('git_commit') != artifacts['git_commit']
+            or context['runtime'].get('runtime_image_digest') != artifacts['runtime_image_digest']
+            or context['runtime'].get('environment_identity_sha256') != actual['identity_hash']):
+        raise Refused('LOCAL_PAPER_RETAINED_PROCESS_IDENTITY_CHANGED')
+    return True
 
 
 def _retained_checkpoint_uncached(conn, context=None):

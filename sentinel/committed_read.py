@@ -59,11 +59,13 @@ class _CheckpointOwner:
     def metadata(self, conn, cursor):
         from psycopg.pq import TransactionStatus
         from sentinel.feed import readiness_scope
+        from sentinel.snapshot_scan_admission import yield_if_contended
         if (not self.active or conn is not self.conn or conn.closed
                 or conn.info.backend_pid != self.backend
                 or (conn.info.host, conn.info.port, conn.info.dbname, conn.info.user) != self.database
                 or conn.info.transaction_status != TransactionStatus.INTRANS):
             raise CommittedReadRefused('COMMITTED_CHECKPOINT_OWNER_CHANGED')
+        yield_if_contended(conn)
         pin = readiness_scope.capture(conn)
         if self.pin is _UNSET:
             self.pin = pin

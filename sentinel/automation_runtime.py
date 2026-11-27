@@ -896,8 +896,7 @@ class ProductionAutomation:
         """Check the original authority scope without publishing a verdict."""
         if progress is not None:
             progress(2)
-        store.require_leader(conn, permit)
-        control = store.load_control(conn)
+        _, control = store.require_leader_with_control(conn, permit)
         bound = control.binding
         if (bound is None or control.generation != permit.control_generation
                 or control.config_sha256 != self.automation_config.fingerprint):
@@ -1040,7 +1039,6 @@ class ProductionAutomation:
             # Compare current mutable state to the exact previously signed
             # bytes. The full proof owns trust-root and signature validation.
             # A skip retains the full check's original checked-at timestamp.
-            store.require_leader(conn, permit)
             certificate = self._idle_certificate_identity(
                 conn, expected_sha256=control.binding.certificate_sha256)
             rollout = load_rollout_state(conn)
@@ -1353,6 +1351,8 @@ class ProductionAutomation:
 
     def _stop_idle_authority_observer(self):
         """Reap the read-only observer before a financial callback can fork."""
+        from sentinel import opening_prewarm
+        opening_prewarm.stop(self)
         active = getattr(self, "_idle_authority_flight", None)
         observer = getattr(self, "_idle_authority_observer", None)
         if active is not None:
@@ -1458,6 +1458,11 @@ class ProductionAutomation:
             operational_snapshot.require_alpaca_openfigi(conn, current)
         except operational_snapshot.OperationalSnapshotRefused as exc:
             raise NonRetryableCallbackRefused(str(exc)) from exc
+
+    def _prepared_opening_material(self, scope, cycle):
+        if self._dual_run_enabled or getattr(self, '_live_run_enabled', False):
+            from sentinel import prepared_opening_material
+            scope.enter_context(prepared_opening_material.cycle(cycle))
 
     def _paper_opening_material(self, scope):
         if (getattr(self, '_operational_source_only', False)
@@ -1596,14 +1601,15 @@ class ProductionAutomation:
                 observation_id=self._shadow_observation_id,
                 starting_cash=self._shadow_starting_cash,
                 state_dir=self.sentinel_config.state_dir,
-                database_url=self.sentinel_config.database_url)
+                database_url=self.sentinel_config.database_url, scheduling_only=True)
             if preparation is not None:
                 detail = ('the current closing-data publication is '
                           'awaiting its certified shadow attestation')
                 if preparation.quiet_eligible is True:
                     return ClosingDataPending(detail,
                         publisher_deadline_at=preparation.publisher_deadline,
-                        worker_deadline_at=preparation.worker_deadline)
+                        worker_deadline_at=preparation.worker_deadline,
+                        recheck_at=preparation.recheck_at)
                 return SourceDataPending(detail)
         return None
 
@@ -1734,6 +1740,7 @@ class ProductionAutomation:
             if getattr(self, '_operational_source_only', False):
                 pinned = input_scope.enter_context(feed_inputs.pinned(conn, commit=False))
                 self._require_operational_inputs(conn, current=pinned)
+                self._prepared_opening_material(input_scope, cycle)
             missed = ()
             if not self._dual_run_enabled and not getattr(self, "_live_run_enabled", False):
                 # Reviewed dual mode adopts the exact current shadow-produced
@@ -2267,6 +2274,7 @@ class ProductionAutomation:
                 if source_only:
                     pinned = input_scope.enter_context(feed_inputs.pinned(conn, commit=False))
                     self._require_operational_inputs(conn, current=pinned)
+                    self._prepared_opening_material(input_scope, cycle)
                 else:
                     self._require_operational_inputs(conn)
             with opening_stage_log.preflight("plan_pin"):
@@ -2727,8 +2735,11 @@ class ProductionAutomation:
         try:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT holder_id,fence_token,control_generation,acquired_at,"
-                    " expires_at FROM sentinel_automation_lease WHERE id=1")
+                    "SELECT l.holder_id,l.fence_token,l.control_generation,l.acquired_at,"
+                    " l.expires_at FROM sentinel_automation_lease l"
+                    " JOIN sentinel_automation_control c ON c.id=l.id AND c.generation=l.control_generation"
+                    " WHERE l.id=1 AND c.enabled AND NOT c.kill_switch_engaged"
+                    " AND l.expires_at>clock_timestamp()")
                 row = cur.fetchone()
             self._require_idle_foreground_budget()
         except Exception:
@@ -2749,6 +2760,8 @@ class ProductionAutomation:
         terminal_cycle = None
         try:
             observed_at = _now_utc()
+            from sentinel import opening_prewarm
+            opening_prewarm.start(self, observed_at)
             if self._idle_attestation_current(
                     conn, control, permit, observed_at):
                 self._require_idle_foreground_budget()

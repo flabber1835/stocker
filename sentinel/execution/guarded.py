@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import re
 import inspect
+from contextlib import AsyncExitStack
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -416,6 +417,7 @@ class GuardedExecutionBroker(ExecutionBroker):
         self._live_policy = live_policy
         self._unsent_proofs = {}
         self._active_submit_keys = set()
+        self._sizing_rules = {}
         # Funding and the journal share the writer's database connection. Serialize
         # their use while allowing independently authorized HTTP requests to overlap.
         self.submission_lock = asyncio.Lock()
@@ -608,6 +610,61 @@ class GuardedExecutionBroker(ExecutionBroker):
             raise result
         return result
 
+    async def _read_groups(self, operation, items, read_one):
+        """Limit simultaneous native GETs and bracket each chunk with the grant."""
+        items = tuple(items)
+        results = []
+        for start in range(0, len(items), 4):
+            chunk = items[start:start + 4]
+            async def read():
+                return tuple(await asyncio.gather(*(read_one(item) for item in chunk), return_exceptions=True))
+            results.extend(await self._read(operation, read))
+        return results
+
+    @property
+    def supports_sizing_asset_batch(self):
+        from sentinel.execution.alpaca_asset_id import AssetIdAlpacaExecutionBroker
+        return not self._live and type(self._inner) is AssetIdAlpacaExecutionBroker
+
+    async def resolve_sizing_instruments(self, symbols):
+        """One current asset response supplies both mapping and sizing eligibility."""
+        if not self.supports_sizing_asset_batch:
+            raise BrokerAuthorityRefused("grouped sizing requires the asset-ID PAPER adapter")
+        async def resolve(item):
+            security_id, symbol = item
+            return await self._inner.resolve_instrument_and_rules(security_id=security_id, symbol=symbol)
+        values = await self._read_groups(BrokerOperation.RESOLVE_INSTRUMENT, symbols.items(), resolve)
+        results = {}
+        for security_id, value in zip(symbols, values, strict=True):
+            if isinstance(value, BaseException):
+                results[security_id] = value
+            else:
+                instrument, rules = value
+                results[security_id] = instrument
+                if rules is not None:
+                    self._sizing_rules[instrument] = rules
+        return results
+
+    async def sizing_asset_rules(self, instrument):
+        rules = self._sizing_rules.pop(instrument, None)
+        if rules is not None:
+            try:
+                rules.require_current(instrument, self._inner._now())
+            except ValueError:
+                pass
+            else:
+                return rules
+        return await self.asset_rules(instrument=instrument)
+
+    async def find_reserved_orders(self, keys):
+        if self._live or not isinstance(self._grant, (ManualExecutionGrant, AutomationExecutionGrant)):
+            raise BrokerAuthorityRefused("reserved order lookup requires a PAPER execution grant")
+        values = await self._read_groups(BrokerOperation.FIND_BY_CLIENT_KEY, keys, self._inner.find_by_client_key)
+        for value in values:
+            if isinstance(value, BaseException):
+                raise value
+        return dict(zip(keys, values, strict=True))
+
     async def market_clock(self):
         if not self.supports_market_clock:
             raise AttributeError("execution broker does not expose a broker market clock")
@@ -699,12 +756,16 @@ class GuardedExecutionBroker(ExecutionBroker):
             exc._not_transported = nonce
 
         try:
-            async with self.submission_lock:
+            async with AsyncExitStack() as scope:
+                parallel_inputs = not self._live and notional is not None and submission_group.member(client_key)
+                if not parallel_inputs:
+                    await scope.enter_async_context(self.submission_lock)
                 if submission_group.stopped(client_key):
                     raise OrderEvidenceNotReady("independent submission stopped before broker checks")
                 live_permit, paper_window = await self._prepare_submit(
                     client_key=client_key, instrument=instrument, side=side,
-                    quantity=quantity, order_terms=order_terms, notional=notional)
+                    quantity=quantity, order_terms=order_terms, notional=notional,
+                    funding_lock=scope if parallel_inputs else None)
                 if submission_group.stopped(client_key):
                     raise OrderEvidenceNotReady("independent submission stopped during broker checks")
         except PreTransportAuthorityRefused as exc:
@@ -718,6 +779,7 @@ class GuardedExecutionBroker(ExecutionBroker):
             kwargs["order_terms"] = order_terms
         if notional is not None:
             kwargs["notional"] = notional
+        submission_group.entering_transport(client_key)
         if self._live:
             from sentinel.execution.live_transport import _mutation_scope, _transport_prevented
             try:
@@ -804,7 +866,7 @@ class GuardedExecutionBroker(ExecutionBroker):
     async def _prepare_submit(self, *, client_key: str,
                               instrument: BrokerInstrument, side: Side,
                               quantity: Decimal | None, order_terms: OrderTerms,
-                              notional: Decimal | None = None):
+                              notional: Decimal | None = None, funding_lock=None):
         from sentinel.execution.contract import BrokerInstrumentUnavailable
         from sentinel.execution.alpaca import AlpacaExecutionBroker, require_order_transport_versions
         if isinstance(self._inner, AlpacaExecutionBroker):
@@ -934,13 +996,13 @@ class GuardedExecutionBroker(ExecutionBroker):
                     "broker-native instrument identity changed before submit; "
                     f"durable={instrument}, current={current}")
 
-        rules = None
-        if fractional:
+        async def current_rules():
             try:
                 rules = await self.asset_rules(instrument=instrument)
                 rules.require_current(instrument, self._inner._now())
                 if (notional is not None or (quantity is not None and quantity != quantity.to_integral_value())) and not rules.fractionable:
                     raise ValueError("asset is not currently fractionable; unresolved fractional amount retained")
+                return rules
             except BrokerInstrumentUnavailable as exc:
                 if side is Side.BUY and exc.instrument == instrument:
                     raise PurchaseInstrumentUnavailable(f"BUY_INSTRUMENT_UNAVAILABLE: {exc}") from exc
@@ -948,8 +1010,15 @@ class GuardedExecutionBroker(ExecutionBroker):
             except Exception as exc:
                 raise OrderEvidenceNotReady(f"fractional eligibility unavailable: {exc}") from exc
 
+        rules = await current_rules() if fractional else None
+
         from sentinel.execution.opening_prices import OpeningPriceNotReady, QUOTE_SOURCE, RegularQuotes
         quote = None
+        if funding_lock is not None:
+            await funding_lock.enter_async_context(self.submission_lock)
+            from sentinel.execution import submission_group
+            if submission_group.stopped(client_key):
+                raise OrderEvidenceNotReady("independent submission stopped before funding")
         if notional is not None:
             from sentinel.execution.contract import available_purchase_cash
             from sentinel.execution.market_buy_policy import MARKET_BUY_HEADROOM
@@ -1049,6 +1118,11 @@ class GuardedExecutionBroker(ExecutionBroker):
                     raise OrderEvidenceNotReady(str(exc)) from exc
                 raise PreTransportAuthorityRefused(
                     "LIVE original order authority refused: " + type(exc).__name__) from exc
+        if funding_lock is not None:
+            try:
+                rules.require_current(instrument, self._inner._now())
+            except ValueError:
+                rules = await current_rules()
         await self._authorize_mutation(BrokerOperation.SUBMIT)
         if rules is not None:
             try:

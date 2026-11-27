@@ -407,6 +407,7 @@ async def _execute_current_paper_plan(
             fractional_postings = dual_mode and market_policy is not None and market_policy.fractional
             from . import market_reservations
             reserved = market_reservations.load(conn, plan) if fractional_postings else None
+            terminal_receipts = {}
 
             def check_execution_cash(result, account, activity, observed_at, *, fee_wait=False,
                                      candidate_key=None, owned_sales=()):
@@ -433,18 +434,14 @@ async def _execute_current_paper_plan(
 
             async def authorize_market_funding(*, account, **candidate):
                 if reserved and candidate["client_key"] in reserved["members"]:
-                    from sentinel.execution.protected_funding import _assert_available_account, ProtectedFundingRefused
+                    from sentinel.execution.protected_funding import ProtectedFundingRefused
                     try:
-                        _assert_available_account(account, binding.identity, require_equity=True)
-                        if confirmed_account and account.identity.account_id != confirmed_account:
-                            raise PaperActivationRefused("reserved purchase changed its expected account")
-                        activity = await _broker_cash_state_or_refuse(
-                            conn, broker=broker, binding=binding, through=clock())
-                        current = await market_reservations.prove(
-                            conn, basis=reserved, plan=plan, projection=target_projection, deployment=binding.identity,
-                            broker=broker, account=account, activity=activity, candidate_key=candidate["client_key"],
-                            settled_observation=(market_settled[0].observation if market_settled else None),
-                            sweep_due=bool(reserved["sales"] and defensive_cash_sweep_due()))
+                        current = await market_reservations.current_book(
+                            conn, binding=binding, expected_account=confirmed_account, clock=clock, account=account,
+                            broker=broker, basis=reserved, plan=plan, projection=target_projection,
+                            candidate_key=candidate["client_key"], terminal_receipts=terminal_receipts,
+                            settled_observation=market_settled[0].observation if market_settled else None,
+                            sweep_due=lambda: bool(reserved["sales"] and defensive_cash_sweep_due()))
                         _market_buy_candidate_or_refuse(conn, plan=plan, projection=target_projection,
                             deployment=binding.identity, observation=current,
                             cash_ceiling=Decimal(reserved["cash_limits"][candidate["client_key"]]),

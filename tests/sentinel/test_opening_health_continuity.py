@@ -117,6 +117,27 @@ def test_clean_skip_is_green_without_rewriting_original_plan_or_claiming_success
     assert page==before
 
 
+@pytest.mark.parametrize('fixture', [healthy_history_panel, executing_panel])
+def test_absent_independent_reports_are_warnings_only_during_a_proved_opening(fixture):
+    page = fixture()
+    missing_backup = model.backup_restore_row(base_at=None, restore_at=None, now=page.now)
+    missing_worker = replace(page.row('shadow_worker'), status=model.UNKNOWN,
+        operational_fact=model.OperationalFact(kind='SHADOW_WORKER', state='NOT_REPORTED'))
+    absent = {r.key: r for r in (missing_backup, missing_worker)}
+    page = replace(page, rows=[absent.get(row.key, row) for row in page.rows])
+    health = presentation.dashboard_health(page)
+    assert health['color'] == 'amber'
+    assert set(absent).issubset(health['trading_continuity']['warning_keys'])
+    assert not health['trading_continuity']['blocking_keys']
+    for key in ('authority', 'shadow_verification', 'automation_leader'):
+        changed = replace(page, rows=[replace(row, status=model.FAIL) if row.key == key else row
+                                     for row in page.rows])
+        assert set(absent).issubset(presentation.health_facts(changed)['active'])
+    for changed in (replace(page, now=datetime.fromisoformat(health['valid_until'])),
+                    replace(page, observation_current=False, observation_display_current=True)):
+        assert presentation._opening_reporting_deadline(changed) is None
+
+
 @pytest.mark.parametrize('stale',[False,True])
 def test_exact_execution_progress_is_ordinary_but_stale_broker_cannot_establish_green(stale):
     page=executing_panel(stale_broker=stale)

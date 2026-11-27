@@ -601,7 +601,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
              data-max-age-seconds="{document_age}">
 <div class="wrap">
 <header>
-  <div class="brand"><img data-banner-src="/static/caesars-status-green.gif" width="1086" height="362" alt="{_esc(page_name)}" hidden><noscript><img class="unknown-sign" src="/static/caesars-status-green-still.gif" width="1086" height="362" alt="{_esc(page_name)}"></noscript><span class="brand-fallback" hidden>{_esc(page_name)}</span></div>
+  <div class="brand"><img data-banner-src="/static/caesars-status-green.gif" class="unknown-sign" src="/static/caesars-status-green-still.gif" width="1086" height="362" alt="{_esc(page_name)}"><span class="brand-fallback" hidden>{_esc(page_name)}</span></div>
   <span id="operational-state" class="state {headline_status}" title="{_esc(operational_headline)}">{_esc(compact_headline)}</span>
   {reason_html}
   <span id="dashboard-heartbeat" class="heartbeat" role="status"
@@ -935,6 +935,11 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     if (color === "green"){{ verifiedWarning = null; }}
     if ((color === "red" || color === "amber") && Number.isFinite(generated)){{
       verifiedWarning = {{color:color, stamp:new Date(generated).toISOString()}};
+    }}
+    if (color === "blue" && verifiedWarning){{
+      document.body.dataset.lastWarning = verifiedWarning.color;
+    }} else {{
+      delete document.body.dataset.lastWarning;
     }}
   }}
   function withdrawPreparation(){{

@@ -858,6 +858,12 @@ class AlpacaExecutionBroker(ExecutionBroker):
 
     async def resolve_instrument(self, *, security_id: str,
                                  symbol: str) -> BrokerInstrument:
+        instrument, _ = await self.resolve_instrument_and_rules(security_id=security_id, symbol=symbol)
+        return instrument
+
+    async def resolve_instrument_and_rules(self, *, security_id: str, symbol: str):
+        from sentinel.execution.contract import BrokerAssetRules
+
         broker_symbol = self._to_symbol(symbol)
         payload = await self._get(
             f"/v2/assets/{quote(broker_symbol, safe='')}")
@@ -884,7 +890,9 @@ class AlpacaExecutionBroker(ExecutionBroker):
                     and type(tradable) is bool):
                 raise BrokerInstrumentUnavailable(instrument, detail)
             raise MalformedBrokerPayload(detail)
-        return instrument
+        eligible = payload.get("fractionable")
+        rules = BrokerAssetRules(instrument, self._now(), eligible) if type(eligible) is bool else None
+        return instrument, rules
 
     async def market_clock(self) -> AlpacaMarketClock:
         payload = await self._get("/v2/clock")

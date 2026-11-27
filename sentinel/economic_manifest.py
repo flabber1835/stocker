@@ -15,7 +15,7 @@ from pathlib import Path
 import re
 from functools import lru_cache
 
-MANIFEST_SHA256 = 'dbdc3c9564b9cd2a8bbf8b158c08741588ea7d4bb4cd49563f78d347f1a8c34e'
+MANIFEST_SHA256 = 'f6dea6fd3e87b11a56ab6423e28fa5453992af163e6cdeb79266a0ccb1ebe415'
 MANIFEST = Path(__file__).with_name('economic-implementation-v2.json')
 PREDECESSOR = 'b2e308bb664718da373175f1a7d988d07b159ae2'
 PREDECESSOR_DATA_SEMANTICS_SHA256 = '38c750bd9bb244bc71600aaeba8c4aad22d2095747f4199e9ac4e0bd433425cb'
@@ -50,6 +50,11 @@ OPENING_SESSION_STORAGE = {
     **DAILY_SESSION_STORAGE,
     'sentinel.feed.rolling_store': '7dca4426c630fd0f8c124e3b1dc9d1457e0d96780e56e04888a45f70fdc0ccc1',
     'sentinel.feed.normalized_layout': 'c71243a8621e0c90a3cbe1f3fe658b304a0ab20adbc245395bec6af1b7090206',
+}
+
+CLOSE_ANCHOR_STORAGE = {
+    **OPENING_SESSION_STORAGE,
+    'sentinel.feed.normalized_layout': '1f1cf9d9921dcbf856157079e1c3c121f8415de73072a4838ce3bb640b6c1f5b',
 }
 
 
@@ -290,7 +295,7 @@ def identity(*, schema):
     exact_daily_session_reads = (
         all(_sha(raw) == DAILY_SESSION_COMPILERS[name][0] for name, raw in daily_compilers.items())
         and {name: _sha(_module_raw(name)) for name in DAILY_SESSION_STORAGE}
-        in (DAILY_SESSION_STORAGE, OPENING_SESSION_STORAGE))
+        in (DAILY_SESSION_STORAGE, OPENING_SESSION_STORAGE, CLOSE_ANCHOR_STORAGE))
     for name in sorted(expected):
         transition = retirement.get(name)
         installed = transition['module'] if transition else name

@@ -125,6 +125,7 @@ function failRead(read) {
     await settled();
     assert.deepEqual(writes,['partial']);
     assert.equal(badge.className,initialHealth==='red'?'state fail':'state warn');
+    assert.equal(document.body.dataset.lastWarning, initialHealth);
     assert(badge.textContent.includes(input.generated.replace('+00:00','.000Z')),
       'a less complete projection must show when the prior warning was verified');
     assert.match(badge.textContent,/checking for an update/);
@@ -134,6 +135,7 @@ function failRead(read) {
     await settled();
     assert.deepEqual(writes,['partial','fresh']);
     assert.equal(badge.className,'state ok','new server proof can clear the local warning');
+    assert.equal(document.body.dataset.lastWarning, undefined);
     process.stdout.write('PASS\n');return;
   }
   if (input.wake === 'deadline-recovery' || input.wake === 'server-clock') {

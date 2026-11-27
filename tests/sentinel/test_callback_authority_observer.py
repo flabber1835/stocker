@@ -157,8 +157,9 @@ async def test_failed_verdict_publication_cannot_report_observer_success(monkeyp
     from tests.sentinel.test_automation_runtime import config, context, production, control, FakeConnection, CERTIFICATE
     from sentinel.authority import RolloutMode, RolloutState
     cfg=config();ctx=context(cfg);runtime=production(cfg);conn=FakeConnection();calls=[]
-    monkeypatch.setattr(automation_runtime.store,'require_leader',lambda c,p:p)
-    monkeypatch.setattr(automation_runtime.store,'load_control',lambda c:control(cfg))
+    monkeypatch.setattr(automation_runtime.store,'require_leader_with_control',lambda c,p:(p,control(cfg)))
+    monkeypatch.setattr(automation_runtime.store,'load_control',
+        lambda c:pytest.fail('replayed control history after validating it in the fence'))
     monkeypatch.setattr(automation_runtime,'load_rollout_state',lambda c:RolloutState(RolloutMode.PINNED_1_00,1,None))
     monkeypatch.setattr(automation_runtime.feed_inputs,'require_current',lambda c:SimpleNamespace(version=81))
     monkeypatch.setattr(automation_runtime,'production_strategy',lambda:(object(),{'strategy':'fixture'}))

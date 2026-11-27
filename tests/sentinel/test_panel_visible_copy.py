@@ -232,12 +232,10 @@ def test_existing_brand_graphic_replaces_duplicate_header_text_but_keeps_accessi
     html=render(model.Panel(now=NOW,rows=rows))
     header=Header();header.feed(html)
     assert header.images==[
-        {'data-banner-src':'/static/caesars-status-green.gif','width':'1086',
-         'height':'362','alt':"Caesar's Palace",'hidden':None},
-        {'class':'unknown-sign','src':'/static/caesars-status-green-still.gif','width':'1086',
+        {'data-banner-src':'/static/caesars-status-green.gif',
+         'class':'unknown-sign','src':'/static/caesars-status-green-still.gif','width':'1086',
          'height':'362','alt':"Caesar's Palace"},
     ]
-    assert '<noscript><img class="unknown-sign" src="/static/caesars-status-green-still.gif"' in html
     assert '<span class="brand-fallback" hidden>' in html
     assert not header.headings
     visible=' '.join(header.visible)

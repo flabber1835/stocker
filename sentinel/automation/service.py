@@ -264,6 +264,7 @@ def _callback_child(
                 if type(exc) is ClosingDataPending else None),
             "worker_deadline_at": (exc.worker_deadline_at
                 if type(exc) is ClosingDataPending else None),
+            "recheck_at": exc.recheck_at if type(exc) is ClosingDataPending else None,
         }
     try:
         channel.send_bytes(json.dumps(
@@ -310,7 +311,7 @@ def _decode_child_callback(payload: bytes):
     if bool(envelope.get("reviewed")) and trusted is not None:
         if trusted is ClosingDataPending:
             deadlines = {}
-            for field in ('publisher_deadline_at', 'worker_deadline_at'):
+            for field in ('publisher_deadline_at', 'worker_deadline_at', 'recheck_at'):
                 raw_deadline = envelope.get(field)
                 try:
                     if raw_deadline is not None and not isinstance(raw_deadline, str):
@@ -846,6 +847,8 @@ class AutomationService:
                                  exc.worker_deadline_at)
                     if all(deadline is None or check_at < deadline for deadline in deadlines):
                         retry_at = max(retry_at, check_at)
+                if phase == 'REFRESH' and type(exc) is ClosingDataPending and exc.recheck_at is not None:
+                    retry_at = min(retry_at, max(now, exc.recheck_at))
             diagnostic = {
                 **(result_diagnostic or {}), **classified,
                 "next_retry_at": retry_at.isoformat() if retry_at else None,

@@ -144,6 +144,7 @@ def _observe_once(database_url, include_paper, expected_key):
 
 
 def observe(database_url, include_paper, expected_key):
+    from sentinel.snapshot_scan_admission import discretionary
     from sentinel.feed.publication import CorpusLockUnavailable
     from sentinel.panel.shadow_source_wait import observe_preparation
     if include_paper:
@@ -151,7 +152,8 @@ def observe(database_url, include_paper, expected_key):
         if preparation is not None:
             return preparation
     try:
-        return financial.retry_observation_read(lambda: _observe_once(database_url, include_paper, expected_key))
+        with discretionary():
+            return financial.retry_observation_read(lambda: _observe_once(database_url, include_paper, expected_key))
     except CorpusLockUnavailable:
         from sentinel.panel import publication_wait
         result=publication_wait.observe(database_url,include_paper,expected_key)

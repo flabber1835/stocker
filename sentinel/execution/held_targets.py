@@ -371,8 +371,8 @@ def predecessor_version(conn, plan_id):
         "WHERE p.plan_id=%s",
         (target_reprojection.CURSOR_PREFIX, dual_plan_authority.CURSOR_PREFIX,
          basis["previous_plan_id"])).fetchone()
-    if basis.get("schema") not in {LEGACY_FRACTIONAL_SCHEMA, FRACTIONAL_SCHEMA}:
-        return projection_version
+    # Even a legacy or LIVE basis may depend on whether a predecessor was
+    # attempted and which fill evidence remains active under its projection.
     command_versions = conn.execute(
         "SELECT client_key,tableoid,xmin::text,ctid::text FROM sentinel_commands "
         "WHERE plan_id=%s AND state NOT IN ('PLANNED','SUPERSEDED') ORDER BY client_key",

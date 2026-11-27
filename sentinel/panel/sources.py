@@ -4646,6 +4646,10 @@ def _shadow_worker_row(state_dir, database_url, *, observer=None, diagnostics=No
                 if value.get('worker_deadline') is not None else
                 value['observed_at']+timedelta(seconds=status.MAX_AGE_SECONDS)
                 if value.get('observed_at') is not None else None))
+    except status.WorkerStatusNotReported:
+        return model.Row('shadow_worker', 'Strategy worker', 'STATUS NOT REPORTED',
+            model.UNKNOWN, 'The strategy worker has not reported its status.', required_current=True,
+            operational_fact=model.OperationalFact(kind='SHADOW_WORKER', state='NOT_REPORTED'))
     except Exception as exc:
         stage = getattr(exc, 'probe_stage', None)
         if (isinstance(exc, TimeoutError) and isinstance(stage, str) and stage in {

@@ -1,5 +1,23 @@
 # Dashboard trading continuity and panic status
 
+### Opening and closing evidence, November 27
+
+A saved, current PAPER plan and a current execution callback can outlive the
+strategy publisher that prepared them. During a positively proved opening,
+missing independent reporting about the publisher or backup is an operator
+warning. Keep the underlying rows visible and require review. A reported
+integrity fence, pending publisher attempt without status, invalid backup,
+lost authority or a blocked execution path still takes precedence. Treat
+absent reporting as a distinct source fact. Retain the original plan,
+callback and evidence deadlines. Once that opening proof expires, evaluate
+the next action on its own evidence.
+
+At the close, the active producer's observed phase takes precedence over a
+general publication wait for that session. When its lease expires or the job
+finishes, use the independent publication or strategy evidence. During a
+partial dashboard refresh, distinguish an unavailable current verdict from
+a confirmed trading stop and keep dated warnings visible.
+
 Decision, 2026-11-24, before implementation. The owner defines a red dashboard
 as a panic signal: unattended trading cannot continue at the next eligible
 opportunity without intervention. This decision supersedes the older rule that

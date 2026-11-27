@@ -143,7 +143,7 @@ class OperationalFact(BaseModel):
     kind: Literal['AUTOMATION_POLICY', 'AUTOMATION_CYCLE', 'CONTROLLER_DECISION',
                   'MARKET_DATA', 'SHADOW_VERIFICATION', 'SHADOW_WORKER',
                   'PAPER_VERIFICATION', 'EXECUTION_PROGRESS', 'EXECUTION_HISTORY',
-                  'AUTHORITY', 'ALPACA_ACCOUNT']
+                  'AUTHORITY', 'ALPACA_ACCOUNT', 'BACKUP_REPORT']
     state: Literal['ENABLED_RELEASED', 'INERT', 'KILLED', 'DISCOVERY_WAIT',
                    'DISCOVERED', 'REFRESHING_DATA', 'PREPARING', 'PLAN_READY',
                    'WAITING_OPEN', 'EXECUTING', 'RECONCILING', 'RETRY_WAIT',
@@ -152,7 +152,7 @@ class OperationalFact(BaseModel):
                    'AWAITING_VERDICT', 'VERIFIED', 'ACTIVE_WORKER',
                    'PENDING', 'CHECKING', 'AWAITING_NEXT_DECISION', 'STOPPED',
                    'HISTORICAL_READINESS_WITHDRAWN', 'ROLLOUT_RENEWAL_PENDING',
-                   'ACTIVATION_VERDICT_WITHDRAWN', 'READY_SNAPSHOT']
+                   'ACTIVATION_VERDICT_WITHDRAWN', 'READY_SNAPSHOT', 'NOT_REPORTED']
     session: date | None = None
     sessions_behind: int | None = Field(default=None, ge=0, le=2**31-1, strict=True)
     exposure: Decimal | None = Field(default=None, ge=0, le=1, allow_inf_nan=False)
@@ -169,7 +169,8 @@ class OperationalFact(BaseModel):
             'CONTROLLER_DECISION': {'ADOPTED', 'NOT_ADOPTED', 'PINNED', 'ROLLOUT_RENEWAL_PENDING'},
             'MARKET_DATA': {'READY', 'NOT_READY', 'AWAITING_VERDICT'},
             'SHADOW_VERIFICATION': {'VERIFIED'},
-            'SHADOW_WORKER': {'ACTIVE_WORKER', 'STOPPED'},
+            'SHADOW_WORKER': {'ACTIVE_WORKER', 'STOPPED', 'NOT_REPORTED'},
+            'BACKUP_REPORT': {'NOT_REPORTED'},
             'PAPER_VERIFICATION': {'PENDING', 'CHECKING', 'AWAITING_NEXT_DECISION', 'BLOCKED',
                                    'SUPERSEDED', 'HISTORICAL_READINESS_WITHDRAWN'},
             'EXECUTION_PROGRESS': {'EXECUTING', 'RECONCILING', 'AWAITING_NEXT_DECISION'},
@@ -214,6 +215,7 @@ class OperationalFact(BaseModel):
             'CONTROLLER_DECISION': {'exposure'}, 'MARKET_DATA': {'feed'},
             'SHADOW_VERIFICATION': {'shadow_verification'},
             'SHADOW_WORKER': {'shadow_worker'},
+            'BACKUP_REPORT': {'backup_restore'},
             'PAPER_VERIFICATION': {'paper_reconciliation'},
             'EXECUTION_PROGRESS': {'broker'},
             'EXECUTION_HISTORY': {'trading_run', 'completed_trading_run'},
@@ -2544,7 +2546,10 @@ def backup_restore_row(
     if missing:
         return Row(
             "backup_restore", "Backup / Restore", "MISSING EVIDENCE", FAIL,
-            "missing " + " and ".join(missing), as_of, required_current=True)
+            "missing " + " and ".join(missing), as_of, required_current=True,
+            operational_fact=(OperationalFact(kind='BACKUP_REPORT', state='NOT_REPORTED')
+                              if len(missing) == 3 and not any((base_proof, runtime_proof, restore_proof,
+                                                               maintenance_proof, recovery)) else None))
     assert base_at is not None and restore_at is not None and runtime_at is not None
     base_age = now - base_at
     restore_age = now - restore_at

@@ -289,6 +289,35 @@ def test_native_fractional_sell_deduplication_falsifier(monkeypatch):
         test_native_fractional_sell_proves_final_asset_in_one_lookup(monkeypatch, {})
 
 
+def test_sizing_groups_native_asset_reads_and_submit_uses_current_rules(monkeypatch):
+    from sentinel.execution.alpaca_asset_id import AssetIdAlpacaExecutionBroker
+    from sentinel.execution.guarded import BrokerOperation, ExecutionBrokerGuard, ManualExecutionGrant
+    from tests.sentinel.test_limit_day_transport import broker_for
+
+    opened, _ = calendar.session_window(date(2026, 8, 18))
+    names = list("ABCDE")
+    routes = {"/v2/assets/" + symbol: dict(id="asset-" + symbol, symbol=symbol, status="active",
+              tradable=True, fractionable=True) for symbol in names}
+    # A later call by stable ID sees newly withdrawn fractional eligibility.
+    routes.update({"/v2/assets/asset-" + s: {**routes["/v2/assets/" + s], "fractionable": False} for s in names})
+    inner, http = broker_for(AssetIdAlpacaExecutionBroker, routes=routes)
+    monkeypatch.setattr(inner, "_now", lambda: opened)
+    checks = []
+    async def check(grant, operation, result=None):
+        checks.append(operation)
+    broker = GuardedExecutionBroker(inner=inner, grant=ManualExecutionGrant("TEST", "plan", opened.date(), True),
+        guard=ExecutionBrokerGuard(check, check, check))
+    instruments = asyncio.run(broker.resolve_sizing_instruments({"SEC-" + s: s for s in names}))
+    for s in names:
+        instrument = instruments["SEC-" + s]
+        assert instrument.broker_id == "asset-" + s
+        assert asyncio.run(broker.sizing_asset_rules(instrument)).fractionable
+    assert [call[1] for call in http.calls] == ["/v2/assets/" + s for s in names]
+    assert checks == [BrokerOperation.RESOLVE_INSTRUMENT] * 4
+    assert not asyncio.run(broker.asset_rules(instrument=instruments["SEC-A"])).fractionable
+    assert http.calls[-1][1] == "/v2/assets/asset-A"
+
+
 def test_unavailable_fractional_purchase_needs_only_its_exact_asset_rules(monkeypatch):
     from sentinel.execution.alpaca_asset_id import AssetIdAlpacaExecutionBroker
     from sentinel.execution.guarded import PurchaseInstrumentUnavailable

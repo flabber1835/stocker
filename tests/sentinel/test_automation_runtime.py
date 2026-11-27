@@ -2163,8 +2163,8 @@ def test_composition_requires_exact_signed_automation_authority(
     calls = []
     verdicts = []
 
-    monkeypatch.setattr(store, "require_leader", lambda _conn, permit: permit)
-    monkeypatch.setattr(store, "load_control", lambda _conn: control(cfg))
+    monkeypatch.setattr(store, "require_leader_with_control", lambda _conn, permit: (permit, control(cfg)))
+    monkeypatch.setattr(store, "load_control", lambda _conn: pytest.fail("replayed validated control"))
     monkeypatch.setattr(store, "load_cycle", lambda _conn, _id: ctx.cycle)
     monkeypatch.setattr(
         store, "record_authority_verdict",
@@ -2244,6 +2244,7 @@ def idle_attestation(monkeypatch):
     full_checks, lifecycle_checks, verdicts, blocked = [], [], [], []
     monkeypatch.setattr(automation_runtime, "_now_utc", lambda: state["now"])
     monkeypatch.setattr(store, "require_leader", lambda _c, permit: permit)
+    monkeypatch.setattr(store, "require_leader_with_control", lambda _c, permit: (permit, state["control"]))
     monkeypatch.setattr(store, "load_control", lambda _c: state["control"])
     monkeypatch.setattr(store, "load_cycle", lambda _c, _id: waiting)
     monkeypatch.setattr(store, "oldest_nonterminal_cycle", lambda _c: waiting)
@@ -2461,6 +2462,25 @@ async def test_idle_attestation_bounds_full_checks_without_refreshing_pass(idle_
     assert all(call == {"expected_sha256": CERTIFICATE}
                for call in item.lifecycle)
     assert item.runtime._idle_attestation[0] == NOW + timedelta(seconds=30)
+
+
+@async_test
+async def test_idle_cache_poll_uses_its_current_database_fence_once(idle_attestation, monkeypatch):
+    item = idle_attestation
+    await item.runtime.control_wake(item.conn)
+    item.conn.statements.clear()
+    item.state["now"] = NOW+timedelta(seconds=3)
+    checked = []
+    def control_read(conn):
+        checked.append(conn)
+        return item.state["control"]
+    monkeypatch.setattr(store, "load_control", control_read)
+    monkeypatch.setattr(store, "require_leader", lambda *_: pytest.fail("duplicated idle fence"))
+    await item.runtime.control_wake(item.conn)
+    assert checked == [item.conn] and len(item.full) == 1
+    assert any("c.generation=l.control_generation" in sql and "c.enabled" in sql
+        and "NOT c.kill_switch_engaged" in sql and "l.expires_at>clock_timestamp()" in sql
+        for sql, _ in item.conn.statements)
 
 
 @async_test

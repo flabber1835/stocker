@@ -208,7 +208,7 @@ def test_removing_retry_deadline_breaks_its_falsifier(monkeypatch):
 
 def test_retrying_all_errors_breaks_its_falsifier(monkeypatch):
     source = inspect.getsource(reader._retry_read)
-    source = source.replace('except retryable:', 'except Exception:')
+    source = source.replace('except retryable as error:', 'except Exception as error:')
     namespace = {}
     exec(compile(source, 'overbroad-lock-retry', 'exec'), vars(reader), namespace)
     monkeypatch.setattr(reader, '_retry_read', namespace['_retry_read'])

@@ -22,7 +22,7 @@ test.describe('Banner resource recovery', () => {
     const {body:gif}=assets.get(assetPath);
     expect(crypto.createHash('sha256').update(gif).digest('hex')).toBe(assetSha256);
     expect([gif.readUInt16LE(6),gif.readUInt16LE(8)]).toEqual([1086,362]);
-    const requests=[],pending=new Set(),sockets=new Set(),timers=new Set();
+    const requests=[],stillRequests=[],pending=new Set(),sockets=new Set(),timers=new Set();
     let held=hold;
     function image(response,body) {
       if (response.destroyed) return;
@@ -50,7 +50,7 @@ test.describe('Banner resource recovery', () => {
           response.once('close',()=>{clearTimeout(timer);timers.delete(timer);});
         } else image(response,gif);
       } else if (assets.has(url.pathname)) {
-        if (url.pathname===stillPath) requests.push({path:url.pathname,query:url.search,url:request.url});
+        if (url.pathname===stillPath) stillRequests.push(request.url);
         servePanelAsset(response,assets.get(url.pathname));
       } else if (url.pathname==='/') {
         response.writeHead(200,{'Content-Type':'text/html; charset=utf-8',
@@ -65,7 +65,7 @@ test.describe('Banner resource recovery', () => {
     server.on('connection',socket=>{sockets.add(socket);socket.once('close',()=>sockets.delete(socket));});
     await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
     const url=`http://127.0.0.1:${server.address().port}/`;
-    return {html,url,requests,
+    return {html,url,requests,stillRequests,
       async open(){await page.goto(url,{waitUntil:'domcontentloaded'});},
       async replace(){await page.evaluate(body=>{document.open();document.write(body);document.close();},html);},
       release(){held=false;for (const response of pending) image(response,gif);pending.clear();},
@@ -111,20 +111,20 @@ test.describe('Banner resource recovery', () => {
     let fixture;
     try {
       fixture=await bannerFixture(page);await fixture.open();
-      const original=page.locator('.brand noscript img');
+      const original=page.locator('.brand img[data-banner-src]');
       await expect.poll(()=>original.evaluate(image=>({complete:image.complete,
         width:image.naturalWidth,height:image.naturalHeight})))
         .toEqual({complete:true,width:1086,height:362});
       await expect(original).toBeVisible();
-      await expect(page.locator('.brand img[data-banner-src]')).toBeHidden();
+      await expect(original).toHaveCSS('filter','grayscale(1)');
       await expect(page.locator('.brand-fallback')).toBeHidden();
       await expect(page.locator('.brand img:visible')).toHaveCount(1);
       const box=await page.locator('.brand').boundingBox(),image=await original.boundingBox();
       await expect(page.locator('.brand')).toHaveCSS('border-top-width','0px');
       expect(box.height).toBeCloseTo(image.height,0);
       expect(box.width/box.height).toBeCloseTo(3,1);
-      expect(fixture.requests).toHaveLength(1);
-      expect(fixture.requests[0].url).toBe(stillPath);
+      expect(fixture.requests).toHaveLength(0);
+      expect(fixture.stillRequests).toEqual([stillPath]);
     } finally {
       if (fixture) await fixture.close();
       await context.close();
@@ -184,7 +184,7 @@ test.describe('Banner resource recovery', () => {
       await expect.poll(()=>fixture.requests.length).toBeGreaterThan(0);
       for (let replacement=0;replacement<2;replacement++) {
         expect(await page.locator('.brand img[data-banner-src]').evaluate(image=>image.complete)).toBe(false);
-        await expect(page.locator('.brand-fallback')).toBeHidden();
+        await expect(page.locator('.brand-fallback')).toBeVisible();
         await paintedFrames(page);
         expect(fixture.requests.every(request=>request.query==='')).toBe(true);
         await fixture.replace();

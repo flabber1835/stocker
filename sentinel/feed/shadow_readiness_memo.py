@@ -37,7 +37,7 @@ def _age_current(started, now):
             and all(0 <= end - start < SCRUB_SECONDS for start, end in zip(started, now)))
 
 
-def _witness(conn, pub):
+def _witness(conn, pub, *, financial_pin=False):
     from sentinel import operational_ddl_epoch
     from sentinel.feed import normalized_layout
 
@@ -47,7 +47,14 @@ def _witness(conn, pub):
         "s.system_identifier::text,d.oid::text,pg_postmaster_start_time()::text,"
         "floor(pg_snapshot_xmax(pg_current_snapshot())::text::numeric/4294967296)::bigint "
         "FROM pg_control_system() s JOIN pg_database d ON d.datname=current_database()").fetchone()
-    if db is None or db[:4] != ('repeatable read', 'on', 'origin', True):
+    if db is None or db[2:4] != ('origin', True):
+        return None
+    if financial_pin:
+        from sentinel.feed import readiness_scope
+        pin = readiness_scope.capture(conn)
+        if pin is None or pin.publication != digest(pub.to_dict()):
+            return None
+    elif db[:2] != ('repeatable read', 'on'):
         return None
     if not normalized_layout.available(conn):
         return None
@@ -94,7 +101,14 @@ def _witness(conn, pub):
         ''', (key['candidate_id'],)).fetchall()
     if len(evidence) != len(set(binding[2])) or len(blocks) != 2 * binding[1]:
         return None
-    return digest([db, ddl, physical, pub.to_dict(), binding, evidence, blocks,
+    native = db
+    if financial_pin:
+        from sentinel import prepared_opening_material
+        epoch = prepared_opening_material.version_epoch(conn, (binding[3], evidence, blocks))
+        if epoch is None:
+            return None
+        native = [db[2:], epoch]
+    return digest([native, ddl, physical, pub.to_dict(), binding, evidence, blocks,
                    os.environ.get('SENTINEL_GIT_COMMIT'), os.environ.get('SENTINEL_RUNTIME_IMAGE_DIGEST')])
 
 

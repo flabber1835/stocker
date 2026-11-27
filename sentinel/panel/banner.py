@@ -43,9 +43,11 @@ BANNER_SCRIPT = r"""
   }
   function sync() {
     var color = body.dataset.health;
+    var retained = color === 'blue' && ['amber', 'red'].includes(body.dataset.lastWarning);
+    if (retained) { color = body.dataset.lastWarning; }
     var known = ['green', 'amber', 'red'].includes(color);
     var disconnected = root.classList.contains('not-current');
-    var checking = root.classList.contains('checking-status') || body.dataset.refreshPending === 'true';
+    var checking = retained || root.classList.contains('checking-status') || body.dataset.refreshPending === 'true';
     // A stale green must lose its color. Retain dated warnings during a check.
     var unknown = !known || disconnected || (checking && color === 'green');
     var still = unknown || checking || motion.matches;
@@ -65,6 +67,7 @@ BANNER_SCRIPT = r"""
     if (image.getAttribute('src') !== state.url) {
       // Do not lend the previous color to a new status while its image decodes.
       image.hidden = true;
+      fallback.hidden = false;
       image.src = state.url;
     }
     loaded();
@@ -76,7 +79,7 @@ BANNER_SCRIPT = r"""
   if (motion.addEventListener) { motion.addEventListener('change', sync); }
   else if (motion.addListener) { motion.addListener(sync); }
   var update = new MutationObserver(sync);
-  update.observe(body, {attributes:true, attributeFilter:['data-health','data-refresh-pending']});
+  update.observe(body, {attributes:true, attributeFilter:['data-health','data-refresh-pending','data-last-warning']});
   update.observe(root, {attributes:true, attributeFilter:['class']});
   sync();
 })();

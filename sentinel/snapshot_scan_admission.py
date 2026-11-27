@@ -1,9 +1,34 @@
 """Database-local resource admission; no shared financial or readiness proof."""
 from contextlib import contextmanager
+from contextvars import ContextVar
+
+from psycopg.errors import LockNotAvailable
 
 # Distinct from corpus publication and account/strategy ownership namespaces.
 LOCK_KEY = 0x534E545343414E31
 WAIT_SECONDS = 120
+_background = ContextVar('discretionary_snapshot_scan', default=False)
+_background_owner = ContextVar('discretionary_snapshot_owner', default=None)
+
+
+class DiscretionaryScanDeferred(LockNotAvailable):
+    """Another native financial owner needs the shared snapshot resource."""
+
+
+@contextmanager
+def discretionary():
+    """Display verification can retry without reserving a financial reader's slot."""
+    token = _background.set(True)
+    try:
+        yield
+    finally:
+        _background.reset(token)
+
+
+def yield_if_contended(conn):
+    owner = _background_owner.get()
+    if owner is not None and owner is conn and occupied(conn):
+        raise DiscretionaryScanDeferred('display snapshot deferred to active financial work')
 
 
 def occupied(conn):
@@ -34,12 +59,23 @@ def admitted(conn, *, wait_seconds=WAIT_SECONDS):
         millis = str(max(1, int(wait_seconds*1000)))+'ms'
         conn.execute("SELECT set_config('statement_timeout',%s,true),"
                      "set_config('lock_timeout',%s,true)", (millis, millis))
-        conn.execute('SELECT pg_advisory_lock(%s)', (LOCK_KEY,)).fetchone()
-        acquired = True
+        if _background.get():
+            if occupied(conn):
+                raise DiscretionaryScanDeferred('display snapshot deferred to active financial work')
+            acquired = conn.execute('SELECT pg_try_advisory_lock(%s)', (LOCK_KEY,)).fetchone()[0]
+            if not acquired:
+                raise DiscretionaryScanDeferred('display snapshot admission busy')
+        else:
+            conn.execute('SELECT pg_advisory_lock(%s)', (LOCK_KEY,)).fetchone()
+            acquired = True
         # Session admission survives; timeout settings and the pre-wait snapshot
         # do not. The actual proof starts its fresh MVCC snapshot afterwards.
         conn.rollback()
-        yield
+        owner = _background_owner.set(conn if _background.get() else None)
+        try:
+            yield
+        finally:
+            _background_owner.reset(owner)
     except BaseException:
         failed = True
         raise

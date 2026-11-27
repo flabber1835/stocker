@@ -1,52 +1,62 @@
 {
   "modules": {
     "feed/normalized_layout.py": {
-      "after": "c71243a8621e0c90a3cbe1f3fe658b304a0ab20adbc245395bec6af1b7090206",
+      "after": "1f1cf9d9921dcbf856157079e1c3c121f8415de73072a4838ce3bb640b6c1f5b",
       "before": "5952fb94d212d55b9a8f52254c82f4589df34ed51254fbcdbf63f095f87d051a",
       "edits": [
         [
-          365,
-          379,
+          176,
+          200,
           ""
         ],
         [
-          380,
-          381,
+          283,
+          285,
+          ""
+        ],
+        [
+          391,
+          405,
+          ""
+        ],
+        [
+          406,
+          407,
           "    refs = conn.execute('SELECT kind,session,block_sha256 FROM sentinel_candidate_blocks '\n        'WHERE candidate_id=%s ORDER BY kind,session', (candidate_id,)).fetchall()\n"
         ],
         [
-          383,
-          384,
+          409,
+          410,
           "    _require_references(conn, refs, manifest)\n    references = [dict(kind=kind,session=str(day),block_sha256=sha) for kind,day,sha in refs]\n"
         ],
         [
-          394,
-          395,
+          420,
+          421,
           "    refs = conn.execute('SELECT kind,session,block_sha256 FROM sentinel_candidate_blocks WHERE candidate_id=%s ORDER BY kind,session', (candidate_id,)).fetchall()\n"
         ],
         [
-          398,
-          398,
+          424,
+          424,
           "    _require_references(conn, refs, manifest)\n"
         ],
         [
-          399,
-          400,
+          425,
+          426,
           "        references=[dict(kind=kind,session=str(day),block_sha256=sha) for kind,day,sha in refs])\n"
         ],
         [
-          404,
-          407,
+          430,
+          433,
           "def _require_references(conn, refs, manifest):\n    expected = [(kind,str(day)) for kind in ('BARS','BENCHMARKS') for day in manifest.window.sessions]\n    if [(kind,str(day)) for kind,day,_sha in refs] != expected:\n"
         ],
         [
-          408,
-          412,
+          434,
+          438,
           "    blocks = conn.execute('SELECT block_sha256,kind,session,normalization_version,calendar_version '\n        'FROM sentinel_normalized_blocks WHERE block_sha256=ANY(%s)',\n        ([sha for _kind,_day,sha in refs],)).fetchall()\n    headers = {sha:(kind,str(day),normalization,calendar) for sha,kind,day,normalization,calendar in blocks}\n    for kind,day,sha in refs:\n        if headers.get(sha) != (kind,str(day),manifest.normalization_version,manifest.calendar_version):\n"
         ],
         [
-          413,
-          415,
+          439,
+          441,
           ""
         ]
       ]
@@ -244,67 +254,67 @@
       ]
     },
     "paper/execution.py": {
-      "after": "cad6e006bff6462674b8e0420ea12c6210527a94f5fe33f71036a200db6573b7",
+      "after": "ed3a4ade1a01f6524a98a4c30bbfc6ee9c3b452802a946ff3cfdbdeb1c946f96",
       "before": "fa04225bb4e3537915f71671e4c59ef939a22ad0b6e9c765b25a413fa3779830",
       "edits": [
         [
           407,
-          409,
+          410,
           ""
         ],
         [
-          411,
           412,
+          413,
           "                                     candidate_key=None):\n"
         ],
         [
-          420,
           421,
+          422,
           "                        candidate_key=candidate_key)\n"
         ],
         [
-          434,
-          456,
+          435,
+          453,
           ""
         ],
         [
-          458,
-          459,
+          455,
+          456,
           "                settled_reconciliation, settled_account, sizing_funds = market_settled\n"
         ],
         [
-          501,
-          502,
+          498,
+          499,
           "            if retained_cohort:\n"
         ],
         [
-          716,
-          722,
+          713,
+          719,
           ""
         ],
         [
-          727,
-          736,
+          724,
+          733,
           "                            allow_restrictions=market_policy.fractional)\n                        funds = check_execution_cash(confirmed, cash, activity, observed_at, fee_wait=True)\n                        market_settled = (confirmed, cash, funds)\n"
         ],
         [
-          790,
-          791,
+          787,
+          788,
           "                def market_buy_window_open():\n"
         ],
         [
-          802,
-          803,
+          799,
+          800,
           ""
         ],
         [
-          805,
-          827,
+          802,
+          824,
           "                            <= clock() < cutoff)\n"
         ],
         [
-          845,
-          850,
+          842,
+          847,
           ""
         ]
       ]
@@ -327,6 +337,27 @@
           109,
           110,
           "            observation=confirmed_observation):\n"
+        ]
+      ]
+    },
+    "paper/targets.py": {
+      "after": "b3b8984021a480b52fdfe486ff969a4946430c635fa6724e0aa0c600ce6c8575",
+      "before": "c9cc815255be25de322f8e76a71013e0705902e7f5ccdc44ccb86fc905e22376",
+      "edits": [
+        [
+          577,
+          578,
+          ""
+        ],
+        [
+          606,
+          612,
+          ""
+        ],
+        [
+          614,
+          620,
+          "            resolved = await broker.resolve_instrument(\n                security_id=security_id, symbol=str(symbol))\n"
         ]
       ]
     },

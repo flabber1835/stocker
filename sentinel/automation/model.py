@@ -77,7 +77,7 @@ class ClosingDataPending(SourceDataPending):
     """Only the current closing frontier is awaiting its dedicated publisher."""
 
     def __init__(self, detail, *, retry_after_seconds=0, publisher_deadline_at=None,
-                 worker_deadline_at=None):
+                 worker_deadline_at=None, recheck_at=None):
         super().__init__(detail, retry_after_seconds=retry_after_seconds)
         if publisher_deadline_at is not None and (
                 not isinstance(publisher_deadline_at, datetime)
@@ -89,6 +89,10 @@ class ClosingDataPending(SourceDataPending):
                 or worker_deadline_at.utcoffset() is None):
             raise ValueError('worker deadline must be an aware datetime')
         self.worker_deadline_at = worker_deadline_at
+        if recheck_at is not None and (
+                not isinstance(recheck_at, datetime) or recheck_at.utcoffset() is None):
+            raise ValueError('closing recheck must be an aware datetime')
+        self.recheck_at = recheck_at
 
 
 class PermanentOperationalRefusal(AutomationRefused):

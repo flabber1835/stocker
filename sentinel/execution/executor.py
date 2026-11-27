@@ -51,7 +51,7 @@ from sentinel.execution import journal, reconcile as R, recovery, submission_gro
 from sentinel.execution.contract import Completeness, ExecutionBroker, Side
 from sentinel.execution.identity import (
     ALPACA_LIVE_BROKER, ALPACA_PAPER_BROKER, CommandIdentity, DeploymentIdentity)
-from sentinel.execution.guarded import BrokerAuthorityRefused
+from sentinel.execution.guarded import BrokerAuthorityRefused, GuardedExecutionBroker
 from sentinel.execution.plan import ExecutionPlan
 from sentinel.execution.target_reprojection import (
     TargetProjection, assert_projection)
@@ -1492,12 +1492,14 @@ async def _persist_and_send(conn, broker, command: C.Command, *,
             journal.save_command(conn, command)
         pending = recovery.prepare_send(command)
         journal.save_command(conn, pending, previous=command.state)
+        if type(broker) is GuardedExecutionBroker:
+            submission_group.checkpointed(command.client_key)
 
     try:
         settled = await recovery.dispatch(broker, pending)
     except Exception as exc:
         from sentinel.execution.guarded import (
-            GuardedExecutionBroker, InsufficientPurchaseCash,
+            InsufficientPurchaseCash,
             OrderEvidenceNotReady, PreTransportAuthorityRefused, PurchaseInstrumentUnavailable)
         if (type(broker) is GuardedExecutionBroker
                 and isinstance(exc, PreTransportAuthorityRefused)

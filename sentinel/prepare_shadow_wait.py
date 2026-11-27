@@ -26,6 +26,7 @@ class ShadowPreparationWait:
     observed_at: datetime
     deadline: datetime
     quiet_eligible: bool
+    recheck_at: datetime | None = None
 
 
 def _now():
@@ -80,7 +81,7 @@ def _candidate_precommit(conn, checkpoint, result, previous, *, wanted, closed, 
 
 
 def _observe_owned(conn, *, decision_session, observation_id, starting_cash,
-                   state_dir, database_url, now, clock=None):
+                   state_dir, database_url, now, clock=None, scheduling_only=False):
     clock = clock or (lambda: now)
     runtime.inputs.require_schemas(conn)
     wanted = str(decision_session)
@@ -99,6 +100,11 @@ def _observe_owned(conn, *, decision_session, observation_id, starting_cash,
     with runtime.inputs.pinned(conn) as pub:
         if not runtime.inputs.is_rolling(pub) or pub.window_end != wanted:
             return None
+        if scheduling_only:
+            wait = _just_published(conn, pub, latest, wanted=wanted, state_dir=state_dir,
+                database_url=database_url, closed=closed, opened=opened, clock=clock)
+            if wait is not None:
+                return wait
         context = runtime.initial._context(observation_id, starting_cash)
         checkpoint, _, result, attested, previous = runtime._closure(conn, context, status_only=True)
         if latest != (attested if attested is not None else previous):
@@ -106,6 +112,49 @@ def _observe_owned(conn, *, decision_session, observation_id, starting_cash,
         return _from_closure(conn, pub, checkpoint, result, attested, previous,
             wanted=wanted, state_dir=state_dir, database_url=database_url,
             closed=closed, opened=opened, now=now, clock=clock)
+
+
+def _just_published(conn, pub, latest, *, wanted, state_dir, database_url, closed, opened, clock):
+    """Schedule a retry while the publisher's direct successor awaits its first checkpoint."""
+    binding = pub.evidence.get('rolling_snapshot')
+    if (not isinstance(binding, dict) or binding.get('schema') != runtime.snapshots.SCHEMA
+            or pub.previous_version is None or pub.version != pub.previous_version + 1):
+        return None
+    # The pinned current receipt authenticates its chain. Match the signed
+    # predecessor and the cursor date without fetching the large checkpoint.
+    row = conn.execute("""
+        SELECT p.version,p.previous_version,p.run_id,p.window_start,p.window_end,p.evidence,
+               head.published_at,c.session
+        FROM sentinel_corpus_publications head
+        JOIN sentinel_corpus_publications p ON p.version=head.previous_version
+        JOIN sentinel_operational_snapshots b ON b.publication_version=head.version
+          AND b.job_id::text=head.evidence->'rolling_snapshot'->>'job_id'
+          AND b.candidate_id::text=head.evidence->'rolling_snapshot'->>'candidate_id'
+          AND b.validation_sha256=head.evidence->'rolling_snapshot'->>'validation_sha256'
+        JOIN sentinel_processed_sessions c ON c.cursor_name=%s
+        WHERE head.version=%s""", (runtime.checkpoints.CURSOR, pub.version)).fetchone()
+    if row is None or str(row[7]) != latest.session or str(row[4]) != latest.session:
+        return None
+    prior = runtime.publication.Publication(int(row[0]), row[1], str(row[2]) if row[2] else None,
+        str(row[3]), str(row[4]), row[5])
+    published_at = _instant(row[6])
+    bounded_until = published_at + close_observation.MAX_PUBLICATION_WAIT
+    now = _instant(clock())
+    if (prior.version != pub.previous_version or runtime.digest(prior.to_dict()) != latest.publication_sha256
+            or not closed <= published_at <= now < min(bounded_until, opened)):
+        return None
+    publisher_deadline = _published_job(conn, pub, binding, closed=closed, now=now)
+    try:
+        _, heartbeat, worker_deadline = _worker_evidence(state_dir, database_url, closed=closed, now=clock)
+    except (ValueError, TypeError, KeyError, OSError):
+        return None
+    completed = _instant(clock())
+    deadline = min(bounded_until, publisher_deadline, worker_deadline, opened)
+    if not published_at <= heartbeat <= completed < deadline or completed < now:
+        return None
+    return ShadowPreparationWait(wanted, latest.session, pub.version, prior.version,
+        latest.record_sha256, 'AWAITING_SHADOW', publisher_deadline, worker_deadline,
+        completed, deadline-timedelta(microseconds=1), True, recheck_at=deadline)
 
 
 def _from_closure(conn, pub, checkpoint, result, attested, previous, *,
@@ -195,7 +244,7 @@ def observe_status_handoff(conn, pub, checkpoint, result, attested, previous, *,
 
 
 def observe(conn, *, decision_session, observation_id, starting_cash,
-            state_dir, database_url, now=None):
+            state_dir, database_url, now=None, scheduling_only=False):
     """Return only positive bounded waiting evidence; unreadable proof grants none."""
     try:
         clock = _now if now is None else (lambda: now)
@@ -203,7 +252,8 @@ def observe(conn, *, decision_session, observation_id, starting_cash,
         with committed_read.proof_connection(conn) as proof:
             return _observe_owned(proof, decision_session=decision_session,
                 observation_id=observation_id, starting_cash=starting_cash,
-                state_dir=state_dir, database_url=database_url, now=instant, clock=clock)
+                state_dir=state_dir, database_url=database_url, now=instant, clock=clock,
+                scheduling_only=scheduling_only)
     except Exception:
         # The caller continues through unchanged strict financial status.
         return None

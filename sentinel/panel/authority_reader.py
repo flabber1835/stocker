@@ -41,22 +41,27 @@ def retry_observation_read(operation, *, clock=time.monotonic, sleep=time.sleep)
 
 
 def _retry_read(operation, retryable, *, clock, sleep):
+    from sentinel.snapshot_scan_admission import DiscretionaryScanDeferred, WAIT_SECONDS
     work_deadline = clock() + DEADLINE_SECONDS
-    retry_deadline = None
+    retry_deadline = work_deadline
     while True:
         try:
             result = operation()
             if clock() >= work_deadline:
                 raise TimeoutError('financial observation work deadline expired')
             return result
-        except retryable:
+        except retryable as error:
             now = clock()
-            if retry_deadline is None:
-                retry_deadline = min(work_deadline, now + CORPUS_LOCK_RETRY_SECONDS)
+            # Keep the native admission budget while giving up the lock and
+            # transaction between attempts. An ordinary SQL refusal retains
+            # its own shorter window, including after a discretionary yield.
+            wait = WAIT_SECONDS if isinstance(error, DiscretionaryScanDeferred) else CORPUS_LOCK_RETRY_SECONDS
+            retry_deadline = min(retry_deadline, now + wait)
             remaining = retry_deadline - now
             if remaining <= 0:
                 raise
-            sleep(min(CORPUS_LOCK_POLL_SECONDS, remaining))
+            poll = 3.0 if isinstance(error, DiscretionaryScanDeferred) else CORPUS_LOCK_POLL_SECONDS
+            sleep(min(poll, remaining))
             if clock() >= retry_deadline:
                 raise
 

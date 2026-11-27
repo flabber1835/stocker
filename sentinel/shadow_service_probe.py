@@ -55,7 +55,7 @@ def observe(state_dir: Path):
     if critical.exists():
         return {'critical': True, 'pending': None, 'status': None, 'latest_pending': None}
     pending = optional(state_dir/'shadow-supervisor-pending.json')
-    value = raw(state_dir/'shadow-service-status.json')
+    value = optional(state_dir/'shadow-service-status.json')
     if critical.exists():
         return {'critical': True, 'pending': None, 'status': None, 'latest_pending': None}
     latest = optional(state_dir/'shadow-supervisor-pending.json')
@@ -137,7 +137,7 @@ def _decode_frame(frame):
                 raise ValueError('worker snapshot blob exceeds its bound')
         result[key] = blob
     if (result['critical'] and any(result[key] is not None for key in _BLOBS)
-            or not result['critical'] and result['status'] is None):
+            or result['status'] is None and any(result[key] is not None for key in ('pending', 'latest_pending'))):
         raise ValueError('worker snapshot frame is inconsistent')
     return result
 

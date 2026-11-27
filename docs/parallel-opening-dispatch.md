@@ -7,6 +7,29 @@ stable command key remains the recovery identity for the lifetime of the order.
 Allocation follows the approved plan order. Fixed-share market buys continue
 to use fresh individual funding evidence and quotes.
 
+Alpaca's ordinary order list contains working orders. A reserved purchase
+can fill before the prior worker records its broker acknowledgement. If a
+previously sent member is absent from the working list, read its exact
+client ID and match its native order terms, filled shares and cash. A pending
+request in the active group may still be absent at the broker. Its full
+allocation stays charged and its original command remains pending. A mismatch
+between reads that straddle settlement earns one fresh account and book check.
+An unexplained change still stops new submissions.
+
+For a group of named PAPER instruments or order keys, the guarded reader may
+bracket a bounded batch of identical GET operations with a single current
+authority check on each side. It verifies each result against its requested
+identity and refuses a changed account. Each batch finishes before its result
+is used. The financial writer serializes cash ingestion and journal changes.
+Within that writer callback, a matched fully filled order supplies its original
+identity and terms to subsequent checks. Every such check still reads the
+current native fills, open orders, positions and cash. A reopened order,
+corrected quantity, conflicting cash movement or changed account withdraws
+the proof. A new callback starts with no retained native order facts.
+Independent instrument and exchange-clock reads can proceed while a sibling
+is awaiting a network response. Each order still receives its own mutation
+check and its original, single-use deadline check at the native request.
+
 One writer prepares and checkpoints commands. Up to four independent requests
 may await a broker response together. Each starts only after its own committed
 SEND_PENDING checkpoint. Its worker owns its single-use pretransport proof,

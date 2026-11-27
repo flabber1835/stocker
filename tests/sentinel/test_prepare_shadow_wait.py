@@ -6,6 +6,7 @@ import inspect
 import json
 from functools import partial
 from types import SimpleNamespace
+from uuid import UUID
 
 import pytest
 from psycopg.errors import QueryCanceled
@@ -16,6 +17,7 @@ from sentinel.automation.model import ClosingDataPending, SourceDataPending, Non
 from sentinel.feed import calendar, publication
 from sentinel.feed.rolling_contract import PriceWindow, digest
 from sentinel.feed.rolling_jobs import PreparationRequest
+from tests.sentinel.test_rolling_snapshot_publisher import pg  # noqa: F401
 
 
 NOW = datetime(2026, 10, 27, 20, 40, tzinfo=timezone.utc)
@@ -115,11 +117,76 @@ def observe(facts, *, now=NOW):
         starting_cash=50000, state_dir='/private-state', database_url=DSN, now=now)
 
 
+@pytest.mark.parametrize('condition', ['current', 'expired', 'stale_worker', 'changed_receipt',
+    'changed_cursor', 'already_attested', 'missing_binding'])
+def test_scheduler_wait_is_cheap_only_for_fresh_exact_published_successor(facts, monkeypatch, condition):
+    published = NOW - (timedelta(minutes=3) if condition == 'expired' else timedelta(seconds=10))
+    old = facts.old
+    prior_row = (old.version, old.previous_version, old.run_id, old.window_start, old.window_end,
+        old.evidence, published, '2026-10-27' if condition == 'changed_cursor' else old.window_end)
+    facts.pub.evidence['rolling_snapshot'] = {**facts.binding, 'schema': waiting.runtime.snapshots.SCHEMA}
+    if condition == 'changed_receipt':
+        facts.authorities = [facts.authority.model_copy(update={'publication_sha256': '9'*64})]
+    if condition == 'already_attested':
+        facts.authorities = [facts.authority.model_copy(update={'session': '2026-10-27'})]
+    original = facts.owned.fetchone
+    def fetchone():
+        if 'JOIN sentinel_operational_snapshots' in facts.owned.queries[-1][0]:
+            return None if condition == 'missing_binding' else prior_row
+        return original()
+    monkeypatch.setattr(facts.owned, 'fetchone', fetchone)
+    heartbeat = published - timedelta(seconds=1) if condition == 'stale_worker' else NOW
+    monkeypatch.setattr(waiting, '_worker_evidence', lambda *a, **kw: (CLOSE, heartbeat, WORKER_END))
+    result = waiting.observe(facts.caller, decision_session='2026-10-27', observation_id='primary',
+        starting_cash=50000, state_dir='/private-state', database_url=DSN, now=NOW, scheduling_only=True)
+    if condition == 'current':
+        assert 'authenticated-closure' not in facts.calls
+        assert result.phase == 'AWAITING_SHADOW' and result.quiet_eligible
+        assert result.publisher_deadline == PUBLISHER_END
+        assert result.recheck_at == published + timedelta(seconds=180)
+    elif condition == 'already_attested':
+        assert result is None and 'authenticated-closure' not in facts.calls
+    else:
+        assert facts.calls.count('authenticated-closure') == 1
+
+
 def candidate(facts):
     facts.checkpoint = SimpleNamespace(session='2026-10-27', publication=facts.pub.to_dict(), snapshot=facts.binding)
     facts.result = SimpleNamespace(session='2026-10-27', state=SimpleNamespace(last_processed_session='2026-10-27'),
         record_sha256='b' * 64)
     facts.attested, facts.previous = None, facts.authority
+
+
+def test_scheduler_hint_requires_real_database_candidate_binding(pg, facts, monkeypatch):
+    import psycopg
+    from psycopg.types.json import Jsonb
+    job, candidate_id = UUID(int=1), UUID(int=2)
+    bound = dict(job_id=str(job), candidate_id=str(candidate_id), validation_sha256='3'*64,
+        schema=waiting.runtime.snapshots.SCHEMA)
+    facts.job.update(job_id=str(job), candidate_id=str(candidate_id))
+    facts.pub.evidence['rolling_snapshot'] = bound
+    monkeypatch.setattr(waiting, '_worker_evidence', lambda *a, **kw: (CLOSE, NOW, WORKER_END))
+    with psycopg.connect(pg.sync_dsn) as conn:
+        conn.execute("""CREATE TEMP TABLE sentinel_corpus_publications(version bigint PRIMARY KEY,
+            previous_version bigint, run_id uuid, window_start date, window_end date,
+            evidence jsonb, published_at timestamptz)""")
+        conn.execute("""CREATE TEMP TABLE sentinel_operational_snapshots(publication_version bigint PRIMARY KEY,
+            job_id uuid, candidate_id uuid, validation_sha256 text)""")
+        conn.execute('CREATE TEMP TABLE sentinel_processed_sessions(cursor_name text PRIMARY KEY, session date)')
+        for pub in [facts.old, facts.pub]:
+            conn.execute('INSERT INTO sentinel_corpus_publications VALUES (%s,%s,%s,%s,%s,%s,%s)',
+                (pub.version,pub.previous_version,pub.run_id,pub.window_start,pub.window_end,
+                 Jsonb(pub.evidence),NOW-timedelta(seconds=5)))
+        conn.execute('INSERT INTO sentinel_operational_snapshots VALUES (8,%s,%s,%s)', (job,candidate_id,'3'*64))
+        conn.execute('INSERT INTO sentinel_processed_sessions VALUES (%s,%s)',
+            (waiting.runtime.checkpoints.CURSOR,facts.old.window_end))
+        def wait():
+            return waiting._just_published(conn, facts.pub, facts.authority, wanted=facts.pub.window_end,
+                state_dir='/private-state', database_url=DSN, closed=CLOSE, opened=NOW+timedelta(hours=15),
+                clock=lambda: NOW)
+        assert wait().quiet_eligible
+        conn.execute("UPDATE sentinel_operational_snapshots SET candidate_id=%s", (UUID(int=3),))
+        assert wait() is None
 
 
 @pytest.mark.parametrize('phase', ['AWAITING_SHADOW', 'AWAITING_ATTESTATION'])
@@ -456,7 +523,8 @@ def test_actual_refresh_waits_with_separate_clocks_or_keeps_original_refusal(mon
     monkeypatch.setattr(automation_runtime.feed_inputs, 'is_rolling', lambda *_args: True)
     monkeypatch.setattr(automation_runtime.feed_inputs, 'require_shadow_mode', lambda *_args: None)
     monkeypatch.setattr(waiting, 'observe', lambda *_args, **_kwargs: None if quiet is None else
-        SimpleNamespace(quiet_eligible=quiet, publisher_deadline=PUBLISHER_END, worker_deadline=WORKER_END))
+        SimpleNamespace(quiet_eligible=quiet, publisher_deadline=PUBLISHER_END, worker_deadline=WORKER_END,
+            recheck_at=NOW+timedelta(seconds=10)))
     def refused(*_args, **_kwargs):
         refusal = trading.TradingGatewayRefused if live else dual_reconciliation.DualReconciliationRefused
         raise refusal('original strict publication refusal')
@@ -469,6 +537,7 @@ def test_actual_refresh_waits_with_separate_clocks_or_keeps_original_refusal(mon
         assert type(failure.value) is ClosingDataPending
         assert failure.value.publisher_deadline_at == PUBLISHER_END
         assert failure.value.worker_deadline_at == WORKER_END
+        assert failure.value.recheck_at == NOW+timedelta(seconds=10)
     elif quiet is False:
         assert type(failure.value) is SourceDataPending
     assert closed == [True]

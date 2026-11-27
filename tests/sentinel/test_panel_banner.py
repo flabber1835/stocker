@@ -31,6 +31,16 @@ def test_banner_resource_lifecycle(case):
     assert json.loads(result.stdout)['passed'] is True
 
 
+@pytest.mark.parametrize('previous', ['amber', 'red'])
+def test_partial_refresh_keeps_the_dated_warning_sign_without_animating_it(previous):
+    result = execute('selection', health='blue', lastWarning=previous)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {'src': f'/static/caesars-status-{previous}-still.gif',
+                                        'unknown': False}
+    offline = execute('selection', health='blue', lastWarning=previous, browserState='not-current')
+    assert json.loads(offline.stdout)['unknown'] is True
+
+
 @pytest.mark.parametrize('guard,case,reason', [
     ('if (!image.complete || image.naturalWidth !== 0)', 'pending',
      'pending image identity changed'),

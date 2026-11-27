@@ -174,6 +174,30 @@ _PREDECESSOR_POINT = (
     'SELECT session,close_signal,close_unadjusted FROM sentinel_snapshot_bars '
     'WHERE candidate_id=%s AND security_id=%s AND session<%s ORDER BY session DESC LIMIT 1')
 
+# The canonical reader supplies parallel arrays of exact (security, session)
+# coordinates. On packed storage a hash join over the logical view can expand
+# the entire history before applying those coordinates.
+_ANCHOR_POINTS = (
+    'SELECT b.security_id,b.session,b.ticker,b.close_unadjusted,b.close_signal '
+    'FROM unnest(%s::text[],%s::date[]) AS a(security_id,session) '
+    'JOIN sentinel_snapshot_bars b ON b.security_id=a.security_id '
+    'AND b.session=a.session WHERE b.candidate_id=%s')
+
+_ANCHOR_BLOCKS = """
+    WITH requested AS (
+        SELECT session, array_agg(security_id) AS securities
+        FROM unnest(%s::text[],%s::date[]) AS a(security_id,session)
+        GROUP BY session
+    )
+    SELECT b.security_id,b.session,b.ticker,b.close_unadjusted,b.close_signal
+    FROM requested a
+    CROSS JOIN LATERAL (
+        SELECT security_id,session,ticker,close_unadjusted,close_signal
+        FROM sentinel_candidate_bars
+        WHERE candidate_id=%s AND session=a.session AND security_id=ANY(a.securities)
+        OFFSET 0
+    ) b"""
+
 _ORDERED_PREDECESSOR = """WITH args AS MATERIALIZED (
  SELECT %s::uuid AS candidate_id,%s::text AS security_id,%s::date AS session)
 SELECT session,close_signal,close_unadjusted FROM (
@@ -257,6 +281,8 @@ def query_router(conn):
     def route(statement):
         if shared and statement == _PREDECESSOR_POINT:
             return _ORDERED_PREDECESSOR
+        if shared and statement == _ANCHOR_POINTS:
+            return _ANCHOR_BLOCKS
         return read_contract.route(statement,shared=shared)
     return route
 

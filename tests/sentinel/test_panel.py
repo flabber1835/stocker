@@ -1577,9 +1577,7 @@ class TestReviewedDualAuthority:
         brand.feed(html)
         assert brand.images == [
             (False, {'data-banner-src': '/static/caesars-status-green.gif',
-                     'width': '1086', 'height': '362',
-                     'alt': "Caesar's Palace", 'hidden': None}),
-            (True, {'class': 'unknown-sign', 'src': '/static/caesars-status-green-still.gif',
+                    'class': 'unknown-sign', 'src': '/static/caesars-status-green-still.gif',
                     'width': '1086', 'height': '362',
                     'alt': "Caesar's Palace"}),
         ]
