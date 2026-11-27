@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
@@ -30,11 +32,17 @@ class _Cursor:
         elif statement.startswith("SELECT plan_id,decision_session"):
             self.rows = [("plan-current", "2026-08-25", "alpaca",
                           "paper-account")]
-        elif statement.startswith("SELECT cursor_name,state"):
+        elif statement.startswith(("SELECT cursor_name,state", "SELECT cursor_name, state")):
             self.rows = []  # No prospective cash-retirement rows in this legacy fixture.
         elif statement.startswith("SELECT cursor_name,session,state"):
-            assert _params == (["broker-cash-plan:v1:plan-current"],)
-            self.rows = [("broker-cash-plan:v1:plan-current", "2026-08-25", {})]
+            if isinstance(_params[0], str) and _params[0].startswith("alpaca-in-kind-event:v1:"):
+                self.rows = []
+            else:
+                assert _params == (["broker-cash-plan:v1:plan-current"],)
+                self.rows = [("broker-cash-plan:v1:plan-current", "2026-08-25", {})]
+        elif statement.startswith(("SELECT EXISTS (SELECT 1 FROM sentinel_processed_sessions",
+                                   "SELECT EXISTS(SELECT 1 FROM sentinel_processed_sessions")):
+            self.rows = [(False,)]
         elif statement.startswith("SELECT cursor_name"):
             self.rows = [("broker-cash-plan:v1:plan-current",)]
             if self.conn.retirement_present:
@@ -59,6 +67,11 @@ class _Connection:
 
     def cursor(self):
         return _Cursor(self)
+
+    def execute(self, statement, parameters=None):
+        cursor = self.cursor()
+        cursor.execute(statement, parameters)
+        return cursor
 
     def commit(self):
         self.commits += 1
@@ -118,7 +131,10 @@ def test_restore_validator_reconstructs_every_durable_chain(monkeypatch, retirem
         lambda _c: SimpleNamespace(isoformat=lambda: "2026-08-25T12:00:00+00:00"))
     monkeypatch.setattr(
         restore_validation.broker_cash, "load_activity_state",
-        lambda *_args, **_kwargs: SimpleNamespace(membership_root=None))
+        lambda *_args, **_kwargs: restore_validation.broker_cash.CashActivityState(
+            broker="alpaca", account_id="paper-account",
+            processed_through=datetime.fromisoformat("2026-08-25T12:00:00+00:00"),
+            last_activity_id=None, balance_total=Decimal(0)))
     monkeypatch.setattr(
         restore_validation.broker_cash, "decode_plan_baseline",
         lambda *_args, **_kwargs: SimpleNamespace(
