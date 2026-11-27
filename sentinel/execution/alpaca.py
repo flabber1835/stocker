@@ -2123,17 +2123,22 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
                 for event in events:
                     kind = str(event["details"].get("execution_type") or "").strip().lower()
                     if str(event.get("previous_id") or "").strip() or kind in {"trade_correct", "trade_bust"}:
+                        parse_failure = None
                         if (trade_amendments is not None and self.financial_activity_sse
                                 and event.get("activity_type") == "TRD"
                                 and kind in {"trade_correct", "trade_bust"}):
                             from sentinel.execution.alpaca_trade_amendments import parse
-                            trade_amendments.append(parse(event, account_uuid=account_uuid))
-                            continue
+                            try:
+                                trade_amendments.append(parse(event, account_uuid=account_uuid))
+                            except MalformedBrokerPayload as exc:
+                                parse_failure = exc
+                            else:
+                                continue
                         identity = contract.BrokerAccountIdentity(account.broker, account.account_id, {"id": account_uuid})
                         raise ActivityCorrectionRequiresRecovery(
                             "Activity SSE reported a correction/bust; cash/fill "
                             "authority is fenced until the prior ref_id is reversed",
-                            raw_event=event, account_identity=identity)
+                            raw_event=event, account_identity=identity) from parse_failure
             return events
 
         # Timestamp filters establish only a *bounded snapshot*. They are
