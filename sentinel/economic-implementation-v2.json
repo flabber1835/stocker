@@ -1239,7 +1239,7 @@
     "stock_strategy_shared.wealth_core": "fd8bed82bbb9d18481f7422216933a6b5a85066688c770ebad7dbfe1a6abe2fa",
     "stock_strategy_shared.wealth_core.sharadar_domains": "4bebd224c7597913280dc731fcd04db10102f6b85250e8d74003754b53b550ba"
   },
-  "module_sha256":"8ee61e07ad25e7c5f5f7e4e9b065db9141a96a2c6024591ec2f01f9d723daaba",
+  "module_sha256":"ca40d90beb04a7633e3bd11c5a8028debd112fe3dc4f06539bd71cd8a81b570d",
   "operational_ports": {
     "sentinel.backup_runtime_authority": "RECOVERY",
     "sentinel.binding": "EXECUTION_ONLY",

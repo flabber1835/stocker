@@ -32,6 +32,11 @@ def predecessor(module, raw):
 
 
 def _before_sealed_read(module, raw):
+    if module == 'sentinel.feed.operational_snapshot' and b'checkpoint_lineage_access.has_lineage(conn)' in raw:
+        assert _sha(raw) == '67deeca19f7a0c1bede2698bcfc4312b26d0ce6edfa0a645f84381bdc241df2f'
+        raw = raw.replace(b'from sentinel import checkpoint_lineage_access, rolling_checkpoint\n',
+                          b'from sentinel import rolling_checkpoint\n', 1).replace(
+            b'not checkpoint_lineage_access.has_lineage(conn):\n', b'not rolling_checkpoint.lineage_names(conn):\n', 1)
     pins = {
         'sentinel.feed.operational_snapshot': ('a2006149cd4448ce456f39e499720564e08ac2c9c6e38d783bf12f99a9d638dc',
             '758282bc0bab1bc0692283fda7b6069c51a0eb2affb614be650396927ac26ca9'),

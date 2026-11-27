@@ -82,7 +82,7 @@ def enqueue(conn, *, strategy_sha256, dependencies_sha256, budget_seconds=3600,
 
 
 def acquisition_window(conn, strategy_sha256):
-    from sentinel import rolling_checkpoint
+    from sentinel import checkpoint_lineage_access, rolling_checkpoint
     from sentinel.strategy import production_strategy
     _, strategy = production_strategy()
     if strategy_sha256 == digest(strategy):
@@ -92,7 +92,7 @@ def acquisition_window(conn, strategy_sha256):
         with conn.cursor() as cur:
             cur.execute("SELECT to_regclass('sentinel_processed_sessions')")
             installed = cur.fetchone()[0]
-        if installed and not rolling_checkpoint.lineage_names(conn):
+        if installed and not checkpoint_lineage_access.has_lineage(conn):
             rolling_checkpoint.require_fresh(conn)
             from sentinel.feed.rolling_contract import CurrentFormationWindow
             cls = CurrentFormationWindow if formed(strategy) else FormationWindow

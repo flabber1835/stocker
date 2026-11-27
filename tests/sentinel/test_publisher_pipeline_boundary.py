@@ -311,9 +311,18 @@ def test_snapshot_identity_changes_only_for_its_exact_prepublication_guard(monke
     monkeypatch.setattr(Path, 'read_bytes', lambda p: changed if p == path else read(p))
     assert semantics.economic_sources([name], schema='snapshot-proof')['files'] == [
         {'module': name, 'sha256': hashlib.sha256(changed).hexdigest()}]
+    with pytest.raises(economic_manifest.EconomicManifestRefused, match='CLOSE_LINEAGE_PREDECESSOR_CHANGED'):
+        economic_manifest.identity(schema='snapshot-proof')
+    monkeypatch.setattr(Path, 'read_bytes', read)
+    raw_module = economic_manifest._module_raw
+    previous = economic_manifest._before_broker_reads({key: raw_module(key) for key in economic_manifest._BROKER_READ_BASE})
+    changed = previous[name].replace(checked, b'    pass\n')
+    assert changed != previous[name]
+    monkeypatch.setattr(economic_manifest, '_module_raw', lambda member: changed if member == name
+                        else previous.get(member) or raw_module(member))
     live = economic_manifest.identity(schema='snapshot-proof')
     assert {'module': name, 'sha256': hashlib.sha256(changed).hexdigest()} in live['files']
-    assert live['sha256'] != economic_manifest.PREDECESSOR_DATA_SEMANTICS_SHA256
+    assert live['sha256'] != alpaca_coverage.CURRENT_DATA_SEMANTICS
 
 
 @pytest.mark.parametrize('name', economic_manifest.CLOSE_READINESS_COMPILERS)
@@ -322,8 +331,15 @@ def test_close_readiness_identity_requires_all_reviewed_compiler_bytes(monkeypat
     assert before['sha256'] == before['implementation_sha256']
     assert before['economic_implementation']['preserved_behavior'] is False
     read = economic_manifest._module_raw
+    previous = economic_manifest._before_broker_reads({key: read(key) for key in economic_manifest._BROKER_READ_BASE})
     changed = read(name) + b'\n# unreviewed compiler bytes\n'
     monkeypatch.setattr(economic_manifest, '_module_raw', lambda module: changed if module == name else read(module))
+    if name in economic_manifest._BROKER_READ_BASE:
+        with pytest.raises(economic_manifest.EconomicManifestRefused, match='PREDECESSOR_CHANGED'):
+            economic_manifest.identity(schema='close-readiness')
+        changed = previous[name] + b'\n# unreviewed compiler bytes\n'
+        monkeypatch.setattr(economic_manifest, '_module_raw', lambda member: changed if member == name
+                            else previous.get(member) or read(member))
     live = economic_manifest.identity(schema='close-readiness')
     assert {'module': name, 'sha256': hashlib.sha256(changed).hexdigest()} in live['files']
     assert live['sha256'] != before['sha256']
@@ -444,7 +460,12 @@ def test_state_only_recovery_snapshot_identity_has_exact_predecessor(monkeypatch
     assert hashlib.sha256(predecessor).hexdigest() == (
         economic_manifest.SNAPSHOT_RECOVERY_PREDECESSOR_SHA256)
 
-    read = Path.read_bytes
+    raw_read = Path.read_bytes
+    store_path = path.with_name('rolling_store.py')
+    sealed_predecessor = alpaca_coverage._before_sealed_read('sentinel.feed.rolling_store', raw_read(store_path))
+    def read(candidate):
+        return sealed_predecessor if candidate == store_path else raw_read(candidate)
+    monkeypatch.setattr(Path, 'read_bytes', read)
     with monkeypatch.context() as change:
         change.setattr(Path, 'read_bytes',
                        lambda candidate: current if candidate == path else read(candidate))

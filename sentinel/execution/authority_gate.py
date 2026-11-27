@@ -10,7 +10,7 @@ from __future__ import annotations
 from sentinel.execution import feed_inputs
 
 import hashlib
-from contextlib import closing
+from contextlib import ExitStack, closing, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Mapping, Protocol
@@ -346,6 +346,26 @@ def _result_account(result: object) -> BrokerAccountIdentity | None:
     return accounts[0] if len(accounts) == 1 else None
 
 
+@contextmanager
+def _read_only_proof(conn, *, resume_evidence):
+    # Verifiers may end a transaction internally. The default protects their
+    # subsequent transactions on this exclusively owned session as well.
+    with guard_phase('read_only_setup'), conn.cursor() as cur:
+        if resume_evidence:
+            cur.execute('SHOW default_transaction_read_only')
+            original = cur.fetchone()[0]
+        cur.execute('SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY')
+    conn.commit()
+    try:
+        yield
+    finally:
+        if resume_evidence:
+            conn.rollback()
+            with conn.cursor() as cur:
+                cur.execute("SELECT set_config('default_transaction_read_only', %s, false)", (original,))
+            conn.commit()
+
+
 def build_fresh_execution_check(
         *, connection_factory: ConnectionFactory, paper_base_url: str,
         runtime_identity: IdentityProvider,
@@ -390,21 +410,14 @@ def build_fresh_execution_check(
             assert_paper_url(paper_base_url)
         with guard_phase("connection_setup"):
             connection = connection_factory()
-        read_grant = (grant if not live and not publish_operational_evidence and bind_strategy_to_grant
-                      and isinstance(grant, AutomationExecutionGrant) and grant.operation_scope == 'EXECUTE'
-                      and operation in _READ_OPERATIONS else None)
-        with closing(connection) as conn, material.enter(read_grant):
-            if not publish_operational_evidence:
-                # This separate authority reader must never contend with its
-                # caller's financial transaction through diagnostic triggers.
-                with guard_phase("read_only_setup"):
-                    with conn.cursor() as cur:
-                        cur.execute('SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY')
-                    # Some authority readers finish their own proof transaction.
-                    # Bind the connection default so those rollbacks cannot turn a
-                    # later check back into a writer. This connection owns no
-                    # financial work from the caller.
-                    conn.commit()
+        opening_read = (isinstance(grant, AutomationExecutionGrant) and grant.operation_scope == 'EXECUTE'
+                        and operation in _READ_OPERATIONS)
+        live_read = live and opening_read
+        paper_read = not publish_operational_evidence and bind_strategy_to_grant and opening_read
+        with closing(connection) as conn, ExitStack() as proof:
+            if live_read or not publish_operational_evidence:
+                proof.enter_context(_read_only_proof(conn, resume_evidence=live_read))
+            proof.enter_context(material.enter(grant if live_read or paper_read else None))
             backup_proof = None
             evidence_written = False
             try:
@@ -496,6 +509,7 @@ def build_fresh_execution_check(
                                 "grant")
                         if live and account.broker != "alpaca-live":
                             raise AuthorityRefused("LIVE result has a different broker namespace")
+                    proof.close()
                     if publish_operational_evidence and isinstance(result, BrokerAccountSnapshot):
                         operational_evidence.record_account_snapshot(conn, result)
                         evidence_written = True
@@ -505,6 +519,7 @@ def build_fresh_execution_check(
                             conn, kind="RUNTIME_CHAIN", proof=backup_proof)
                         evidence_written = True
             except Exception as exc:                          # noqa: BLE001
+                proof.close()
                 if publish_operational_evidence and isinstance(grant, AutomationExecutionGrant):
                     from sentinel.automation import store as automation_store
                     try:

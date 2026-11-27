@@ -26,13 +26,36 @@ def test_exact_read_source_transition_rejects_substitutions(monkeypatch):
         economic._before_broker_reads(originals)
 
 
+def test_close_lineage_source_cannot_drop_its_canonical_fallback(monkeypatch):
+    from sentinel import economic_manifest as economic
+    sources = {module: economic._module_raw(module) for module in economic._BROKER_READ_BASE}
+    canonical = economic._module_raw
+    owner = 'sentinel.checkpoint_lineage_access'
+    raw = canonical(owner)
+    fallback = b'return bool(rolling_checkpoint.lineage_names(conn))'
+    assert raw.count(fallback) == 1
+    with monkeypatch.context() as change:
+        change.setattr(economic, '_module_raw', lambda name: raw.replace(fallback, b'return False')
+                       if name == owner else canonical(name))
+        with pytest.raises(economic.EconomicManifestRefused, match='CLOSE_LINEAGE_SOURCE_CHANGED'):
+            economic._before_broker_reads(sources)
+    caller = 'sentinel.feed.operational_snapshot'
+    removed = sources[caller].replace(b'checkpoint_lineage_access.has_lineage(conn)', b'False', 1)
+    assert removed != sources[caller]
+    with pytest.raises(economic.EconomicManifestRefused, match='CLOSE_LINEAGE_PREDECESSOR_CHANGED'):
+        economic._before_broker_reads({**sources, caller: removed})
+
+
 def test_same_visibility_reuses_only_detached_sealed_material(conn, pg, published, monkeypatch):
+    from sentinel.feed import shadow_readiness_memo
     pub = operational_snapshot._current(conn)
     candidate = published['candidate_id']
     conn.rollback()
     scope = broker_read_material.ReadScope()
     grant = object()
     scans = []
+    clocks = [100.0, 1000.0]
+    monkeypatch.setattr(shadow_readiness_memo, '_clock', lambda: tuple(clocks))
     canonical = normalized_layout._candidate_headers
 
     def counted(reader, candidate_id):
@@ -54,12 +77,15 @@ def test_same_visibility_reuses_only_detached_sealed_material(conn, pg, publishe
                 other.execute('SET TRANSACTION READ ONLY')
                 with pytest.raises(psycopg.errors.UndefinedTable):
                     rolling_store.manifest(other, candidate)
+            clocks[0] += shadow_readiness_memo.SCRUB_SECONDS
+            assert rolling_store.manifest(reader, candidate) == manifest
+            assert len(scans) == 2
             with scope.enter(None):
                 rolling_store.manifest(reader, candidate)
-            assert len(scans) == 2
+            assert len(scans) == 3
         with scope.enter(object()):
             rolling_store.manifest(reader, candidate)
-            assert len(scans) == 3
+            assert len(scans) == 4
             conn.execute('CREATE ROLE guard_read_test NOLOGIN')
             conn.commit()
             reader.execute('SET LOCAL ROLE guard_read_test')

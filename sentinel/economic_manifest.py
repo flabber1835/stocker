@@ -15,7 +15,7 @@ from pathlib import Path
 import re
 from functools import lru_cache
 
-MANIFEST_SHA256 = 'd613063b2fb67946e8dd7914300ed182fa438fe46452caaa8b741437f4a73631'
+MANIFEST_SHA256 = '7c755f9bf1619fcd8c0b48235d626b38ec8a0c2e7578b2965ed377393bca7d00'
 MANIFEST = Path(__file__).with_name('economic-implementation-v2.json')
 PREDECESSOR = 'b2e308bb664718da373175f1a7d988d07b159ae2'
 PREDECESSOR_DATA_SEMANTICS_SHA256 = '38c750bd9bb244bc71600aaeba8c4aad22d2095747f4199e9ac4e0bd433425cb'
@@ -296,6 +296,23 @@ def page_contribution(module, raw, profile=None):
 
 
 def _before_broker_reads(compilers):
+    name = 'sentinel.feed.operational_snapshot'
+    source = compilers[name]
+    new_import = b'    from sentinel import checkpoint_lineage_access, rolling_checkpoint\n'
+    new_call = b'        if installed and not checkpoint_lineage_access.has_lineage(conn):\n'
+    if new_import in source or new_call in source:
+        if (_sha(_module_raw('sentinel.checkpoint_lineage_access')) !=
+                'f0999853e9ce9ca7ec718c4f4ed52d5bf1e0e027c20daad86fd3d7fbf1329517'):
+            raise EconomicManifestRefused('CLOSE_LINEAGE_SOURCE_CHANGED')
+        if source.count(new_import) != 1 or source.count(new_call) != 1:
+            raise EconomicManifestRefused('CLOSE_LINEAGE_PREDECESSOR_CHANGED')
+        prior = source.replace(new_import, b'    from sentinel import rolling_checkpoint\n', 1).replace(
+            new_call, b'        if installed and not rolling_checkpoint.lineage_names(conn):\n', 1)
+        edges = set(local_imports(prior, module_name=name)) | {'sentinel.checkpoint_lineage_access'}
+        if (_sha(prior) != 'a2006149cd4448ce456f39e499720564e08ac2c9c6e38d783bf12f99a9d638dc'
+                or local_imports(source, module_name=name) != sorted(edges)):
+            raise EconomicManifestRefused('CLOSE_LINEAGE_PREDECESSOR_CHANGED')
+        compilers = {**compilers, name: prior}
     marker = b'@broker_read_material.sealed\n'
     if not any(marker in compilers[name] for name in _BROKER_READ_BASE):
         return compilers

@@ -168,6 +168,17 @@ def test_opening_distinguishes_missing_operator_reports_from_runtime_backup_fail
         assert 'backup_restore' in presentation.health_facts(dashboard(**changed))['active']
 
 
+def test_signed_paper_reporting_allowance_does_not_substitute_for_live_backup_evidence():
+    page = executing_panel()
+    missing = model.backup_restore_row(base_at=None, restore_at=None, now=NOW)
+    environment = model.Row('trading_environment', 'Trading environment', 'LIVE · real money', model.OK)
+    page = replace(page, local_paper_mode=False,
+        rows=[missing if row.key == missing.key else row for row in page.rows] + [environment])
+    assert page.is_live_trading
+    assert presentation._opening_reporting_deadline(page) is None
+    assert missing.key in presentation.health_facts(page)['active']
+
+
 def test_paper_only_refresh_keeps_original_dispatch_deadline_and_report_warning():
     from tests.sentinel.test_opening_progress_source import dispatch_order
 

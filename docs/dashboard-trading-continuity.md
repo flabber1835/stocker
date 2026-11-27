@@ -18,6 +18,9 @@ that proved opening. Validate every report that is present and stop using the
 runtime evidence at its original expiry. A failed, stale or conflicting
 restore chain still prevents this classification.
 
+This opening allowance belongs to the locally authorized PAPER account.
+LIVE retains its independently verified backup and funding requirements.
+
 An opening can have planned orders, orders being sent and acknowledged
 siblings at the same time. Describe that dispatch as active only while the
 supervisor reports a current callback for the exact plan, cycle and original

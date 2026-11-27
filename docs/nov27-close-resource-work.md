@@ -51,11 +51,29 @@ Reuse of a stored monthly response based solely on its date range would publish
 different inputs. Content-addressed block reuse remains subject to the
 canonical source, security mapping, corporate actions and normalization.
 
+Publication 31 and its predecessor, 30, share 299 sessions. All 299 daily
+stock blocks have different content hashes. All 299 benchmark blocks have
+identical hashes and share storage. Carrying forward a complete prior daily
+stock block would have changed the result for every overlapping session.
+
 The backup-maintenance journal also explains a separate burst of database
 file reads during normalization. The 10:10 Pacific pass verified newly archived
 WAL in two passes, recording 68 hash operations, and deferred discretionary
 maintenance while the close was active. Both passes belong to the restore
 contract. The database sampler alone could not identify the individual files.
+
+Before acquisition, the strategy worker authenticates the predecessor's cold
+origin, daily checkpoint and corresponding archived input. Within one committed
+proof, repeated requests can reuse the two authenticated checkpoint payloads
+while they fit the shared 64 MiB buffer. A different proof must read them anew.
+The early-close sampler did not record the names or parameters of the individual
+cursor reads. Its bytes cannot be assigned to either checkpoint.
+
+Choosing the length of the next price window needs only to know whether a
+lineage exists. The canonical origin's primary key is sufficient to choose
+the ordinary window. In its absence, inspect all original lineage predicates
+and retain the existing freshness checks before choosing a formation window.
+This routing decision grants no financial authority.
 
 ## Private qualification
 
@@ -65,3 +83,16 @@ PostgreSQL EXPLAIN ANALYZE with a 4 MiB work_mem reported 300 expanded blocks
 and 30,665 temporary 8 KiB blocks written by the prior query. The revised
 query expanded the requested 62 blocks and wrote zero temporary blocks.
 Warm execution was 6.12 and 1.25 seconds respectively on this fixture.
+
+In a separate private PostgreSQL fixture, one origin row shared a table with
+2,500 unrelated out-of-line JSON documents. The original window-selection
+query and the primary-key probe both found the lineage. The former performed
+a sequential scan with 17,875 buffer visits. The latter used an index-only
+scan with three buffer visits. These counts include pages in cache.
+
+The private closing worker also advanced a real, signed daily fixture to the
+point where it would acquire the following session. It loaded and authenticated
+the cold and daily checkpoints once each and fetched the daily input archive
+once. Both checkpoints fitted the buffer. Disabling reuse caused another cold
+checkpoint load and authentication. The original Friday sampling did not
+measure checkpoint serialization sizes or buffer admission.
