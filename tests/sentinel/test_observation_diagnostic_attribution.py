@@ -26,7 +26,7 @@ class Connection:
 
 
 def read_failure(monkeypatch, error):
-    monkeypatch.setattr(health.store, 'load_control', lambda _: SimpleNamespace(
+    monkeypatch.setattr(health.health_control, 'read', lambda _: SimpleNamespace(
         enabled=True, kill_switch_engaged=False, generation=158))
     def observe(_):
         if error is not None:

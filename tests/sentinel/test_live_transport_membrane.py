@@ -147,13 +147,44 @@ def test_permit_cannot_be_replayed_or_inherited_by_another_async_task():
             with pytest.raises(live_transport.LiveTransportRefused):
                 await asyncio.create_task(case.inner.submit(**kwargs))
             assert await case.inner.submit(**kwargs) == "transported"
-            with pytest.raises(live_transport.LiveTransportRefused):
+            with pytest.raises(live_transport.LiveTransportRefused) as replay:
                 await case.inner.submit(**kwargs)
+            assert not live_transport._transport_prevented(permit, replay.value)
         with pytest.raises(live_transport.LiveTransportRefused):
             await case.inner.submit(**kwargs)
 
     asyncio.run(scenario())
     assert len(case.inner.calls) == 1
+
+
+def test_live_unsent_permit_stops_after_sibling_ambiguity_during_connection_setup():
+    from sentinel.execution import submission_group
+    from sentinel.execution.guarded import OrderEvidenceNotReady
+    from tests.sentinel.live_order_fixtures import command
+    case = composition()
+    order = case.fixture.request
+    sibling = command(case.fixture, security="OTHER")
+    writes = []
+
+    async def native(**_kwargs):
+        admission = require_live_adapter_admission(case.inner.live_admission, base_url=case.inner.base_url,
+            now=case.clock[0], required_operation="SUBMIT")
+        live_transport.require_live_mutation_permit(case.inner, operation="SUBMIT", command_key=order.client_key,
+            instrument=order.instrument, side=order.side, quantity=order.quantity, terms=order.order_terms,
+            certificate_sha256=admission.sha256)
+        submission_group.stop(sibling.client_key)
+        live_transport.recheck_live_before_headers(case.inner, client_key=order.client_key)
+        writes.append(order.client_key)
+    case.inner.submit = native
+    async def run():
+        with submission_group.independent_dispatch_scope((order, sibling)):
+            with pytest.raises(OrderEvidenceNotReady, match="before LIVE order headers") as refused:
+                await case.wrapped.submit(**arguments(case))
+            case.wrapped.consume_not_transported(refused.value, order)
+            with pytest.raises(ValueError, match="unused"):
+                case.wrapped.consume_not_transported(refused.value, order)
+    asyncio.run(run())
+    assert not writes
 
 
 def test_evidence_expiry_during_final_authority_io_prevents_transport():

@@ -45,6 +45,31 @@ def conn(cluster, monkeypatch, request):
         owner.execute(sql.SQL('DROP DATABASE {}').format(sql.Identifier(name)))
 
 
+def test_supervised_alert_schema_check_reuses_only_unchanged_database_evidence(conn, monkeypatch):
+    from sentinel.alert_liveness import AlertSchemaCheck
+    extension.install_quiescent(conn)
+    conn.commit()
+    full = schema.require_runtime_schema
+    calls = []
+
+    def counted(c):
+        calls.append(1)
+        return full(c)
+
+    monkeypatch.setattr(schema, "require_runtime_schema", counted)
+    probe = AlertSchemaCheck()
+    probe(conn)
+    conn.rollback()
+    probe(conn)
+    conn.rollback()
+    assert len(calls) == 1
+    conn.execute("ALTER TABLE sentinel_alert_dispatcher_health ADD COLUMN changed text")
+    conn.commit()
+    with pytest.raises(RuntimeError):
+        probe(conn)
+    assert len(calls) == 2
+
+
 def test_quiescent_install_preserves_old_rows_and_identity_and_is_idempotent(conn):
     before = conn.execute('SELECT system_identifier::text FROM pg_control_system()').fetchone()[0]
     old = conn.execute('SELECT * FROM sentinel_automation_control').fetchall()

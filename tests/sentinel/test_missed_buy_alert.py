@@ -73,6 +73,22 @@ class Result:
         return self.rows
 
 
+@pytest.mark.parametrize("reconstructed,expected", [
+    ({"retired_unsent_buy_keys": ["old-buy"]}, True),
+    ({"unsent_buy_keys": ["this-buy"]}, False), (None, False)])
+def test_explicit_null_cutoff_requires_proof_of_the_retired_buy(monkeypatch, reconstructed, expected):
+    detail = {"missed_window_buy_only": None, "diagnostic": {"clean": True},
+              "failure_code": "MAX_EXECUTION_LATENESS_EXCEEDED", "last_clean_reconciliation_id": "1"}
+    cycle = SimpleNamespace(cycle_id="retired", state=SimpleNamespace(value="SUPERSEDED"),
+        control_generation=3, last_fence_token=7, diagnostic=detail["diagnostic"],
+        failure_code=detail["failure_code"], last_clean_reconciliation_id="1",
+        model_copy=lambda update: SimpleNamespace(state=update["state"]))
+    event = ("RECONCILING", "SUPERSEDED", 3, 7, detail)
+    conn = SimpleNamespace(execute=lambda *_args: Result([event]))
+    monkeypatch.setattr(missed_buy_alert, "prove", lambda *_args, **_kwargs: reconstructed)
+    assert missed_buy_alert.saved_terminal_proof(conn, cycle, object()) == (reconstructed if expected else None)
+
+
 class Evidence:
     def __init__(self):
         self.cycle = SimpleNamespace(
@@ -214,6 +230,27 @@ def prove(value):
     return missed_buy_alert.prove(
         value, value.cycle, value.control,
         diagnostic=value.diagnostic, clean_id="1")
+
+
+@pytest.mark.parametrize("native_match", [False, True])
+def test_cutoff_keeps_prior_and_current_unsent_orders_distinct(evidence, monkeypatch, native_match):
+    from sentinel.execution import retired_unsent
+    evidence.active.append(("retired-key", "PLANNED"))
+    monkeypatch.setattr(retired_unsent, "retired_at_cutoff", lambda conn, cycle, **args:
+                        args["current_keys"] == {"planned-key"} and args["retired_keys"] == {"retired-key"})
+    if native_match:
+        evidence.payloads[2]["orders"].append(dict(client_key="retired-key", security_id="prior", state="FILLED"))
+    proof = prove(evidence)
+    if native_match:
+        assert proof is None
+    else:
+        assert proof["unsent_buy_keys"] == ["planned-key"]
+        assert proof["retired_unsent_buy_keys"] == ["retired-key"]
+        detail = dict(failure_code="MAX_EXECUTION_LATENESS_EXCEEDED", last_clean_reconciliation_id="1",
+                      diagnostic=evidence.diagnostic, missed_window_buy_only=proof)
+        assert missed_buy_alert.validates_terminal_proof(detail, state="SUPERSEDED", cycle_id="cycle-1")
+        proof["retired_unsent_buy_keys"] = ["planned-key"]
+        assert not missed_buy_alert.validates_terminal_proof(detail, state="SUPERSEDED", cycle_id="cycle-1")
 
 
 def test_no_command_buy_and_restored_planned_buy_can_warn(evidence):

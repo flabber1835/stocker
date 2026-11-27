@@ -589,7 +589,7 @@ def snapshot_receipts(monkeypatch):
         return ('original-ddl-incarnation',5)
     monkeypatch.setattr(operational_schema,'installation',installation)
     monkeypatch.setattr(operational_ddl_epoch,'current',epoch)
-    monkeypatch.setattr(projection.schema,'require_schema',lambda *_:True)
+    monkeypatch.setattr(projection.schema,'require_schema',lambda *_,**kw:True)
     # This fixture isolates common-context reuse; real cursor inventory and
     # execution reprojection have their own PostgreSQL qualification.
     monkeypatch.setattr(projection,'_shadow_inventory',lambda _c:['bounded-shadow-inventory'])

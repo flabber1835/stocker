@@ -22,11 +22,18 @@ def execute(target, kind, *, broken=False, mutation=None):
         guard, replacement = {
             'expiry': ('nextAge >= nextBudget', 'false'),
             'origin': ('new URL(response.url || location.href, location.href).origin === location.origin', 'true'),
-            'late': ('active.signal.aborted || !visible()', 'false'),
+            'late': ('!requests.owns(active) || !visible()', '!visible()'),
             'deadline': ('Promise.race([timeout, read])', '(timeout.catch(() => {}), read)'),
             'device-clock': ('serverTime + roundTrip - generation', 'Date.now() - generation'),
-            'single': ('if (busy) { again = true; return; }', 'if (false) { again = true; return; }'),
+            'single': ('if (pending()) { return null; }', 'if (false) { return null; }'),
             'currentness': ('next.body.dataset.observationCurrent !== (status === "CURRENT" ? "true" : "false")', 'false'),
+            'cancel': ('var request = active;\n      active = null;\n      if (request)',
+                       'var request = active;\n      if (request)'),
+            'retired-owner': ('owns(request) { return active === request; }',
+                              'owns(request) { return true; }'),
+            'retired-finish': ('if (active !== request) { return false; }',
+                               'if (false) { return false; }'),
+            'retry-cancel': ('cancel() {\n      clearRetry();', 'cancel() {'),
         }[mutation]
         assert source.count(guard)==1
         source=source.replace(guard,replacement)
@@ -54,7 +61,10 @@ def test_removed_worker_launch_guard_reproduces_network_gated_first_paint():
                                  'hidden', 'deadline', 'offline', 'reset-recovery', 'timeout-recovery',
                                  'unsettled-fetch', 'unsettled-body', 'device-skew',
                                  'backoff', 'pause-offline', 'pause-hidden', 'foreign-progress',
-                                 'malformed-progress'])
+                                 'malformed-progress', 'suspend-read-visibility',
+                                 'suspend-read-pagehide', 'suspend-read-offline',
+                                 'suspend-body-visibility', 'suspend-retry-visibility',
+                                 'suspend-retry-offline', 'retry-online'])
 def test_launch_installs_only_complete_fresh_same_origin_visible_responses(kind):
     result=execute('launch',kind)
     assert result.returncode==0, result.stderr
@@ -67,6 +77,18 @@ def test_launch_installs_only_complete_fresh_same_origin_visible_responses(kind)
 def test_broken_launch_guards_are_detected(mutation,kind):
     result=execute('launch',kind,mutation=mutation)
     assert result.returncode!=0
+
+
+@pytest.mark.parametrize('mutation,kind,expected', [
+    ('cancel','suspend-read-visibility','immediately own one fresh request'),
+    ('retired-owner','suspend-read-pagehide','retired completion cannot schedule a retry'),
+    ('retired-finish','suspend-read-visibility','retired finally cannot release'),
+    ('retry-cancel','suspend-retry-visibility','synchronously cancel the old retry'),
+])
+def test_suspended_launch_retired_request_and_retry_falsifiers(mutation,kind,expected):
+    result=execute('launch',kind,mutation=mutation)
+    assert result.returncode!=0
+    assert expected in result.stderr
 
 
 @pytest.mark.parametrize('headers', [

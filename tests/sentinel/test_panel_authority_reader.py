@@ -336,7 +336,7 @@ def test_configuration_change_does_not_deliver_or_retain_old_positive_result(mon
     native = SimpleNamespace(execute=lambda *_: SimpleNamespace(
         fetchone=lambda: ('physical-fixture', 'fixture-database')))
     monkeypatch.setattr(operational_schema, 'installation', lambda *_, **__: None)
-    monkeypatch.setattr(operational_ddl_epoch, 'current', lambda _: 1)
+    monkeypatch.setattr(operational_ddl_epoch, 'current', lambda *args: 1)
     monkeypatch.setattr(read_projection, '_shadow_inventory', lambda _: [])
     def evidence(database, _):
         return read_projection._subject_for_revision(

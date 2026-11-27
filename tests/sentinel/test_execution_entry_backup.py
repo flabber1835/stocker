@@ -1,9 +1,10 @@
 from contextlib import contextmanager
 from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
 
-from sentinel import backup_runtime_authority
+from sentinel import automation_recovery, backup_runtime_authority
 from sentinel.automation import service as protocol
 from sentinel.automation.model import BackupProofBusy, CycleState, ExecutionEntryBackupBusy
 from sentinel.backup_guard import BackupProofBusyReason
@@ -85,3 +86,39 @@ def test_consecutive_unsent_entry_failures_keep_their_busy_attempt_count():
         exc=failure, now=cycle.execute_at + timedelta(seconds=10))
     assert first["backup_busy_attempt_count"] == 1
     assert second["backup_busy_attempt_count"] == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["paper_admission", "live_admission", "clock", "gateway"])
+async def test_production_execute_preserves_exact_origin_of_backup_contention(monkeypatch, phase):
+    runtime = object.__new__(automation_recovery.ProductionAutomation)
+    runtime._live_run_enabled = phase == "live_admission"
+    context = SimpleNamespace(cycle=SimpleNamespace(broker="alpaca-live" if runtime._live_run_enabled else "alpaca"))
+    busy = BackupProofBusy("archive changed", reason=BackupProofBusyReason.COVERAGE_CHANGED)
+    stages = []
+
+    def admission(operation):
+        stages.append("admission")
+        if phase.endswith("admission"):
+            raise busy
+
+    async def clock(_context):
+        stages.append("clock")
+        if phase == "clock":
+            raise busy
+
+    async def gateway(_self, _context):
+        stages.append("gateway")
+        raise busy
+
+    monkeypatch.setattr(runtime, "_require_backup_for_new_mutation", admission)
+    monkeypatch.setattr(runtime, "_require_external_execution_clock", clock)
+    monkeypatch.setattr(automation_recovery.base.ProductionAutomation, "execute", gateway)
+    with pytest.raises(BackupProofBusy) as error:
+        await runtime.execute(context)
+    if phase == "paper_admission":
+        assert stages == ["admission"]
+        assert type(error.value) is ExecutionEntryBackupBusy
+        assert error.value.reason == busy.reason and error.value.__cause__ is busy
+    else:
+        assert error.value is busy

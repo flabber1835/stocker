@@ -247,7 +247,7 @@ test.describe('App resume presentation', () => {
   // offline navigation are qualified separately by the PWA tests below.
   test.use({serviceWorkers:'block'});
 
-  async function shortProofDisplay(page) {
+  async function shortProofDisplay(page, {holdFirstAfterAbort = false} = {}) {
     // CI's financial rows remain unconfigured. The real controller derives
     // its five-second refresh cadence from the fixture's nine-second proof.
     const response = await page.request.get('/?document=1');
@@ -258,6 +258,22 @@ test.describe('App resume presentation', () => {
     await page.clock.install({time:base});
     await page.clock.pauseAt(new Date(base.getTime() + 60000));
     const initialNow = await page.evaluate(() => Date.now());
+    if (holdFirstAfterAbort) {
+      await page.addInitScript(() => {
+        const fetch = window.fetch.bind(window);
+        const witness = {signals: [], firstBodyRead: false};
+        window.refreshWitness = witness;
+        window.fetch = async (url, options) => {
+          if (options?.headers?.['X-Sentinel-Refresh'] !== '1') return fetch(url, options);
+          witness.signals.push(options.signal);
+          if (witness.signals.length !== 1) return fetch(url, options);
+          const response = await fetch(url, {...options, signal: undefined});
+          await response.clone().text();
+          witness.firstBodyRead = true;
+          return response;
+        };
+      });
+    }
 
     function documentAt(now, positive) {
       let body = source.replace(/data-generated-at="[^"]+"/,
@@ -295,6 +311,9 @@ test.describe('App resume presentation', () => {
         const kind = await choice;
         if (kind === 'abort') {
           await route.abort('aborted');
+        } else if (kind === 'busy') {
+          await route.fulfill({status:503, headers:{'Cache-Control':'no-store',
+            'X-Sentinel-Deployment-Progress':'Waiting for current status'}});
         } else {
           const now = await page.evaluate(() => Date.now());
           await route.fulfill({status:200, headers:{'Content-Type':'text/html',
@@ -445,6 +464,61 @@ test.describe('App resume presentation', () => {
       await expect(page.locator('#operational-state')).toHaveClass('state checking');
       await expect(page.locator('html')).toHaveClass('checking-status expired-status');
       expect(await page.locator('body').getAttribute('data-generated-at')).toBe(original);
+    } finally { await fixture.close(); }
+  });
+
+  test('foreground refresh replaces a stalled request and ignores its late response', async ({page}) => {
+    const fixture = await shortProofDisplay(page, {holdFirstAfterAbort:true});
+    try {
+      const original = await page.locator('body').getAttribute('data-generated-at');
+      await page.clock.runFor(5000);
+      await expect.poll(() => fixture.requests.length).toBe(1);
+      await page.clock.runFor(5001);
+      await page.evaluate(() => {
+        Object.defineProperty(document, 'visibilityState', {configurable:true, get:()=> 'hidden'});
+        document.dispatchEvent(new Event('visibilitychange'));
+        window.dispatchEvent(new PageTransitionEvent('pagehide', {persisted:true}));
+        Object.defineProperty(document, 'visibilityState', {configurable:true, get:()=> 'visible'});
+        window.dispatchEvent(new PageTransitionEvent('pageshow', {persisted:true}));
+        document.dispatchEvent(new Event('visibilitychange'));
+        window.dispatchEvent(new Event('focus'));
+      });
+      await expect.poll(() => fixture.requests.length).toBe(2);
+      expect(await page.evaluate(() => window.refreshWitness.signals.map(signal => signal.aborted)))
+        .toEqual([true, false]);
+      await expect(page.locator('#operational-state')).toContainText('REFRESHING STATUS');
+
+      await fixture.release(0, 'negative');
+      await expect.poll(() => page.evaluate(() => window.refreshWitness.firstBodyRead)).toBe(true);
+      await page.clock.runFor(5001);
+      expect(fixture.requests).toHaveLength(2);
+      expect(await page.locator('body').getAttribute('data-generated-at')).toBe(original);
+      await expect(page.locator('#operational-state')).toContainText('REFRESHING STATUS');
+
+      await fixture.release(1);
+      await expect(page.locator('#operational-state')).toHaveText('CLIENT PRESENTATION FIXTURE');
+      expect(await page.locator('body').getAttribute('data-generated-at')).not.toBe(original);
+    } finally { await fixture.close(); }
+  });
+
+  test('foreground refresh starts immediately when a previous retry is pending', async ({page}) => {
+    const fixture = await shortProofDisplay(page);
+    try {
+      await page.clock.runFor(5000);
+      await expect.poll(() => fixture.requests.length).toBe(1);
+      await page.clock.runFor(5001);
+      await fixture.release(0, 'busy');
+      await expect(page.locator('#deployment-progress')).toHaveText('Waiting for current status');
+      await page.evaluate(() => {
+        window.dispatchEvent(new PageTransitionEvent('pagehide', {persisted:true}));
+        window.dispatchEvent(new PageTransitionEvent('pageshow', {persisted:true}));
+        window.dispatchEvent(new Event('focus'));
+      });
+      await expect.poll(() => fixture.requests.length).toBe(2);
+      await page.clock.runFor(5001);
+      expect(fixture.requests).toHaveLength(2);
+      await fixture.release(1);
+      await expect(page.locator('#operational-state')).toHaveText('CLIENT PRESENTATION FIXTURE');
     } finally { await fixture.close(); }
   });
 

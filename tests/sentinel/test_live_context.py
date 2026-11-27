@@ -200,6 +200,28 @@ async def test_positive_current_order_requires_recovery_instead_of_duplicate_pos
 
 
 @pytest.mark.asyncio
+async def test_live_protected_sibling_can_work_before_receipt_but_fill_requires_reconciliation(monkeypatch):
+    from sentinel.execution.submission_group import independent_dispatch_scope
+    fixture = setup(monkeypatch)
+    sibling = command(fixture, security="OTHER")
+    fixture.conn.commands += (sibling,)
+    order = BrokerOrder("owned-sibling", sibling.client_key, sibling.instrument, sibling.side,
+        CommandState.ACKNOWLEDGED, sibling.quantity, submitted_at=NOW, order_terms=sibling.order_terms)
+    fixture.broker.observation = replace(fixture.broker.observation, orders=(order,))
+    with pytest.raises(LiveOrderDeferred, match="JOURNAL_RECONCILIATION"):
+        await load(fixture)
+    with independent_dispatch_scope(fixture.conn.commands):
+        loaded = await load(fixture)
+        approved = assess(fixture, commitments=loaded.commitments)
+        assert approved.allowed and approved.outstanding_buy_commitment == Decimal(202)
+        fixture.broker.observation = replace(fixture.broker.observation, orders=(
+            replace(order, state=CommandState.PARTIALLY_FILLED, filled_quantity=Decimal(1),
+                    filled_average_price=Decimal(10)),))
+        with pytest.raises(LiveOrderDeferred, match="JOURNAL_RECONCILIATION"):
+            await load(fixture)
+
+
+@pytest.mark.asyncio
 async def test_unknown_or_conflicting_native_order_refuses(monkeypatch):
     fixture = setup(monkeypatch)
     request = fixture.request

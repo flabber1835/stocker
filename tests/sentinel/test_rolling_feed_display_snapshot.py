@@ -167,7 +167,7 @@ def test_panel_cold_reference_outliving_legacy_pin_then_warm_reuse(conn, monkeyp
     execute = conn.execute
     hashes = []
     def delayed_statement(query, params=None, **kwargs):
-        if 'sha256(convert_to(canonical_payload' in str(query) and params[-1] == reference:
+        if 'sha256(convert_to(canonical_payload' in str(query) and reference in params[-1]:
             hashes.append(reference)
             query = query.replace('FROM sentinel_snapshot_evidence WHERE',
                 'FROM sentinel_snapshot_evidence CROSS JOIN pg_sleep(2.1) WHERE')

@@ -40,7 +40,7 @@ def close(conn, monkeypatch):
     facts = {'physical': ('private-system', 'private-db'),
              'installation': {'installation_id': 'private-install'},
              'epoch': 1, 'environment': {'SENTINEL_REVIEWED_DEPLOYMENT_MODE': 'dual'}}
-    monkeypatch.setattr(operational_schema, 'require_schema', lambda _conn: None)
+    monkeypatch.setattr(operational_schema, 'require_schema', lambda _conn, **kwargs: None)
     monkeypatch.setattr(read_projection, '_subject_facts', lambda _conn: (
         facts['physical'], facts['installation'], facts['epoch'], facts['environment']))
     request = PreparationRequest(window=PriceWindow.through('2026-11-24'),

@@ -1,4 +1,5 @@
 """Warm alert observations retain fresh real schema and health predicates."""
+from functools import partial
 from pathlib import Path
 import sys
 import time
@@ -19,7 +20,8 @@ def test_warm_reader_rechecks_database_and_schema_without_mutation(conn, monkeyp
     alert_health.register(conn, dispatcher_id='primary')
     alert_health.record_success(conn, dispatcher_id='primary')
     conn.rollback()
-    reader = WarmHealthReader(alert_liveness.observe, path=tmp_path/'alert-health.sock',
+    observe = partial(alert_liveness.observe, schema_check=alert_liveness.AlertSchemaCheck())
+    reader = WarmHealthReader(observe, path=tmp_path/'alert-health.sock',
                               max_pulse_age=10)
     try:
         reader.tick()

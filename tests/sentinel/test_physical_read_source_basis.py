@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from tests.support.alpaca_coverage_source import CURRENT_STRATEGY
+from tests.support.opening_predecessor import predecessor as opening_predecessor
 
 from sentinel import close_feed_source_basis as close_basis, physical_read_source_basis as basis
 from sentinel import economic_manifest
@@ -29,6 +30,9 @@ def predecessor_sources():
 
 
 def physical_predecessor(module, raw):
+    if (module == 'sentinel.feed.rolling_store'
+            and hashlib.sha256(raw).hexdigest() == economic_manifest.OPENING_SESSION_STORAGE[module]):
+        raw = opening_predecessor('feed/rolling_store.py', raw)
     if (module == 'sentinel.feed.rolling_store'
             and hashlib.sha256(raw).hexdigest() == economic_manifest.DAILY_SESSION_STORAGE[module]):
         changes = (

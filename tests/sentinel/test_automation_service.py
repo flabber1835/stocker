@@ -13,6 +13,7 @@ from sentinel.automation import integrity as automation_integrity
 from sentinel.automation import service as service_module
 from sentinel.automation.model import (
     AutomationConfig,
+    AutomationRefused,
     ControlBinding,
     CycleState,
     DataIntegrityFailure,
@@ -143,7 +144,8 @@ def service_for(cfg, *, holder="worker-a", refresh=refresh_result,
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('broker', ['alpaca', 'alpaca-live'])
-async def test_idle_wait_reuses_only_unchanged_cycle_and_never_delays_execution(conn, monkeypatch, broker):
+@pytest.mark.parametrize('replacement', [False, True])
+async def test_idle_wait_reuses_only_unchanged_cycle_and_never_delays_execution(conn, monkeypatch, broker, replacement):
     from sentinel import operational_ddl_epoch
 
     cfg = config()
@@ -154,6 +156,18 @@ async def test_idle_wait_reuses_only_unchanged_cycle_and_never_delays_execution(
     store.activate(conn, binding=expected, actor='operator', reason='test activation')
     store.release_kill(conn, expected_binding=expected, actor='operator', reason='test authority')
     runtime = service_for(cfg)
+    original = None
+    if replacement:
+        permit = store.acquire_lease(conn, holder_id=runtime.holder_id, lease_seconds=cfg.lease_seconds)
+        original_spec = runtime._spec(store.load_control(conn), obligation)
+        original = store.create_cycle(conn, permit=permit, spec=original_spec, now=now)
+        store.engage_kill(conn, actor='operator', reason='cutover')
+        store.deactivate(conn, actor='operator', reason='cutover')
+        store.activate(conn, binding=expected, actor='operator', reason='new generation')
+        store.release_kill(conn, expected_binding=expected, actor='operator', reason='release')
+        permit = store.acquire_lease(conn, holder_id=runtime.holder_id, lease_seconds=cfg.lease_seconds)
+        store.adopt_cycle(conn, permit=permit, cycle_id=original.cycle_id,
+                         to_state=CycleState.SUPERSEDED, failure_code='CONTROL_GENERATION_SUPERSEDED')
     operational_ddl_epoch.install(conn)
     conn.commit()
     try:
@@ -163,9 +177,10 @@ async def test_idle_wait_reuses_only_unchanged_cycle_and_never_delays_execution(
         calls = []
         validate = automation_integrity.validate_cycle_lineage
 
-        def traced(conn, cycle):
-            calls.append(cycle.cycle_id)
-            return validate(conn, cycle)
+        def traced(conn, cycle, **kwargs):
+            if not kwargs:
+                calls.append(cycle.cycle_id)
+            return validate(conn, cycle, **kwargs)
 
         monkeypatch.setattr(automation_integrity, 'validate_cycle_lineage', traced)
 
@@ -178,17 +193,39 @@ async def test_idle_wait_reuses_only_unchanged_cycle_and_never_delays_execution(
         calls.clear()
         assert (await poll()).cycle == first.cycle
         assert calls == [], 'warm idle tick replayed the full event history'
+        if original is not None:
+            for table in ('sentinel_automation_cycles', 'sentinel_automation_cycle_events'):
+                conn.execute(f'UPDATE {table} SET cycle_id=cycle_id WHERE cycle_id=%s', (original.cycle_id,))
+                conn.commit()
+                assert (await poll()).cycle == first.cycle
+                assert calls == [first.cycle.cycle_id], f'ignored predecessor version change in {table}'
+                calls.clear()
+                assert (await poll()).cycle == first.cycle and not calls
         conn.execute('CREATE TABLE parked_witness_ddl (id integer)')
         conn.commit()
         assert (await poll()).cycle == first.cycle
         assert calls == [first.cycle.cycle_id], 'changed DDL reused a parked result'
         calls.clear()
         with monkeypatch.context() as missing:
-            missing.setattr(store, 'waiting_open_witness', lambda *_: None)
+            missing.setattr(store, 'idle_cycle_witness', lambda *_: None)
             for _ in range(2):
                 assert (await poll()).cycle == first.cycle
         assert calls == [first.cycle.cycle_id] * 2, 'a missing witness reused a parked result'
-        assert (await poll(first.cycle.execute_at)).cycle.state is CycleState.SUCCEEDED
+        terminal = (await poll(first.cycle.execute_at)).cycle
+        assert terminal.state is CycleState.SUCCEEDED
+        calls.clear()
+        async def poll_terminal():
+            return await runtime.tick(conn, now=first.cycle.execute_at, _idle_pulse=(
+                first.permit, first.cycle.execution_close_at, time.monotonic()))
+        assert (await poll_terminal()).cycle == terminal and calls == [terminal.cycle_id]
+        calls.clear()
+        assert (await poll_terminal()).cycle == terminal and not calls
+        if original is not None:
+            conn.execute("DELETE FROM sentinel_automation_cycle_events WHERE cycle_id=%s AND to_state='SUPERSEDED'",
+                         (original.cycle_id,))
+            conn.commit()
+            with pytest.raises(AutomationRefused, match="row state disagrees"):
+                await poll_terminal()
     finally:
         conn.rollback()
         conn.execute('DROP EVENT TRIGGER IF EXISTS sentinel_operational_evidence_ddl_changed')
@@ -221,7 +258,7 @@ async def test_paper_debug_window_wait_does_not_use_idle_reuse(conn, monkeypatch
     def unexpected_witness(*_):
         pytest.fail('an explicit PAPER debug window must use the ordinary tick')
 
-    monkeypatch.setattr(store, 'waiting_open_witness', unexpected_witness)
+    monkeypatch.setattr(store, 'idle_cycle_witness', unexpected_witness)
     result = await service.tick(conn, now=now, _idle_pulse=(waiting.permit, start, time.monotonic()))
     assert (result.action, result.cycle) == (TickAction.WAITING, waiting.cycle)
 

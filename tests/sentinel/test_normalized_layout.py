@@ -205,11 +205,10 @@ def test_removed_reference_binding_guard_is_detected(conn,monkeypatch):
     monkeypatch.setattr(layout,'_require_references',lambda *_:None)
     # Manifest identity binding still catches a wrong logical snapshot; use the
     # actual header guard directly so the falsifier targets this exact invariant.
-    refs = conn.execute('SELECT kind,session,block_sha256 FROM sentinel_candidate_blocks WHERE candidate_id=%s '
-        'ORDER BY kind,session',(identity,)).fetchall()
+    refs = layout._candidate_headers(conn, identity)
     with pytest.raises(pytest.fail.Exception,match='DID NOT RAISE'):
         with pytest.raises(layout.LayoutRefused,match='BLOCK_HEADER_CHANGED'):
-            layout._require_references(conn,refs,altered)
+            layout._require_references(refs, altered)
 
 
 def test_mutation_and_missing_block_remain_visible(conn):

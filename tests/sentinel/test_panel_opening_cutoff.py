@@ -106,6 +106,26 @@ def retired_buy(historical_run_db, monkeypatch):
     return conn, cycle, observation, accounts, market_open
 
 
+@pytest.mark.parametrize('fault', [None, 'sent', 'fill', 'native', 'wrong-key', 'unknown'])
+def test_retired_cutoff_requires_each_extra_key_and_original_observation(retired_buy, fault):
+    from sentinel.execution import retired_unsent
+    conn, cycle, _, accounts, _ = retired_buy
+    conn.execute("CREATE TEMP TABLE sentinel_fills(client_key text)")
+    conn.execute("UPDATE sentinel_automation_cycles SET state='RECONCILING' WHERE cycle_id='new-cycle'")
+    conn.execute("INSERT INTO sentinel_commands(client_key,state,plan_id) VALUES ('current','PLANNED','new-plan')")
+    if fault == 'sent':
+        conn.execute("DELETE FROM sentinel_command_events WHERE seq=3")
+    elif fault == 'fill':
+        conn.execute("INSERT INTO sentinel_fills VALUES ('buy')")
+    elif fault == 'native':
+        accounts[641]['orders'] = [dict(client_key='buy', state='FILLED')]
+    elif fault == 'unknown':
+        conn.execute("INSERT INTO sentinel_commands(client_key,state) VALUES ('other','UNKNOWN')")
+    assert retired_unsent.retired_at_cutoff(conn, SimpleNamespace(**cycle),
+        current_keys={'current'}, retired_keys={'wrong' if fault == 'wrong-key' else 'buy'},
+        deadline=None) == (fault is None)
+
+
 def replace_waiting_plan_on_activation(conn):
     conn.execute("""
         INSERT INTO sentinel_execution_plans VALUES(

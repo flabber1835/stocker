@@ -261,6 +261,20 @@ def test_daily_session_reads_bind_exact_compiler_and_storage(changed, monkeypatc
     assert economic.identity(schema='daily-session-test')['sha256'] != installed
 
 
+@pytest.mark.parametrize('restored', [
+    ('feed/rolling_store.py',), ('feed/normalized_layout.py',),
+    ('feed/rolling_store.py', 'feed/normalized_layout.py')])
+def test_opening_read_optimization_requires_one_complete_storage_version(restored, monkeypatch):
+    from tests.support.opening_predecessor import predecessor
+
+    original = economic._module_raw
+    previous = {'sentinel.' + path[:-3].replace('/', '.'): path for path in restored}
+    monkeypatch.setattr(economic, '_module_raw', lambda name:
+        predecessor(previous[name], original(name)) if name in previous else original(name))
+    same_economics = economic.identity(schema='daily-session-test')['sha256'] == alpaca_coverage.CURRENT_DATA_SEMANTICS
+    assert same_economics == (len(restored) == 2)
+
+
 def test_current_exact_economic_implementation_records_new_source_identity():
     result = economic.identity(schema='qualification-economic-boundary')
     profile = economic.manifest()
