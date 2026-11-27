@@ -7,3 +7,5 @@ Use one bounded, atomically replaced JSON file per kind of verified material in 
 The checkpoint remains subject to current shadow transport approval, prospective attestation and a fresh source-final date check. The sizing handoff names the saved plan, current shadow record and predecessor share and action evidence. Caller-local memoization still fences repeated reads within the callback. The trader obtains fresh holdings, cash, outstanding orders and exact fill evidence before submitting under the existing grant.
 
 After startup the current leader may encounter a waiting plan prepared by an older release. Its first eligible idle wake starts one broker-free reader to verify that exact plan while there is ample time before the open. The reader uses read-only transactions and an independent process deadline. The scheduler reaps it before any financial callback and can always run the canonical verification itself.
+
+The database visibility identity includes the effective role, login role, row-security setting and search path. Each dependency must resolve to its actual public relation. A temporary or alternate schema masking one of those tables prevents reuse.

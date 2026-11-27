@@ -418,9 +418,8 @@ def test_real_early_authority_wrapper_keeps_the_closing_cycle(monkeypatch, proof
     monkeypatch.setattr(runtime, 'require_execution_schemas', lambda _c: None)
     monkeypatch.setattr(runtime.schema, 'require_runtime_schema', lambda _c: None)
     monkeypatch.setattr(runtime, 'require_observation_integrity', lambda _c: None)
-    monkeypatch.setattr(runtime.store, 'require_leader', lambda *_a: permit)
-    monkeypatch.setattr(runtime.store, 'load_control', lambda _c: SimpleNamespace(
-        binding=object(), generation=permit.control_generation, config_sha256=cfg.fingerprint))
+    checked = SimpleNamespace(binding=object(), generation=permit.control_generation, config_sha256=cfg.fingerprint)
+    monkeypatch.setattr(runtime.store, 'require_leader_with_control', lambda *_a: (permit, checked))
     monkeypatch.setattr(runtime, 'load_rollout_state', lambda _c: object())
     native = CorpusLockUnavailable('snapshot reader cannot pin during publication or retirement')
     def busy(_c):

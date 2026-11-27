@@ -116,7 +116,7 @@ test.describe('Banner resource recovery', () => {
         width:image.naturalWidth,height:image.naturalHeight})))
         .toEqual({complete:true,width:1086,height:362});
       await expect(original).toBeVisible();
-      await expect(original).toHaveCSS('filter','grayscale(1)');
+      await expect(original).toHaveCSS('filter','grayscale(1) sepia(0.75)');
       await expect(page.locator('.brand-fallback')).toBeHidden();
       await expect(page.locator('.brand img:visible')).toHaveCount(1);
       const box=await page.locator('.brand').boundingBox(),image=await original.boundingBox();

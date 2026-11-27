@@ -165,6 +165,31 @@ def test_removed_signature_guard_returns_stale_amount_in_executed_falsifier(cycl
         check()
 
 
+def test_visibility_changes_invalidate_old_material(conn, cycle, tmp_path):
+    conn.execute('CREATE ROLE opening_qualification_reader NOLOGIN')
+    conn.commit()
+    calls = []
+    def measure():
+        with material.cycle(cycle, directory=tmp_path):
+            return material._measure('role', lambda: material.version_epoch(conn, ()),
+                                     lambda: calls.append(True) or {'count': len(calls)}, dict, dict)
+    def count():
+        return measure()['count']
+    assert count() == count() == 1
+    conn.execute('SET LOCAL ROLE opening_qualification_reader')
+    assert count() == count() == 2
+    conn.rollback()
+    conn.execute('SET LOCAL SESSION AUTHORIZATION opening_qualification_reader')
+    assert count() == 3  # Equal effective role, different login role.
+    conn.rollback()
+    conn.execute('SET LOCAL row_security=off')
+    assert count() == 4
+    conn.execute('SET LOCAL search_path=public')
+    assert count() == 5
+    xmax = int(conn.execute('SELECT pg_snapshot_xmax(pg_current_snapshot())::text').fetchone()[0])
+    assert material.version_epoch(conn, [(str((xmax + 20) % 2**32), '(1,1)')]) is None
+
+
 def test_restart_reads_typed_shadow_state_and_still_checks_present_process(conn, published, cycle, tmp_path, monkeypatch):
     from sentinel import runtime_admission, rolling_runtime, rolling_authority, shadow_observation
     from tests.v5.test_opening import case

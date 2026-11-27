@@ -127,7 +127,9 @@ def _feed_witness(conn, pub):
 
 def version_epoch(conn, rows):
     """Exclude ambiguous frozen/future xids before saving a physical tuple version."""
-    xmax = int(conn.execute('SELECT pg_snapshot_xmax(pg_current_snapshot())::text').fetchone()[0])
+    raw, *visibility = conn.execute("SELECT pg_snapshot_xmax(pg_current_snapshot())::text,"
+        "current_user,session_user,current_setting('row_security'),current_setting('search_path')").fetchone()
+    xmax = int(raw)
     def current(values):
         for index, value in enumerate(values):
             if isinstance(value, (list, tuple)):
@@ -141,7 +143,7 @@ def version_epoch(conn, rows):
         return True
     # One bucket spans less than half an XID epoch. Even a frozen original
     # cannot be replaced by a different tuple with the same xid in this span.
-    return xmax // 2**30 if current(rows) else None
+    return [xmax // 2**30, visibility] if current(rows) else None
 
 
 def verified_snapshot(conn, pub, load):
