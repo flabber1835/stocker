@@ -247,7 +247,7 @@ test.describe('App resume presentation', () => {
   // offline navigation are qualified separately by the PWA tests below.
   test.use({serviceWorkers:'block'});
 
-  async function shortProofDisplay(page, {holdFirstAfterAbort = false} = {}) {
+  async function shortProofDisplay(page, {holdFirstAfterAbort = false, initialWarning = null} = {}) {
     // CI's financial rows remain unconfigured. The real controller derives
     // its five-second refresh cadence from the fixture's nine-second proof.
     const response = await page.request.get('/?document=1');
@@ -297,9 +297,12 @@ test.describe('App resume presentation', () => {
         return;
       }
       if (route.request().isNavigationRequest()) {
+        let first=documentAt(initialNow, true);
+        if(initialWarning)first=first.replace('data-health="green"',`data-health="${initialWarning}"`)
+          .replace('id="operational-state" class="state ok"',`id="operational-state" class="state ${initialWarning==='red'?'fail':'warn'}"`);
         await route.fulfill({status:200, headers:{'Content-Type':'text/html',
           'Cache-Control':'no-store', 'X-Sentinel-Panel-Status':'CURRENT'},
-          body:documentAt(initialNow, true)});
+          body:first});
         return;
       }
       let decide, complete;
@@ -326,7 +329,7 @@ test.describe('App resume presentation', () => {
       } finally { complete(); }
     });
     await page.goto('/', {waitUntil:'domcontentloaded'});
-    await expect(page.locator('#operational-state')).toHaveClass('state ok');
+    await expect(page.locator('#operational-state')).toHaveClass('state '+(initialWarning==='red'?'fail':initialWarning==='amber'?'warn':'ok'));
     return {
       requests,
       async release(index, kind = 'positive') {
@@ -342,6 +345,24 @@ test.describe('App resume presentation', () => {
         await Promise.all(requests.map(request => request.done));
       }
     };
+  }
+
+  for(const warning of ['amber','red']) {
+    test(`connected status delay preserves dated ${warning} on the loaded dashboard`,async({page})=>{
+      const fixture=await shortProofDisplay(page,{initialWarning:warning});
+      try {
+        const stamp=await page.locator('body').getAttribute('data-generated-at');
+        await page.clock.runFor(5000);
+        await expect.poll(()=>fixture.requests.length).toBe(1);
+        await fixture.release(0,'busy');
+        await expect(page.locator('body')).toHaveAttribute('data-link','connected');
+        await expect(page.locator('#dashboard-heartbeat')).toContainText('Connected · waiting for current status');
+        await page.clock.runFor(5001);
+        await expect(page.locator('#operational-state')).toContainText(warning==='red'?'LAST KNOWN TRADING STOP':'LAST VERIFIED STATUS AMBER');
+        await expect(page.locator('body')).toHaveAttribute('data-generated-at',stamp);
+        await expect(page.locator('html')).not.toHaveClass(/not-current/);
+      } finally {await fixture.close();}
+    });
   }
 
   test('expired original proof stays in checking during two healthy foreground refreshes', async ({page}) => {

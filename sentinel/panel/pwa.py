@@ -36,6 +36,28 @@ function dashboardDeadline(controller, operation) {
 """
 
 CURRENT_DOCUMENT_SCRIPT = REQUEST_DEADLINE_SCRIPT + r"""
+function sameDashboardOrigin(response) {
+  return new URL(response.url || location.href, location.href).origin === location.origin;
+}
+
+function dashboardReadFailure(response, receivingBody) {
+  if (!navigator.onLine) { return {kind:'offline', label:'Device offline', retryable:true}; }
+  if (response && !sameDashboardOrigin(response)) {
+    return {kind:'unverified', label:'Dashboard response unverified', retryable:false};
+  }
+  if (!response || receivingBody) {
+    return {kind:'connection', label:'Connection delayed', retryable:true};
+  }
+  var busy = response.status === 503;
+  var progress = '';
+  if (busy) {
+    try { progress = decodeURIComponent(response.headers.get('X-Sentinel-Deployment-Progress') || ''); }
+    catch (_) { /* An unreadable optional header does not change connection status. */ }
+  }
+  return {kind:'connected', label:'Connected · waiting for current status', progress:progress,
+    retryable:busy || response.headers.get('X-Sentinel-Panel-Status') === 'LAST_KNOWN'};
+}
+
 function dashboardRequests() {
   var active = null;
   var retry = null;
@@ -114,7 +136,9 @@ LAUNCH_HTML = r"""<!doctype html>
 html,body{margin:0;min-height:100%;background:#16111f;color:#e5dfeb;font:18px/1.5 system-ui}
 body{padding:max(28px,env(safe-area-inset-top)) max(20px,env(safe-area-inset-right)) max(28px,env(safe-area-inset-bottom)) max(20px,env(safe-area-inset-left));box-sizing:border-box}
 main{max-width:38rem;margin:8vh auto}h1{color:#f7d78c;font-size:1.65rem}
-section{border:2px solid #756b7b;border-radius:16px;padding:22px}p{color:#c2b7c8}
+section{border:2px solid #54a8d8;border-radius:16px;padding:22px}#launch-status{color:#8dd2fb}p{color:#c2b7c8}
+body[data-link="offline"] section,body[data-link="connection"] section{border-color:#756b7b}
+body[data-link="offline"] #launch-status,body[data-link="connection"] #launch-status{color:#c2b7c8}
 button,a{color:#f7d78c}button{font:inherit;padding:10px 20px;border:1px solid #756b7b;border-radius:10px;background:transparent}
 button:disabled{opacity:.6}
 </style></head><body data-panel-launch="true"><main>
@@ -135,16 +159,9 @@ button:disabled{opacity:.6}
   var retry = document.getElementById("launch-retry");
   function visible() { return !away && document.visibilityState === "visible"; }
   function offline() {
+    document.body.dataset.link = 'offline';
     status.textContent = "STATUS NOT CURRENT — OFFLINE";
     detail.textContent = "This device will check system health when it reconnects.";
-  }
-  function sameOrigin(response) {
-    return new URL(response.url || location.href, location.href).origin === location.origin;
-  }
-  function deploymentProgress(response) {
-    if (!response || response.status !== 503 || !sameOrigin(response)) { return ""; }
-    try { return decodeURIComponent(response.headers.get("X-Sentinel-Deployment-Progress") || ""); }
-    catch (_) { return ""; }
   }
   async function load() {
     if (document.body.dataset.panelLaunch !== "true" || !visible()) { return; }
@@ -153,14 +170,17 @@ button:disabled{opacity:.6}
     if (!active) { return; }
     retry.disabled = true;
     var response;
+    var receivingBody = false;
     var started = performance.now();
     try {
       var html = await dashboardDeadline(active, async function() {
         response = await fetch(location.href, {cache:"no-store", credentials:"same-origin", headers:{"X-Sentinel-Refresh":"1"}, signal:active.signal});
         if (!response.ok || !["CURRENT", "PARTIAL"].includes(response.headers.get("X-Sentinel-Panel-Status")) ||
-            !sameOrigin(response)) { throw new Error("Current status is not available"); }
+            !sameDashboardOrigin(response)) { throw new Error("Current status is not available"); }
+        receivingBody = true;
         return response.text();
       });
+      receivingBody = false;
       if (!requests.owns(active) || !visible()) { return; }
       var documentStatus = response.headers.get("X-Sentinel-Panel-Status");
       var next = currentDocument(html, documentStatus, response, started);
@@ -170,10 +190,12 @@ button:disabled{opacity:.6}
       if (requests.owns(active) && visible()) {
         if (!navigator.onLine) { offline(); }
         else {
-          var progress = deploymentProgress(response);
+          var failure = dashboardReadFailure(response, receivingBody);
+          document.body.dataset.link = failure.kind;
+          var progress = failure.progress;
           var delay = progress ? 5000 : retryDelay;
           retryDelay = progress ? 5000 : Math.min(delay * 2, 30000);
-          status.textContent = progress || "STATUS NOT CURRENT — CONNECTION DELAYED";
+          status.textContent = progress || (failure.kind === 'connection' ? 'STATUS NOT CURRENT — CONNECTION DELAYED' : failure.label);
           detail.textContent = "Current health is unavailable. Checking again in " + delay / 1000 + " seconds.";
           requests.retryAfter(load, delay);
         }
@@ -184,6 +206,7 @@ button:disabled{opacity:.6}
   }
   function resume() {
     if (status.textContent === "STATUS NOT CURRENT — OFFLINE" && navigator.onLine) {
+      delete document.body.dataset.link;
       status.textContent = "Connecting to current status…";
       detail.textContent = "Current system health has not been checked yet.";
     }

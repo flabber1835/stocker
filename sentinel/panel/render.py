@@ -700,6 +700,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   var requests = dashboardRequests();
   var refreshDeferred = false;
   var refreshDelayed = document.body.dataset.refreshPending === "true";
+  var readFailure = null;
   // Server health and browser freshness are separate. A server-side incident
   // never turns a sleeping phone into twenty new model-slot failures.
   var hardFailure = false;
@@ -785,25 +786,22 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     var started = performance.now();
     var response;
     var responseStatus;
-    var responseAllowed = false;
-    var sameOrigin = false;
-    var transportDelay = true;
+    var receivingBody = false;
     try {{
       var html = await dashboardDeadline(active, async function(){{
         response = await fetch(location.href, {{cache:"no-store", headers:{{
           "X-Sentinel-Refresh":"1",
           "X-Sentinel-Panel-Fragment":window.sentinelDashboardControllerVersion
         }}, signal:active.signal}});
-        sameOrigin = new URL(response.url || location.href, location.href).origin === location.origin;
         responseStatus = response.headers.get("X-Sentinel-Panel-Status");
-        responseAllowed = sameOrigin && response.ok && ["CURRENT", "PARTIAL"].includes(responseStatus);
-        if (!responseAllowed){{
+        if (!sameDashboardOrigin(response) || !response.ok || !["CURRENT", "PARTIAL"].includes(responseStatus)){{
           throw new Error("Current dashboard is not ready");
         }}
+        receivingBody = true;
         return response.text();
       }});
+      receivingBody = false;
       if (!requests.owns(active) || document.visibilityState !== "visible" || pageAway){{ return; }}
-      transportDelay = false;
       var next = currentDocument(html, responseStatus, response, started);
       clearTimeout(refreshTimer);
       clearTimeout(resumeTimer);
@@ -818,6 +816,8 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
         return;
       }}
       reconcileDocument(next);
+      readFailure = null;
+      delete document.body.dataset.link;
       badge = document.getElementById('operational-state');
       heartbeat = document.getElementById('dashboard-heartbeat');
       preparation = document.getElementById('preparation-stage');
@@ -840,23 +840,17 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     }} catch (_error) {{
       if (!requests.owns(active)){{ return; }}
       if (document.visibilityState !== "visible" || pageAway){{ refreshDeferred = true; return; }}
-      var progress = "";
-      if (response){{
-        if (sameOrigin && response.status === 503 && navigator.onLine){{
-          try {{ progress = decodeURIComponent(response.headers.get("X-Sentinel-Deployment-Progress") || ""); }}
-          catch (_malformedProgress) {{}}
-        }}
-        if (!sameOrigin || (!responseAllowed && response.status !== 503 &&
-            responseStatus !== "LAST_KNOWN")){{ transportDelay = false; }}
-      }}
-      setDeploymentProgress(progress);
+      readFailure = dashboardReadFailure(response, receivingBody);
+      document.body.dataset.link = readFailure.kind;
+      var transportDelay = readFailure.retryable;
+      setDeploymentProgress(readFailure.progress || "");
       if (transportDelay && !invalidated && continuityCurrent()){{
         showResume();
       }} else if (transportDelay && !invalidated && originalCurrent()){{
         pendingRefresh();
       }} else {{
         invalidate(false, !transportDelay);
-        heartbeat.textContent = "Refreshing status · showing last known values";
+        heartbeat.textContent = readFailure.label + " · showing last known values";
       }}
       requests.retryAfter(refreshDocument, 5000);
     }} finally {{
@@ -876,7 +870,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   function pendingRefresh(){{
     withdrawPreparation();
     refreshDelayed = true;
-    heartbeat.textContent = "Refreshing status · last known observation " +
+    heartbeat.textContent = (readFailure ? readFailure.label : "Refreshing status") + " · last known observation " +
       new Date(generated).toISOString();
   }}
   function resumeCurrent(){{
@@ -899,7 +893,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     refreshDelayed = true;
     document.documentElement.classList.add("checking-status");
     showLastVerifiedStatus("checking for an update", "REFRESHING STATUS — LAST KNOWN VALUES");
-    heartbeat.textContent = "Refreshing status · checking connection · last known observation " +
+    heartbeat.textContent = (readFailure ? readFailure.label : "Refreshing status") + " · last known observation " +
       new Date(generated).toISOString();
   }}
   function resumeDocument(){{

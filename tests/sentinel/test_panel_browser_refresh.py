@@ -120,7 +120,7 @@ def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None, pan
     elif mutation == 'body-transport':
         guard = 'return response.text();'
         assert script.count(guard) == 1
-        script = script.replace(guard, 'transportDelay = false; return response.text();')
+        script = script.replace(guard, 'receivingBody = false; return response.text();')
     elif mutation in {'hard-deadline', 'device-wall-clock'}:
         guard, replacement = {
             'hard-deadline': ('Promise.race([timeout, read])', '(timeout.catch(() => {}), read)'),

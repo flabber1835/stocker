@@ -22,6 +22,7 @@ def execute(target, kind, *, broken=False, mutation=None):
         guard, replacement = {
             'expiry': ('nextAge >= nextBudget', 'false'),
             'origin': ('new URL(response.url || location.href, location.href).origin === location.origin', 'true'),
+            'received-as-disconnected': ('if (!response || receivingBody)', 'if (true)'),
             'late': ('!requests.owns(active) || !visible()', '!visible()'),
             'deadline': ('Promise.race([timeout, read])', '(timeout.catch(() => {}), read)'),
             'device-clock': ('serverTime + roundTrip - generation', 'Date.now() - generation'),
@@ -73,7 +74,8 @@ def test_launch_installs_only_complete_fresh_same_origin_visible_responses(kind)
 @pytest.mark.parametrize('mutation,kind', [('expiry','stale'), ('origin','foreign'),
                                         ('deadline','unsettled-fetch'), ('deadline','unsettled-body'),
                                         ('device-clock','device-skew'),
-                                        ('single','fresh'), ('currentness','wrong-current-marker')])
+                                        ('single','fresh'), ('currentness','wrong-current-marker'),
+                                        ('received-as-disconnected','busy')])
 def test_broken_launch_guards_are_detected(mutation,kind):
     result=execute('launch',kind,mutation=mutation)
     assert result.returncode!=0

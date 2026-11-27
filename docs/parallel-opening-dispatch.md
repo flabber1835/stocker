@@ -98,3 +98,10 @@ cash and holdings. Record separately how many orders reached the venue by the
 cutoff, how many filled by then and when the scheduler confirmed the result.
 Show a worker loss separately when exercised and observe the actual dashboard
 at those same times. All venue timings from these tests describe a simulator.
+
+Set up the ordinary backup marker table before issuing financial evidence in
+a fresh private database. The evidence binds the database schema. Creating
+the table for the first time during a later restore drill changes that schema
+and correctly stops a subsequent opening before it can submit an order. Keep
+that refusal in the test record. A rehearsal may start again from a correctly
+initialized private database.

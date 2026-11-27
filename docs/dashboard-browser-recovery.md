@@ -62,3 +62,5 @@ Exercise a delayed request and a pending retry across suspension. Check that the
 new foreground request starts immediately, retired responses have no effect,
 and a failure on the new request still backs off. Qualify the exact browser
 source successor on the current main release, with prior source history retained.
+
+The launch page and loaded dashboard distinguish an unavailable status from an unavailable connection. A response from the selected origin establishes contact even if the server returns HTTP 503 or its document fails validation. Show that the dashboard is waiting for current status, in blue. A trusted 503 may include deployment progress. An incomplete network transfer or a device reporting offline gets connection wording. A different origin cannot establish contact with Sentinel. These display facts do not extend evidence expiry, change retry ownership, or clear a dated amber or red warning.

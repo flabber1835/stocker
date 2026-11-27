@@ -39,7 +39,7 @@ async function launch() {
   let elapsed=0;
   class Clock extends Date {static now(){return stamp+elapsed+(input.kind==='device-skew'?-600000:0);}}
   const responseHeaders = (status='CURRENT') => ({get:name =>
-    name==='X-Sentinel-Server-Time' ? String(stamp+elapsed) : status});
+    name==='X-Sentinel-Server-Time' ? String(stamp+elapsed) : name==='X-Sentinel-Panel-Status' ? status : null});
   class Parser {parseFromString(){return {
     getElementById:()=>input.kind==='incomplete'?null:{},body:{dataset:{
       generatedAt:input.kind==='invalid-date'?'invalid':new Date(stamp+(input.kind==='future'?10000:
@@ -60,7 +60,7 @@ async function launch() {
   vm.runInNewContext(input.source,context);
   assert.equal(reads.length,0,'first paint must precede the status fetch');
   frames.shift()();assert.equal(reads.length,0);frames.shift()();
-  if(input.kind==='offline') {assert.equal(reads.length,0);assert.match(status.textContent,/STATUS NOT CURRENT — OFFLINE/);return;}
+  if(input.kind==='offline') {assert.equal(reads.length,0);assert.match(status.textContent,/STATUS NOT CURRENT — OFFLINE/);assert.equal(document.body.dataset.link,'offline');return;}
   assert.equal(reads.length,1);
   assert.equal(reads[0].options.cache,'no-store');
   const settle = () => new Promise(resolve => setImmediate(resolve));
@@ -162,7 +162,13 @@ async function launch() {
     await settle();
     assert.equal(writes.length,0);
     assert.equal(retry.disabled,false,'a timed-out request must release the launch retry control');
-    assert.match(status.textContent,/CONNECTION DELAYED/);
+    if(input.kind==='malformed-progress') {
+      assert.equal(document.body.dataset.link,'connected');assert.match(status.textContent,/waiting for current status/);
+    } else if(input.kind==='foreign-progress') {
+      assert.equal(document.body.dataset.link,'unverified');assert.match(status.textContent,/response unverified/);
+    } else {
+      assert.equal(document.body.dataset.link,'connection');assert.match(status.textContent,/CONNECTION DELAYED/);
+    }
     if (input.kind==='pause-offline' || input.kind==='pause-hidden') {
       if (input.kind==='pause-offline') {
         context.navigator.onLine=false;listeners.offline();
@@ -206,6 +212,7 @@ async function launch() {
       text:()=>{throw new Error('retry downloaded a retained document');}});
     for(let i=0;i<12;i++)await Promise.resolve();
     assert.equal(status.textContent,phase);
+    assert.equal(document.body.dataset.link,'connected');
     assert.equal(writes.length,0);
     const pending=[...timers.values()].filter(t=>t.delay===5000);
     assert.equal(pending.length,1);
@@ -222,6 +229,10 @@ async function launch() {
   for(let i=0;i<12;i++)await Promise.resolve();
   if(['fresh','partial','device-skew'].includes(input.kind)) {assert.deepEqual(writes,['open','fresh','close']);assert.equal(reads.length,1);}
   else {assert.equal(writes.length,0,'invalid, late or hidden response installed authority');}
+  if (['busy','incomplete','cached','stale'].includes(input.kind)) {
+    assert.equal(document.body.dataset.link,'connected');
+    assert.match(status.textContent,/waiting for current status/);
+  }
 }
 (async()=>{if(input.target==='worker')await worker();else await launch();process.stdout.write('PASS\n');})()
   .catch(error=>{process.stderr.write(error.stack+'\n');process.exitCode=1;});
