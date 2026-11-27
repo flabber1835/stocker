@@ -15,6 +15,7 @@ from sentinel.automation.model import ControlBinding, CycleState
 from sentinel.authority import live_runtime
 from sentinel.config import SentinelConfig, build_execution_broker
 from sentinel.execution import authority_gate, feed_inputs, journal
+from sentinel.execution.contract import Side
 from sentinel.execution.guarded import AutomationExecutionGrant, BrokerAuthorityRefused
 from sentinel.execution.plan import ExecutionPlan
 from sentinel.execution.states import CommandState
@@ -169,6 +170,19 @@ def test_signed_live_mutation_rechecks_control_after_entering_the_native_client(
     with pytest.raises(BrokerAuthorityRefused):
         asyncio.run(opening.broker.cancel(opening.owned.broker_order_id))
     assert [call[0] for call in opening.http.calls] == ['GET']
+
+
+def test_native_live_submit_refuses_after_owned_account_binding_changes(conn, opening):
+    pending = command(opening.signed, security='PRIVATE', side=Side.SELL)
+    journal.save_command(conn, pending)
+    assert asyncio.run(opening.broker.identify_account()).account_id == opening.signed.subject.account_id
+    conn.execute("UPDATE sentinel_account_binding SET broker_account_id=%s WHERE id=1",
+                 ('00000000-0000-4000-8000-000000000002',))
+    conn.commit()
+    with pytest.raises(BrokerAuthorityRefused, match='LIVE automation binding or cycle is stale'):
+        asyncio.run(opening.broker.submit(client_key=pending.client_key, instrument=pending.instrument,
+            side=pending.side, quantity=pending.quantity, order_terms=pending.order_terms))
+    assert [call[:2] for call in opening.http.calls] == [('GET', '/v2/account')]
 
 
 @pytest.mark.parametrize('withdraw', ['kill', 'lease'])

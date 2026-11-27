@@ -44,13 +44,15 @@ def test_five_distinct_typed_children_are_inside_the_existing_operational_owner(
 
 
 @pytest.mark.parametrize('suffix', ['issuer-policy:', 'issuer-policy:v1:enrollment:account',
-    'issuer-policy:v1:source:digest', 'issuer-policy:v2:claim:account', 'issuer-policy:future'])
+    'issuer-policy:v1:source:digest', 'issuer-policy:v2:claim:account', 'issuer-policy:future',
+    'dollar-reservations:', 'dollar-reservations:v1:plan:any'])
 def test_funding_reader_rejects_the_whole_reserved_plan_branch_before_sql(suffix):
     with pytest.raises(funding.ProtectedFundingRefused, match='reserved issuer-policy'):
         funding.load_basis(NoSql(), plan_id=suffix)
 
 
-@pytest.mark.parametrize('suffix', ['issuer-policy:v1:plan:any', 'issuer-policy:v9:shortfall:any'])
+@pytest.mark.parametrize('suffix', ['issuer-policy:v1:plan:any', 'issuer-policy:v9:shortfall:any',
+                                   'dollar-reservations:v1:plan:any'])
 def test_funding_writer_rejects_the_whole_reserved_branch_before_sql(suffix):
     with pytest.raises(funding.ProtectedFundingRefused, match='reserved issuer-policy'):
         funding.record_quiescent_basis(NoSql(), plan=SimpleNamespace(plan_id=suffix),
@@ -87,12 +89,16 @@ def test_decoders_cannot_confuse_a_cash_basis_with_an_issuer_envelope():
         funding.load_basis(conn, plan_id='p')
 
 
-def test_reserved_branch_rejection_has_a_removed_guard_falsifier(monkeypatch):
+@pytest.mark.parametrize('retained,removed', [
+    ('ISSUER_POLICY_BRANCH', funding.DOLLAR_RESERVATION_BRANCH),
+    ('DOLLAR_RESERVATION_BRANCH', funding.ISSUER_POLICY_BRANCH),
+])
+def test_reserved_branch_rejection_has_a_removed_guard_falsifier(monkeypatch, retained, removed):
     raw = inspect.getsource(funding._funding_key)
-    needle = 'or plan_id.startswith(ISSUER_POLICY_BRANCH)'
+    needle = '(ISSUER_POLICY_BRANCH, DOLLAR_RESERVATION_BRANCH)'
     assert raw.count(needle) == 1
     namespace = dict(vars(funding))
-    exec(compile(raw.replace(needle, 'or False'), 'missing-funding-namespace-guard', 'exec'), namespace)
+    exec(compile(raw.replace(needle, retained), 'missing-funding-namespace-guard', 'exec'), namespace)
     monkeypatch.setattr(funding, '_funding_key', namespace['_funding_key'])
     with pytest.raises(AssertionError, match='reached funding SQL'):
-        test_funding_reader_rejects_the_whole_reserved_plan_branch_before_sql('issuer-policy:v1:source:any')
+        funding.load_basis(NoSql(), plan_id=removed + 'v1:source:any')
