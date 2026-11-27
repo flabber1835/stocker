@@ -22,6 +22,8 @@ BANNER_SCRIPT = r"""
     fallback.hidden = false;
   }
   function loaded() {
+    if (state.failed) { unavailable(); return; }
+    if (image.getAttribute('src') !== state.url) { return; }
     if (!image.complete || image.naturalWidth === 0) { return; }
     image.hidden = false;
     fallback.hidden = true;

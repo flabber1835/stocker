@@ -11,7 +11,9 @@ import sys
 def start(runtime, now):
     """Called only by the leader after the scheduler proved an idle cycle."""
     child = getattr(runtime, '_opening_warm_process', None)
-    if child is not None and child.poll() is not None:
+    if child is not None:
+        if child.poll() is None:
+            return
         runtime._opening_warm_process = None
     if (getattr(runtime, '_opening_warm_attempted', False)
             or not getattr(runtime, '_operational_source_only', False)
@@ -38,12 +40,14 @@ def stop(runtime):
     if child is not None:
         if child.poll() is None:
             child.kill()
-        child.wait(timeout=1)
-        runtime._opening_warm_process = None
+        # The reader has its own exec'd process and owns no financial permit.
+        # poll() reaps without making a due callback wait for kernel I/O.
+        if child.poll() is not None:
+            runtime._opening_warm_process = None
 
 
 def verify_waiting(conn, *, cycle_id, observation_id, starting_cash):
-    from sentinel import dual_reconciliation, prepared_opening_material
+    from sentinel import dual_reconciliation, prepared_opening_material, snapshot_scan_admission
     from sentinel.automation import store
     from sentinel.execution import feed_inputs, journal
     cycle = store.load_cycle(conn, cycle_id)
@@ -52,7 +56,7 @@ def verify_waiting(conn, *, cycle_id, observation_id, starting_cash):
             or cycle.execute_at - now <= timedelta(minutes=2)):
         return
     signal.alarm(min(240, int((cycle.execute_at - now).total_seconds()) - 60))
-    with prepared_opening_material.cycle(cycle), feed_inputs.pinned(conn, commit=False):
+    with snapshot_scan_admission.discretionary(), prepared_opening_material.cycle(cycle), feed_inputs.pinned(conn, commit=False):
         plan = journal.latest_plan(conn)
         if plan is None or plan.plan_id != cycle.plan_id or plan.fingerprint() != cycle.plan_fingerprint:
             return

@@ -52,6 +52,9 @@ switch(request.case){
   assert.equal(window.__sentinelMarqueeResources[asset].failed,true,'second failure was not terminal');
   assert.equal(first.image.hidden,true);assert.equal(first.fallback.hidden,false);
   first.wake.pageshow();const second=boot();second.wake.pageshow();
+  // A replacement document can finish decoding its initial neutral still after
+  // the controller has already selected the text fallback for the failed sign.
+  second.load();assert.equal(second.image.hidden,true,'late neutral image revived failed sign');
   assert.equal(assignments.length,2,'consumed recovery budget was renewed');
   assert.equal(second.fallback.hidden,false);break;
  case 'replacement':

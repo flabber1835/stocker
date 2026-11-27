@@ -11,6 +11,15 @@ from sentinel.feed import rolling_go_inputs, rolling_store, store
 from tests.sentinel.test_publication_read_cost import _substitute_block, alpaca_path, conn, pg, published  # noqa: F401
 
 
+def install_financial_tables(conn):
+    names = ('sentinel_account_binding', 'sentinel_processed_sessions', 'sentinel_rollout_state',
+             'sentinel_execution_plans', 'sentinel_commands', 'sentinel_fills')
+    for statement in schema.DDL:
+        if any('CREATE TABLE IF NOT EXISTS '+name+' (' in statement for name in names):
+            conn.execute(statement)
+    conn.commit()
+
+
 @pytest.fixture
 def cycle(monkeypatch):
     monkeypatch.setenv('SENTINEL_IMAGE_SOURCE_REVISION', 'a' * 40)
@@ -46,10 +55,7 @@ def test_first_callback_reuses_preparation_full_scan_and_rejects_changed_block(
 
 def test_committed_strategy_input_change_and_foreign_broker_lineage(conn, published, cycle, tmp_path, monkeypatch):
     monkeypatch.setenv('SENTINEL_PUBLICATION_RECEIPT_KEY', 'private-read-cost-test-key-' * 2)
-    for stmt in schema.DDL:
-        if any('CREATE TABLE IF NOT EXISTS '+name+' (' in stmt for name in
-               ('sentinel_account_binding', 'sentinel_processed_sessions', 'sentinel_rollout_state')):
-            conn.execute(stmt)
+    install_financial_tables(conn)
     conn.execute("INSERT INTO sentinel_processed_sessions(cursor_name,session,state) "
                  "VALUES ('rolling-unit','2026-09-14','{}'), ('broker-observation:v4:test','2026-09-14','{}')")
     conn.commit()
@@ -105,8 +111,8 @@ def test_startup_only_warms_a_waiting_plan_away_from_open_and_reaps_it(monkeypat
     runtime = SimpleNamespace(_operational_source_only=True, _dual_run_enabled=True,
                               service=SimpleNamespace(_idle_cycle_proof=('owned', cycle)))
     events = []
-    process = SimpleNamespace(poll=lambda: None, kill=lambda: events.append('killed'),
-                              wait=lambda **kwargs: events.append('reaped'))
+    exit_status = [None]
+    process = SimpleNamespace(poll=lambda: exit_status[0], kill=lambda: events.append('killed'))
     monkeypatch.setattr(opening_prewarm.subprocess, 'Popen', lambda argv, **kwargs: events.append(argv[-1]) or process)
     opening_prewarm.start(runtime, now)
     assert events == []
@@ -114,14 +120,20 @@ def test_startup_only_warms_a_waiting_plan_away_from_open_and_reaps_it(monkeypat
     opening_prewarm.start(runtime, now)
     opening_prewarm.start(runtime, now)
     opening_prewarm.stop(runtime)
-    assert events == ['cycle', 'killed', 'reaped']
+    assert events == ['cycle', 'killed'] and runtime._opening_warm_process is process
+    runtime._opening_warm_attempted = False
+    opening_prewarm.start(runtime, now)
+    assert events == ['cycle', 'killed']
+    exit_status[0] = -9
+    opening_prewarm.stop(runtime)
+    assert runtime._opening_warm_process is None
 
 
 def test_ordinary_first_rederivation_and_mutated_account_sizing(conn, published, cycle, tmp_path, monkeypatch):
     from sentinel import dual_plan_authority as sizing
     from tests.sentinel.test_dual_plan_scalar_proof import canonical_authority
     monkeypatch.setenv('SENTINEL_PUBLICATION_RECEIPT_KEY', 'private-read-cost-test-key-' * 2)
-    schema.ensure_schema(conn)
+    install_financial_tables(conn)
     plan, binding, rollout, shadow, _ = canonical_authority(conn, '100000.125')
     calls = []
     full = sizing._rederive_plan
@@ -190,11 +202,46 @@ def test_visibility_changes_invalidate_old_material(conn, cycle, tmp_path):
     assert material.version_epoch(conn, [(str((xmax + 20) % 2**32), '(1,1)')]) is None
 
 
+def test_prewarm_passes_only_exact_parked_plan_to_canonical_reader(conn, published, cycle, tmp_path, monkeypatch):
+    from sentinel import dual_reconciliation, snapshot_scan_admission
+    from sentinel.automation import store as scheduler
+    from sentinel.execution import journal
+    from sentinel.feed import readiness_scope
+    monkeypatch.setenv('SENTINEL_PUBLICATION_RECEIPT_KEY', 'private-read-cost-test-key-' * 2)
+    monkeypatch.setattr(material, 'gettempdir', lambda: str(tmp_path))
+    cycle.state = SimpleNamespace(value='WAITING_OPEN')
+    cycle.historical_state_only = False
+    cycle.plan_id, cycle.plan_fingerprint = 'parked', 'expected'
+    cycle.execute_at = datetime.now(timezone.utc) + timedelta(minutes=8)
+    plan = SimpleNamespace(plan_id='parked', fingerprint=lambda: 'other')
+    monkeypatch.setattr(scheduler, 'load_cycle', lambda conn, key: cycle)
+    monkeypatch.setattr(journal, 'latest_plan', lambda conn: plan)
+    alarms, calls = [], []
+    monkeypatch.setattr(opening_prewarm.signal, 'alarm', alarms.append)
+    def verify(reader, **kwargs):
+        assert reader.execute('SHOW transaction_read_only').fetchone() == ('on',)
+        assert snapshot_scan_admission._background.get()
+        assert material.active() and readiness_scope.capture(reader) is not None
+        calls.append(kwargs)
+    monkeypatch.setattr(dual_reconciliation, 'require_plan_matches_verified_shadow', verify)
+    def run():
+        with store.connect(conn.info.dsn) as reader:
+            reader.read_only = True
+            opening_prewarm.verify_waiting(reader, cycle_id=cycle.cycle_id,
+                observation_id='primary', starting_cash='50000')
+    run()
+    assert not calls
+    plan.fingerprint = lambda: 'expected'
+    run()
+    assert calls == [dict(plan=plan, observation_id='primary', starting_cash='50000')]
+    assert alarms == [240, 240]
+
+
 def test_restart_reads_typed_shadow_state_and_still_checks_present_process(conn, published, cycle, tmp_path, monkeypatch):
     from sentinel import runtime_admission, rolling_runtime, rolling_authority, shadow_observation
     from tests.v5.test_opening import case
     monkeypatch.setenv('SENTINEL_PUBLICATION_RECEIPT_KEY', 'private-read-cost-test-key-' * 2)
-    schema.ensure_schema(conn)
+    install_financial_tables(conn)
     state, _ = case()
     context = dict(runtime={'release': 'current'}, controller=SimpleNamespace(to_dict=lambda: {'code': 'v1'}))
     result = shadow_observation.ShadowObservationResult('2026-09-14', state, 'b'*64, '1', '2', '1', '2', 'a'*64)
