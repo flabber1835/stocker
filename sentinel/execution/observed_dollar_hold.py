@@ -9,7 +9,7 @@ from sentinel.execution.market_buy_policy import MarketBuyPolicy
 from sentinel.execution.numeric import decimal_text, exact_decimal
 from sentinel.execution.states import CommandState as S
 from sentinel.feed import calendar
-from sentinel.paper import market_reservations
+from sentinel.paper.market_reservations import load as load_reservation, member as reservation_member
 
 
 SCHEMA = "sentinel.operator-funded-dollar-hold/1"
@@ -30,7 +30,7 @@ def basket(conn, bound, plan_id=None):
     plan = journal.load_plan(conn, plan_id)
     if plan is None or plan.superseded_by:
         return None
-    basis = market_reservations.load(conn, plan)
+    basis = load_reservation(conn, plan)
     if not basis or basis["deployment"] != deployment.to_dict() or basis["sales"] or not basis["members"]:
         return None
     if any(c.client_key not in basis["members"] or c.state not in WORKING | {S.SEND_PENDING} for c in active):
@@ -39,7 +39,7 @@ def basket(conn, bound, plan_id=None):
                client_keys=tuple(basis["members"]))}
     if (members.keys() != basis["members"].keys()
             or any(c.state not in WORKING | {S.PLANNED, S.SEND_PENDING, S.FILLED}
-                   or market_reservations.member(c) != basis["members"][k] for k, c in members.items())):
+                   or reservation_member(c) != basis["members"][k] for k, c in members.items())):
         return None
     return plan, protected_funding._sha(basis), members
 
@@ -78,6 +78,17 @@ def _hold(orders):
     amounts = [Fraction(order["notional"]) - Fraction(order["filled_quantity"]) *
                Fraction(order["filled_average_price"] or "0") for order in orders]
     return sum(amounts, Fraction(0)) if amounts and min(amounts) > 0 else None
+
+
+def may_be_moving(scope, snapshot, at):
+    """A plausible change warrants a second read, never positive account status."""
+    if not scope:
+        return False
+    plan, _, members = scope
+    opened, closed = calendar.session_window(plan.effective_session)
+    maximum = sum((Fraction(c.notional) for c in members.values()
+                   if c.state in WORKING | {S.SEND_PENDING}), Fraction(0))
+    return opened <= at < closed and 1 < Fraction(snapshot.cash) - Fraction(snapshot.buying_power) <= maximum + 1
 
 
 async def capture(reader, scope, snapshot):

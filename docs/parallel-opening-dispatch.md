@@ -64,6 +64,15 @@ terms, unexplained cash, blocked accounts and expired samples still fail the
 account check. This evidence cannot authorize orders or resolve a journal
 command. Alpaca describes the hold in its [order buying-power documentation](https://docs.alpaca.markets/us/docs/orders-at-alpaca).
 
+A buy can reach the venue between the collector's two account reads. A new
+hold on the second read needs the same bounded fresh observation as a hold
+which moves during order collection. If both attempts straddle active funded
+orders, retain the preceding published sample and its original expiry and
+request the ordinary two-second reservation recheck. Only a healthy account
+inside the reservation's session qualifies. Stable unexplained balances,
+foreign or uncertain commands, account blocks and excessive buying power
+still publish their negative evidence immediately.
+
 One writer prepares and checkpoints commands. Up to four independent requests
 may await a broker response together. Each POST starts only after its own
 committed SEND_PENDING checkpoint. A guarded native PAPER sale remains PLANNED

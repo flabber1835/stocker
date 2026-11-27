@@ -21,7 +21,8 @@ from tests.sentinel.test_order_terms_schema import _compiled
 
 
 @pytest.mark.parametrize("fault", ["", "partial", "missing-filled", "foreign", "duplicate", "larger-gap", "partial-wrong",
-                                   "unknown", "replaced", "wrong-symbol", "blocked", "moving", "damaged-journal"])
+                                   "unknown", "replaced", "wrong-symbol", "blocked", "moving", "damaged-journal",
+                                   "late-hold", "late-settled", "late-foreign", "late-block", "late-excess", "after-close"])
 def test_native_hold_during_funded_dispatch(database, subject, monkeypatch, fault):
     for key, value in {**MARKET_ENV, local_paper.MODE_ENV: local_paper.MODE, local_paper.ACCOUNT_ENV: "PATEST",
                        "SENTINEL_PAPER_BUY_POLICY": FRACTIONAL_MODE, "ALPACA_BASE_URL":"https://paper-api.alpaca.markets"}.items():
@@ -34,6 +35,8 @@ def test_native_hold_during_funded_dispatch(database, subject, monkeypatch, faul
     subject["projection"].plan_fingerprint = plan.fingerprint()
     subject.update(plan=plan, deployment=deployment)
     now = calendar.session_window(plan.effective_session)[0] + timedelta(minutes=3)
+    if fault == "after-close":
+        now = calendar.session_window(plan.effective_session)[1] + timedelta(seconds=1)
     from tests.sentinel import test_market_reservations
     monkeypatch.setattr(test_market_reservations, "DEPLOY", deployment)
     first, working, pending = (command(plan, symbol, amount="20") for symbol in ("FIRST", "OPEN", "LATER"))
@@ -63,7 +66,7 @@ def test_native_hold_during_funded_dispatch(database, subject, monkeypatch, faul
     native_closed = [row(first, "filled", "2", "10")]
     if fault == "missing-filled":
         native_closed.clear()
-    if fault == "foreign":
+    if fault in ("foreign", "late-foreign"):
         native_open[0]["client_order_id"] = "foreign"
     if fault == "duplicate":
         native_open.append(native_open[0].copy())
@@ -84,15 +87,36 @@ def test_native_hold_during_funded_dispatch(database, subject, monkeypatch, faul
         payload["buying_power"] = "58.99"
     reader = AlpacaExecutionBroker(api_key="fixture", secret_key="fixture", base_url="https://paper-api.alpaca.markets")
     requests = []
+    late_powers = {
+        "late-hold": ["80", "60", "60", "60"], "late-settled": ["80", "60", "80", "80"],
+        "late-foreign": ["80", "60", "60", "60"], "late-block": ["80", "60"],
+        "late-excess": ["80", "1"], "after-close": ["80", "60"],
+        "moving": ["80", "60", "60", "57"],
+    }
     async def get(path, params=None):
         assert database.info.transaction_status.name == "IDLE"
         requests.append((path, params))
         if path == "/v2/account":
             n = sum(path == "/v2/account" for path, _ in requests)
-            return {**payload, "buying_power": "57" if fault=="moving" and n % 2 == 0 else payload["buying_power"]}
+            power = late_powers[fault][n-1] if fault in late_powers else payload["buying_power"]
+            return {**payload, "buying_power": power, "account_blocked": fault == "late-block" and n == 2}
         assert path == "/v2/orders" and params["limit"] == 500
         return native_open if params["status"] == "open" else native_closed
     monkeypatch.setattr(reader, "_get", get)
+    if fault == "moving":
+        from sentinel import operational_evidence
+        from sentinel.execution.contract import BrokerAccountIdentity, BrokerAccountSnapshot
+        prior = BrokerAccountSnapshot(BrokerAccountIdentity("alpaca","PATEST"),D(100),D(80),D(80),D(1),"ACTIVE")
+        previous = now - timedelta(minutes=11)
+        operational_evidence.record_account_snapshot(database, prior, collector_observed_at=previous)
+        database.commit()
+        assert asyncio.run(account_status.collect(Clocked(), reader=reader, config=SentinelConfig.from_env({}),
+            report_reservation_recheck=True)) == account_status.RESERVATION_RECHECK
+        retained = sources._latest_account_evidence(database)
+        assert retained["observed_at"] == previous
+        assert model.alpaca_account_row(available=True, expected_account_id="PATEST", **retained).effective_status(now) == model.FAIL
+        assert len([p for p, _ in requests if p=="/v2/account"]) == 4
+        return
     assert asyncio.run(account_status.collect(Clocked(), reader=reader, config=SentinelConfig.from_env({})))
     recorded = sources._latest_account_evidence(database)
     bound = account_status._bound(database)
@@ -103,7 +127,13 @@ def test_native_hold_during_funded_dispatch(database, subject, monkeypatch, faul
         return observed_dollar_hold.verify(database, bound, receipt, recorded["cash"],
                                           recorded["buying_power"], recorded["observed_at"], at)
     proof = verify(now)
-    if fault not in ("", "partial"):
+    if fault in late_powers:
+        assert len([p for p, _ in requests if p=="/v2/account"]) == len(late_powers[fault])
+    if fault == "late-settled":
+        assert proof is None and recorded["cash"] == recorded["buying_power"] == 80
+        assert model.alpaca_account_row(available=True, expected_account_id="PATEST", **recorded).status == model.OK
+        return
+    if fault not in ("", "partial", "late-hold"):
         assert proof is None
         assert model.alpaca_account_row(available=True,expected_account_id="PATEST",**recorded).status == model.FAIL
         return
@@ -135,3 +165,10 @@ def test_terminal_native_evidence_falsifier(database, subject, monkeypatch):
         'if (False'))
     with pytest.raises(AssertionError):
         test_native_hold_during_funded_dispatch(database, subject, monkeypatch, "missing-filled")
+
+
+def test_newly_appearing_hold_falsifier(database, subject, monkeypatch):
+    monkeypatch.setattr(account_status, "_observation", _compiled(account_status._observation,
+        "if first_gap <= 1 or dollar_proof is not None:", "if dollar_proof is not None:"))
+    with pytest.raises(AssertionError):
+        test_native_hold_during_funded_dispatch(database, subject, monkeypatch, "late-hold")

@@ -21,6 +21,7 @@ PUBLICATION_SECONDS = 10
 RESERVATION_RECHECK = 'RESERVATION_RECHECK'
 SAMPLE_SUPERSEDED = 'SAMPLE_SUPERSEDED'
 RESERVATION_RECHECK_SECONDS = 2
+_MOVING_FUNDED_BOOK = object()
 RESERVATION_SCHEMA = "sentinel.operator-account-reservation/1"
 MARKET_WORKING_SCHEMA = "sentinel.operator-market-order/1"
 RESERVATION_FLAG = "operator_order_reservation"
@@ -266,8 +267,16 @@ async def _observation(conn, *, reader, bound, commands, config):
         and last.equity > 0 and last.buying_power >= 0
         and 1 < last.cash - last.buying_power <= _reserved(current_commands) + 1
     )
-    if dollar_basket and not balances_stable and _healthy_cash_snapshot(last) and last.cash - last.buying_power > 1:
-        unsettled = True
+    if (config is None and not balances_stable and _healthy_cash_snapshot(snapshot)
+            and _healthy_cash_snapshot(last) and last.cash - last.buying_power > 1):
+        first_gap = snapshot.cash - snapshot.buying_power
+        if first_gap <= 1 or dollar_proof is not None:
+            # A native buy may start only after the first account GET. Read
+            # currently eligible members again even when that GET had no hold.
+            if observed_dollar_hold.may_be_moving(observed_dollar_hold.basket(conn, bound), last, observed_at):
+                unsettled = _MOVING_FUNDED_BOOK
+        elif dollar_basket:
+            unsettled = True
     return last, proof, unsettled, current_commands, observed_at
 
 
@@ -385,6 +394,11 @@ async def collect(conn, *, config, reader=None, report_reservation_recheck=False
     sample = await asyncio.wait_for(
         _collect(conn, reader=reader, bound=bound, commands=commands,
                  config=config if live else None), DEADLINE_SECONDS)
+    if sample[2] is _MOVING_FUNDED_BOOK:
+        # Two changing intervals (or an exhausted read budget) cannot update
+        # the last coherent observation or extend its deadline.
+        conn.rollback()
+        return RESERVATION_RECHECK if report_reservation_recheck else False
     result = await _publish(conn, bound=bound, config=config if live else None, sample=sample, opening=opening,
                             report=report_reservation_recheck)
     return result if report_reservation_recheck else result != SAMPLE_SUPERSEDED
