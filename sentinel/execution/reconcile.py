@@ -1161,7 +1161,8 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
         if abs(gap) <= available + tolerance or (gap < 0 and sid in live_notional_leads):
             lagging_fill_positions_list.append(sid)
     lagging_fill_positions = tuple(lagging_fill_positions_list)
-    from sentinel.execution.share_units import position_restrictions, scalar_position_restrictions
+    from sentinel.execution.share_units import (
+        native_receipt_restrictions, position_restrictions, scalar_position_restrictions)
     restrictions = position_restrictions(
         actions=actions, commands=resolved, observation=observation,
         expected=expected)
@@ -1169,6 +1170,12 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
         actions=actions, commands=resolved, expected=expected, prior=expected_raw,
         observed=observed, increment=increment, pending=pending_entitlements,
         mismatches=mismatched_positions, existing=restrictions)
+    if mismatched_positions and getattr(broker, 'financial_activity_sse', False) is True:
+        receipts = native_receipt_restrictions(conn, deployment=deployment,
+            actions=actions, commands=resolved, expected=expected, observation=observation,
+            eligible=mismatched_positions - explained_action_positions - set(lagging_fill_positions))
+        restrictions.update(receipts)
+        explained_action_positions.update(receipts)
     foreign_positions = tuple(sorted(
         mismatched_positions - set(lagging_fill_positions) - explained_action_positions))
     foreign_orders = tuple(o for o in observation.orders

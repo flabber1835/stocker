@@ -29,11 +29,14 @@ from functools import wraps
 from itertools import batched
 from fractions import Fraction
 from collections.abc import Collection, Mapping as MappingView
-from typing import Mapping, Optional
+from typing import TYPE_CHECKING, Mapping, Optional
 
 from sentinel.execution.contract import Completeness
 from sentinel.execution.alpaca_trade_amendments import TradeAmendment
 from sentinel.execution.numeric import exact_decimal
+
+if TYPE_CHECKING:
+    from sentinel.execution.alpaca_cash_amendments import CashRevision
 
 
 FLOW_PREFIX = "broker-cash:v1:"
@@ -105,6 +108,9 @@ class BrokerCashActivityBatch:
     last_event_id: Optional[str] = None
     trade_amendments: tuple[TradeAmendment, ...] = ()
     trade_history: tuple[dict, ...] = ()
+    native_account: tuple[str, str, str] | None = None
+    cash_revisions: tuple[CashRevision, ...] = ()
+    security_transfers: tuple[dict, ...] = ()
 
     def __post_init__(self) -> None:
         if self.processed_through.tzinfo is None:
@@ -128,6 +134,9 @@ class CashActivityState:
     membership_root: str | None = None
     trade_amendments_applied: bool = False
     trade_amendment_commitment: str | None = None
+    stock_merger_proof: dict | None = None
+    cash_revision_commitment: str | None = None
+    security_transfer_commitment: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -385,6 +394,12 @@ def _native_cash_ledger(conn, *, broker: str, account_id: str):
             " WHERE LEFT(flow_id,LENGTH(%s))=%s ORDER BY flow_id",
             (prefix, prefix))
         rows = cur.fetchall()
+    revised_refs = {str(flow_id)[len(prefix):] for flow_id, _session, _amount, detail in rows
+                    if ";type=CORR;" in str(detail)}
+    revisions = {}
+    if revised_refs:
+        from sentinel.execution.alpaca_cash_amendments import retained_differences
+        revisions = retained_differences(conn, revised_refs, broker=broker, account_id=account_id)
     result = {}
     for flow_id, session, amount, detail in rows:
         native_id = str(flow_id)[len(prefix):]
@@ -392,6 +407,14 @@ def _native_cash_ledger(conn, *, broker: str, account_id: str):
         activity_type = (parts[2][5:] if len(parts) == 4
                          and parts[2].startswith("type=") else None)
         value = _finite_decimal(amount, where="native cash ledger amount")
+        if activity_type == "CORR":
+            difference = revisions.get(str(flow_id))
+            if difference is None or (session, value, detail) != (
+                    difference.session, difference.amount, difference.detail):
+                raise BrokerCashAuthorityRefused("native cash revision difference changed")
+            exact = Fraction(value)
+            result[str(flow_id)] = (_member_commitment(str(flow_id), session, exact, str(detail)), exact, str(detail))
+            continue
         if (not native_id.strip() or activity_type not in RECOGNIZED_ACTIVITY_TYPES
                 or value == 0):
             raise BrokerCashAuthorityRefused("native cash ledger row is malformed")
@@ -544,11 +567,31 @@ def load_activity_state(conn, *, broker: str,
             raise BrokerCashAuthorityRefused("trade amendment evidence disagrees with the cash cursor")
         state["kind"] = "broker-cash-activity/v5"
     root = state.get('membership_root')
+    stock_merger_proof = None
+    cash_revision_commitment = None
+    security_transfer_commitment = None
     if state.get('kind') == 'broker-cash-activity/v5':
         if not _valid_digest(root):
             raise BrokerCashAuthorityRefused('invalid native cash cursor membership root')
         state = dict(state)
         del state['membership_root']
+        stock_merger_proof = state.pop('stock_merger_proof', None)
+        cash_revision_commitment = state.pop('cash_revision_commitment', None)
+        security_transfer_commitment = state.pop('security_transfer_commitment', None)
+        if security_transfer_commitment is not None and (
+                not isinstance(security_transfer_commitment, dict)
+                or set(security_transfer_commitment) != {'native_account_id', 'sha256'}
+                or not _valid_digest(security_transfer_commitment['sha256'])):
+            raise BrokerCashAuthorityRefused('in-kind transfer commitment is malformed')
+        if cash_revision_commitment is not None:
+            from sentinel.execution.alpaca_cash_amendments import commitment
+            if (not _valid_digest(cash_revision_commitment)
+                    or commitment(conn, broker=broker, account_id=account_id) != cash_revision_commitment):
+                raise BrokerCashAuthorityRefused('cash revision evidence disagrees with the activity cursor')
+        if stock_merger_proof is not None and (not isinstance(stock_merger_proof, dict)
+                or set(stock_merger_proof) != {'native_account_id', 'sha256'}
+                or not _valid_digest(stock_merger_proof['sha256'])):
+            raise BrokerCashAuthorityRefused('invalid native stock-merger proof')
         state['kind'] = 'broker-cash-activity/v4' if 'posting_kinds' in state else 'broker-cash-activity/v3'
     state_keys = frozenset(state)
     if (state_keys not in {frozenset(v1), frozenset(v2), frozenset(v3), frozenset(v4)}
@@ -602,7 +645,9 @@ def load_activity_state(conn, *, broker: str,
         last_event_id=last_event_id,
         activity_identity_scheme=identity_scheme,
         posting_kinds=None if kinds is None else tuple(sorted(kinds.items())), membership_root=root,
-        trade_amendment_commitment=amendment_commitment)
+        trade_amendment_commitment=amendment_commitment,
+        stock_merger_proof=stock_merger_proof, cash_revision_commitment=cash_revision_commitment,
+        security_transfer_commitment=security_transfer_commitment)
 
 
 def _binding_established_at(conn, *, broker: str, account_id: str) -> datetime:
@@ -782,6 +827,16 @@ async def ingest_account_cash(
             and not missing_last_flow and not replay_kinds):
         activity_kwargs["since_event_id"] = prior.last_event_id
     batch = await broker_adapter.account_cash_activities(**activity_kwargs)
+    if (isinstance(batch, BrokerCashActivityBatch) and batch.native_account is not None
+            and financial_sse and prior is not None and prior.stock_merger_proof is None
+            and 'since_event_id' in activity_kwargs):
+        # A prior cash-only cursor did not retain security legs. Reuse the
+        # complete owned-account read once and verify its old cash coverage.
+        activity_kwargs.pop('since_event_id')
+        batch = await broker_adapter.account_cash_activities(**activity_kwargs)
+        replay_stock_mergers = True
+    else:
+        replay_stock_mergers = False
     if not isinstance(batch, BrokerCashActivityBatch):
         raise BrokerCashAuthorityRefused(
             "broker cash adapter returned an untyped activity batch")
@@ -814,13 +869,16 @@ async def ingest_account_cash(
                 "restore the complete behavioral state")
 
     posting_kinds = dict(prior.posting_kinds or ()) if prior else {}
-    if replay_kinds:
+    cash_revision_commitment = prior.cash_revision_commitment if prior else None
+    from sentinel.execution import alpaca_cash_amendments
+    if replay_kinds or replay_stock_mergers:
         retained = _native_cash_ledger(conn, broker=broker, account_id=account_id)
         prefix = f"{FLOW_PREFIX}{broker}:{account_id}:"
         replayed = {prefix + item.activity_id for item in batch.activities if item.net_amount}
+        replayed |= alpaca_cash_amendments.replayed_flow_ids(batch.cash_revisions, broker=broker, account_id=account_id)
         if not retained.keys() <= replayed or (prior.last_event_id is not None
                 and (batch.last_event_id is None or batch.last_event_id < prior.last_event_id)):
-            raise BrokerCashAuthorityRefused("posting classification replay omitted retained evidence")
+            raise BrokerCashAuthorityRefused("native classification replay omitted retained evidence")
     seen: set[str] = set()
     # A proven zero-value legacy last-id was a traversal cursor, not a ledger
     # witness. Normalize it away. New state retains only an activity that has a
@@ -856,6 +914,21 @@ async def ingest_account_cash(
                 additions[key] = _member_commitment(key, activity.activity_date, activity.net_amount, _detail(activity))
             running_total += Fraction(activity.net_amount)
             last_id = activity.activity_id
+    if batch.cash_revisions:
+        if (not financial_sse or batch.native_account is None
+                or batch.native_account[:2] != (broker, account_id)
+                or batch.last_event_id is None
+                or batch.cash_revisions[-1].after.event_id > batch.last_event_id):
+            raise BrokerCashAuthorityRefused("cash revisions require qualified account-bound activity replay")
+        revisions = alpaca_cash_amendments.stage(
+            conn, batch.cash_revisions, broker=broker, account_id=account_id,
+            native_account_uuid=batch.native_account[2],
+            replacement_contract=alpaca_cash_amendments.FULL_REPLACEMENT)
+        cash_revision_commitment = revisions.commitment
+        for difference in revisions.differences:
+            running_total += Fraction(difference.amount)
+            additions[difference.flow_id] = difference.member_commitment
+            last_id = difference.reference
     if batch.last_activity_id is not None:
         if batch.activities and batch.last_activity_id != batch.activities[-1].activity_id:
             raise BrokerCashAuthorityRefused(
@@ -882,7 +955,8 @@ async def ingest_account_cash(
         activity_identity_scheme=(
             ACTIVITY_IDENTITY_SCHEME if financial_sse else None),
         posting_kinds=tuple(sorted(posting_kinds.items())) if track_postings else None,
-        trade_amendments_applied=amendments_applied, trade_amendment_commitment=amendment_commitment)
+        trade_amendments_applied=amendments_applied, trade_amendment_commitment=amendment_commitment,
+        cash_revision_commitment=cash_revision_commitment)
     payload = {
         "kind": ("broker-cash-activity/v3" if financial_sse
                  else "broker-cash-activity/v2"),
@@ -908,6 +982,32 @@ async def ingest_account_cash(
         state = replace(state, membership_root=_append_members(conn, state, parent, additions))
         payload.update(kind="broker-cash-activity/v5", membership_root=state.membership_root,
                        activity_identity_scheme=ACTIVITY_IDENTITY_SCHEME)
+        if cash_revision_commitment is not None:
+            payload['cash_revision_commitment'] = cash_revision_commitment
+        prior_transfers = prior.security_transfer_commitment if prior else None
+        if batch.security_transfers or prior_transfers is not None:
+            from sentinel.execution.alpaca_security_transfers import SecurityTransferRefused, record
+            if (batch.last_event_id is None or any(row.get('event_id', '') > batch.last_event_id
+                                               for row in batch.security_transfers)):
+                raise BrokerCashAuthorityRefused('in-kind transfer escaped the bounded activity cursor')
+            try:
+                transfer_proof = record(conn, broker=broker, account_id=account_id,
+                    prior=prior_transfers, native_account=batch.native_account,
+                    events=batch.security_transfers)
+            except SecurityTransferRefused as exc:
+                raise BrokerCashAuthorityRefused(str(exc)) from exc
+            state = replace(state, security_transfer_commitment=transfer_proof)
+            payload['security_transfer_commitment'] = transfer_proof
+        prior_proof = prior.stock_merger_proof if prior else None
+        if batch.native_account is not None or prior_proof is not None or replay_stock_mergers:
+            from sentinel.execution.alpaca_stock_mergers import StockMergerEvidenceRefused, record
+            try:
+                proof = record(conn, broker=broker, account_id=account_id,
+                    prior=prior_proof, native_account=batch.native_account, activities=batch.activities)
+            except StockMergerEvidenceRefused as exc:
+                raise BrokerCashAuthorityRefused(str(exc)) from exc
+            state = replace(state, stock_merger_proof=proof)
+            payload['stock_merger_proof'] = proof
         if amendment_commitment is not None:
             payload.update(kind="broker-cash-activity/v6",
                            trade_amendment_commitment=amendment_commitment)

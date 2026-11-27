@@ -1950,6 +1950,8 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
             require_account_history: bool = False,
             cash_activity: bool = False,
             trade_amendments: Optional[list] = None,
+            cash_revision_candidates: Optional[list[dict]] = None,
+            native_account: Optional[list[tuple[str, str, str]]] = None,
             expected_identity: Optional[contract.BrokerAccountIdentity] = None,
             expected_account_uuid: Optional[str] = None,
             ) -> tuple[dict, ...]:
@@ -2117,6 +2119,8 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
                     "Alpaca account identity changed around Activity SSE read")
             if live_stream:
                 self._require_transport_authority(operation="ACTIVITY_READ")
+            if native_account is not None and not native_account:
+                native_account.append((account.broker, account.account_id, account_uuid))
             return last, anchor, digest.digest(), tuple(retained)
 
         def accepted(events):
@@ -2134,6 +2138,11 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
                             except MalformedBrokerPayload as exc:
                                 parse_failure = exc
                             else:
+                                continue
+                        if cash_revision_candidates is not None and self.financial_activity_sse:
+                            from sentinel.execution.alpaca_cash_amendments import is_revision_candidate
+                            if is_revision_candidate(event):
+                                cash_revision_candidates.append(event)
                                 continue
                         identity = contract.BrokerAccountIdentity(account.broker, account.account_id, {"id": account_uuid})
                         raise ActivityCorrectionRequiresRecovery(
@@ -2168,6 +2177,29 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
             raise MalformedBrokerPayload("Activity SSE cursor replay disagreed with its discovery snapshot")
         return accepted(replay)
 
+    async def _replay_cash_revision_predecessors(self, *, candidates, events, since_event_id,
+                                                 through, account):
+        from sentinel.execution import alpaca_cash_amendments as cash_amendments
+
+        history = (events if since_event_id is None else
+                   await self._bounded_activity_events(
+                       after=_ACTIVITY_BUSINESS_TIME_FLOOR, through=through,
+                       verify_snapshot_replay=True, require_account_history=True,
+                       expected_identity=account))
+        by_ref = {event["ref_id"]: event for event in history}
+        revisions = []
+        for event in candidates:
+            try:
+                if by_ref.get(event["ref_id"]) != event or event["previous_id"] not in by_ref:
+                    raise cash_amendments.CashRevisionRefused("bounded replay lacks the exact native cash predecessor")
+                revisions.append(cash_amendments.decode(
+                    by_ref[event["previous_id"]], event, native_account_uuid=account.raw["id"]))
+            except cash_amendments.CashRevisionRefused as exc:
+                raise ActivityCorrectionRequiresRecovery(
+                    f"Activity SSE cash correction/bust requires native recovery: {exc}",
+                    raw_event=event, account_identity=account) from exc
+        return tuple(revisions)
+
     async def account_cash_activities(
             self, *, after: datetime,
             through: datetime,
@@ -2181,6 +2213,8 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
             raise MalformedBrokerPayload(
                 "cash activity lower boundary exceeds upper boundary")
         amendments = []
+        native_account = []
+        cash_revision_candidates = []
         events = await self._bounded_activity_events(
             # Never use the caller's business-time baseline for discovery.
             # Publication-order replay begins only after this exhaustive
@@ -2189,10 +2223,23 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
             since_event_id=since_event_id,
             verify_snapshot_replay=self.financial_activity_sse,
             require_account_history=self.financial_activity_sse,
-            cash_activity=True, trade_amendments=amendments)
+            cash_activity=True, trade_amendments=amendments, native_account=native_account,
+            cash_revision_candidates=cash_revision_candidates)
+        revisions = ()
+        revised_refs = set()
+        if cash_revision_candidates:
+            broker_name, account_id, account_uuid = native_account[0]
+            subject = contract.BrokerAccountIdentity(broker_name, account_id, {"id": account_uuid})
+            revisions = await self._replay_cash_revision_predecessors(
+                candidates=cash_revision_candidates, events=events, since_event_id=since_event_id,
+                through=through, account=subject)
+            revised_refs = {revision.after.reference for revision in revisions}
         activities: list[broker_cash.BrokerCashActivity] = []
         last_ref: Optional[str] = None
+        security_transfers: list[dict] = []
         for event in events:
+            if event["ref_id"] in revised_refs:
+                continue
             activity_type = str(event.get("activity_type") or "").upper()
             activity_subtype = str(
                 event.get("activity_subtype") or "").upper()
@@ -2202,13 +2249,17 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
                 # Trade amendments have a separate typed batch member.
                 continue
             if activity_type in {"ACATS", "FOPT", "JNLS"}:
-                # These move securities across the owned account boundary.
-                # A cash-only ledger cannot value or time-weight that
-                # external in-kind flow, so it must never be silently
-                # treated as strategy performance.
-                raise broker_cash.BrokerCashAuthorityRefused(
-                    "Activity SSE reported an unweighted external "
-                    f"securities transfer ({activity_type})")
+                from sentinel.execution.alpaca_security_transfers import (
+                    SecurityTransferRefused, validate_event)
+                try:
+                    if not self.financial_activity_sse or not native_account:
+                        raise SecurityTransferRefused("stream is unqualified")
+                    validate_event(event, native_account=native_account[0][2])
+                except SecurityTransferRefused as exc:
+                    raise broker_cash.BrokerCashAuthorityRefused(
+                        f"Activity SSE securities transfer ({activity_type}) lacks native proof") from exc
+                security_transfers.append(event)
+                continue
             if activity_type not in broker_cash.RECOGNIZED_ACTIVITY_TYPES:
                 # Missing net_amount is not evidence that a newly added
                 # vendor activity type has no economic effect. Refuse the
@@ -2281,6 +2332,9 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
                            if events else since_event_id),
             trade_amendments=tuple(amendments),
             trade_history=trade_history,
+            native_account=native_account[0] if native_account else None,
+            cash_revisions=revisions,
+            security_transfers=tuple(security_transfers),
         )
 
     async def account_fill_interval_evidence(
