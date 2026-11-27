@@ -493,7 +493,7 @@ For an independent PAPER sale on the native asset-ID adapter, the writer
 commits the original `PLANNED` row before preparing the order. The request
 stays in that state while it waits for its turn or checks the instrument.
 Once the native HTTP client is ready, the guarded writer checks the current
-mutation grant, exact sale, eligibility and exchange window. It commits
+mutation grant, exact sale, serialized broker asset ID, eligibility and exchange window. It commits
 `SEND_PENDING` for that same row immediately before permitting POST.
 A worker death before that boundary leaves a planned sale that must pass
 fresh checks on restart. A death after the commit requires positive broker

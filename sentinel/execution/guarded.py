@@ -130,7 +130,7 @@ def require_paper_submit_window(adapter, *, client_key, side, instrument, quanti
     _check_paper_scope_clock(scope)
 
 
-async def admit_planned_paper_sale(adapter, *, client_key, side, instrument, quantity, terms, notional):
+async def admit_planned_paper_sale(adapter, *, asset_id, client_key, side, instrument, quantity, terms, notional):
     """Move the original planned sale to SEND_PENDING only at its native POST."""
     from sentinel.execution import submission_group
     group = submission_group.sale_group()
@@ -144,7 +144,8 @@ async def admit_planned_paper_sale(adapter, *, client_key, side, instrument, qua
             or scope.economics != (instrument, quantity, terms, notional) or sale.attempted):
         raise PreTransportAuthorityRefused("native sale lacks its original guarded writer and command")
     command = sale.command
-    if (command.instrument != instrument or command.quantity != quantity or command.order_terms != terms
+    if (command.instrument != instrument or command.instrument.broker_id != asset_id
+            or command.quantity != quantity or command.order_terms != terms
             or command.notional is not None or notional is not None):
         raise PreTransportAuthorityRefused("native sale differs from its durable planned economics")
     async with group.paper_seller.submission_lock:

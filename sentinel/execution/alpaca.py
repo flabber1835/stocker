@@ -1427,7 +1427,7 @@ class AlpacaExecutionBroker(ExecutionBroker):
                 try:
                     if self.environment is TradingEnvironment.PAPER and submission_group.sale_group() is not None:
                         from sentinel.execution.guarded import admit_planned_paper_sale
-                        await admit_planned_paper_sale(self, client_key=client_key, side=side, instrument=instrument,
+                        await admit_planned_paper_sale(self, asset_id=body["symbol"], client_key=client_key, side=side, instrument=instrument,
                                                       quantity=quantity, terms=order_terms, notional=notional)
                     self._require_transport_authority(
                         operation="SUBMIT", command_key=client_key, terms=order_terms,

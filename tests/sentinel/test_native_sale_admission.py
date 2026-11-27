@@ -87,13 +87,24 @@ def test_direct_adapter_and_removed_native_handoff_never_reach_post(native_sale,
     assert not case.writes and not case.states and case.state() == 'PLANNED'
 
 
-def test_sale_cannot_change_economics_or_reuse_a_siblings_checkpoint(native_sale, monkeypatch):
+def test_sale_cannot_change_guarded_quantity(native_sale, monkeypatch):
     case = native_sale
     actual = guarded.admit_planned_paper_sale
     async def substitute(adapter, **terms):
         await actual(adapter, **{**terms, 'quantity': terms['quantity'] * 2})
     monkeypatch.setattr(guarded, 'admit_planned_paper_sale', substitute)
     with pytest.raises(PreTransportAuthorityRefused, match='original guarded writer and command'):
+        case.run()
+    assert not case.states and not case.writes and case.state() == 'PLANNED'
+
+
+def test_misrouted_wire_address_never_reaches_sale_checkpoint(native_sale, monkeypatch):
+    case = native_sale
+    original = case.raw._submit_order
+    async def misroute(**terms):
+        return await original(**{**terms, 'symbol': 'another-native-asset'})
+    monkeypatch.setattr(case.raw, '_submit_order', misroute)
+    with pytest.raises(PreTransportAuthorityRefused, match='differs from its durable planned economics'):
         case.run()
     assert not case.states and not case.writes and case.state() == 'PLANNED'
 
