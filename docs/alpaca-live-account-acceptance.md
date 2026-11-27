@@ -33,6 +33,12 @@ path, replay retention and migrations require explicit contract/version tracking
 Retail account access, complete correction/bust delivery and retention cannot be
 inferred from these partner examples or a successful PAPER response.
 
+Alpaca also publishes a [Trading API Activity SSE reference](https://docs.alpaca.markets/us/reference/subscribetoactivitiessse)
+at its PAPER origin. Its envelope can carry the native asset UUID in `asset.id`
+and use the authenticated account route for scoping. Qualify actual ownership,
+available event types, cursor behavior and access against the exact intended
+LIVE account and origin before treating this route as a LIVE source.
+
 ## Shares received in a corporate action
 
 Alpaca's [mandatory-action guide](https://docs.alpaca.markets/us/docs/mandatory-corporate-actions)

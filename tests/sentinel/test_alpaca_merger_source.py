@@ -181,6 +181,57 @@ def test_same_session_action_reobservation_waits_for_new_conversion():
     assert len(payload['merger_conversions']) == 1
 
 
+@pytest.mark.parametrize('before', ['published terms', 'quarantine', 'different origin'])
+def test_reobservation_includes_next_process_date_and_revised_terms(monkeypatch, before):
+    import sentinel.feed.alpaca_source as source_module
+    from sentinel.feed.alpaca_transport import ACTION_URL
+    from sentinel.feed.rolling_contract import PriceWindow
+
+    next_day = '2026-09-16'
+    prior = merger('AAA', id='same-symbol', old_rate='2', new_rate='3')
+    revised = {**prior, 'process_date': next_day, 'acquirer_rate': '4'}
+    unrelated = {**prior, 'id': 'future', 'process_date': next_day, 'effective_date': next_day}
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls.fromisoformat(next_day + 'T08:00:00-04:00').astimezone(tz)
+
+    class Pages:
+        def pages(self, endpoint, params, *, key):
+            assert endpoint == ACTION_URL and params['end'] == next_day
+            rows = [r for r in (unrelated, revised) if r['process_date'] <= params['end']]
+            yield {'stock_mergers': rows}, {'observed_at': next_day + 'T12:00:00+00:00'}
+
+    monkeypatch.setattr(source_module, 'datetime', Clock)
+    source = object.__new__(source_module.AlpacaSource)
+    source.window = PriceWindow.through(DAY)
+    source.selected = [dict(ticker='AAA', asset_id='new-aaa')]
+    source.client = Pages()
+    source._previous_identity = lambda: inputs([])['previous_identity']
+    source.same_session_conversions = []
+    if before == 'published terms':
+        source.same_session_conversions = identity.merger_conversions(**inputs([prior]))
+    else:
+        origin = (digest('other publication') if before == 'different origin'
+                  else source._previous_identity()['previous_snapshot_id'])
+        source.same_session_breaks = [source_module.IdentityBreak(
+            ticker='AAA', old_provider_asset_id='old-aaa', new_provider_asset_id='new-aaa',
+            origin_snapshot_id=origin, origin_session=PRIOR, first_affected_session=DAY,
+            floor_session=DAY, split=None).model_dump(mode='json')]
+    payload, *_ = source._action_rows()
+    current, = payload['merger_conversions']
+    assert current['record_id'] == 'same-symbol'
+    assert current['effective_session'] == DAY
+    assert current['raw_record'] == revised and current['exchange_ratio'] == '2'
+    if before == 'different origin':
+        assert payload['identity_breaks'] == source.same_session_breaks
+        assert payload['reset_after']['AAA'] == DAY
+    else:
+        assert payload['identity_breaks'] == []
+        assert payload['reset_after']['AAA'] == PRIOR
+
+
 def test_missing_action_quarantines_one_candidate_without_stopping_publication(
         conn, provider, synthetic_feed_authority):
     from sentinel import rolling_initialization

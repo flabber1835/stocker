@@ -175,6 +175,12 @@ def validate_restored_database(conn) -> dict:
         terminal_checkpoint = journal.terminal_recovery_checkpoint(conn)
         cash_activity = broker_cash.load_activity_state(
             conn, broker=account.broker, account_id=account.broker_account_id)
+    from sentinel.execution.alpaca_trade_amendments import verify_restored
+    try:
+        verify_restored(conn, expected_commitment=(cash_activity.trade_amendment_commitment
+                                                   if cash_activity is not None else None))
+    except (ValueError, TypeError, KeyError, RuntimeError) as exc:
+        raise RestoreValidationRefused(f"restored Alpaca trade amendments are invalid: {exc}") from exc
 
     with conn.cursor() as cur:
         cur.execute(

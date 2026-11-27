@@ -530,6 +530,14 @@ async def _execute_current_paper_plan(
                 broker=broker, conn=conn, binding=None,
                 deployment=binding.identity, actions=actions,
                 informational_current_book=dual_mode)
+            if (fractional_postings and not preflight.transport_ready
+                    and (preflight.native_fill_integrity_refused
+                         or preflight.foreign_positions
+                         or preflight.runtime_state is RuntimeState.RECONCILING)):
+                # Corrections may explain a quantity/price disagreement
+                # before the ordinary settled cash bracket can run.
+                await _broker_cash_state_or_refuse(
+                    conn, broker=broker, binding=binding, through=clock())
             observation = (
                 _dual_mutation_observation_or_refuse(preflight)
                 if dual_mode else

@@ -13,13 +13,14 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict
 from sentinel.authority.live import LiveAdapterAdmission, require_live_adapter_admission
 from sentinel.authority.model import AuthorityRefused
 from sentinel.execution.commands import Command
-from sentinel.execution.contract import BrokerAccountSnapshot, BrokerPosition, Side
+from sentinel.execution.contract import BrokerAccountSnapshot, BrokerAssetRules, BrokerPosition, Side
 from sentinel.execution.live_funding import FundingEvidence
 from sentinel.execution.live_settlement import (
     MAX_FUNDING_AGE, LiveFundingAdmission, LiveFundingDeferred, LiveFundingRefused,
     positions_sha256, require_live_funding,
 )
 from sentinel.execution.numeric import exact_decimal
+from sentinel.execution.order_amount import OrderAmount
 from sentinel.execution.states import IN_FLIGHT, TERMINAL, CommandState
 from sentinel.trading_environment import TradingEndpoint
 
@@ -91,8 +92,10 @@ def _command(command: Command, subject, *, now: datetime) -> Command:
         raise LiveOrderRefused("LIVE_NATIVE_INSTRUMENT_REQUIRED")
     _amount(result.quantity, positive=True)
     _amount(result.filled_quantity)
-    if result.quantity != result.quantity.to_integral_value():
-        raise LiveOrderRefused("LIVE_WHOLE_SHARES_REQUIRED")
+    try:
+        OrderAmount(quantity=result.quantity).require_wire_precision()
+    except ValueError as exc:
+        raise LiveOrderRefused("LIVE_SHARE_PRECISION_EXCEEDED") from exc
     if result.filled_quantity and result.filled_average_price is None:
         raise LiveOrderRefused("LIVE_FILLED_ECONOMICS_MISSING")
     return result
@@ -110,7 +113,8 @@ def require_live_order(
         positions: tuple[BrokerPosition, ...], commitments: tuple[Command, ...],
         reference_close: Decimal | None = None, reference_session: date | None = None,
         reference_unit_factor: str = "1",
-        funding: LiveFundingAdmission | None = None) -> LiveOrderAssessment:
+        funding: LiveFundingAdmission | None = None,
+        asset_rules: BrokerAssetRules | None = None) -> LiveOrderAssessment:
     """Validate one original journal command immediately before transport.
 
     Inputs come from the writer-locked journal and complete fresh typed broker
@@ -167,6 +171,17 @@ def require_live_order(
     if not _same_original(original, request) or original != request:
         raise LiveOrderRefused("LIVE_CHANGED_ORIGINAL_TERMS")
 
+    valid_until = min(authority.claims.expires_at, account_observed_at + MAX_FUNDING_AGE)
+    fractional = request.quantity != request.quantity.to_integral_value()
+    if fractional:
+        if type(asset_rules) is not BrokerAssetRules or asset_rules.fractionable is not True:
+            raise LiveOrderDeferred("LIVE_FRACTIONAL_ELIGIBILITY_UNAVAILABLE")
+        try:
+            asset_rules.require_current(request.instrument, now)
+        except (TypeError, ValueError) as exc:
+            raise LiveOrderDeferred("LIVE_FRACTIONAL_ELIGIBILITY_NOT_CURRENT") from exc
+        valid_until = min(valid_until, asset_rules.observed_at + MAX_FUNDING_AGE)
+
     if request.side is Side.SELL:
         position = holdings.get(request.security_id)
         if position is None or position.instrument != request.instrument:
@@ -178,7 +193,7 @@ def require_live_order(
         if Fraction(request.remaining) + other_reservations > Fraction(position.quantity):
             raise LiveOrderRefused("LIVE_SELL_EXCEEDS_UNRESERVED_HOLDINGS")
         return LiveOrderAssessment(side=request.side, certificate_sha256=authority.sha256,
-            valid_until=min(authority.claims.expires_at, account_observed_at + MAX_FUNDING_AGE))
+            valid_until=valid_until)
 
     terms = request.order_terms
     if terms.order_type != "limit" or terms.time_in_force != "day":
@@ -200,6 +215,8 @@ def require_live_order(
     if price > reference / factor * Fraction(10000 + limits.max_buy_premium_bps, 10000):
         raise LiveOrderRefused("LIVE_BUY_PREMIUM_EXCEEDED")
     principal = _amount(request.quantity, positive=True) * price
+    if fractional and principal < 1:
+        raise LiveOrderDeferred("LIVE_FRACTIONAL_PURCHASE_BELOW_MINIMUM")
     if principal > Fraction(limits.max_order_principal):
         raise LiveOrderRefused("LIVE_ORDER_LIMIT_EXCEEDED")
 
@@ -237,8 +254,7 @@ def require_live_order(
     if capital < 0:
         raise LiveOrderRefused("LIVE_CAPITAL_LIMIT_EXCEEDED")
     return LiveOrderAssessment(side=request.side, certificate_sha256=authority.sha256,
-        valid_until=min(authority.claims.expires_at, account_observed_at + MAX_FUNDING_AGE,
-                        settled.expires_at),
+        valid_until=min(valid_until, settled.expires_at),
         funding_receipt_sha256=verified.sha256,
         outstanding_buy_commitment=exact_decimal(outstanding),
         daily_buy_commitment=exact_decimal(daily), remaining_settled_cash=exact_decimal(remaining),

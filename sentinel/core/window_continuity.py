@@ -1,4 +1,5 @@
 """Daily feature replacement with continuity of retained economic state."""
+from fractions import Fraction
 import math
 
 from sentinel.feed.normalized_layout import candidate_query
@@ -10,14 +11,16 @@ from sentinel.core.rolling_inputs import (
 )
 from sentinel.core.rolling_reader import RollingPriceReader
 from sentinel.feed import calendar, rolling_store
-from sentinel.feed.rolling_contract import canonical_json, digest
-class MergerActionPending(RuntimeError):
-    """A selected-only prior identity needs newly observed source action terms."""
+from sentinel.feed.rolling_contract import CanonicalBar, canonical_json, digest
 
-    def __init__(self, session, security_id):
+
+class MergerActionPending(RuntimeError):
+    """A protected prior identity needs newly observed source action terms."""
+
+    def __init__(self, session, security_id, reason='SELECTED_IDENTITY_ACTION_PENDING'):
         self.session = session
         self.security_id = security_id
-        super().__init__('SELECTED_IDENTITY_ACTION_PENDING:' + session + ':' + security_id)
+        super().__init__(reason + ':' + session + ':' + security_id)
 
 
 def protected_economics(conn, *, previous, current, live, start, cursor):
@@ -50,25 +53,30 @@ def _provider_assets(conn, refs):
     return merger_provider_assets(conn, refs)
 
 
-def _pending_selected_action(*, prior, previous, current, cursor, session):
-    """Ask orchestration to reobserve only a source-visible selected gap."""
+def _pending_merger_action(*, prior, previous, current, cursor, session):
+    """Ask for fresh terms when a selected, held or pending identity disappears."""
     if (previous.manifest.provider != 'ALPACA_OPENFIGI'
             or current.manifest.provider != 'ALPACA_OPENFIGI'):
         return
     selected = set((prior.median5 or {}).get('selected', ()))
-    owned = merger_owned_security_ids(prior)
+    owned = {row['security_id'] for row in (prior.wealth_core.get('episodes') or {}).values()}
+    owned.update(row['security_id'] for row in prior.pending)
+    owned.update(row['reserved_for'] for row in (prior.wealth_core.get('slots') or {}).values()
+                 if row.get('reserved_for'))
     converted = {row.old_security_id for row in current.merger_conversions}
-    for sid in sorted(selected - owned - converted):
+    for sid in sorted((selected | owned) - converted):
         former = previous.resolver.ticker_for_security(sid, cursor)
         if former is None or previous.resolver.resolve(former, cursor) != sid:
             continue
         current_name = current.resolver.ticker_for_security(sid, session)
         if current_name is None or current.resolver.resolve(current_name, session) != sid:
-            raise MergerActionPending(session, sid)
+            reason = ('HELD_IDENTITY_ACTION_PENDING' if sid in owned
+                      else 'SELECTED_IDENTITY_ACTION_PENDING')
+            raise MergerActionPending(session, sid, reason)
 
 
 def _merger_bridges(conn, *, prior, previous, current, cursor, session):
-    """Read prior published anchors only for source-proven controller exits."""
+    """Read prior published anchors only for source-proven conversions."""
     from sentinel.core.rolling_continuity import RollingContinuityRefused
 
     selected = set((prior.median5 or {}).get('selected', ()))
@@ -77,8 +85,6 @@ def _merger_bridges(conn, *, prior, previous, current, cursor, session):
                    if row.old_security_id in selected or row.old_security_id in owned]
     if not conversions:
         return {}, ()
-    if any(row.old_security_id in owned for row in conversions):
-        raise RollingContinuityRefused('OWNED_MERGER_CONVERSION_UNSUPPORTED')
     if previous.manifest.provider != 'ALPACA_OPENFIGI' or str(previous.manifest.window.end) != cursor:
         raise RollingContinuityRefused('MERGER_PRIOR_PUBLICATION_MISMATCH')
     prior_assets = _provider_assets(conn, previous)
@@ -106,12 +112,13 @@ def _merger_bridges(conn, *, prior, previous, current, cursor, session):
         if not isinstance(anchor, (list, tuple)) or len(anchor) != 3 or anchor[0] != cursor:
             raise RollingContinuityRefused('MERGER_PRIOR_SIGNAL_ANCHOR_REQUIRED: ' + sid)
         rows = conn.execute(candidate_query(conn,
-            'SELECT session,security_id,ticker,close_unadjusted,close_signal '
+            'SELECT session,security_id,ticker,close_unadjusted,close_signal,'
+            'open_unadjusted,volume,split_ratio,dividend_per_share '
             'FROM sentinel_snapshot_bars WHERE candidate_id=%s AND security_id=%s AND session=%s'),
             (previous.candidate_id, sid, cursor)).fetchall()
         if len(rows) != 1:
             raise RollingContinuityRefused('MERGER_PRIOR_PUBLISHED_ANCHOR_REQUIRED: ' + sid)
-        day, observed_sid, ticker, raw, signal = rows[0]
+        day, observed_sid, ticker, raw, signal, opened, volume, split, cash = rows[0]
         try:
             retained_raw, retained_signal = float(anchor[1]), float(anchor[2])
             published_raw, published_signal = float(raw), float(signal)
@@ -124,15 +131,36 @@ def _merger_bridges(conn, *, prior, previous, current, cursor, session):
                 or published_raw != retained_raw
                 or published_signal * multiplier != retained_signal):
             raise RollingContinuityRefused('MERGER_PRIOR_SIGNAL_ANCHOR_CHANGED: ' + sid)
-        bridges[sid] = merger_anchor_bar(cursor, sid, ticker, published_raw, published_signal)
+        bridges[sid] = CanonicalBar(session=day, security_id=sid, ticker=ticker,
+            close_unadjusted=published_raw, close_signal=published_signal,
+            open_unadjusted=opened, volume=volume, split_ratio=split, dividend_per_share=cash)
     return bridges, tuple(conversions)
 
 
-def _merger_terminals(*, conversions, prices, metadata, session):
+def _merger_histories(features, *, bridges, held):
+    """Keep the authenticated t-1 basis available to the canonical handler."""
+    from sentinel.core.rolling_continuity import RollingContinuityRefused
+
+    histories = dict(features.histories)
+    for sid in sorted(held & bridges.keys()):
+        history = histories[sid]
+        bridge = bridges[sid]
+        if history and history[-1].session == bridge.session:
+            retained = history[-1]
+            if (retained.close_unadjusted, retained.close_signal) != (
+                    bridge.close_unadjusted, bridge.close_signal):
+                raise RollingContinuityRefused('MERGER_PRIOR_SIGNAL_ANCHOR_CHANGED: ' + sid)
+        else:
+            histories[sid] = (*history, bridge)
+    return features.model_copy(update={'histories': histories})
+
+
+def _merger_terminals(*, conversions, prices, metadata, session, held=None):
     from sentinel.core.rolling_continuity import RollingContinuityRefused
 
     bars = {bar.security_id: bar for bar in prices.bars}
     result = []
+    held = held or {}
     for row in conversions:
         sid, successor = row.old_security_id, row.successor_security_id
         bar = bars.get(successor)
@@ -144,8 +172,15 @@ def _merger_terminals(*, conversions, prices, metadata, session):
             raise RollingContinuityRefused('MERGER_SUCCESSOR_CURRENT_CLOSE_REQUIRED: ' + sid)
         issuer = meta.issuer_key()[0] or 'S:' + successor
         terms = merger_terminal_terms(row, session=session, issuer=issuer)
-        if not terms.completeness(0)[0]:
+        shares = held.get(sid, Fraction(0))
+        complete, reason = terms.completeness(shares)
+        if not complete:
+            if shares and reason == 'MISSING_CASH_IN_LIEU_PRICE':
+                raise MergerActionPending(session, sid, reason)
             raise RollingContinuityRefused('MERGER_TERMS_INCOMPLETE: ' + sid)
+        if shares and (bar.signal_close is None or not math.isfinite(bar.signal_close)
+                       or bar.signal_close <= 0):
+            raise RollingContinuityRefused('MERGER_SUCCESSOR_SIGNAL_BASIS_REQUIRED: ' + sid)
         result.append(terms)
     return tuple(result)
 
@@ -164,7 +199,7 @@ def prepare(conn, *, prior, previous_binding, publication, binding):
     reader = RollingPriceReader(conn, candidate_id=refs.candidate_id, snapshot_id=refs.manifest.snapshot_id)
     reader.require_checkpoint_window(prior)
     live = window_features.protected(prior)
-    _pending_selected_action(prior=prior, previous=previous, current=refs,
+    _pending_merger_action(prior=prior, previous=previous, current=refs,
                              cursor=cursor, session=session)
     bridges, conversions = _merger_bridges(
         conn, prior=prior, previous=previous, current=refs, cursor=cursor, session=session)
@@ -198,8 +233,16 @@ def prepare(conn, *, prior, previous_binding, publication, binding):
     meta, sectors = refs.current_metadata()
     features = window_features.load(conn, prior=prior, refs=refs, publication=publication)
     terminals = refs.terminals(start=session, end=session)
+    held = {}
+    if conversions:
+        for episode in (prior.wealth_core.get('episodes') or {}).values():
+            sid = episode['security_id']
+            if sid in bridges:
+                held[sid] = held.get(sid, Fraction(0)) + Fraction(str(episode['current_shares']))
     merger_events = _merger_terminals(
-        conversions=conversions, prices=prices, metadata=meta, session=session)
+        conversions=conversions, prices=prices, metadata=meta, session=session, held=held)
+    if held:
+        features = _merger_histories(features, bridges=bridges, held=held.keys())
     if {event.security_id for event in terminals.events} & {event.security_id for event in merger_events}:
         raise RollingContinuityRefused('MERGER_TERMINAL_CONFLICT')
     material = DailyInputs(session, prices.bars, meta, sectors, prices.benchmarks,
@@ -209,4 +252,6 @@ def prepare(conn, *, prior, previous_binding, publication, binding):
         publication_version=publication.version, prior_session=cursor, session=session,
         prior_state_sha256=prior.state_hash, snapshot_sha256=refs.manifest.snapshot_id,
         features_sha256=features.sha256, protected_economics_sha256=economics)
-    return material, {**prices.signal_basis_anchors, **bridges}, proof.model_dump(by_alias=True)
+    anchors = {sid: merger_anchor_bar(cursor, sid, row.ticker, row.close_unadjusted, row.close_signal)
+               for sid, row in bridges.items()}
+    return material, {**prices.signal_basis_anchors, **anchors}, proof.model_dump(by_alias=True)

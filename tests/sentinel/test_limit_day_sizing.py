@@ -121,6 +121,65 @@ def test_prior_close_preview_matches_protected_allocation_without_open_actions()
     assert estimates['SEC-AAA'][1]==D('1748.23')
 
 
+def test_live_protected_policy_sizes_subshare_openings_without_changing_paper(monkeypatch):
+    select(monkeypatch)
+    monkeypatch.setenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
+    paper = limits.ProtectedLimitPolicy.from_env()
+    monkeypatch.setenv("ALPACA_BASE_URL", "https://api.alpaca.markets")
+    live = limits.ProtectedLimitPolicy.from_env()
+    assert paper == limits.ProtectedLimitPolicy(100)
+    assert live.fractional and live.fingerprint() != paper.fingerprint()
+    assert limits.ProtectedLimitPolicy.from_dict(live.to_dict()) == live
+    state, plan, projection, refs = protected_case(entries=1)
+    sid = plan.opening_intents[0].security_id
+    refs = replace(refs, prices={**refs.prices, sid: D("5000")})
+    result = limits.resolve_protected(state, plan, projection, refs, live)
+    row, = result.opening_sizing["entries"]
+    quantity = result.target_basket[sid]
+    budget, price = Fraction(row["budget"]), Fraction(5050)
+    increment = Fraction(1, 10**9)
+    assert D(0) < quantity < 1
+    assert Fraction(quantity) * price + 1 <= budget
+    assert (Fraction(quantity) + increment) * price + 1 > budget
+    assert limits.validate_projection(result, require_current_policy=True, plan=plan) == (live, refs)
+    with pytest.raises(projections.TargetProjectionRefused, match="allocation is inconsistent"):
+        limits.validate_projection(replace(result, target_basket={**result.target_basket, sid: D(1)}),
+                                   require_current_policy=True, plan=plan)
+    assert limits.resolve_protected(state, plan, projection, refs, paper).target_basket[sid] == 0
+
+
+def test_live_plan_authority_rederives_fractional_core_and_bil_from_saved_policy(monkeypatch):
+    from sentinel import dual_plan_authority
+    from sentinel.authority import RolloutMode, RolloutState
+    from sentinel.execution import held_targets
+
+    state, original = case(entries=1, exposure="0.55")
+    binding = replace(_binding(), deployment_id="sentinel-live", broker="alpaca-live")
+    account = _account(equity="10001")
+    account = replace(account, identity=replace(account.identity, broker="alpaca-live"))
+    observation, publication = _observation(), _publication()
+    marks = {"SEC-AAA": D(100), decision.DEFENSIVE_SECURITY_ID: D(100)}
+    tickers = {"SEC-AAA": "AAA", decision.DEFENSIVE_SECURITY_ID: "BIL"}
+    rollout = RolloutState(RolloutMode.CONTROLLER, 4, certificate_sha256="a"*64)
+    basis = held_targets.build_basis(None, previous=None, state=state, binding=binding, rollout=rollout)
+    plan = decision.build_execution_plan(state=state, binding=binding, publication=publication,
+        account_snapshot=account, observation=observation, marks=marks, tickers=tickers,
+        decision_session=original.decision_session, effective_session=original.effective_session,
+        rollout_state=rollout, fractional_sizing=True, retained_targets={}).plan
+    assert plan.target_basket[decision.DEFENSIVE_SECURITY_ID] == D("45.0045")
+    shadow = SimpleNamespace(state=state, record_sha256="b"*64, runtime_authority_sha256="c"*64)
+    policy = limits.ProtectedLimitPolicy(100, fractional=True)
+    authority = dual_plan_authority.build_authority(plan=plan, shadow_result=shadow,
+        publication=publication, account_snapshot=account, observation=observation, marks=marks,
+        tickers=tickers, held_share_targets=basis, live_fractional_policy=policy)
+    assert dual_plan_authority._validate_payload(authority) == authority
+    monkeypatch.setattr(dual_plan_authority, "load_authority", lambda *_args, **_kwargs: authority)
+    monkeypatch.setenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
+    proof = dual_plan_authority._rederive_plan(None, plan=plan, binding=binding,
+        rollout_state=rollout, expected_shadow_result=shadow)
+    assert proof["plan_fingerprint"] == plan.fingerprint()
+
+
 def retry_case(*, held=True):
     _, predecessor = case(entries=1, exposure="0.55")
     intent, = predecessor.opening_intents

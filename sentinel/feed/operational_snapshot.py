@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from fractions import Fraction
 
 from sentinel import backup_runtime_authority, identity
 from sentinel.feed import calendar, publication, rolling_jobs as jobs, rolling_store, store
@@ -253,6 +254,58 @@ def _require_correction_strategy(conn, previous, request):
         raise OperationalSnapshotRefused('SUPERSESSION_STRATEGY_COMPATIBILITY_UNPROVEN')
 
 
+def _matching_merger_rates(record, projection):
+    try:
+        old = Fraction(str(record['acquiree_rate']))
+        new = Fraction(str(record['acquirer_rate']))
+        ratio = Fraction(projection['exchange_ratio'])
+    except (KeyError, TypeError, ValueError, ZeroDivisionError, OverflowError):
+        return False
+    return old > 0 and new > 0 and new == old * ratio
+
+
+def merger_correction(prior, conversions, *, session):
+    """True for a strict extension or a revision to an already bound action."""
+    def by_identity(rows):
+        return {item['old_security_id']: item for item in rows
+                if isinstance(item, dict) and isinstance(item.get('old_security_id'), str)}
+
+    before, after = by_identity(prior), by_identity(conversions)
+    if len(before) != len(prior) or len(after) != len(conversions) or before.keys() - after.keys():
+        raise OperationalSnapshotRefused('SAME_SESSION_MERGER_EXTENSION_REQUIRED')
+
+    revision = False
+    terms = {'exchange_ratio', 'terms_sha256', 'raw_record'}
+    # The process date is Alpaca's publication date, not the effective date.
+    raw_terms = {'acquirer_rate', 'acquiree_rate', 'process_date'}
+    required_identity = {'record_id', 'effective_session', 'origin_snapshot_id',
+        'old_provider_asset_id', 'successor_security_id', 'successor_provider_asset_id',
+        'old_symbol', 'successor_symbol', 'old_cusip', 'successor_cusip'}
+    for sid, old in before.items():
+        new = after[sid]
+        if new == old:
+            continue
+        old_raw, new_raw = old.get('raw_record'), new.get('raw_record')
+        if (not required_identity <= old.keys() or not terms <= old.keys()
+                or not terms <= new.keys() or new.get('effective_session') != session
+                or {k: v for k, v in old.items() if k not in terms}
+                  != {k: v for k, v in new.items() if k not in terms}
+                or not isinstance(old_raw, dict) or not isinstance(new_raw, dict)
+                or digest(old_raw) != old['terms_sha256'] or digest(new_raw) != new['terms_sha256']
+                or not _matching_merger_rates(old_raw, old)
+                or not _matching_merger_rates(new_raw, new)
+                or {k: v for k, v in old_raw.items() if k not in raw_terms}
+                  != {k: v for k, v in new_raw.items() if k not in raw_terms}
+                or not any(old_raw.get(key) != new_raw.get(key)
+                           for key in ('acquirer_rate', 'acquiree_rate'))):
+            raise OperationalSnapshotRefused('SAME_SESSION_MERGER_EXTENSION_REQUIRED')
+        revision = True
+    added = after.keys() - before.keys()
+    if any(after[sid].get('effective_session') != session for sid in added):
+        raise OperationalSnapshotRefused('SAME_SESSION_MERGER_EXTENSION_REQUIRED')
+    return revision or bool(added)
+
+
 def _edge_fields(conn, previous, candidate, request, *, older=None,
                  old_manifest=None, new_manifest=None):
     if older is None or old_manifest is None:
@@ -288,18 +341,9 @@ def _edge_fields(conn, previous, candidate, request, *, older=None,
             if calendar.next_session(str(request.cursor)) != previous.window_end:
                 raise OperationalSnapshotRefused('SAME_SESSION_RECOVERY_CURSOR_CHANGED')
         else:
-            old_by_id = {item.get('old_security_id'): item for item in prior
-                         if isinstance(item, dict) and isinstance(item.get('old_security_id'), str)}
-            new_by_id = {item.get('old_security_id'): item for item in conversions
-                         if isinstance(item, dict) and isinstance(item.get('old_security_id'), str)}
             if (old_manifest.snapshot_id == new_manifest.snapshot_id
                     or old_manifest.source_evidence_sha256 == new_manifest.source_evidence_sha256
-                    or len(old_by_id) != len(prior) or len(new_by_id) != len(conversions)
-                    or len(new_by_id) <= len(old_by_id)
-                    or any(sid not in new_by_id or digest(new_by_id[sid]) != digest(item)
-                           for sid, item in old_by_id.items())
-                    or any(item.get('effective_session') != previous.window_end
-                           for sid, item in new_by_id.items() if sid not in old_by_id)):
+                    or not merger_correction(prior, conversions, session=previous.window_end)):
                 raise OperationalSnapshotRefused('SAME_SESSION_MERGER_EXTENSION_REQUIRED')
     if (not state_only_recovery
             and not any(isinstance(item, dict) and item.get('effective_session') == previous.window_end

@@ -106,7 +106,7 @@ def owned_fill_coverage(conn, commands):
         return {}
     rows = conn.execute(
         "SELECT f.client_key,SUM(f.quantity),"
-        " BOOL_OR(LENGTH(f.fill_key)=64 AND cash.state IS NULL) FROM sentinel_fills f"
+        f" BOOL_OR(LENGTH(f.fill_key)=64 AND cash.state IS NULL) FROM {journal.ACTIVE_FILLS} f"
         " JOIN sentinel_commands c ON c.client_key=f.client_key AND c.broker_order_id=f.broker_order_id"
         + journal.FILL_CASH_JOIN_SQL +
         " WHERE f.client_key=ANY(%s) GROUP BY f.client_key",
@@ -172,7 +172,7 @@ def _native_cash_with_omissions(command, *, gross, known, missing):
 
 def load_exact_fill_rows(conn, commands):
     """Load matching native fills and posted cash for one set of owned commands."""
-    from sentinel.execution.journal import FILL_CASH_JOIN_SQL, FILL_CASH_PREFIXES
+    from sentinel.execution.journal import ACTIVE_FILLS, FILL_CASH_JOIN_SQL, FILL_CASH_PREFIXES
     keys = sorted({(command.client_key, command.broker_order_id) for command in commands
                    if command.filled_quantity != 0 and command.broker_order_id})
     if not keys:
@@ -181,7 +181,7 @@ def load_exact_fill_rows(conn, commands):
     rows = conn.execute(
         "SELECT f.client_key,f.broker_order_id,f.fill_key,f.quantity,f.price,cash.state"
         " FROM unnest(%s::text[],%s::text[]) AS owned(client_key,broker_order_id)"
-        " JOIN sentinel_fills f ON f.client_key=owned.client_key"
+        f" JOIN {ACTIVE_FILLS} f ON f.client_key=owned.client_key"
         " AND f.broker_order_id=owned.broker_order_id"
         + FILL_CASH_JOIN_SQL,
         (client_keys, native_ids, *FILL_CASH_PREFIXES)).fetchall()
@@ -342,13 +342,13 @@ def validate_durable(conn, observation, orders, *, position_leading_order_ids=()
     Reconciliation holds the account's single-writer lock until publication.
     Rows from a previous accepted read cannot disappear or acquire a second ID.
     """
-    from sentinel.execution.journal import FILL_CASH_JOIN_SQL, FILL_CASH_PREFIXES, fill_fingerprint
+    from sentinel.execution.journal import ACTIVE_FILLS, FILL_CASH_JOIN_SQL, FILL_CASH_PREFIXES, fill_fingerprint
 
     incoming = {fill_fingerprint(f): f for f in observation.fills}
     merged = dict(incoming)
     rows = conn.execute(
         'SELECT f.fill_key,f.broker_order_id,f.client_key,f.quantity,f.price,f.filled_at,cash.state '
-        'FROM sentinel_fills f' + FILL_CASH_JOIN_SQL +
+        f'FROM {ACTIVE_FILLS} f' + FILL_CASH_JOIN_SQL +
         ' WHERE f.broker_order_id=ANY(%s) OR f.fill_key=ANY(%s)',
         (*FILL_CASH_PREFIXES, list(orders), list(incoming))).fetchall()
     for key, order_id, client_key, quantity, price, filled_at, state in rows:
@@ -401,12 +401,13 @@ def _retain(conn, payload, session):
 def require_durable_coverage(conn, binding, *, allow_incomplete=False):
     """A partial/absent cached history cannot freeze a dividend entitlement."""
     from sentinel.trial import TrialEvidenceRefused
+    from sentinel.execution.journal import ACTIVE_FILLS
     complete = True
     with conn.cursor() as cur:
         cur.execute(
             'SELECT c.client_key,c.state,c.filled_quantity,c.filled_average_price,'
             'COALESCE(SUM(f.quantity),0),COALESCE(SUM(f.quantity*f.price),0) '
-            'FROM sentinel_commands c LEFT JOIN sentinel_fills f '
+            f'FROM sentinel_commands c LEFT JOIN {ACTIVE_FILLS} f '
             'ON f.client_key=c.client_key AND f.broker_order_id=c.broker_order_id '
             'WHERE c.broker=%s AND c.broker_account_id=%s '
             'GROUP BY c.client_key,c.state,c.filled_quantity,c.filled_average_price',

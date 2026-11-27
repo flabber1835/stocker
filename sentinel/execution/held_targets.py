@@ -361,13 +361,13 @@ def predecessor_version(conn, plan_id):
         "SELECT client_key,tableoid,xmin::text,ctid::text FROM sentinel_commands "
         "WHERE plan_id=%s AND state NOT IN ('PLANNED','SUPERSEDED') ORDER BY client_key",
         (basis["previous_plan_id"],)).fetchall()
-    from sentinel.execution.journal import FILL_CASH_PREFIXES
+    from sentinel.execution.journal import FILL_CASH_PREFIXES, active_fill_predicate
     fill_versions = conn.execute(
         "SELECT f.fill_key,f.tableoid,f.xmin::text,f.ctid::text,cash.tableoid,cash.xmin::text,cash.ctid::text "
         "FROM sentinel_commands c JOIN sentinel_fills f ON f.client_key=c.client_key "
         "AND f.broker_order_id=c.broker_order_id "
         "LEFT JOIN sentinel_processed_sessions cash ON cash.cursor_name IN (%s || f.fill_key, %s || f.fill_key) "
-        "WHERE c.plan_id=%s ORDER BY f.fill_key,cash.cursor_name",
+        f"WHERE c.plan_id=%s AND {active_fill_predicate('f')} ORDER BY f.fill_key,cash.cursor_name",
         (*FILL_CASH_PREFIXES, basis["previous_plan_id"])).fetchall()
     return projection_version, command_versions, fill_versions
 

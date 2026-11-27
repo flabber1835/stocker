@@ -32,6 +32,7 @@ from collections.abc import Collection, Mapping as MappingView
 from typing import Mapping, Optional
 
 from sentinel.execution.contract import Completeness
+from sentinel.execution.alpaca_trade_amendments import TradeAmendment
 from sentinel.execution.numeric import exact_decimal
 
 
@@ -59,8 +60,8 @@ CLOSE_FINALITY_IDENTITY_SCHEMES: frozenset[str] = frozenset()
 EXTERNAL_ACTIVITY_TYPES = frozenset({
     "CSD", "CSW", "ACATC", "MEM", "JNL", "JNLC"})
 INTERNAL_ACTIVITY_TYPES = frozenset({
-    "DIV", "SPLIT", "SPIN", "MA", "NC", "REORG", "VOF", "FIMAT",
-    "DIVNRA", "OPCA", "OPASN", "OPEXC", "OPEXP", "OPTRD", "OPCSH",
+    "DIV", "SPLIT", "SPIN", "MA", "NC", "REO", "REORG", "VOF", "FIMAT",
+    "CIL", "DIVNRA", "DIVWH", "OPCA", "OPASN", "OPEXC", "OPEXP", "OPTRD", "OPCSH",
     "FEE", "INT", "WH",
     "CFEE", "INTNRA", "INTTW", "DIVCGL", "DIVCGS", "DIVFEE",
     "DIVFT", "DIVROC", "DIVTW", "DIVTXEX", "CGD", "PTC", "PTR",
@@ -102,6 +103,8 @@ class BrokerCashActivityBatch:
     completeness: Completeness
     last_activity_id: Optional[str] = None
     last_event_id: Optional[str] = None
+    trade_amendments: tuple[TradeAmendment, ...] = ()
+    trade_history: tuple[dict, ...] = ()
 
     def __post_init__(self) -> None:
         if self.processed_through.tzinfo is None:
@@ -123,6 +126,8 @@ class CashActivityState:
     activity_identity_scheme: Optional[str] = None
     posting_kinds: tuple[tuple[str, str], ...] | None = None
     membership_root: str | None = None
+    trade_amendments_applied: bool = False
+    trade_amendment_commitment: str | None = None
 
 
 @dataclass(frozen=True)
@@ -530,6 +535,14 @@ def load_activity_state(conn, *, broker: str,
     v2 = v1 | {"last_event_id"}
     v3 = v2 | {"activity_identity_scheme"}
     v4 = v3 | {'posting_kinds'}
+    amendment_commitment = None
+    if state.get("kind") == "broker-cash-activity/v6":
+        from sentinel.execution.alpaca_trade_amendments import commitment
+        state = dict(state)
+        amendment_commitment = state.pop("trade_amendment_commitment", None)
+        if not _valid_digest(amendment_commitment) or commitment(conn) != amendment_commitment:
+            raise BrokerCashAuthorityRefused("trade amendment evidence disagrees with the cash cursor")
+        state["kind"] = "broker-cash-activity/v5"
     root = state.get('membership_root')
     if state.get('kind') == 'broker-cash-activity/v5':
         if not _valid_digest(root):
@@ -570,7 +583,7 @@ def load_activity_state(conn, *, broker: str,
             and identity_scheme != ACTIVITY_IDENTITY_SCHEME):
         raise BrokerCashAuthorityRefused(
             f"cash activity cursor {name} has an unrecognized identity scheme")
-    if identity_scheme is not None and broker != "alpaca":
+    if identity_scheme is not None and broker not in {"alpaca", "alpaca-live"}:
         raise BrokerCashAuthorityRefused(
             f"cash activity cursor {name} applies the Alpaca Activity-SSE "
             "identity scheme to another broker")
@@ -588,7 +601,8 @@ def load_activity_state(conn, *, broker: str,
             state["balance_total"], where=f"cash activity cursor {name} total"),
         last_event_id=last_event_id,
         activity_identity_scheme=identity_scheme,
-        posting_kinds=None if kinds is None else tuple(sorted(kinds.items())), membership_root=root)
+        posting_kinds=None if kinds is None else tuple(sorted(kinds.items())), membership_root=root,
+        trade_amendment_commitment=amendment_commitment)
 
 
 def _binding_established_at(conn, *, broker: str, account_id: str) -> datetime:
@@ -692,7 +706,7 @@ async def ingest_account_cash(
         conn, broker=broker, account_id=account_id)
     financial_sse = (
         getattr(broker_adapter, "financial_activity_sse", False) is True)
-    if financial_sse and broker != "alpaca":
+    if financial_sse and broker not in {"alpaca", "alpaca-live"}:
         raise BrokerCashAuthorityRefused(
             "the certified Activity-SSE cash identity scheme is Alpaca-only")
     if (prior is not None
@@ -778,6 +792,16 @@ async def ingest_account_cash(
     if batch.processed_through.astimezone(timezone.utc) != upper:
         raise BrokerCashAuthorityRefused(
             "broker cash activity batch changed its requested upper boundary")
+    if batch.trade_amendments and (not financial_sse or batch.last_event_id is None
+            or batch.trade_amendments[-1].event_id > batch.last_event_id):
+        raise BrokerCashAuthorityRefused("trade amendments require qualified bounded activity replay")
+    from sentinel.execution import alpaca_trade_amendments
+    try:
+        amendments_applied = await alpaca_trade_amendments.apply(
+            conn, broker_adapter=broker_adapter, broker=broker, account_id=account_id,
+            amendments=batch.trade_amendments, trade_history=batch.trade_history)
+    except alpaca_trade_amendments.TradeAmendmentRefused as exc:
+        raise BrokerCashAuthorityRefused(str(exc)) from exc
 
     if missing_last_flow:
         prior_activity = next(
@@ -849,13 +873,16 @@ async def ingest_account_cash(
         last_event_id = batch.last_event_id
 
     balance_total = exact_decimal(running_total)
+    amendment_commitment = (alpaca_trade_amendments.commitment(conn) if amendments_applied else
+                            (prior.trade_amendment_commitment if prior is not None else None))
     state = CashActivityState(
         broker=broker, account_id=account_id, processed_through=upper,
         last_activity_id=last_id, balance_total=balance_total,
         last_event_id=last_event_id,
         activity_identity_scheme=(
             ACTIVITY_IDENTITY_SCHEME if financial_sse else None),
-        posting_kinds=tuple(sorted(posting_kinds.items())) if track_postings else None)
+        posting_kinds=tuple(sorted(posting_kinds.items())) if track_postings else None,
+        trade_amendments_applied=amendments_applied, trade_amendment_commitment=amendment_commitment)
     payload = {
         "kind": ("broker-cash-activity/v3" if financial_sse
                  else "broker-cash-activity/v2"),
@@ -881,6 +908,9 @@ async def ingest_account_cash(
         state = replace(state, membership_root=_append_members(conn, state, parent, additions))
         payload.update(kind="broker-cash-activity/v5", membership_root=state.membership_root,
                        activity_identity_scheme=ACTIVITY_IDENTITY_SCHEME)
+        if amendment_commitment is not None:
+            payload.update(kind="broker-cash-activity/v6",
+                           trade_amendment_commitment=amendment_commitment)
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO sentinel_processed_sessions"

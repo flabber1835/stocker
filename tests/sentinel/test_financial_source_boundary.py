@@ -77,7 +77,7 @@ def test_unknown_financial_source_flows_through_real_semantic_bundle(monkeypatch
 def test_historical_financial_mapping_does_not_replace_current_economic_owner(monkeypatch):
     from sentinel.strategy import production_strategy
     from sentinel.feed.rolling_contract import digest
-    expected = '421a1697353ced9bdb0efba82150e900265c8f1bb7e296dbb7f6423b40a6cc81'
+    expected = 'f99c01b114682c4270c035ac7722530757c845fcdfc37b5839619f94d77aefb5'
     assert digest(production_strategy()[1]) == expected
     monkeypatch.setattr(basis, 'economic_contribution', lambda _module, raw: hashlib.sha256(raw).hexdigest())
     assert digest(production_strategy()[1]) == expected
@@ -87,7 +87,7 @@ def test_current_economic_bytes_are_required_for_current_strategy(monkeypatch):
     from sentinel import economic_manifest as economic
     from sentinel.strategy import production_strategy
     from sentinel.feed.rolling_contract import digest
-    expected = '421a1697353ced9bdb0efba82150e900265c8f1bb7e296dbb7f6423b40a6cc81'
+    expected = 'f99c01b114682c4270c035ac7722530757c845fcdfc37b5839619f94d77aefb5'
     original = production_strategy()[1]
     assert digest(original) == expected
     read = economic._module_raw

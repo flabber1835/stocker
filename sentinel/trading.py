@@ -16,7 +16,7 @@ from sentinel.authority.live import require_live_adapter_admission
 from sentinel.authority.live_runtime import load_live_adapter_admission
 from sentinel.config import trading_endpoint
 from sentinel.core.decision import build_execution_plan
-from sentinel.execution import executor, feed_inputs, held_targets, journal
+from sentinel.execution import broker_cash, executor, feed_inputs, held_targets, journal
 from sentinel.execution import reconcile
 from sentinel.execution.authority_gate import build_fresh_execution_guard, build_fresh_execution_check
 from sentinel.execution.certification import require_certified_adapter
@@ -247,6 +247,16 @@ def _guard(conn, broker, *, base_url, grant, observation_id, starting_cash,
     return wrapped
 
 
+async def _refresh_live_account_activity(conn, *, broker, binding, through):
+    """Commit one qualified stream prefix before reading revised holdings."""
+    if not (broker.supports_account_cash_activities and broker.financial_activity_sse):
+        return
+    await broker_cash.ingest_account_cash(
+        conn, broker_adapter=broker, broker=binding.broker,
+        account_id=binding.broker_account_id, through=through)
+    conn.commit()
+
+
 async def prepare_trading_plan(*, conn, broker, base_url, through,
                                expected_account=None, automation_grant=None,
                                automation_config_sha256=None,
@@ -262,6 +272,9 @@ async def prepare_trading_plan(*, conn, broker, base_url, through,
             dual_shadow_starting_cash=dual_shadow_starting_cash, **paper_kwargs)
     if paper_kwargs:
         raise TradingGatewayRefused("PAPER genesis or warmup options cannot authorize LIVE")
+    policy = ProtectedLimitPolicy.from_env()
+    if policy is None or not policy.fractional:
+        raise TradingGatewayRefused("LIVE preparation requires the selected fractional protected-limit policy")
     _schema(conn)
     observation_id, starting_cash = _shadow_config(dual_shadow_observation_id, dual_shadow_starting_cash)
     through = date.fromisoformat(str(through))
@@ -281,6 +294,8 @@ async def prepare_trading_plan(*, conn, broker, base_url, through,
                 automation_config_sha256=automation_config_sha256)
             account = await guarded.account_snapshot()
             _account_or_refuse(account, bound, expected_account)
+            await _refresh_live_account_activity(
+                conn, broker=guarded, binding=bound, through=account.observed_at)
             actions = _action_lookup(conn, shadow.state, through)
             rec = await reconcile.reconcile(broker=guarded, conn=conn,
                 binding=None, deployment=bound.identity, actions=actions)
@@ -289,6 +304,9 @@ async def prepare_trading_plan(*, conn, broker, base_url, through,
             if previous is not None and previous.decision_session >= through:
                 if previous.decision_session != through:
                     raise TradingGatewayRefused("LIVE cannot replace a newer durable plan")
+                sizing = dual_plan_authority.load_authority(conn, plan_id=previous.plan_id)
+                if sizing is None or sizing.get("live_fractional_policy") != policy.to_dict():
+                    raise TradingGatewayRefused("LIVE preparation requires a new decision for the selected policy")
                 dual_plan_authority.rederive_plan(conn, plan=previous, binding=bound,
                     rollout_state=rollout, expected_shadow_result=shadow)
                 plan, superseded = previous, 0
@@ -301,11 +319,12 @@ async def prepare_trading_plan(*, conn, broker, base_url, through,
                     marks=marks, tickers=tickers, decision_session=through,
                     effective_session=date.fromisoformat(calendar.next_session(through)),
                     rollout_state=rollout,
+                    fractional_sizing=True,
                     retained_targets={sid: Decimal(qty) for sid, qty in share_basis["targets"].items()}).plan
                 authority = dual_plan_authority.build_authority(plan=plan,
                     shadow_result=shadow, publication=pinned, account_snapshot=account,
                     observation=observation, marks=marks, tickers=tickers,
-                    held_share_targets=share_basis)
+                    held_share_targets=share_basis, live_fractional_policy=policy)
                 await _instrument_map(conn, guarded, shadow.state, plan, observation, preparation=True)
                 plan = journal.adopt_current_plan(conn, plan, commit=False)
                 dual_plan_authority.record_authority(conn, authority, commit=False)
@@ -373,6 +392,8 @@ async def recover_trading_account(*, conn, broker, base_url, expected_account=No
             account = await guarded.account_snapshot()
             if not bound.identity.matches_account(account.identity):
                 raise TradingGatewayRefused("recovery account identity differs from binding")
+            await _refresh_live_account_activity(
+                conn, broker=guarded, binding=bound, through=account.observed_at)
             actions = _action_lookup(conn, None, _clock().date())
             return await reconcile.reconcile(broker=guarded, conn=conn,
                 binding=None, deployment=bound.identity, actions=actions)
@@ -394,8 +415,9 @@ async def execute_trading_plan(*, conn, broker, base_url, confirm_account,
             confirm_effective_session=confirm_effective_session, confirm_submit=confirm_submit)
     _schema(conn)
     observation_id, starting_cash = _shadow_config(dual_shadow_observation_id, dual_shadow_starting_cash)
-    if ProtectedLimitPolicy.from_env() is None:
-        raise TradingGatewayRefused("LIVE requires the selected protected-limit policy")
+    policy = ProtectedLimitPolicy.from_env()
+    if policy is None or not policy.fractional:
+        raise TradingGatewayRefused("LIVE requires the selected fractional protected-limit policy")
     with journal.writer_lock(conn):
         with feed_inputs.pinned(conn, commit=False) as pinned:
             bound = _bound(conn, confirm_account)
@@ -404,6 +426,9 @@ async def execute_trading_plan(*, conn, broker, base_url, confirm_account,
                     or str(plan.effective_session) != str(confirm_effective_session)
                     or confirm_submit is not True):
                 raise TradingGatewayRefused("execution requires exact current account/plan/session confirmation")
+            sizing = dual_plan_authority.load_authority(conn, plan_id=plan.plan_id)
+            if sizing is None or sizing.get("live_fractional_policy") != policy.to_dict():
+                raise TradingGatewayRefused("LIVE execution requires a fresh plan under the selected fractional policy")
             shadow = _shadow(conn, observation_id=observation_id, starting_cash=starting_cash, session=plan.decision_session)
             today = _clock().date()
             actions = _action_lookup(conn, shadow.state, today)
@@ -423,6 +448,8 @@ async def execute_trading_plan(*, conn, broker, base_url, confirm_account,
                 actions=lambda: action_context["value"], issuer_admission_check=issuer.final_check)
             account = await guarded.account_snapshot()
             _account_or_refuse(account, bound, confirm_account)
+            await _refresh_live_account_activity(
+                conn, broker=guarded, binding=bound, through=account.observed_at)
             active_ids = _preopen_active_security_ids(plan=plan,
                 commands=journal.load_commands(conn, bound.identity), actions=actions, conn=conn)
             _authority, actions, target_actions = _preopen_views_or_none(conn,

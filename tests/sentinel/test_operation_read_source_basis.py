@@ -16,7 +16,7 @@ from sentinel.strategy import production_strategy
 BASE = '277160861e2353d8ad93d15da8e2615ebdb11c18'
 FIXTURE = Path(__file__).resolve().parents[1]/'support/operation-read-277-sources.json'
 FIXTURE_SHA = '3d7fd186d316c3285cde43af4735cb389c66fe72196ce749a89e0acc14e640c0'
-STRATEGY = '421a1697353ced9bdb0efba82150e900265c8f1bb7e296dbb7f6423b40a6cc81'
+STRATEGY = 'f99c01b114682c4270c035ac7722530757c845fcdfc37b5839619f94d77aefb5'
 SEMANTICS = '38c750bd9bb244bc71600aaeba8c4aad22d2095747f4199e9ac4e0bd433425cb'
 
 

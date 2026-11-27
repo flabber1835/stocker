@@ -10,7 +10,6 @@ and is never accepted.
 from __future__ import annotations
 
 import hashlib
-import hashlib
 import json
 import logging
 from contextlib import AsyncExitStack, asynccontextmanager
@@ -18,7 +17,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Mapping, Optional, Sequence
+from typing import Optional, Sequence
 from urllib.parse import quote
 
 from sentinel.execution.broker_cash import (
@@ -135,7 +134,7 @@ def _native_order_terms(payload: dict, *, required: bool) -> OrderTerms | None:
 
 def _submit_body(*, symbol: str, client_key: str, side: Side, quantity: Decimal | None,
                  order_terms: OrderTerms, capabilities: BrokerCapabilities,
-                 notional: Decimal | None = None) -> dict:
+                 notional: Decimal | None = None, fractional_limit: bool = False) -> dict:
     if not isinstance(order_terms, OrderTerms):
         raise TypeError('submit requires typed OrderTerms')
     order_terms.require_owned_submission(side)
@@ -146,8 +145,11 @@ def _submit_body(*, symbol: str, client_key: str, side: Side, quantity: Decimal 
         capabilities.require('notional_market_buys')
     if order_terms.order_type == 'limit':
         capabilities.require('protected_limit_day')
-        if quantity != quantity.to_integral_value():
-            raise ValueError('protected LIMIT/DAY requires whole quantity')
+        if fractional_limit:
+            capabilities.require('fractional_quantities')
+        else:
+            if quantity != quantity.to_integral_value():
+                raise ValueError('protected LIMIT/DAY requires whole quantity')
     body = {'symbol': symbol, **amount.wire(),
             'side': 'buy' if side is Side.BUY else 'sell',
             'type': order_terms.order_type, 'time_in_force': order_terms.time_in_force,
@@ -536,7 +538,7 @@ class AlpacaExecutionBroker(ExecutionBroker):
                 required_operation=operation)
         except Exception as exc:
             raise BrokerAuthorityRefused("fresh LIVE transport admission refused") from exc
-        if operation != "READ":
+        if operation in {"SUBMIT", "CANCEL"}:
             from sentinel.execution.live_transport import require_live_mutation_permit
             require_live_mutation_permit(
                 self, operation=operation, command_key=command_key, terms=terms,
@@ -918,7 +920,8 @@ class AlpacaExecutionBroker(ExecutionBroker):
         last_id: Optional[str] = None
         for _page in range(MAX_ACTIVITY_PAGES):
             params = {
-                "activity_types": ",".join(sorted(RECOGNIZED_ACTIVITY_TYPES)),
+                # REO is the Activity SSE code; legacy Trading REST uses REORG.
+                "activity_types": ",".join(sorted(RECOGNIZED_ACTIVITY_TYPES - {"REO"})),
                 "after": floor.isoformat(),
                 "until": upper.isoformat(),
                 "direction": "asc",
@@ -1379,8 +1382,10 @@ class AlpacaExecutionBroker(ExecutionBroker):
                             quantity: Decimal | None, order_terms: OrderTerms,
                             notional: Decimal | None = None) -> CommandOutcome:
         """Submit once using the adapter's already validated address."""
+        from sentinel.trading_environment import TradingEnvironment
         body = _submit_body(symbol=symbol, client_key=client_key, side=side, quantity=quantity,
-            order_terms=order_terms, capabilities=self.capabilities, notional=notional)
+            order_terms=order_terms, capabilities=self.capabilities, notional=notional,
+            fractional_limit=self.environment is TradingEnvironment.LIVE)
         try:
             async with self._httpx.AsyncClient(timeout=20.0) as client:
                 self._require_transport_authority(
@@ -1508,6 +1513,42 @@ def _required_aware_ts(value, *, where: str) -> datetime:
         raise MalformedBrokerPayload(
             f"{where} must be a parseable timezone-aware timestamp")
     return parsed.astimezone(timezone.utc)
+
+
+def _activity_settle_date(value) -> date:
+    """Alpaca publishes an ISO calendar date, sometimes wrapped in UTC midnight."""
+    if not isinstance(value, str):
+        raise ValueError("missing settlement day")
+    day = date.fromisoformat(value[:10])
+    if value[:10] != day.isoformat() or value[10:] not in (
+            "", "T00:00:00Z", "T00:00:00+00:00"):
+        raise ValueError("invalid settlement day encoding")
+    return day
+
+
+_CONSIDERATION_LEGS = {
+    ("MA", "CMA"): True, ("MA", "SCMA"): True, ("MA", "SMA"): False,
+    ("REO", "REOC"): True, ("REO", "REOSC"): True, ("REO", "REOS"): False,
+}
+
+
+def _consideration_cash_amount(event: dict, *, cash_allowed: bool) -> Decimal:
+    """A group may describe its cash payout on every leg; only one posts cash."""
+    where = f"Activity SSE {event.get('event_id')} consideration"
+    quantity = _required_dec(event.get("qty"), where=f"{where} qty", allow_negative=True)
+    amount = _required_dec(event.get("net_amount"), where=f"{where} net_amount",
+                           allow_negative=True)
+    if quantity != 0:
+        if amount != 0:
+            raise MalformedBrokerPayload(f"{where} share leg has nonzero net_amount")
+        return amount
+    if not cash_allowed:
+        raise MalformedBrokerPayload(f"{where} stock-only action has no share quantity")
+    payout = _required_dec(event["details"].get("cash_payout"), where=f"{where} cash_payout")
+    if amount != payout:
+        raise MalformedBrokerPayload(f"{where} cash_payout differs from net_amount")
+    return amount
+
 
 _ACTIVITY_BUSINESS_TIME_FLOOR = datetime(1970, 1, 1, tzinfo=timezone.utc)
 ACTIVITY_FILL_INTERVAL_SOURCE = "alpaca_trading_activity_sse_candidate"
@@ -1907,7 +1948,9 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
             verify_snapshot_replay: bool = False,
             require_account_history: bool = False,
             cash_activity: bool = False,
+            trade_amendments: Optional[list] = None,
             expected_identity: Optional[contract.BrokerAccountIdentity] = None,
+            expected_account_uuid: Optional[str] = None,
             ) -> tuple[dict, ...]:
         floor = _required_aware_ts(
             after, where="Activity SSE lower boundary")
@@ -1921,6 +1964,13 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
         if not account_uuid:
             raise MalformedBrokerPayload(
                 "Alpaca account payload has no UUID for Activity SSE binding")
+        live_stream = self.broker_namespace == "alpaca-live"
+        if live_stream:
+            admitted = self._require_transport_authority(operation="ACTIVITY_READ")
+            if admitted.subject.account_id != account_uuid:
+                raise MalformedBrokerPayload("Activity SSE account differs from the signed LIVE account")
+        if expected_account_uuid is not None and account_uuid != expected_account_uuid:
+            raise MalformedBrokerPayload("Activity SSE amendment predecessor read changed account")
         if expected_identity is not None and (
                 (account.broker, account.account_id, account_uuid) != (
                     expected_identity.broker, expected_identity.account_id,
@@ -1946,7 +1996,7 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
             from httpx import TransportError
             try:
                 async with self._read_client(60.0) as client:
-                    self._require_transport_authority()
+                    self._require_transport_authority(operation="ACTIVITY_READ")
                     async with client.stream(
                             "GET", f"{self.base_url}/v2beta1/events/activities",
                             headers=headers, params=dict(params), timeout=60.0) as resp:
@@ -2009,15 +2059,12 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
                     where=f"Activity SSE {event_id} execution time")
             except MalformedBrokerPayload as exc:
                 raise MalformedBrokerPayload(str(exc), raw_event=event) from exc
-            settle_date = event.get("settle_date")
             try:
-                if not isinstance(settle_date, str):
-                    raise TypeError
-                date.fromisoformat(settle_date)
-            except (TypeError, ValueError) as exc:
+                _activity_settle_date(event.get("settle_date"))
+            except ValueError as exc:
                 raise MalformedBrokerPayload(
                     f"Activity SSE event {event_id} settle_date is "
-                    "not an ISO date", raw_event=native_event) from exc
+                    "not an ISO settlement day", raw_event=native_event) from exc
             if event_id == prior_event:
                 raise MalformedBrokerPayload(
                     f"Activity SSE repeated event_id {event_id}",
@@ -2067,6 +2114,8 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
                         and account_after.raw.get("created_at") != account.raw.get("created_at"))):
                 raise MalformedBrokerPayload(
                     "Alpaca account identity changed around Activity SSE read")
+            if live_stream:
+                self._require_transport_authority(operation="ACTIVITY_READ")
             return last, anchor, digest.digest(), tuple(retained)
 
         def accepted(events):
@@ -2074,6 +2123,12 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
                 for event in events:
                     kind = str(event["details"].get("execution_type") or "").strip().lower()
                     if str(event.get("previous_id") or "").strip() or kind in {"trade_correct", "trade_bust"}:
+                        if (trade_amendments is not None and self.financial_activity_sse
+                                and event.get("activity_type") == "TRD"
+                                and kind in {"trade_correct", "trade_bust"}):
+                            from sentinel.execution.alpaca_trade_amendments import parse
+                            trade_amendments.append(parse(event, account_uuid=account_uuid))
+                            continue
                         identity = contract.BrokerAccountIdentity(account.broker, account.account_id, {"id": account_uuid})
                         raise ActivityCorrectionRequiresRecovery(
                             "Activity SSE reported a correction/bust; cash/fill "
@@ -2119,6 +2174,7 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
         if requested_floor > upper:
             raise MalformedBrokerPayload(
                 "cash activity lower boundary exceeds upper boundary")
+        amendments = []
         events = await self._bounded_activity_events(
             # Never use the caller's business-time baseline for discovery.
             # Publication-order replay begins only after this exhaustive
@@ -2127,7 +2183,7 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
             since_event_id=since_event_id,
             verify_snapshot_replay=self.financial_activity_sse,
             require_account_history=self.financial_activity_sse,
-            cash_activity=True)
+            cash_activity=True, trade_amendments=amendments)
         activities: list[broker_cash.BrokerCashActivity] = []
         last_ref: Optional[str] = None
         for event in events:
@@ -2137,8 +2193,7 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
             if activity_type == "TRD":
                 # An owned fill supplies trade cash through the fill journal.
                 # This cursor owns only the separate non-trade cash ledger.
-                # The enclosing batch still advances its event_id cursor;
-                # corrections/busts were refused above.
+                # Trade amendments have a separate typed batch member.
                 continue
             if activity_type in {"ACATS", "FOPT", "JNLS"}:
                 # These move securities across the owned account boundary.
@@ -2155,20 +2210,21 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
                 raise MalformedBrokerPayload(
                     "unrecognized Activity SSE cash/economic type "
                     f"{activity_type!r}")
-            raw_amount = event.get("net_amount")
-            if raw_amount is None:
+            leg_type = (activity_type, activity_subtype)
+            if leg_type in _CONSIDERATION_LEGS:
+                amount = _consideration_cash_amount(
+                    event, cash_allowed=_CONSIDERATION_LEGS[leg_type])
+            elif event.get("net_amount") is None:
                 cash_amount_required = (
                     activity_type in (
                         broker_cash.EXTERNAL_ACTIVITY_TYPES
                         | frozenset({
                             "FEE", "CFEE", "INT", "INTNRA", "INTTW",
-                            "WH", "CGD", "PTC", "PTR", "FIMAT",
+                            "WH", "CGD", "CIL", "PTC", "PTR", "FIMAT",
                             "OPASN", "OPEXC", "OPTRD", "OPCSH",
                         }))
                     or (activity_type.startswith("DIV")
                         and activity_subtype != "SDIV")
-                    or (activity_type == "MA"
-                        and activity_subtype in {"CMA", "SCMA"})
                     or (activity_type == "OPCA"
                         and (activity_subtype.endswith("CMA")
                              or activity_subtype == "DIV.CDIV")))
@@ -2178,15 +2234,16 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
                         f"{event.get('event_id')} ({activity_type}) "
                         "omitted net_amount")
                 continue
-            amount = _required_dec(
-                raw_amount,
-                where=f"Activity SSE {event.get('event_id')} net_amount",
-                allow_negative=True)
+            else:
+                amount = _required_dec(
+                    event["net_amount"],
+                    where=f"Activity SSE {event.get('event_id')} net_amount",
+                    allow_negative=True)
             # The common-envelope validator above has already established
             # that this is the broker's required exact settlement date.
             # Execution time is not a substitute: changing which session
             # owns an external flow changes time-weighted performance.
-            activity_date = date.fromisoformat(event["settle_date"])
+            activity_date = _activity_settle_date(event["settle_date"])
             ref_id = str(event["ref_id"])
             activities.append(broker_cash.BrokerCashActivity(
                 activity_id=ref_id,
@@ -2196,6 +2253,19 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
                 raw=event,
             ))
             last_ref = ref_id
+        trade_history = ()
+        if amendments:
+            # A delayed revision can reference an execution older than the cash
+            # cursor or absent from a cumulative-only command's cache.
+            history = (events if since_event_id is None else
+                       await self._bounded_activity_events(
+                           after=_ACTIVITY_BUSINESS_TIME_FLOOR, through=through,
+                           require_account_history=True, verify_snapshot_replay=True,
+                           expected_account_uuid=amendments[0].account_uuid))
+            revised_orders = {event.broker_order_id for event in amendments}
+            trade_history = tuple(event for event in history
+                                  if event.get("activity_type") == "TRD"
+                                  and event["details"].get("order_id") in revised_orders)
         return broker_cash.BrokerCashActivityBatch(
             activities=tuple(activities),
             processed_through=upper,
@@ -2203,6 +2273,8 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
             last_activity_id=last_ref,
             last_event_id=(str(events[-1]["event_id"])
                            if events else since_event_id),
+            trade_amendments=tuple(amendments),
+            trade_history=trade_history,
         )
 
     async def account_fill_interval_evidence(
@@ -2395,28 +2467,35 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
             after=after, through=through, expected_identity=identity)
         order_ids = {order.broker_order_id for order in orders}
         client_keys = {order.client_key for order in orders}
-        return tuple(self._activity_execution_fill(event) for event in events
-                     if str(event.get("activity_type") or "").upper() == "TRD"
-                     and (str(event["details"].get("order_id") or "").strip() in order_ids
-                          or str(event["details"].get("client_order_id") or "").strip() in client_keys))
+        selected = tuple(event for event in events
+                         if str(event.get("activity_type") or "").upper() == "TRD"
+                         and (str(event["details"].get("order_id") or "").strip() in order_ids
+                              or str(event["details"].get("client_order_id") or "").strip() in client_keys))
+        from sentinel.execution.alpaca_trade_amendments import active_native_fills
+        return active_native_fills(selected, account_uuid=identity.raw["id"],
+                                   decode_fill=self._activity_execution_fill)
 
     @staticmethod
-    def _activity_execution_fill(event):
+    def _activity_execution_fill(event, *, amendment=False):
+        from sentinel.execution.alpaca_trade_amendments import asset_id as trade_asset_id
         details = event["details"]
         execution_type = str(details.get("execution_type") or "").lower()
-        if event.get("previous_id") or execution_type in {"trade_correct", "trade_bust"}:
+        if not amendment and (event.get("previous_id") or execution_type in {"trade_correct", "trade_bust"}):
             raise ActivityCorrectionRequiresRecovery(
                 "trade correction/bust cannot be flattened into an append-only fill history",
                 raw_event=event)
         order_id = str(details.get("order_id") or "").strip()
-        asset_id = str(details.get("asset_id") or "").strip()
+        asset_id = str(trade_asset_id(event, details) or "").strip()
         side = str(details.get("side") or "").lower()
-        if (execution_type not in {"fill", "partial_fill"}
+        allowed = {"trade_correct"} if amendment else {"fill", "partial_fill"}
+        if (execution_type not in allowed
                 or not order_id or not asset_id or side not in {"buy", "sell"}):
             raise MalformedBrokerPayload(
                 "TRD native order/asset/side/execution type is missing or unsupported", raw_event=event)
         try:
-            raw_cash = event.get("net_amount")
+            # The public correction contract does not establish whether the
+            # amount is a net adjustment or the replacement's full cash leg.
+            raw_cash = None if amendment else event.get("net_amount")
             return NativeBrokerFill(
                 activity_id=str(event["ref_id"]), asset_id=asset_id,
                 side=Side.BUY if side == "buy" else Side.SELL, raw=dict(event),

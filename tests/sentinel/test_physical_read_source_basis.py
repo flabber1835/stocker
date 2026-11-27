@@ -264,7 +264,7 @@ def test_other_modules_never_gain_physical_mapping():
 
 
 def test_unsealed_mapping_cannot_retain_the_current_strategy(monkeypatch):
-    current_strategy = '421a1697353ced9bdb0efba82150e900265c8f1bb7e296dbb7f6423b40a6cc81'
+    current_strategy = 'f99c01b114682c4270c035ac7722530757c845fcdfc37b5839619f94d77aefb5'
     assert digest(production_strategy()[1]) == current_strategy
     monkeypatch.setattr(basis,'PROFILE_SHA256','0'*64)
     assert digest(production_strategy()[1]) != current_strategy

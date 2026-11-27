@@ -166,7 +166,7 @@ def _native_coverage(conn, commands, *, native_plan_id: str | None) -> None:
                 conn, command, verify_notional=True, require_cash=True)
             if command.identity.plan_id == native_plan_id:
                 keys = [row[0] for row in conn.execute(
-                    "SELECT fill_key FROM sentinel_fills"
+                    f"SELECT fill_key FROM {journal.ACTIVE_FILLS} f"
                     " WHERE client_key=%s AND broker_order_id=%s",
                     (command.client_key, command.broker_order_id)).fetchall()]
                 _require(keys and all(len(key) == 64 and

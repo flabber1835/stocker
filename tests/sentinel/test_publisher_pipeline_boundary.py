@@ -13,7 +13,7 @@ from sentinel.feed import operational_snapshot as snapshot
 from sentinel.feed import publisher_pipeline as pipeline, rolling_publisher as lifecycle
 from tests.support.publisher_source_proofs import publisher_baseline
 
-EXPECTED_STRATEGY = '421a1697353ced9bdb0efba82150e900265c8f1bb7e296dbb7f6423b40a6cc81'
+EXPECTED_STRATEGY = 'f99c01b114682c4270c035ac7722530757c845fcdfc37b5839619f94d77aefb5'
 HELPERS = ('ComparisonRefused', '_operational_source', '_latest', '_legacy_version',
            'published', 'freeze', 'publish', '_checkpoint')
 

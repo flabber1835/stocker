@@ -74,6 +74,30 @@ def test_unchanged_merger_source_allows_only_cursor_bound_state_recovery(monkeyp
         snapshots._edge_fields(None, previous, 'new-candidate', request)
 
 
+@pytest.mark.parametrize('damage', [None, 'origin', 'subject', 'unbound rate', 'missing record'])
+def test_same_session_correction_requires_revised_native_rate_for_same_event(damage):
+    from sentinel.feed.alpaca_identity import merger_conversions
+    from tests.sentinel.test_alpaca_merger_source import DAY, inputs, merger
+
+    original = merger('AAA', id='merger-id', old_rate='2', new_rate='3')
+    revised = {**original, 'acquirer_rate': '4', 'process_date': '2026-09-16'}
+    prior = merger_conversions(**inputs([original]))
+    after = merger_conversions(**inputs([revised]))
+    if damage == 'origin':
+        after[0]['origin_snapshot_id'] = digest('different origin')
+    elif damage == 'subject':
+        after[0]['successor_cusip'] = '123456789'
+    elif damage == 'unbound rate':
+        after[0]['exchange_ratio'] = '3'
+    elif damage == 'missing record':
+        after = []
+    if damage is None:
+        assert snapshots.merger_correction(prior, after, session=DAY)
+    else:
+        with pytest.raises(snapshots.OperationalSnapshotRefused, match='MERGER_EXTENSION_REQUIRED'):
+            snapshots.merger_correction(prior, after, session=DAY)
+
+
 class _Rows:
     def __init__(self, rows):
         self.rows = rows

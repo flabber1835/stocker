@@ -387,10 +387,18 @@ class AlpacaSource:
         return {'observations':observations, 'missing':missing,
                 'batch_size':self.classifier.batch_size}, None, {'policy':openfigi.POLICY}, len(self.assets)
 
-    def _action_rows(self):
+    def _action_process_end(self):
+        target = str(self.window.end)
+        if getattr(self, 'same_session_conversions', None) is None:
+            return target
+        return max(target, min(datetime.now(_NY).date().isoformat(), calendar.next_session(target)))
+
+    def _action_rows(self, *, process_end=None):
         from sentinel.feed import alpaca_identity
         start = (self.window.start - timedelta(days=365)).isoformat()
-        end = str(self.window.end)
+        previous = self._previous_identity()
+        target = str(self.window.end)
+        end = process_end or self._action_process_end()
         params = {"start": start, "end": end, "limit": 1000,
                   "data_quality": "all", "sort": "asc"}
         seen, proofs = {}, []
@@ -403,7 +411,6 @@ class AlpacaSource:
         structural, resets = [], []
         current_assets = {row['ticker']: row.get('asset_id') for row in self.selected}
         selected = current_assets.keys() | {'BIL'}
-        previous = self._previous_identity()
         prior_assets = {row['ticker']: row['asset_id'] for row in previous['previous_selected']} if previous else {}
         prior_breaks = previous.get('identity_breaks', []) if previous else []
         source_breaks({'schema': SOURCE, 'provider': self.provider,
@@ -416,6 +423,11 @@ class AlpacaSource:
             action_symbols([page], start=start, end=end)
             for kind, records in page.items():
                 for record in records:
+                    if record['process_date'] > target:
+                        effective = structural_action_date(kind, record)
+                        if (kind != 'stock_mergers' or effective is None
+                                or alpaca_identity.action_effective_session(effective) != target):
+                            continue
                     identity = digest({"type": kind, "record": record})
                     before = seen.get(record["id"])
                     if before is not None and before != identity:
@@ -484,6 +496,21 @@ class AlpacaSource:
             selected=self.selected, previous_identity=previous,
             bindings_raw=identity_bindings, records=structural,
             target_session=str(self.window.end))
+        if same_session_breaks is not None:
+            # Only a newly corroborated, exact same-session conversion may
+            # clear this provisional UUID quarantine. Proven splits and
+            # earlier breaks remain part of the source's retained evidence.
+            replacements = {
+                (item['old_symbol'], item['old_provider_asset_id'],
+                 item['successor_provider_asset_id'], item['origin_snapshot_id'],
+                 previous['previous_session'], item['effective_session'])
+                for item in merger_conversions if item['old_symbol'] == item['successor_symbol']
+            }
+            same_session_breaks = [row for row in same_session_breaks
+                if row['split'] is not None or (
+                    row['ticker'], row['old_provider_asset_id'], row['new_provider_asset_id'],
+                    row['origin_snapshot_id'], row['origin_session'],
+                    row['first_affected_session']) not in replacements]
         # A replaced provider UUID under the same symbol cannot inherit the
         # prior history without a complete dated identity or merger action.
         # The producer sees only source inventory, never controller selections.
@@ -590,13 +617,14 @@ class AlpacaSource:
                 raise AlpacaTransportRefused('same-session identity-break evidence changed')
         old_conversions = getattr(self, 'same_session_conversions', None)
         if old_conversions is not None:
+            from sentinel.feed import operational_snapshot
             alpaca_identity.conversions(old_conversions)
-            previous_rows = {item['old_security_id']: item for item in old_conversions}
-            current_rows = {item['old_security_id']: item for item in merger_conversions}
-            if (any(current_rows.get(sid) != item for sid, item in previous_rows.items())
-                    or len(current_rows) < len(previous_rows)):
-                raise AlpacaTransportRefused('reobserved merger terms changed')
-            if len(current_rows) == len(previous_rows):
+            try:
+                changed = operational_snapshot.merger_correction(
+                    old_conversions, merger_conversions, session=str(self.window.end))
+            except operational_snapshot.OperationalSnapshotRefused as exc:
+                raise AlpacaTransportRefused('reobserved merger terms changed incompatibly') from exc
+            if not changed:
                 from sentinel.feed import rolling_jobs
                 # Only a retained-book reconstruction may republish identical
                 # source facts as after-open, state-only current information.
@@ -839,13 +867,16 @@ class AlpacaSource:
             if ([openfigi.listing_identity(asset) for asset in newer['assets']]
                     != [openfigi.listing_identity(asset) for asset in self.assets]):
                 raise SourceRevision('*', digest(self.assets), digest(newer['assets']))
+        previous_identity = self._previous_identity()
+        process_end = self._action_process_end()
         actions = self._part("ACTIONS", {**base, "component": "actions",
                                           'stock_merger_roles': 1,
                                           'split_identity': 3,
                                           'identity_break_policy': IDENTITY_BREAK_POLICY,
-                                          'prior_identity_sha256': digest(self._previous_identity()),
+                                          'prior_identity_sha256': digest(previous_identity),
+                                          'process_end': process_end,
                                           "start": (self.window.start - timedelta(days=365)).isoformat()},
-                             self._action_rows, checkpoint)
+                             lambda: self._action_rows(process_end=process_end), checkpoint)
         self.action_affected = frozenset(actions["affected"])
         self.reset_after = actions["reset_after"]
         self.action_evidence = actions["summary"]

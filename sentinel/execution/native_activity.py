@@ -63,9 +63,9 @@ _CASH_TYPES = frozenset({
     "CSD", "CSW", "ACATC", "JNLC",
     "DIV", "DIVNRA", "DIVCGL", "DIVCGS", "DIVFEE", "DIVFT", "DIVROC",
     "DIVTW", "DIVTXEX", "FEE", "CFEE", "INT", "INTNRA", "INTTW", "WH",
-    "CGD", "PTC", "PTR",
+    "CGD", "CIL", "DIVWH", "PTC", "PTR",
 })
-_SECURITIES_TYPES = frozenset({"ACATS", "FOPT", "JNLS", "SPLIT", "SPIN", "MA", "NC", "REORG", "OPCA"})
+_SECURITIES_TYPES = frozenset({"ACATS", "FOPT", "JNLS", "SPLIT", "SPIN", "MA", "NC", "REO", "REORG", "OPCA"})
 
 
 def canonical_json(value: Any) -> str:

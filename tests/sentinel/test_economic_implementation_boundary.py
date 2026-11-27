@@ -282,10 +282,32 @@ def test_complete_current_production_strategy_preserves_financial_settings():
         key: value for key, value in predecessor['strategy'].items() if key != 'data_semantics_source_sha256'}
     canonical = json.dumps(current, sort_keys=True, separators=(',', ':'),
                            ensure_ascii=True, allow_nan=False).encode('ascii')
-    assert hashlib.sha256(canonical).hexdigest() == '421a1697353ced9bdb0efba82150e900265c8f1bb7e296dbb7f6423b40a6cc81'
+    assert hashlib.sha256(canonical).hexdigest() == 'f99c01b114682c4270c035ac7722530757c845fcdfc37b5839619f94d77aefb5'
     assert current['data_semantics_source_sha256'] == economic.identity(
         schema='qualification-economic-boundary')['sha256']
     assert current['data_semantics_source_sha256'] != PREDECESSOR_DATA_SEMANTICS_SHA256
+
+
+def test_portfolio_merger_strategy_advances_only_reviewed_input_contributions():
+    from sentinel.feed.rolling_contract import digest
+    from sentinel.strategy import production_strategy
+
+    strategy = production_strategy()[1]
+    current = economic.identity(schema='portfolio-merger-source-qualification')
+    active = {row['module']: row['sha256'] for row in current['files']}
+    predecessor = {
+        'sentinel.core.window_continuity':
+            'aa241c8915eda36c4c47d67a19376140e8973029d4d4d51259d8d9d880d39c8e',
+        'sentinel.feed.operational_snapshot':
+            '25540d4a498868db32bdb7ed5326fb0115129ead3b1bc5aebdbe4917ad4a1b32',
+    }
+    for module, prior in predecessor.items():
+        assert active[module] != prior
+    assert digest(active) == strategy['data_semantics_source_sha256']
+    before = digest({**active, **predecessor})
+    assert before == '4e0527eb06780b744fefeadc47e2b18c2cdaacfa77ffa24946a569c5e59b0b1b'
+    assert digest({**strategy, 'data_semantics_source_sha256': before}) == (
+        '421a1697353ced9bdb0efba82150e900265c8f1bb7e296dbb7f6423b40a6cc81')
 
 
 def test_complete_strategy_hash_in_nested_source_domain_is_detected(monkeypatch):

@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 from sentinel.authority.live import LiveAdapterAdmission, require_live_adapter_admission
 from sentinel.execution.commands import Command
 from sentinel.execution.contract import (
-    BrokerAccountSnapshot, BrokerInstrument, BrokerPosition, OrderTerms, Side,
+    BrokerAccountSnapshot, BrokerAssetRules, BrokerInstrument, BrokerPosition, OrderTerms, Side,
 )
 from sentinel.execution.guarded import PreTransportAuthorityRefused
 from sentinel.execution.live_order_policy import require_live_order
@@ -41,6 +41,7 @@ class LiveOrderContext:
     reference_session: date | None = None
     reference_unit_factor: str = "1"
     funding: LiveFundingAdmission | None = None
+    asset_rules: BrokerAssetRules | None = None
 
 
 @dataclass
@@ -232,7 +233,8 @@ class LiveExecutionPolicy:
                 positions=context.positions, commitments=context.commitments,
                 reference_close=context.reference_close,
                 reference_session=context.reference_session,
-                reference_unit_factor=context.reference_unit_factor, funding=context.funding)
+                reference_unit_factor=context.reference_unit_factor, funding=context.funding,
+                asset_rules=context.asset_rules)
 
         assessment = assess(admission)
         if assessment.certificate_sha256 != authority.sha256:

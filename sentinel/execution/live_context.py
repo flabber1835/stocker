@@ -144,6 +144,15 @@ async def load_live_order_context(
     started = _clock(clock)
     before = await broker.account_snapshot()
     observation = await broker.observe()
+    asset_rules = None
+    if request.quantity is not None and request.quantity != request.quantity.to_integral_value():
+        from sentinel.execution.guarded import BrokerAuthorityRefused
+        try:
+            asset_rules = await broker.asset_rules(instrument=request.instrument)
+        except BrokerAuthorityRefused:
+            raise
+        except Exception as exc:
+            raise LiveOrderDeferred("LIVE_FRACTIONAL_ELIGIBILITY_UNAVAILABLE") from exc
     after = await broker.account_snapshot()
     completed = _clock(clock)
     if (completed < started or type(before) is not BrokerAccountSnapshot
@@ -179,7 +188,7 @@ async def load_live_order_context(
     return LiveOrderContext(effective_session=plan.effective_session, request=request,
         account=after, account_observed_at=started, positions=observation.positions,
         commitments=commands, reference_close=close, reference_session=reference_session,
-        reference_unit_factor=factor,
+        reference_unit_factor=factor, asset_rules=asset_rules,
         funding=load_live_funding_admission() if request.side is Side.BUY else None)
 
 

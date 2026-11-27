@@ -181,6 +181,10 @@ happens between a decision and a share moving, and — more importantly — what
 happens when that process is interrupted, duplicated, or resumed from a backup
 that is behind the broker.
 
+The current [Alpaca trade amendment contract](alpaca-trade-amendments.md)
+supersedes the historical correction limitation above for confirmed owned
+orders on a qualified Activity SSE stream.
+
 ---
 
 ### The rehearsal manifest is evidence, not execution authority
@@ -1025,8 +1029,10 @@ would count the same trade twice. Both types name positive incremental
 executions under their native `ref_id`, subject to exact owned-order and
 economic validation. An unsupported execution type is retained as a native
 data-integrity refusal, not an endlessly retried broker outage. A correction
-or bust remains a refusal until the prior native fill can be reversed. See
-[the November 17 opening decision](nov17-opening-recovery.md).
+or bust uses the [Alpaca trade amendment contract](alpaca-trade-amendments.md)
+before the event cursor can advance. See
+[the November 17 opening decision](nov17-opening-recovery.md) for the separate
+ordinary positive-fill correction guards.
 
 Recognized cash activities with an explicit zero `net_amount` retain their
 native identity, settlement session and classification as namespaced

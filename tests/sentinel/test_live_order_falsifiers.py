@@ -53,13 +53,13 @@ def test_removed_financial_guards_are_detected_by_behavior(monkeypatch, needle, 
             regression.test_request_must_equal_actual_original_pending_journal_record()
 
 
-def test_whole_share_guard_removal_is_detected(monkeypatch):
+def test_share_precision_guard_removal_is_detected(monkeypatch):
     source = inspect.getsource(policy._command)
-    needle = "if result.quantity != result.quantity.to_integral_value():"
+    needle = "OrderAmount(quantity=result.quantity).require_wire_precision()"
     assert source.count(needle) == 1
     namespace = {}
-    exec(compile(source.replace(needle, "if False:"), "live-whole-share-falsifier", "exec"),
+    exec(compile(source.replace(needle, "pass"), "live-share-precision-falsifier", "exec"),
          policy.__dict__, namespace)
     monkeypatch.setattr(policy, "_command", namespace["_command"])
-    with pytest.raises(pytest.fail.Exception):
-        regression.test_live_does_not_accept_market_buy_or_fractional_shares()
+    with pytest.raises(AssertionError, match="SHARE_PRECISION_EXCEEDED"):
+        regression.test_fractional_buy_refuses_unusable_quantity("0.0000000001", "SHARE_PRECISION_EXCEEDED")

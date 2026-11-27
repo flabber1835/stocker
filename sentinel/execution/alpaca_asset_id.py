@@ -40,6 +40,12 @@ class AssetIdAlpacaExecutionBroker(AlpacaExecutionBroker):
                 self.capabilities, account_cash_activity_evidence=True,
                 notional_market_buys=True)
             self.financial_activity_sse = True
+        else:
+            admission = self._require_transport_authority()
+            if "ACTIVITY_READ" in admission.claims.permitted_operations:
+                self.capabilities = replace(
+                    self.capabilities, account_cash_activity_evidence=True)
+                self.financial_activity_sse = True
 
     async def submit(
         self,
