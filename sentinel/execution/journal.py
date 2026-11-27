@@ -45,7 +45,7 @@ from sentinel.execution.commands import Command
 from sentinel.execution.alpaca_trade_amendments import PREFIX as _TRADE_AMENDMENT_PREFIX
 from sentinel.execution.contract import (
     BrokerFill, BrokerInstrument, BrokerObservation, OrderTerms, Side)
-from sentinel.execution.identity import CommandIdentity, DeploymentIdentity
+from sentinel.execution.identity import ALPACA_PAPER_BROKER, CommandIdentity, DeploymentIdentity
 from sentinel.execution.plan import ExecutionPlan, OpeningIntent
 from sentinel.execution.states import CommandState, IN_FLIGHT
 from sentinel.execution.order_amount import optional_decimal_text
@@ -616,6 +616,23 @@ def save_command(conn, command: Command, *, previous: Optional[CommandState] = N
              command.state.value, str(command.filled_quantity), command.detail))
     if commit:
         conn.commit()
+
+
+def commit_planned_sale(conn, planned: Command, pending: Command) -> None:
+    """Publish a single original sale at the native pre-POST boundary."""
+    if (planned.state is not CommandState.PLANNED or planned.side is not Side.SELL or planned.is_recovered
+            or planned.identity.deployment.broker != ALPACA_PAPER_BROKER
+            or planned.broker_order_id is not None or planned.filled_quantity != 0
+            or pending != planned.transition(CommandState.SEND_PENDING)):
+        raise ValueError("native sale requires its original unsent planned command")
+    with JournalUnitOfWork(conn):
+        row = conn.execute(
+            "SELECT plan_id,revision,state,broker_order_id,filled_quantity FROM sentinel_commands"
+            " WHERE client_key=%s FOR UPDATE", (planned.client_key,)).fetchone()
+        if row is None or tuple(row) != (
+                planned.identity.plan_id, planned.identity.revision, CommandState.PLANNED.value, None, Decimal(0)):
+            raise ValueError("original planned sale changed before native POST")
+        save_command(conn, pending, previous=planned.state, commit=False)
 
 
 def restore_proven_unsent(conn, command: Command, *, broker, refusal) -> None:

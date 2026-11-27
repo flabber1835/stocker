@@ -488,6 +488,19 @@ checkpoint restoration described in
 single-use proof from the canonical membrane, bound to the exact unsent command,
 can restore its pending checkpoint to `PLANNED`. Ordinary command transitions,
 negative broker lookups and any `UNKNOWN` outcome cannot do this.
+
+For an independent PAPER sale on the native asset-ID adapter, the writer
+commits the original `PLANNED` row before preparing the order. The request
+stays in that state while it waits for its turn or checks the instrument.
+Once the native HTTP client is ready, the guarded writer checks the current
+mutation grant, exact sale, eligibility and exchange window. It commits
+`SEND_PENDING` for that same row immediately before permitting POST.
+A worker death before that boundary leaves a planned sale that must pass
+fresh checks on restart. A death after the commit requires positive broker
+evidence under the original key, including when the wire outcome is unknown.
+An older pending or unknown row provides no evidence of which boundary it
+crossed. Reserved purchases and LIVE retain their original pending-command
+requirement for funding and signed order permission.
 At the Alpaca create-order boundary this is an endpoint-specific allowlist, not
 the generic HTTP class: the documented `403` buying-power/share refusal and a
 documented `422` input refusal prove non-acceptance, except that any duplicate

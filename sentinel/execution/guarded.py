@@ -105,9 +105,20 @@ _PAPER_SUBMIT_WINDOW: ContextVar[_PaperSubmitWindow | None] = ContextVar(
     "_PAPER_SUBMIT_WINDOW", default=None)
 
 
+def _require_committed_sale(adapter, client_key, scope):
+    from sentinel.execution import submission_group
+    group = submission_group.sale_group()
+    if group is not None:
+        sale = group.sales.get(client_key)
+        if (scope is None or sale is None or not sale.committed or sale.task is not asyncio.current_task()
+                or group.paper_seller._inner is not adapter):
+            raise PreTransportAuthorityRefused("native sale requires its committed send checkpoint")
+
+
 def require_paper_submit_window(adapter, *, client_key, side, instrument, quantity, terms, notional):
     """Consume the order's own clock check at the last boundary before POST."""
     scope = _PAPER_SUBMIT_WINDOW.get()
+    _require_committed_sale(adapter, client_key, scope)
     if scope is None:
         return
     if (scope.used or scope.adapter is not adapter
@@ -119,8 +130,39 @@ def require_paper_submit_window(adapter, *, client_key, side, instrument, quanti
     _check_paper_scope_clock(scope)
 
 
+async def admit_planned_paper_sale(adapter, *, client_key, side, instrument, quantity, terms, notional):
+    """Move the original planned sale to SEND_PENDING only at its native POST."""
+    from sentinel.execution import submission_group
+    group = submission_group.sale_group()
+    if group is None:
+        return
+    scope = _PAPER_SUBMIT_WINDOW.get()
+    sale = group.sales.get(client_key)
+    if (sale is None or scope is None or group.paper_seller._inner is not adapter or scope.adapter is not adapter
+            or sale.task is not asyncio.current_task() or scope.task is not sale.task or scope.used
+            or scope.client_key != client_key or scope.side is not Side.SELL or side is not Side.SELL
+            or scope.economics != (instrument, quantity, terms, notional) or sale.attempted):
+        raise PreTransportAuthorityRefused("native sale lacks its original guarded writer and command")
+    command = sale.command
+    if (command.instrument != instrument or command.quantity != quantity or command.order_terms != terms
+            or command.notional is not None or notional is not None):
+        raise PreTransportAuthorityRefused("native sale differs from its durable planned economics")
+    async with group.paper_seller.submission_lock:
+        _check_paper_scope_clock(scope)
+        await group.paper_seller._authorize_mutation(BrokerOperation.SUBMIT)
+        _check_paper_scope_clock(scope)
+        sale.attempted = True
+        try:
+            sale.promote()
+        except Exception as exc:
+            submission_group.stop(client_key)
+            raise PreTransportAuthorityRefused("native sale send checkpoint could not be committed") from exc
+        sale.committed = True
+
+
 def recheck_paper_before_headers(adapter, *, client_key):
     scope = _PAPER_SUBMIT_WINDOW.get()
+    _require_committed_sale(adapter, client_key, scope)
     if scope is None:
         return
     if (scope.headers_started or not scope.used or scope.adapter is not adapter
@@ -642,9 +684,15 @@ class GuardedExecutionBroker(ExecutionBroker):
         return results
 
     @property
-    def supports_sizing_asset_batch(self):
+    def uses_native_paper_asset_ids(self):
         from sentinel.execution.alpaca_asset_id import AssetIdAlpacaExecutionBroker
-        return not self._live and type(self._inner) is AssetIdAlpacaExecutionBroker
+        from sentinel.trading_environment import TradingEnvironment
+        return (not self._live and type(self._inner) is AssetIdAlpacaExecutionBroker
+                and self._inner.environment is TradingEnvironment.PAPER)
+
+    @property
+    def supports_sizing_asset_batch(self):
+        return self.uses_native_paper_asset_ids
 
     async def resolve_sizing_instruments(self, symbols):
         """One current asset response supplies both mapping and sizing eligibility."""
@@ -1254,9 +1302,12 @@ class GuardedExecutionBroker(ExecutionBroker):
 
         # Only an exact, already-funded group purchase can renew an expired
         # instrument observation. Every renewal precedes a fresh mutation check.
+        from sentinel.execution import submission_group
+        native_sales = submission_group.sale_group()
         for attempt in range(2):
             if funding_lock is None or rules_current():
-                await self._authorize_mutation(BrokerOperation.SUBMIT)
+                if native_sales is None or native_sales.paper_seller is not self:
+                    await self._authorize_mutation(BrokerOperation.SUBMIT)
                 if rules_current():
                     break
             if funding_lock is None:

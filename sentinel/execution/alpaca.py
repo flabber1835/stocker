@@ -1425,6 +1425,10 @@ class AlpacaExecutionBroker(ExecutionBroker):
         try:
             async with self._httpx.AsyncClient(timeout=20.0, event_hooks={"request": [attach_wire_check]}) as client:
                 try:
+                    if self.environment is TradingEnvironment.PAPER and submission_group.sale_group() is not None:
+                        from sentinel.execution.guarded import admit_planned_paper_sale
+                        await admit_planned_paper_sale(self, client_key=client_key, side=side, instrument=instrument,
+                                                      quantity=quantity, terms=order_terms, notional=notional)
                     self._require_transport_authority(
                         operation="SUBMIT", command_key=client_key, terms=order_terms,
                         instrument=instrument, side=side, quantity=quantity, notional=notional)

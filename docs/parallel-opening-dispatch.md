@@ -65,8 +65,11 @@ account check. This evidence cannot authorize orders or resolve a journal
 command. Alpaca describes the hold in its [order buying-power documentation](https://docs.alpaca.markets/us/docs/orders-at-alpaca).
 
 One writer prepares and checkpoints commands. Up to four independent requests
-may await a broker response together. Each starts only after its own committed
-SEND_PENDING checkpoint. Its worker owns its single-use pretransport proof,
+may await a broker response together. Each POST starts only after its own
+committed SEND_PENDING checkpoint. A guarded native PAPER sale remains PLANNED
+while queued and while checking its instrument. The writer obtains the final
+mutation approval and commits its SEND_PENDING row just before POST. Each
+worker owns its single-use pretransport proof,
 final broker checks and exact client ID. The worker records the response before
 finishing. The writer drains started requests before reconciliation or release
 of ownership. On a definitive refusal or ambiguous response the writer stops

@@ -1408,7 +1408,12 @@ MAX_PARALLEL_SUBMITS = 4
 
 async def _dispatch_independent(conn, broker, prepared, *, reserved):
     """Start in plan order, reuse slots after receipt, drain before releasing the writer."""
-    with submission_group.independent_dispatch_scope(item[0] for item in prepared):
+    commands = tuple(item[0] for item in prepared)
+    paper_seller = broker if (
+        type(broker) is GuardedExecutionBroker and broker.uses_native_paper_asset_ids
+        and all(c.side is Side.SELL and c.identity.deployment.broker == ALPACA_PAPER_BROKER for c in commands)
+    ) else None
+    with submission_group.independent_dispatch_scope(commands, paper_seller=paper_seller):
         return await _dispatch_group(conn, broker, prepared, reserved)
 
 
@@ -1497,9 +1502,11 @@ async def _persist_and_send(conn, broker, command: C.Command, *,
         if not already_planned:
             journal.save_command(conn, command)
         pending = recovery.prepare_send(command)
-        journal.save_command(conn, pending, previous=command.state)
-        if type(broker) is GuardedExecutionBroker:
-            submission_group.checkpointed(command.client_key)
+        sale = submission_group.stage_sale(broker, command, lambda: journal.commit_planned_sale(conn, command, pending))
+        if sale is None:
+            journal.save_command(conn, pending, previous=command.state)
+            if type(broker) is GuardedExecutionBroker:
+                submission_group.checkpointed(command.client_key)
 
     try:
         settled = await recovery.dispatch(broker, pending)
@@ -1515,7 +1522,10 @@ async def _persist_and_send(conn, broker, command: C.Command, *,
             if not scoped:
                 submission_group.stop(command.client_key)
             async with section:
-                journal.restore_proven_unsent(conn, pending, broker=broker, refusal=exc)
+                if sale is not None and not sale.attempted:
+                    broker.consume_not_transported(exc, command)
+                else:
+                    journal.restore_proven_unsent(conn, pending, broker=broker, refusal=exc)
             if scoped:
                 raise _ProvenUnsentPurchaseDeferral(str(exc)) from exc
             if isinstance(exc, OrderEvidenceNotReady):
@@ -1523,6 +1533,9 @@ async def _persist_and_send(conn, broker, command: C.Command, *,
                 return replace(command, detail=str(exc))
         submission_group.stop(command.client_key)
         raise
+    if sale is not None and not sale.committed:
+        submission_group.stop(command.client_key)
+        raise C.CommandRefused("native sale returned without its durable pre-POST checkpoint")
     if settled.state is not CommandState.ACKNOWLEDGED:
         submission_group.stop(command.client_key)
     async with section:
