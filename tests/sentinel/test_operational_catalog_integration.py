@@ -9,7 +9,7 @@ import pytest
 from psycopg import sql
 
 from sentinel import operational_catalog as catalog, operational_schema as extension, schema
-from sentinel.feed import store
+from sentinel.feed import rolling_go_inputs, runtime_schema, store
 from sentinel.feed.runtime_schema import require_execution_schemas
 from tests.support.postgres import _EphemeralPostgres
 
@@ -183,6 +183,52 @@ def test_execution_schemas_share_one_catalog_read_per_call(conn, monkeypatch):
     assert seen == [conn]
     require_execution_schemas(conn)
     assert seen == [conn, conn]
+
+
+@pytest.mark.parametrize('installed', [False, True])
+def test_rolling_schema_check_reads_once_with_the_calling_role(conn, monkeypatch, installed):
+    if installed:
+        extension.install_quiescent(conn)
+    role = 'rolling_reader_' + uuid.uuid4().hex
+    reader = sql.Identifier(role)
+    conn.execute(sql.SQL('CREATE ROLE {}').format(reader))
+    conn.execute(sql.SQL('GRANT SELECT ON ALL TABLES IN SCHEMA public TO {}').format(reader))
+    conn.execute(sql.SQL('GRANT EXECUTE ON FUNCTION pg_catalog.pg_control_system() TO {}').format(reader))
+    conn.execute(sql.SQL('SET LOCAL ROLE {}').format(reader))
+    conn.execute('SET LOCAL search_path TO pg_catalog, public')
+    conn.execute("SET LOCAL lock_timeout='8311ms'")
+    original = schema._read_runtime_catalog
+    observations = []
+
+    def observed(cur):
+        cur.execute("SELECT current_user, current_setting('search_path'), current_setting('lock_timeout')")
+        observations.append(cur.fetchone())
+        return original(cur)
+
+    monkeypatch.setattr(schema, '_read_runtime_catalog', observed)
+    try:
+        rolling_go_inputs.require_schemas(conn)
+        rolling_go_inputs.require_schemas(conn)
+        assert observations == [(role, 'public, pg_temp', '2s')] * 2
+        assert conn.execute("SELECT current_user, current_setting('search_path'), current_setting('lock_timeout')").fetchone() == (
+            role, 'pg_catalog, public', '8311ms')
+    finally:
+        conn.rollback()
+
+
+def test_rolling_schema_check_refuses_migration_and_each_contract_change(conn):
+    with closing(store.connect(conn.info.dsn)) as migrator:
+        migrator.execute('SELECT pg_advisory_xact_lock(%s,%s)', runtime_schema._SCHEMA_LOCK)
+        with pytest.raises(runtime_schema.FeedSchemaRefused, match='migration lock'):
+            rolling_go_inputs.require_schemas(conn)
+    rolling_go_inputs.require_schemas(conn)
+    for ddl, expected in [('ALTER TABLE sentinel_bars ADD COLUMN changed boolean', 'feed-schema'),
+                          ('DROP INDEX idx_sentinel_commands_inflight', 'behavioral-schema')]:
+        conn.execute(ddl)
+        with pytest.raises(schema.SchemaMigrationRefused, match=expected):
+            rolling_go_inputs.require_schemas(conn)
+        conn.rollback()
+        rolling_go_inputs.require_schemas(conn)
 
 
 @pytest.mark.parametrize('ddl,refusal', [

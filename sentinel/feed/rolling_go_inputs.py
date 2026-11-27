@@ -4,7 +4,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from statistics import median
 
-from sentinel import rolling_checkpoint, schema
+from sentinel import rolling_checkpoint
 from sentinel.core.rolling_inputs import cold_start_inputs, readiness_inputs, summarize_readiness
 from sentinel.feed import calendar, operational_snapshot as snapshots, publication
 from sentinel.feed import preparation_wait, rolling_jobs, runtime_schema, writer_schedule
@@ -67,9 +67,8 @@ def require_first_deployment(conn):
 
 
 def require_schemas(conn):
-    """Run before opening a pin/transaction: catalog validators end transactions."""
-    schema.require_runtime_schema(conn)
-    runtime_schema.require_feed_schema(conn)
+    """Validate both contracts from the same catalog before taking the publication pin."""
+    runtime_schema.require_execution_schemas(conn)
 
 
 def validate(conn, pub, *, now=None):
