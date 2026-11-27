@@ -16,6 +16,7 @@ import sentinel_go_phase_controller as controller
 go = controller.go
 COMMIT = 'a' * 40
 IMAGE = 'sha256:' + 'b' * 64
+TEST_IMAGE = 'sha256:' + '9' * 64
 IDENTITY = 'c' * 64
 NOW = datetime(2026, 10, 8, 10, tzinfo=timezone.utc)
 
@@ -119,10 +120,11 @@ def test_installer_readiness_binds_selected_runtime_and_book(monkeypatch, capsys
     from sentinel.feed import store, readers, readiness
     from sentinel.cli import feed
     obj = object.__new__(driver.AutonomousDeploy)
-    obj.commit, obj.runtime_digest = COMMIT, IMAGE
+    obj.commit, obj.runtime_digest, obj.test_digest = COMMIT, IMAGE, TEST_IMAGE
     obj.base_compose = ['docker', 'compose', '-f', 'compose.yml']
     obj.env = {'SENTINEL_GIT_COMMIT': 'f' * 40,
                'SENTINEL_RUNTIME_IMAGE_DIGEST': 'sha256:' + 'f' * 64,
+               'SENTINEL_TEST_IMAGE_DIGEST': 'sha256:' + 'f' * 64,
                'ALPACA_API_KEY': 'must-not-forward', 'ALPACA_SECRET_KEY': 'must-not-forward',
                'SENTINEL_SHADOW_OBSERVATION_ID': 'configured-book',
                'SENTINEL_SHADOW_STARTING_CASH': '123456.78'}
@@ -138,6 +140,7 @@ def test_installer_readiness_binds_selected_runtime_and_book(monkeypatch, capsys
     def report(*_a, **_kw):
         assert os.environ['SENTINEL_GIT_COMMIT'] == COMMIT
         assert os.environ['SENTINEL_RUNTIME_IMAGE_DIGEST'] == IMAGE
+        assert os.environ['SENTINEL_TEST_IMAGE_DIGEST'] == TEST_IMAGE
         assert os.environ['SENTINEL_SHADOW_OBSERVATION_ID'] == 'configured-book'
         assert os.environ['SENTINEL_SHADOW_STARTING_CASH'] == '123456.78'
         return SimpleNamespace(ready=True, checks=[], failures=[])
@@ -156,8 +159,11 @@ def test_installer_readiness_binds_selected_runtime_and_book(monkeypatch, capsys
     calls = []
     def run(argv, **_kw):
         calls.append(argv)
-        forwarded = dict(argv[i + 1].split('=', 1) for i, part in enumerate(argv) if part == '--env')
+        env_args = [argv[i + 1].split('=', 1) for i, part in enumerate(argv) if part == '--env']
+        forwarded = dict(env_args)
+        assert len(env_args) == len(forwarded)
         assert set(forwarded) == {'SENTINEL_GIT_COMMIT', 'SENTINEL_RUNTIME_IMAGE_DIGEST',
+                                 'SENTINEL_TEST_IMAGE_DIGEST',
                                  'SENTINEL_SHADOW_OBSERVATION_ID', 'SENTINEL_SHADOW_STARTING_CASH'}
         with monkeypatch.context() as child:
             child.setattr(os, 'environ', dict(forwarded, SENTINEL_DATABASE_URL='fixture'))
@@ -177,15 +183,20 @@ def test_installer_readiness_binds_selected_runtime_and_book(monkeypatch, capsys
         assert obj._base_cli(['check-data'], capture=True).returncode == 0
     assert len(calls) == 1 and events.count('snapshot') == 1
     assert obj.env['SENTINEL_GIT_COMMIT'] == 'f' * 40
+    assert obj.env['SENTINEL_TEST_IMAGE_DIGEST'] == 'sha256:' + 'f' * 64
 
 
 @pytest.mark.parametrize('route', ['structured', 'check-data'])
-@pytest.mark.parametrize('commit,digest', [(None, IMAGE), ('bad', IMAGE), (COMMIT, None), (COMMIT, 'latest')])
-def test_installer_readiness_refuses_unselected_identity_before_launch(route, commit, digest):
+@pytest.mark.parametrize('commit,digest,test_digest', [
+    (None, IMAGE, TEST_IMAGE), ('bad', IMAGE, TEST_IMAGE),
+    (COMMIT, None, TEST_IMAGE), (COMMIT, 'latest', TEST_IMAGE),
+    (COMMIT, IMAGE, None), (COMMIT, IMAGE, 'latest'),
+])
+def test_installer_readiness_refuses_unselected_identity_before_launch(route, commit, digest, test_digest):
     import sentinel_autonomous_deploy as core
     import sentinel_autonomous_deploy_driver as driver
     obj = object.__new__(driver.AutonomousDeploy)
-    obj.commit, obj.runtime_digest, obj.env = commit, digest, {}
+    obj.commit, obj.runtime_digest, obj.test_digest, obj.env = commit, digest, test_digest, {}
     obj.base_compose = ['docker', 'compose']
     obj.runner = SimpleNamespace(run=lambda *_a, **_k: pytest.fail('unbound child launched'))
     with pytest.raises(core.DeployRefused, match='selected commit'):

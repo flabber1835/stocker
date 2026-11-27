@@ -225,6 +225,15 @@ Ordinary PAPER bundles retain their existing admission contract, which does not
 require a shadow data-publication subject; their source-final and actual-open
 checks remain mandatory.
 
+Decision, 2026-11-27. When the retained publication uses an earlier strategy
+identity, activation readiness authenticates the retained book against the
+selected release. Pass the selected commit, runtime image digest and test
+image digest together through the common retained reader used by readiness,
+`check-data` and current-plan inspection. Each field comes from the certified
+image selection. Reject an incomplete identity before starting the child.
+Current-plan inspection adds its own policy and plan inputs to that common
+identity. Ordinary Compose CLI invocations retain their existing permissions.
+
 Shadow polling may also wait on the CLI's exact broker-free `NOT_STARTED`
 document and a separately versioned, negatively witnessed formation response.
 Normal publisher work has two real commit gaps: a new publication can precede

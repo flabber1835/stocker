@@ -1918,10 +1918,13 @@ class AutonomousDeploy:
         """Bind only nonsecret executable/book identity after image selection."""
         if (not isinstance(self.commit, str) or _HEX40.fullmatch(self.commit) is None
                 or not isinstance(self.runtime_digest, str)
-                or _DIGEST.fullmatch(self.runtime_digest) is None):
-            raise DeployRefused("retained reader requires selected commit and immutable image")
+                or _DIGEST.fullmatch(self.runtime_digest) is None
+                or not isinstance(self.test_digest, str)
+                or _DIGEST.fullmatch(self.test_digest) is None):
+            raise DeployRefused("retained reader requires selected commit and immutable runtime and test images")
         values = {"SENTINEL_GIT_COMMIT": self.commit,
-                  "SENTINEL_RUNTIME_IMAGE_DIGEST": self.runtime_digest}
+                  "SENTINEL_RUNTIME_IMAGE_DIGEST": self.runtime_digest,
+                  "SENTINEL_TEST_IMAGE_DIGEST": self.test_digest}
         for key in ("SENTINEL_SHADOW_OBSERVATION_ID", "SENTINEL_SHADOW_STARTING_CASH"):
             if key in self.env:
                 values[key] = self.env[key]
@@ -1947,9 +1950,6 @@ class AutonomousDeploy:
     def _current_plan_reader_args(self) -> List[str]:
         """Inspect the reviewed book without granting the CLI broker authority."""
         args = self._retained_reader_args()
-        if not isinstance(self.test_digest, str) or _DIGEST.fullmatch(self.test_digest) is None:
-            raise DeployRefused("plan reader requires selected immutable test image")
-        args += ["--env", "SENTINEL_TEST_IMAGE_DIGEST=" + self.test_digest]
         policy_values = {key: self.env.get(key, "") for key in (
             "SENTINEL_PAPER_BUY_POLICY", "SENTINEL_PAPER_BUY_CAP_BPS")}
         args += [item for key, value in policy_values.items()
