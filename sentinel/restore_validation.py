@@ -175,6 +175,33 @@ def validate_restored_database(conn) -> dict:
         terminal_checkpoint = journal.terminal_recovery_checkpoint(conn)
         cash_activity = broker_cash.load_activity_state(
             conn, broker=account.broker, account_id=account.broker_account_id)
+    from sentinel.execution.alpaca_trade_amendments import verify_restored
+    try:
+        verify_restored(conn, expected_commitment=(cash_activity.trade_amendment_commitment
+                                                   if cash_activity is not None else None))
+    except (ValueError, TypeError, KeyError, RuntimeError) as exc:
+        raise RestoreValidationRefused(f"restored Alpaca trade amendments are invalid: {exc}") from exc
+    from sentinel.execution.alpaca_stock_mergers import StockMergerEvidenceRefused, verify_restored
+    try:
+        verify_restored(conn, state=cash_activity)
+    except StockMergerEvidenceRefused as exc:
+        raise RestoreValidationRefused(f"restored Alpaca merger activities are invalid: {exc}") from exc
+    from sentinel.execution import alpaca_security_transfers
+    try:
+        alpaca_security_transfers.verify_restored(conn, state=cash_activity)
+    except alpaca_security_transfers.SecurityTransferRefused as exc:
+        raise RestoreValidationRefused(f"restored in-kind activity is invalid: {exc}") from exc
+    from sentinel.execution import alpaca_cash_amendments as cash_amendments
+    try:
+        if account is not None:
+            cash_amendments.verify_restored(
+                conn, broker=account.broker, account_id=account.broker_account_id,
+                expected_commitment=cash_activity.cash_revision_commitment if cash_activity else None)
+        elif conn.execute("SELECT EXISTS(SELECT 1 FROM sentinel_processed_sessions WHERE cursor_name LIKE %s)",
+                          (cash_amendments.PREFIX + "%",)).fetchone()[0]:
+            raise cash_amendments.CashRevisionRefused("cash revisions have no restored account binding")
+    except (ValueError, TypeError, KeyError, cash_amendments.CashRevisionRefused) as exc:
+        raise RestoreValidationRefused(f"restored Alpaca cash revisions are invalid: {exc}") from exc
 
     with conn.cursor() as cur:
         cur.execute(

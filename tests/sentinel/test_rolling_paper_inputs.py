@@ -870,7 +870,7 @@ def test_production_alpaca_dual_preparation_uses_current_book_without_fill_histo
         "status": "active", "tradable": True,
     }) for sid, meta in feed_inputs.metadata(conn).items()}
     http = Httpx(routes={**assets, "/v2/account": Response({
-        "id": "native-paper-fixture", "account_number": "paper-fixture",
+        "id": "11111111-1111-4111-8111-111111111111", "account_number": "paper-fixture",
         "created_at": "2026-02-12T00:00:00Z",
         "equity": "250000", "cash": "250000", "buying_power": "250000",
         "multiplier": "1", "status": "ACTIVE", "trading_blocked": False,

@@ -615,9 +615,15 @@ def _actionable_projection_deltas(
         raise protected_limits.ProtectedReferenceUnavailable(
             "opening reference calculations remain unavailable: "
             + ", ".join(sorted(unavailable)))
-    return _actionable_target_deltas(
+    actionable = _actionable_target_deltas(
         projection.target_basket, observation,
         minimum_quantity_increment=minimum_quantity_increment)
+    if plan.broker == "alpaca-live":
+        restricted = set(restricted_security_ids) | projection.pending_share_targets.keys()
+        if restricted:
+            return tuple(delta for delta in actionable
+                         if not delta.is_increase and delta.security_id not in restricted)
+    return actionable
 
 
 def _projection_refusal_result(*, result, observation_id, exc) -> ExecuteResult:
@@ -2060,8 +2066,11 @@ class ProductionAutomation:
                     try:
                         from sentinel.execution.contract import Side
                         from sentinel.execution import opening_sizing
+                        live_action_restrictions = (
+                            cycle.broker == "alpaca-live" and bool(result.restricted_securities))
                         reductions_allowed = (
-                            result.clean and cycle.broker in {"alpaca", "alpaca-live"}
+                            (result.clean or live_action_restrictions)
+                            and cycle.broker in {"alpaca", "alpaca-live"}
                             and self.automation_config.debug_window_for(cycle) is None)
                         now = _now_utc()
                         cutoff = min(cycle.execution_close_at,
@@ -2165,6 +2174,7 @@ class ProductionAutomation:
                             reduction_only_continuation=(
                                 reductions_allowed
                                 and any(delta.side is Side.SELL for delta in actionable)),
+                            reduction_only_required=live_action_restrictions,
                             failure_code="READY_FOR_FRESH_EXECUTION",
                             failure_detail=(
                                 "read-only recovery permits transport but the current "

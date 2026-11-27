@@ -158,6 +158,69 @@ def test_admission_cannot_be_a_caller_supplied_approved_boolean():
                                      live_admission={"approved": True})
 
 
+@pytest.mark.parametrize("side", [Side.BUY, Side.SELL])
+def test_live_fractional_order_crosses_real_alpaca_adapter_with_exact_quantity(monkeypatch, side):
+    from types import SimpleNamespace
+    from sentinel.authority import live
+    from sentinel.execution import live_transport
+    from sentinel.execution.contract import BrokerPosition
+    from sentinel.execution.guarded import ExecutionBrokerGuard, GuardedExecutionBroker, LiveExecutionGrant
+    from sentinel.execution.states import CommandState
+    from tests.sentinel.live_order_fixtures import DAY, NOW, REFERENCE_SESSION, command, funding, order_fixture
+    from tests.sentinel.test_issue_183_alpaca_hardening import full_order
+
+    verify = live.require_live_adapter_admission
+    monkeypatch.setattr(live, "require_live_adapter_admission",
+                        lambda admission, **kwargs: verify(admission, **{**kwargs, "now": NOW}))
+    fixture = order_fixture()
+    request = command(fixture, security=INSTRUMENT.security_id, side=side, instrument=INSTRUMENT,
+                      quantity=Decimal("1.500000001"))
+    terms = request.order_terms
+    positions = (BrokerPosition(INSTRUMENT, request.quantity),) if side is Side.SELL else ()
+    payload = full_order(quantity=str(request.quantity), client_order_id=request.client_key,
+                         side=side.value.lower(), type=terms.order_type, order_type=terms.order_type,
+                         limit_price=None if terms.limit_price is None else str(terms.limit_price))
+    http = Httpx(post=Response(payload, 201), routes={"/v2/assets/asset-aapl": {
+        "id": "asset-aapl", "symbol": "AAPL", "tradable": True,
+        "status": "active", "fractionable": True,
+    }})
+    raw = adapter(fixture, http=http)
+    raw._clock_provider = lambda: NOW
+
+    async def market_clock():
+        return SimpleNamespace(timestamp=NOW, is_open=True)
+
+    async def resolve_instrument(**_kwargs):
+        return INSTRUMENT
+
+    async def check(*_args):
+        return None
+
+    raw.market_clock, raw.resolve_instrument = market_clock, resolve_instrument
+
+    async def load_submit(_key):
+        rules = await wrapped.asset_rules(instrument=INSTRUMENT)
+        return live_transport.LiveOrderContext(DAY, request, fixture.account, NOW, positions,
+            (request,), Decimal(10), REFERENCE_SESSION, asset_rules=rules,
+            funding=funding(fixture).admission if side is Side.BUY else None)
+
+    policy = live_transport.LiveExecutionPolicy(admission=fixture.admission,
+        load_submit=load_submit, load_cancel=lambda _id: None,
+        final_check=lambda _operation: None, now=lambda: NOW)
+    wrapped = GuardedExecutionBroker(inner=raw,
+        grant=LiveExecutionGrant(fixture.subject, "EXECUTE", "plan", DAY, True),
+        guard=ExecutionBrokerGuard(check, check, check), live_policy=policy,
+        issuer_admission_check=lambda **_kwargs: SimpleNamespace(allowed=True))
+    result = asyncio.run(wrapped.submit(client_key=request.client_key, instrument=INSTRUMENT,
+        side=side, quantity=request.quantity, order_terms=terms))
+    assert result.state is CommandState.ACKNOWLEDGED
+    assert [call[:2] for call in http.calls] == [("GET", "/v2/assets/asset-aapl"), ("POST", LIVE + "/v2/orders")]
+    body = http.calls[1][2]
+    assert body["symbol"] == "asset-aapl" and body["qty"] == "1.500000001"
+    assert body["type"] == terms.order_type and body["time_in_force"] == "day"
+    assert "notional" not in body and body["extended_hours"] is False
+
+
 def test_live_admission_cannot_be_replayed_at_paper_origin():
     fixture = live_fixture()
     with pytest.raises(BrokerAuthorityRefused):

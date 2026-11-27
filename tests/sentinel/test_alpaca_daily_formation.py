@@ -176,10 +176,11 @@ def test_unsupported_held_event_refuses_without_mutating_book(conn,provider):
     prices.window = PriceWindow.through(day)
     prices.split,prices.unsupported = (episode['ticker'],day),True
     publish()
-    from sentinel.core.rolling_reader import RollingReaderRefused
-    from sentinel.rolling_reconstruction_evidence import InputsUnavailable
-    with pytest.raises((ValueError,RollingReaderRefused,InputsUnavailable),match='ANCHOR|HELD_ECONOMIC_INPUT_PENDING'):
+    from sentinel.core.window_continuity import MergerActionPending
+    with pytest.raises(MergerActionPending, match='^HELD_IDENTITY_ACTION_PENDING:') as pending:
         daily.advance(conn,observation_id=OBS,starting_cash=50_000)
+    assert pending.value.session == day
+    assert pending.value.security_id == episode['security_id']
     conn.rollback()
     from sentinel import rolling_daily_checkpoint
     _,_,restored = rolling_daily_checkpoint.load(conn,init._context(OBS,50_000))

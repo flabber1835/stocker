@@ -242,7 +242,11 @@ def test_acceptance_oracle_detects_removed_guard(monkeypatch, guard):
                   if guard == 'bootstrap_replay' else alpaca.AlpacaExecutionBroker._bounded_activity_events)
         tree = ast.parse(textwrap.dedent(inspect.getsource(method)))
         if guard == 'bootstrap_replay':
-            matches = [n for n in ast.walk(tree) if isinstance(n, ast.keyword) and n.arg == 'verify_snapshot_replay']
+            # Mutate the normal bootstrap call. The amendment predecessor
+            # backfill is a separate read that always verifies its replay.
+            matches = [n for n in ast.walk(tree) if isinstance(n, ast.keyword)
+                       and n.arg == 'verify_snapshot_replay'
+                       and ast.unparse(n.value) == 'self.financial_activity_sse']
             assert len(matches) == 1
             matches[0].value = ast.Constant(False)
         else:

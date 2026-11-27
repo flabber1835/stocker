@@ -662,6 +662,7 @@ def _reconstruct_missing_transition_alerts(conn, *, completion=False, fill_after
     retain their event identity; retries converge by cycle, generation, phase,
     and failure fingerprint. The migration boundary prevents historical replay.
     """
+    from sentinel.execution.journal import ACTIVE_FILLS
     with conn.cursor() as cur:
         with _isolated_reconstruction(cur, 'BACKUP', report_error):
             _reconstruct_backup_renewal_warning(cur)
@@ -670,16 +671,16 @@ def _reconstruct_missing_transition_alerts(conn, *, completion=False, fill_after
         else:
             _legacy_cycle_control_recovery(cur, report_error=report_error)
         after = '' if fill_after is None else 'WHERE (broker_order_id,fill_key)>(%s,%s)'
-        cur.execute('SELECT broker_order_id,fill_key FROM sentinel_fills '
+        cur.execute(f'SELECT broker_order_id,fill_key FROM {ACTIVE_FILLS} active '
                     f'{after} ORDER BY broker_order_id,fill_key LIMIT %s',
                     (*(() if fill_after is None else fill_after), _FILL_REPAIR_BATCH))
         keys = cur.fetchall()
         if keys:
             native_ids, fill_ids = map(list, zip(*keys, strict=True))
-            cur.execute("""
+            cur.execute(f"""
             WITH fills AS MATERIALIZED (
                 SELECT f.* FROM unnest(%s::text[],%s::text[]) AS k(broker_order_id,fill_key)
-                JOIN sentinel_fills f USING(broker_order_id,fill_key)
+                JOIN {ACTIVE_FILLS} f USING(broker_order_id,fill_key)
                 CROSS JOIN sentinel_notification_policy p
                 WHERE p.id=1 AND f.filled_at>=p.web_push_activated_at
             ), matches AS (

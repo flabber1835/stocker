@@ -531,6 +531,12 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
         or any(item.security_id == sid for item in plan.opening_intents)},
         after=plan.decision_session))
     restrictions.update(rec.restricted_securities)
+    live_pending = {}
+    if deployment.broker == ALPACA_LIVE_BROKER and target_projection is not None:
+        live_pending = protected_limits.share_restrictions(target_projection)
+        restrictions.update(live_pending)
+        deferred.extend(live_pending)
+        deferral_reasons.update(live_pending)
     if fractional:
         progress = fractional_progress.derive(conn, projection=target_projection, deployment=deployment)
         deferred.extend(progress.blocked)
@@ -614,6 +620,7 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
         return out
 
     posting_funds = None
+    live_sale_residuals = {}
 
     async def submit_all(candidates, obs, commands):
         """Authorize and send, against the observation `candidates` were sized
@@ -647,6 +654,24 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                 except OrderEvidenceNotReady as exc:
                     deferred.append(delta.security_id)
                     deferral_reasons[delta.security_id] = str(exc)
+                    continue
+            elif deployment.broker == ALPACA_LIVE_BROKER and delta.side is Side.SELL:
+                from sentinel.execution.fractional_orders import choose_live_sale
+                from sentinel.execution.guarded import OrderEvidenceNotReady
+                sid = delta.security_id
+                try:
+                    delta, live_residual = await choose_live_sale(
+                        broker, delta=delta, instrument=instruments[sid])
+                except OrderEvidenceNotReady as exc:
+                    deferred.append(sid)
+                    deferral_reasons[sid] = str(exc)
+                    continue
+                if live_residual is not None:
+                    live_sale_residuals[sid] = live_residual
+                    restrictions[sid] = live_residual
+                    deferred.append(sid)
+                    deferral_reasons[sid] = live_residual
+                if delta is None:
                     continue
             from sentinel.execution.contract import OrderTerms
             from sentinel.execution import protected_limits
@@ -786,6 +811,10 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
     #    with no reductions there are no proceeds to wait for, and with no
     #    increases there is nothing the second read would inform.
     settle_note = ""
+    if live_sale_residuals and increases:
+        deferred.extend(delta.security_id for delta in increases)
+        increases = []
+        settle_note = "LIVE increases await fractional sale residuals: " + ", ".join(sorted(live_sale_residuals))
     if increases and (reductions or outstanding_reduction_keys):
         submitted_reductions = {c.security_id for c in reduction_commands}
         missing_reductions = sorted(
@@ -888,6 +917,11 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
         deferred.extend(delta.security_id for delta in increases)
         increases = []
         settle_note = "market BUY awaits complete account-wide order reconciliation"
+    if (deployment.broker == ALPACA_LIVE_BROKER and increases
+            and (live_pending or rec.restricted_securities)):
+        deferred.extend(delta.security_id for delta in increases)
+        increases = []
+        settle_note = "LIVE increases await confirmed corporate-action disposition"
 
     if increases and prepare_increases is not None:
         await prepare_increases(increases, rec)

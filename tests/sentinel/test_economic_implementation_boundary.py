@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from sentinel import economic_manifest as economic
+from tests.support import alpaca_coverage_source as alpaca_coverage
 
 ROOT = Path(__file__).resolve().parents[2]
 WITNESS = ROOT / 'tests/support/architecture-b2-functions.json'
@@ -248,7 +249,7 @@ def test_sql_adapter_uses_the_shared_compiler_and_preserves_order():
 @pytest.mark.parametrize('changed', ['sentinel.core.window_material',
     'sentinel.feed.normalized_layout', 'sentinel.feed.rolling_store'])
 def test_daily_session_reads_bind_exact_compiler_and_storage(changed, monkeypatch):
-    installed = '4e0527eb06780b744fefeadc47e2b18c2cdaacfa77ffa24946a569c5e59b0b1b'
+    installed = alpaca_coverage.CURRENT_DATA_SEMANTICS
     assert economic.identity(schema='daily-session-test')['sha256'] == installed
     original = economic._module_raw
 
@@ -282,10 +283,30 @@ def test_complete_current_production_strategy_preserves_financial_settings():
         key: value for key, value in predecessor['strategy'].items() if key != 'data_semantics_source_sha256'}
     canonical = json.dumps(current, sort_keys=True, separators=(',', ':'),
                            ensure_ascii=True, allow_nan=False).encode('ascii')
-    assert hashlib.sha256(canonical).hexdigest() == '421a1697353ced9bdb0efba82150e900265c8f1bb7e296dbb7f6423b40a6cc81'
+    assert hashlib.sha256(canonical).hexdigest() == alpaca_coverage.CURRENT_STRATEGY
     assert current['data_semantics_source_sha256'] == economic.identity(
         schema='qualification-economic-boundary')['sha256']
     assert current['data_semantics_source_sha256'] != PREDECESSOR_DATA_SEMANTICS_SHA256
+
+
+def test_alpaca_coverage_strategy_advances_only_reviewed_input_contributions(monkeypatch):
+    from sentinel.feed.rolling_contract import digest
+    from sentinel.strategy import production_strategy
+
+    strategy = production_strategy()[1]
+    current = economic.identity(schema='portfolio-merger-source-qualification')
+    active = {row['module']: row['sha256'] for row in current['files']}
+    before_read = alpaca_coverage.predecessor_reader(economic._module_raw)
+    with monkeypatch.context() as change:
+        change.setattr(economic, '_module_raw', before_read)
+        previous = economic.identity(schema='portfolio-merger-source-qualification')
+        assert digest(production_strategy()[1]) == alpaca_coverage.BASE_STRATEGY
+    old = {row['module']: row['sha256'] for row in previous['files']}
+    assert set(active) == set(old)
+    assert {name for name in active if active[name] != old[name]} == alpaca_coverage.CHANGED_COMPILERS
+    assert previous['sha256'] == alpaca_coverage.BASE_DATA_SEMANTICS
+    assert digest(active) == strategy['data_semantics_source_sha256'] == alpaca_coverage.CURRENT_DATA_SEMANTICS
+    assert digest(strategy) == alpaca_coverage.CURRENT_STRATEGY
 
 
 def test_complete_strategy_hash_in_nested_source_domain_is_detected(monkeypatch):
@@ -451,24 +472,29 @@ def test_operational_sources_are_not_read_as_economic_contributors(monkeypatch):
         return read(name)
     monkeypatch.setattr(economic,'_module_raw',audited)
     assert economic.identity(schema='qualification-economic-boundary')['sha256'] == (
-        '4e0527eb06780b744fefeadc47e2b18c2cdaacfa77ffa24946a569c5e59b0b1b')
+        alpaca_coverage.CURRENT_DATA_SEMANTICS)
 
 
 def test_retired_supersession_reader_preserves_only_the_reviewed_economic_identity(monkeypatch):
     from sentinel import semantic_source_basis as semantics
 
     name = 'sentinel.feed.operational_snapshot'
-    read = economic._module_raw
+    read = alpaca_coverage.predecessor_reader(economic._module_raw)
     source = read(name)
+    source_path = Path(importlib.import_module(name).__file__).resolve()
+    original_read = Path.read_bytes
     assert hashlib.sha256(source).hexdigest() == economic.SNAPSHOT_RETIRED_EDGE_SHA256
     assert semantics.SNAPSHOT_RETIRED_EDGE_SHA256 == economic.SNAPSHOT_RETIRED_EDGE_SHA256
-    baseline = economic.identity(schema='qualification-economic-boundary')
+    with monkeypatch.context() as change:
+        change.setattr(economic, '_module_raw', read)
+        change.setattr(Path, 'read_bytes',
+                       lambda path: source if path == source_path else original_read(path))
+        baseline = economic.identity(schema='qualification-economic-boundary')
+        assert semantics.economic_sources([name], schema='qualification-economic-boundary')['files'] == [
+            {'module': name, 'sha256': economic.SNAPSHOT_RECOVERY_PREDECESSOR_SHA256}]
     contributions = {row['module']: row['sha256'] for row in baseline['files']}
     assert contributions[name] == economic.SNAPSHOT_RECOVERY_PREDECESSOR_SHA256
-    assert semantics.economic_sources([name], schema='qualification-economic-boundary')['files'] == [
-        {'module': name, 'sha256': economic.SNAPSHOT_RECOVERY_PREDECESSOR_SHA256}]
-    assert baseline['sha256'] == (
-        '4e0527eb06780b744fefeadc47e2b18c2cdaacfa77ffa24946a569c5e59b0b1b')
+    assert baseline['sha256'] == alpaca_coverage.BASE_DATA_SEMANTICS
 
     guard = b'if not (old_retired or new_retired):'
     assert source.count(guard) == 1
@@ -481,8 +507,6 @@ def test_retired_supersession_reader_preserves_only_the_reviewed_economic_identi
     assert changed_contributions[name] == hashlib.sha256(unreviewed).hexdigest()
     assert changed['sha256'] != baseline['sha256']
 
-    source_path = Path(importlib.import_module(name).__file__).resolve()
-    original_read = Path.read_bytes
     with monkeypatch.context() as change:
         change.setattr(Path, 'read_bytes',
                        lambda path: unreviewed if path == source_path else original_read(path))

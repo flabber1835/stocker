@@ -1,0 +1,52 @@
+{
+  "base_revision": "2adeda3b18e9323827e9d12e8782034c3ecc3e55",
+  "files": {
+    "cash": {
+      "after_sha256": "f7531d58325ff7c542eb9a8e0420ad6cc25e1ba26a281dedfb1ed549a398f326",
+      "before_sha256": "25ca70faa05562cdc20accbd1af7f03e83a842e134d32ad0f19feb4b5c02bddf",
+      "edits": [
+        {
+          "after": "        policy = MarketBuyPolicy.from_env()\n        options = {\"qualify_postings\": True} if policy and policy.fractional else {}\n        state = await broker_cash.ingest_account_cash(\n            conn, broker_adapter=broker, broker=binding.broker,\n            account_id=binding.broker_account_id, through=through, **options)\n",
+          "before": "        policy = MarketBuyPolicy.from_env()\n        options = {\"qualify_postings\": True} if policy and policy.fractional else {}\n        return await broker_cash.ingest_account_cash(\n            conn, broker_adapter=broker, broker=binding.broker,\n            account_id=binding.broker_account_id, through=through, **options)\n"
+        },
+        {
+          "after": "            \"broker cash activity evidence is temporarily unavailable: \"\n            f\"{type(exc).__name__}: {exc}\") from exc\n    if state.trade_amendments_applied:\n        # All old reconciliation and sizing evidence predates the amendment.\n        conn.commit()\n        raise PaperRetryableRefused(\"Alpaca amended owned executions; repeat current reconciliation\")\n    return state\n\ndef fractional_posting_reserve(conn, *, plan, deployment, account, observation,\n",
+          "before": "            \"broker cash activity evidence is temporarily unavailable: \"\n            f\"{type(exc).__name__}: {exc}\") from exc\n\ndef fractional_posting_reserve(conn, *, plan, deployment, account, observation,\n"
+        }
+      ]
+    },
+    "execution": {
+      "after_sha256": "fa04225bb4e3537915f71671e4c59ef939a22ad0b6e9c765b25a413fa3779830",
+      "before_sha256": "f88d6bfc52a14ea8b0b2114107124c8cff2c3e802e285e611e8f5d39a3bdd218",
+      "edits": [
+        {
+          "after": "                deployment=binding.identity, actions=actions,\n                informational_current_book=dual_mode)\n            if (fractional_postings and not preflight.transport_ready\n                    and (preflight.native_fill_integrity_refused\n                         or preflight.foreign_positions\n                         or preflight.runtime_state is RuntimeState.RECONCILING)):\n                # Corrections may explain a quantity/price disagreement\n                # before the ordinary settled cash bracket can run.\n                refreshed_activity = await _broker_cash_state_or_refuse(\n                    conn, broker=broker, binding=binding, through=clock())\n                if preflight.foreign_positions and refreshed_activity is not None:\n                    from sentinel.execution.share_units import has_native_position_receipts\n                    if has_native_position_receipts(refreshed_activity):\n                        # Recheck current holdings once after discovering a\n                        # possible explanation in the native stream.\n                        conn.commit()\n                        preflight = await reconciliation.reconcile(\n                            broker=broker, conn=conn, binding=None,\n                            deployment=binding.identity, actions=actions,\n                            informational_current_book=dual_mode)\n            observation = (\n                _dual_mutation_observation_or_refuse(preflight)\n                if dual_mode else\n                _transport_observation_or_refuse(preflight))\n            if any(reason.startswith((\"CORPORATE_ACTION_RECEIPT_RESTRICTED:\",\n                                      \"SECURITIES_TRANSFER_RESTRICTED:\"))\n                   for reason in preflight.restricted_securities.values()):\n                reductions_only = True\n            pending_native_fee = None\n            if _account_evidence_is_quiescent(\n",
+          "before": "                deployment=binding.identity, actions=actions,\n                informational_current_book=dual_mode)\n            observation = (\n                _dual_mutation_observation_or_refuse(preflight)\n                if dual_mode else\n                _transport_observation_or_refuse(preflight))\n            pending_native_fee = None\n            if _account_evidence_is_quiescent(\n"
+        }
+      ]
+    },
+    "targets": {
+      "after_sha256": "c9cc815255be25de322f8e76a71013e0705902e7f5ccdc44ccb86fc905e22376",
+      "before_sha256": "c99a7e83f8899909001feb7a31700b349dc94c8b8e539d5c5120f61f6acd312d",
+      "edits": [
+        {
+          "after": "    if conn is not None:\n        from sentinel.execution.market_buy_policy import MarketBuyPolicy\n        from sentinel.execution.identity import ALPACA_LIVE_BROKER\n        policy = MarketBuyPolicy.from_env()\n        if (policy is not None and policy.fractional) or plan.broker == ALPACA_LIVE_BROKER:\n            from sentinel.execution import held_targets\n            if policy is not None and policy.fractional:\n                identities.update(held_targets.plan_purchase_budgets(conn, plan.plan_id))\n            identities.update(held_targets.plan_pending_share_targets(conn, plan.plan_id))\n    return tuple(sorted(identities))\n",
+          "before": "    if conn is not None:\n        from sentinel.execution.market_buy_policy import MarketBuyPolicy\n        policy = MarketBuyPolicy.from_env()\n        if policy is not None and policy.fractional:\n            from sentinel.execution import held_targets\n            identities.update(held_targets.plan_purchase_budgets(conn, plan.plan_id))\n            identities.update(held_targets.plan_pending_share_targets(conn, plan.plan_id))\n    return tuple(sorted(identities))\n"
+        },
+        {
+          "after": "    opening_diagnostics.projection_phase(\"mutable_inputs\")\n    from sentinel.execution import market_buy_sizing, protected_limits\n    from sentinel.execution.identity import ALPACA_LIVE_BROKER\n    from sentinel.execution.market_buy_policy import MarketBuyPolicy\n    market_policy = MarketBuyPolicy.from_env()\n    fractional = market_policy is not None and market_policy.fractional\n    policy = protected_limits.ProtectedLimitPolicy.from_env()\n    live_fractional = plan.broker == ALPACA_LIVE_BROKER and policy is not None and policy.fractional\n    carried_budgets, pending_targets = {}, None\n    if fractional:\n        from sentinel.execution import fractional_progress, fractional_sizing, held_targets\n        carried_budgets = held_targets.plan_purchase_budgets(conn, plan.plan_id)\n        pending_targets = held_targets.plan_pending_share_targets(conn, plan.plan_id)\n    elif live_fractional:\n        from sentinel.execution import held_targets\n        pending_targets = held_targets.plan_pending_share_targets(conn, plan.plan_id)\n    additional_ids = carried_budgets.keys() | (pending_targets or {}).keys()\n",
+          "before": "    opening_diagnostics.projection_phase(\"mutable_inputs\")\n    from sentinel.execution import market_buy_sizing, protected_limits\n    from sentinel.execution.market_buy_policy import MarketBuyPolicy\n    market_policy = MarketBuyPolicy.from_env()\n    fractional = market_policy is not None and market_policy.fractional\n    carried_budgets, pending_targets = {}, None\n    if fractional:\n        from sentinel.execution import fractional_progress, fractional_sizing, held_targets\n        carried_budgets = held_targets.plan_purchase_budgets(conn, plan.plan_id)\n        pending_targets = held_targets.plan_pending_share_targets(conn, plan.plan_id)\n    additional_ids = carried_budgets.keys() | (pending_targets or {}).keys()\n"
+        },
+        {
+          "after": "            fractional_entitlements=pending_targets)\n        opening_diagnostics.projection_phase(\"policy_resolution\")\n        if fractional:\n            retained, retries = held_targets.plan_sizing(conn, plan=plan, state=state)\n",
+          "before": "            fractional_entitlements=pending_targets)\n        opening_diagnostics.projection_phase(\"policy_resolution\")\n        policy = protected_limits.ProtectedLimitPolicy.from_env()\n        if fractional:\n            retained, retries = held_targets.plan_sizing(conn, plan=plan, state=state)\n"
+        },
+        {
+          "after": "            from sentinel.execution import held_targets\n            retained, retries = held_targets.plan_sizing(conn, plan=plan, state=state)\n            if live_fractional and retained:\n                deferred = pending_targets.keys() | projected.pending_share_targets.keys()\n                retained = {sid: qty for sid, qty in retained.items() if sid not in deferred}\n            references = protected_limits.build_references(\n                conn, plan=plan, projection=projected, policy=policy)\n",
+          "before": "            from sentinel.execution import held_targets\n            retained, retries = held_targets.plan_sizing(conn, plan=plan, state=state)\n            references = protected_limits.build_references(\n                conn, plan=plan, projection=projected, policy=policy)\n"
+        }
+      ]
+    }
+  },
+  "schema": "sentinel.alpaca-coverage-paper-fixture/1"
+}

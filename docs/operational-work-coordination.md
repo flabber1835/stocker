@@ -122,6 +122,18 @@ AST shapes, and normalizes them to the predecessor form. A different fallback,
 default or supplied value must fail the witness. This is a narrow explicit
 delta, not permission to regenerate canonical fingerprints.
 
+The Alpaca coverage release records a separate PAPER package transition from
+the exact `2adeda3b` definitions. Four definitions change. The cash reader
+commits an accepted trade amendment and asks the caller to reconcile again.
+The execution coordinator refreshes native receipt evidence once for an
+otherwise unexplained position and keeps confirmed in-kind activity on the
+reduction-only path. The two shared target helpers carry LIVE's fractional
+pending shares through pre-open coverage and protected limit sizing, keeping
+unresolved quantities out of retained share sizing. The source witness binds
+those four complete successor definitions and reconstructs their exact
+predecessors before applying the existing opening and recovery checks. The
+historical extraction and reviewed fingerprints keep their original values.
+
 ## Smooth dashboard refresh
 
 The observed five-second boundary fetch replaces the entire document using

@@ -14,7 +14,7 @@ import pytest
 from sentinel.execution import alpaca, broker_cash
 from sentinel.execution.contract import Completeness
 from sentinel.execution.guarded import (
-    BrokerAuthorityRefused, ExecutionBrokerGuard, GuardedExecutionBroker,
+    ExecutionBrokerGuard, GuardedExecutionBroker,
     ManualExecutionGrant,
 )
 from tests.support.alpaca_simulator import AlpacaSimulator, EPOCH, Profile
@@ -87,7 +87,8 @@ def test_trade_notional_is_not_booked_again_as_cash_flow(world):
     ("currency", "EUR"), ("currency", None), ("status", "pending"),
     ("status", None), ("details", []), ("at", "invalid"),
     ("at", "2026-09-09T14:00:00"), ("executed_at", None),
-    ("settle_date", "09/09/2026"), ("net_amount", "NaN"),
+    ("settle_date", "09/09/2026"), ("settle_date", "2026-09-09T00:01:00Z"),
+    ("settle_date", "2026-09-09T00:00:00-04:00"), ("net_amount", "NaN"),
     ("net_amount", "Infinity"), ("net_amount", None),
     ("activity_type", "NEW_UNKNOWN_CASH_TYPE"),
 ])
@@ -99,11 +100,55 @@ def test_malformed_or_nonfinal_cash_event_refuses_entire_batch(world, field, val
         batch(world)
 
 
-@pytest.mark.parametrize("kind", ["CSD", "CSW", "JNLC", "JNL", "DIV", "FEE", "INT"])
+@pytest.mark.parametrize("kind", ["CSD", "CSW", "JNLC", "JNL", "DIV", "FEE", "INT", "CIL", "DIVWH"])
 def test_missing_cash_amount_is_not_an_ignorable_event(world, kind):
     row = event(world, kind)
     del row["net_amount"]
     with pytest.raises(alpaca.MalformedBrokerPayload, match="net_amount"):
+        batch(world)
+
+
+@pytest.mark.parametrize("suffix", ["", "T00:00:00Z", "T00:00:00+00:00"])
+def test_late_cash_in_lieu_preserves_native_settlement_day(world, suffix):
+    event(world)
+    cursor = batch(world).last_event_id
+    world.advance(86400)
+    row = event(world, "CIL", "0.27", at=EPOCH - timedelta(days=2))
+    row["settle_date"] = EPOCH.date().isoformat() + suffix
+    observed = batch(world, since_event_id=cursor)
+    posting, = observed.activities
+    assert posting.activity_id == row["ref_id"]
+    assert posting.activity_date == EPOCH.date()
+    assert posting.classification == "INTERNAL" and posting.net_amount == D("0.27")
+    assert posting.raw["settle_date"] == row["settle_date"]
+    assert batch(world, since_event_id=observed.last_event_id).activities == ()
+
+
+@pytest.mark.parametrize("kind,subtype", [("MA", "SCMA"), ("REO", "REOSC")])
+def test_cash_consideration_posts_once_when_the_share_legs_arrive_later(world, kind, subtype):
+    payout = event(world, kind, "8.29")
+    payout.update(activity_subtype=subtype, qty="0")
+    payout["details"].update(group_id="g", cash_payout="8.29")
+    first = batch(world)
+    assert sum(row.net_amount for row in first.activities) == D("8.29")
+    world.advance(60)
+    for quantity in ("-0.394803871", "0.123456789"):
+        shares = event(world, kind, "0", at=EPOCH)
+        shares.update(activity_subtype=subtype, qty=quantity)
+        shares["details"].update(group_id="g", cash_payout="8.29")
+    replay = batch(world, since_event_id=first.last_event_id)
+    assert [row.net_amount for row in replay.activities] == [D(0), D(0)]
+
+
+@pytest.mark.parametrize("quantity,payout,error", [
+    ("0.394803871", "8.29", "share leg has nonzero"),
+    ("0", "8.28", "cash_payout differs"),
+])
+def test_corporate_action_cash_does_not_accept_inconsistent_legs(world, quantity, payout, error):
+    row = event(world, "MA", "8.29")
+    row.update(activity_subtype="SCMA", qty=quantity)
+    row["details"]["cash_payout"] = payout
+    with pytest.raises(alpaca.MalformedBrokerPayload, match=error):
         batch(world)
 
 

@@ -530,10 +530,32 @@ async def _execute_current_paper_plan(
                 broker=broker, conn=conn, binding=None,
                 deployment=binding.identity, actions=actions,
                 informational_current_book=dual_mode)
+            if (fractional_postings and not preflight.transport_ready
+                    and (preflight.native_fill_integrity_refused
+                         or preflight.foreign_positions
+                         or preflight.runtime_state is RuntimeState.RECONCILING)):
+                # Corrections may explain a quantity/price disagreement
+                # before the ordinary settled cash bracket can run.
+                refreshed_activity = await _broker_cash_state_or_refuse(
+                    conn, broker=broker, binding=binding, through=clock())
+                if preflight.foreign_positions and refreshed_activity is not None:
+                    from sentinel.execution.share_units import has_native_position_receipts
+                    if has_native_position_receipts(refreshed_activity):
+                        # Recheck current holdings once after discovering a
+                        # possible explanation in the native stream.
+                        conn.commit()
+                        preflight = await reconciliation.reconcile(
+                            broker=broker, conn=conn, binding=None,
+                            deployment=binding.identity, actions=actions,
+                            informational_current_book=dual_mode)
             observation = (
                 _dual_mutation_observation_or_refuse(preflight)
                 if dual_mode else
                 _transport_observation_or_refuse(preflight))
+            if any(reason.startswith(("CORPORATE_ACTION_RECEIPT_RESTRICTED:",
+                                      "SECURITIES_TRANSFER_RESTRICTED:"))
+                   for reason in preflight.restricted_securities.values()):
+                reductions_only = True
             pending_native_fee = None
             if _account_evidence_is_quiescent(
                     conn, deployment=binding.identity,

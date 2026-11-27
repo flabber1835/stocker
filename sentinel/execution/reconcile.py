@@ -516,7 +516,9 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
     """The full sequence. Submits nothing; its output decides what may be."""
     from sentinel.execution import journal, recovery
     import os
-    if os.environ.get("SENTINEL_PAPER_BUY_POLICY", "").strip() == "FRACTIONAL_MARKET_DAY_V1":
+    from sentinel.execution.identity import ALPACA_LIVE_BROKER
+    if (deployment.broker == ALPACA_LIVE_BROKER
+            or os.environ.get("SENTINEL_PAPER_BUY_POLICY", "").strip() == "FRACTIONAL_MARKET_DAY_V1"):
         tolerance = Decimal(0)
     if type(informational_current_book) is not bool:
         raise TypeError("informational current-book scope must be boolean")
@@ -1083,10 +1085,9 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
     lookup = actions or (lambda _sid: Decimal(1))
     expected = expected_book_from_commands(resolved, actions=lookup)
     increment = broker.capabilities.minimum_quantity_increment
-    pending_entitlements = {
-        sid: Fraction(qty) for sid, qty in expected.items()
-        if isinstance(qty, Fraction) or (tolerance == 0 and qty != expected_raw.get(sid, 0)
-            and (Fraction(qty) / Fraction(increment)).denominator != 1)}
+    from sentinel.execution.share_units import pending_entitlements as unrepresentable_entitlements
+    pending_entitlements = unrepresentable_entitlements(
+        expected, expected_raw, increment, enforce_increment=tolerance == 0)
     applied = {
         sid: (expected[sid] / raw)
         for sid, raw in expected_raw.items()
@@ -1161,28 +1162,20 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
             lagging_fill_positions_list.append(sid)
     lagging_fill_positions = tuple(lagging_fill_positions_list)
     from sentinel.execution.share_units import (
-        entitlement_matches_observation, matches_intermediate_split_units, position_restrictions)
+        native_receipt_restrictions, position_restrictions, scalar_position_restrictions)
     restrictions = position_restrictions(
         actions=actions, commands=resolved, observation=observation,
         expected=expected)
-    # Only the known pre-action quantity proves a scalar posting lag. A
-    # material-action marker alone cannot explain a changed share balance.
-    explained_action_positions = set()
-    for sid, raw in expected_raw.items():
-        if raw > 0 and expected.get(sid, 0) != raw and observed.get(sid, 0) == raw:
-            restrictions[sid] = "CORPORATE_ACTION_PENDING: broker quantity is still in prior share units"
-            explained_action_positions.add(sid)
-    for sid, entitlement in pending_entitlements.items():
-        restrictions[sid] = f"CORPORATE_ACTION_PENDING: exact entitlement {entitlement} shares"
-        explained_action_positions.discard(sid)
-        if entitlement_matches_observation(
-                entitlement, observed.get(sid, Decimal(0)), expected_raw.get(sid, Decimal(0)),
-                increment):
-            explained_action_positions.add(sid)
-    for sid in mismatched_positions - explained_action_positions:
-        if matches_intermediate_split_units(actions, resolved, sid, observed.get(sid, 0)):
-            restrictions.setdefault(sid, "CORPORATE_ACTION_PENDING: broker quantity is in intermediate share units")
-            explained_action_positions.add(sid)
+    restrictions, explained_action_positions = scalar_position_restrictions(
+        actions=actions, commands=resolved, expected=expected, prior=expected_raw,
+        observed=observed, increment=increment, pending=pending_entitlements,
+        mismatches=mismatched_positions, existing=restrictions)
+    if mismatched_positions and getattr(broker, 'financial_activity_sse', False) is True:
+        receipts = native_receipt_restrictions(conn, deployment=deployment,
+            actions=actions, commands=resolved, expected=expected, observation=observation,
+            eligible=mismatched_positions - explained_action_positions - set(lagging_fill_positions))
+        restrictions.update(receipts)
+        explained_action_positions.update(receipts)
     foreign_positions = tuple(sorted(
         mismatched_positions - set(lagging_fill_positions) - explained_action_positions))
     foreign_orders = tuple(o for o in observation.orders

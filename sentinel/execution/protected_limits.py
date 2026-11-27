@@ -1,4 +1,4 @@
-"""Historical RAW references and immutable paper LIMIT/DAY BUY sizing.
+"""Historical RAW references and immutable protected LIMIT/DAY BUY sizing.
 
 These references are never executable quotes. Source rows are read again under
 the exact authenticated plan publication; current funding is a separate gate.
@@ -26,6 +26,7 @@ from sentinel.execution.target_reprojection import TargetProjection, TargetProje
 PROTECTED_MODE = "PROTECTED_LIMIT_DAY_V1"
 REFERENCE_SOURCE = "AUTHENTICATED_PRIOR_CLOSED_RAW_V1"
 POLICY_SCHEMA = "sentinel.protected-limit-policy/1"
+LIVE_FRACTIONAL_POLICY_SCHEMA = "sentinel.protected-limit-policy/2"
 REFERENCE_SCHEMA = "sentinel.prior-close-references/1"
 HEADROOM = Decimal("1.00")
 _HEX = re.compile(r"[0-9a-f]{64}\Z")
@@ -50,10 +51,15 @@ def _positive(value, label):
 class ProtectedLimitPolicy:
     cap_bps: int
     debug_window: object | None = None
+    fractional: bool = False
 
     def __post_init__(self):
         if type(self.cap_bps) is not int or not 0 <= self.cap_bps <= 500:
             raise TargetProjectionRefused("protected BUY cap must be an integer from 0 through 500")
+        if type(self.fractional) is not bool:
+            raise TargetProjectionRefused("protected BUY fractional selection must be boolean")
+        if self.fractional and (self.cap_bps > 100 or self.debug_window is not None):
+            raise TargetProjectionRefused("LIVE fractional BUYs require a cap at most 100 bps and the regular window")
         if self.debug_window is not None:
             from sentinel.automation.model import PaperDebugWindow
             if not isinstance(self.debug_window, PaperDebugWindow) or self.cap_bps != 100:
@@ -81,7 +87,10 @@ class ProtectedLimitPolicy:
         if not re.fullmatch(r"0|[1-9][0-9]*", raw):
             raise TargetProjectionRefused("protected BUY policy requires an explicit integer cap")
         try:
-            return cls(int(raw), window)
+            from sentinel.config import DEFAULT_BASE_URL
+            from sentinel.trading_environment import TradingEndpoint, TradingEnvironment
+            endpoint = TradingEndpoint.parse(os.environ.get("ALPACA_BASE_URL", DEFAULT_BASE_URL))
+            return cls(int(raw), window, fractional=endpoint.environment is TradingEnvironment.LIVE)
         except ValueError as exc:
             raise TargetProjectionRefused("protected BUY cap is not usable") from exc
 
@@ -93,6 +102,10 @@ class ProtectedLimitPolicy:
             "time_in_force": "day", "order_class": "simple", "extended_hours": False,
             "start_delay_seconds": 60, "new_submit_cutoff_seconds": 600,
             "buy_cash_headroom": "1.00"}
+        if self.fractional:
+            value.update(schema=LIVE_FRACTIONAL_POLICY_SCHEMA,
+                         quantity_rounding="ALPACA_SHARE_INCREMENT_DOWN",
+                         quantity_increment="0.000000001")
         if self.debug_window is not None:
             from sentinel.feed import calendar
             opened, _closed = calendar.session_window(self.debug_window.effective_session)
@@ -107,7 +120,8 @@ class ProtectedLimitPolicy:
             raise TargetProjectionRefused("protected BUY policy has an invalid shape")
         from sentinel.automation.model import PaperDebugWindow
         window = raw.get("submission_window")
-        value = cls(raw.get("cap_bps"), None if window is None else PaperDebugWindow.model_validate(window))
+        value = cls(raw.get("cap_bps"), None if window is None else PaperDebugWindow.model_validate(window),
+                    fractional=raw.get("schema") == LIVE_FRACTIONAL_POLICY_SCHEMA)
         if raw != value.to_dict():
             raise TargetProjectionRefused("protected BUY policy terms are unsupported")
         return value
@@ -219,7 +233,13 @@ def _factor(projection, sid):
 def _wanted(plan, projection):
     from sentinel.core.decision import DEFENSIVE_SECURITY_ID
     return ({sid for sid, qty in projection.target_basket.items() if qty > 0}
+            | set(projection.pending_share_targets)
             | {item.security_id for item in plan.opening_intents} | {DEFENSIVE_SECURITY_ID})
+
+
+def share_restrictions(projection):
+    return {sid: f"CORPORATE_ACTION_PENDING: exact target entitlement {qty} shares"
+            for sid, qty in projection.pending_share_targets.items()}
 
 
 def build_references(conn, *, plan, projection, policy=None, additional_security_ids=()):
@@ -288,8 +308,23 @@ def _reference_limit(price, factor, policy):
     return _positive(limit, "protected BUY limit")
 
 
-def _entry_quantity(budget, limit):
-    return 0 if limit is None else max(Fraction(0), budget-Fraction(HEADROOM)) // Fraction(limit)
+def _entry_quantity(budget, limit, policy):
+    if limit is None:
+        return 0
+    available = max(Fraction(0), budget-Fraction(HEADROOM))
+    if not policy.fractional:
+        return available // Fraction(limit)
+    increment = Fraction(1, 10**9)
+    quantity = (available // (Fraction(limit) * increment)) * increment
+    return exact_decimal(quantity) if quantity * Fraction(limit) >= 1 else Decimal(0)
+
+
+def _entry_status(quantity, limit, policy):
+    if limit is None:
+        return "REFERENCE_UNAVAILABLE"
+    if quantity:
+        return "SIZED"
+    return "BELOW_FRACTIONAL_MINIMUM" if policy.fractional else "BELOW_WHOLE_SHARE"
 
 
 def _opening_budget(intent, scale, available):
@@ -321,7 +356,7 @@ def estimate_prior_close_openings(*, plan, marks, shadow_equity, policy, retaine
         sid = intent.security_id
         if sid in marks and sid not in retained_targets:
             limit = _reference_limit(_positive(marks[sid], 'prior RAW close'), 1, policy)
-            estimates[sid] = (budget, limit, _entry_quantity(budget, limit))
+            estimates[sid] = (budget, limit, _entry_quantity(budget, limit, policy))
     return estimates
 
 
@@ -394,6 +429,8 @@ def resolve_protected(state, plan, projection, references, policy, *, retained_t
             or references.action_evidence_sha256 != _action_identity(projection)
             or dict(references.unit_factors) != {sid: str(_factor(projection, sid)) for sid in references.symbols}):
         raise TargetProjectionRefused("protected sizing differs from canonical plan/reference authority")
+    if projection.pending_share_targets and not policy.fractional:
+        raise TargetProjectionRefused("unrepresentable share targets require the LIVE fractional policy")
     if (not plan.target_exposure.is_finite() or not Decimal(0) <= plan.target_exposure <= Decimal(1)
             or not plan.account_nav.is_finite() or plan.account_nav < 0):
         raise TargetProjectionRefused("protected sizing requires long-only account scaling")
@@ -445,7 +482,7 @@ def resolve_protected(state, plan, projection, references, policy, *, retained_t
             continue
         budget, available = _opening_budget(intent, scale, available)
         limit = limits.get(intent.security_id)
-        quantity = _entry_quantity(budget, limit)
+        quantity = _entry_quantity(budget, limit, policy)
         if intent.security_id in retained:
             quantity = retained[intent.security_id]
             limit = _fixed_entry_limit(limit, budget, quantity)
@@ -454,7 +491,7 @@ def resolve_protected(state, plan, projection, references, policy, *, retained_t
                 limits[intent.security_id] = limit
         basket[intent.security_id] = Decimal(quantity)
         entries.append({**intent.to_dict(), "budget": str(budget), "account_shares": str(quantity),
-            "status": "REFERENCE_UNAVAILABLE" if limit is None else ("SIZED" if quantity else "BELOW_WHOLE_SHARE"),
+            "status": _entry_status(quantity, limit, policy),
             "maximum_spend": str(Fraction(quantity) * Fraction(limit) + Fraction(HEADROOM)) if quantity else "0"})
     return replace(projection, target_basket=basket, opening_sizing={"mode": PROTECTED_MODE,
         "policy": policy.to_dict(), "policy_sha256": policy.fingerprint(),
@@ -538,7 +575,7 @@ def _validate_allocation(projection, references, policy, plan=None):
         for intent in intents:
             budget, available = _opening_budget(intent, scale, available)
             limit = limit_for(references, intent.security_id, policy)
-            quantity = _entry_quantity(budget, limit)
+            quantity = _entry_quantity(budget, limit, policy)
             if intent.security_id in retained:
                 quantity = retained[intent.security_id]
                 limit = _fixed_entry_limit(limit, budget, quantity)
@@ -548,7 +585,7 @@ def _validate_allocation(projection, references, policy, plan=None):
             if projection.target_basket.get(intent.security_id) != Decimal(quantity):
                 raise ValueError("opening quantity differs from reserved budget")
             rows.append({**intent.to_dict(), "budget": str(budget), "account_shares": str(quantity),
-                "status": "REFERENCE_UNAVAILABLE" if limit is None else ("SIZED" if quantity else "BELOW_WHOLE_SHARE"),
+                "status": _entry_status(quantity, limit, policy),
                 "maximum_spend": str(Fraction(quantity) * Fraction(limit) + Fraction(HEADROOM)) if quantity else "0"})
         if rows != evidence["entries"] or Fraction(evidence["unallocated_core_budget"]) != available:
             raise ValueError("reserved opening allocation differs")
@@ -591,6 +628,8 @@ def _validated_projection(projection, *, require_current_policy=False, plan=None
     if not isinstance(evidence, dict) or evidence.get("mode") != PROTECTED_MODE:
         raise TargetProjectionRefused("protected BUY projection is absent")
     policy = ProtectedLimitPolicy.from_dict(evidence.get("policy"))
+    if projection.pending_share_targets and not policy.fractional:
+        raise TargetProjectionRefused("unrepresentable share targets require the LIVE fractional policy")
     references = PriorCloseReferences.from_dict(evidence.get("references"))
     if policy.debug_window is not None and policy.debug_window.effective_session != references.effective_session:
         raise TargetProjectionRefused("debug policy belongs to another effective session")

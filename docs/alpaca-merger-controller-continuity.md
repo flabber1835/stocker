@@ -71,6 +71,62 @@ neither old prices nor old reference rows are edited.
 
 ## Late provider evidence at the close
 
+### Portfolio conversions and revised terms
+
+The same late observation path applies when the last authenticated identity was
+selected by the controller, held in the canonical book, or reserved for a
+pending order. A complete same-session stock conversion enters the existing
+canonical terminal handler for the actual holding or pending order. The input
+compiler retains the predecessor's verified prior-session bar when the new
+publication omits it, so the canonical handler can translate entry and stop
+references on the original unit basis. No predecessor price is carried into
+the action session. The controller uses the original unrounded contractual
+consideration for its reference return.
+
+Before advancing a held conversion, the adapter checks holder-wide exact
+entitlement and the canonical conversion's existing price-domain requirements.
+Missing cash-in-lieu evidence remains pending and requests a fresh observation.
+The adapter cannot use a successor market quote as the contractual settlement
+price or use actual PAPER/LIVE broker balances to infer the shadow entitlement.
+An exact conversion at the canonical holder level needs no cash-in-lieu term.
+Pending orders retain the canonical terminal handler's transform or cancellation
+rules. This market-data transition grants no authority to accept account fills,
+alter broker ownership or resolve an uncertain broker order.
+
+Before a decision consumes the session, a fresh, independently corroborated
+source record may revise terms for a bound action with the same native record,
+effective session, predecessor, successor and origin snapshot. This forms a
+new immutable successor and can be combined with newly discovered terms.
+Unchanged observations do not publish a correction. Removed records and changes
+to event or security identity require separate evidence. Existing correction
+limits, prior-state compatibility, and after-open state-only gates still apply.
+Terms revised after consumption require forward recovery; this policy does not
+change already committed decisions or book history.
+
+Alpaca filters the corporate-actions request by its process date. During
+same-session reobservation, the process-date ceiling also includes the actual
+New York observation day, at most the next exchange opening day. A record
+processed beyond the decision date can enter this correction path only if its
+economic effective session is the decision session and it is a stock merger.
+The widened observation ceiling is part of the durable acquisition key.
+On that same session, complete merger evidence for the exact old and new
+provider identities can retire their unresolved quarantine. A split with
+known terms, a quarantine from an earlier session, or an identity mismatch
+cannot be retired by this limited repair.
+
+This reviewed change advances the prospective strategy digest from
+`421a1697353ced9bdb0efba82150e900265c8f1bb7e296dbb7f6423b40a6cc81` to
+`dd92db0ef465e62b3d8e18d1b70d562a611c3c4efe67528f48a87ad143ccc13e`.
+Three source contributions change: daily continuity, snapshot correction
+admission, and the broker reconciliation module. The broker reconciliation
+change is confined to the account runtime function, including native receipt
+restrictions and exact LIVE share increments. The test witness reconstructs
+all three predecessor source files from exact edits against the verified
+`2adeda3b` release. The canonical engine, profile, cash policy and controller
+rule remain the same. The retained checkpoint can
+cross only through the existing state-bound strategy transition. Existing signed
+authority does not authorize the prospective identity automatically.
+
 Acquisition may begin at the exact exchange close. Neither that instant nor two
 equal corporate-action responses proves that Alpaca has finished publishing
 actions. Alpaca documents no action-completeness watermark or guaranteed
@@ -93,7 +149,7 @@ the entire market source merely because a merger is possible. Missing current
 benchmark bars are pending only when the absent membership is the just-closed
 session; malformed, duplicate and historical coverage remain refusals.
 
-The controller consumer separately recognizes a prior selected-only witness
+The daily consumer separately recognizes a prior protected identity
 whose authenticated old identity is absent or replaced in the current source
 and has no complete merger conversion. It reports an explicit pending input,
 leaving the book unchanged. This result may ask the broker-free orchestration
@@ -105,15 +161,15 @@ following exchange open. It must actually fetch fresh actions and assets, not
 reuse the published empty action part or repeatedly read the same snapshot.
 
 After an already published `/4` source, a retry may append a same-session
-`/4` to `/4` correction only if fresh, source-proven conversion terms strictly
-extend the predecessor's conversion set. The old conversions must remain
-byte-identical. The immutable edge names the exact prior publication, both
+`/4` to `/4` correction only if fresh, source-proven conversion terms add an
+event or revise economics for a previously bound event as specified above.
+The immutable edge names the exact prior publication, both
 source snapshots, their strategy bindings and the correction time. An identical
 reobservation creates no publication. Serial corrections must form one exact
 verified chain of at most eight same-strategy publications; unrelated
 same-session publications and a longer chain remain ambiguous. A
 correction that still does not resolve the selected witness cannot produce a
-plan. A consumed decision, competing edge, changed predecessor or old terms
+plan. A consumed decision, competing edge, changed predecessor or event identity
 refuses. Before the following open the unique tip may support prospective
 planning after all ordinary gates; after the open
 it supports current-information state recovery only, never a backdated plan or
@@ -338,9 +394,9 @@ and signed PAPER authority must be qualified before prospective activation.
 
 ## Canonical daily transition
 
-Only a prior Median-5 selection that is absent from every Wealth Core held,
-reserved and pending path may use the controller conversion. Before the
-transition, require a unique source-bound event effective on this decision
+The source-bound conversion may be used for a prior Median-5 selection or a
+retained Wealth Core dependency. Before the transition, require a unique
+source-bound event effective on this decision
 session, its authenticated prior snapshot, the exact prior signal/raw anchor,
 and the successor's positive current raw close in the selected publication.
 Read the old anchor from the checkpoint-bound previous publication and compare
@@ -352,11 +408,10 @@ unchanged and name the unmet input.
 
 The existing terminal-return calculation uses the fractional notional unit,
 exchange ratio and successor raw close. Median-5 records the actual return and
-then removes the terminal selection under its existing rule. Wealth Core's
-book and its selection rules remain unchanged; a merger affecting a held or
-pending identity stays under its existing unsupported-action refusal. The
-execution layer alone reconciles broker shares and no controller conversion is
-an order, target-share or broker-position instruction.
+then removes the terminal selection under its existing rule. When Wealth Core
+holds the predecessor, the canonical terminal handler continues the episode
+on the successor and preserves its age and price references using the normal
+conversion rules. The execution layer alone reconciles broker shares.
 
 The pinned economic compiler dependency map remains immutable. Merger-specific
 calendar interpretation, typed terminal construction and checkpoint strategy
@@ -399,9 +454,9 @@ The next fresh session must earn prospective authority normally.
 Use generic, non-real ticker fixtures in isolated PostgreSQL. Cover a
 same-symbol UUID replacement and a vanished acquiree converging on one
 successor, a nonunit ratio that catches inversion, event-day successor price,
-controller return/removal, unchanged held/pending book and restart. Falsify
+controller return/removal, canonical held/pending conversion and restart. Falsify
 missing, duplicate, future and conflicting terms or CUSIPs; missing successor
-price; wrong prior anchor; old-history reuse; held/pending conversion; source
+price; wrong prior anchor; old-history reuse; missing held entitlement; source
 digest mismatch; publication fork, consumed predecessor, and a late correction
 claiming dated authority. Prove that the guards fail when deliberately broken.
 Before-open correction, after-open state-only recovery and lost acknowledgement

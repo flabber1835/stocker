@@ -201,7 +201,7 @@ async def _broker_cash_state_or_refuse(
         from sentinel.execution.market_buy_policy import MarketBuyPolicy
         policy = MarketBuyPolicy.from_env()
         options = {"qualify_postings": True} if policy and policy.fractional else {}
-        return await broker_cash.ingest_account_cash(
+        state = await broker_cash.ingest_account_cash(
             conn, broker_adapter=broker, broker=binding.broker,
             account_id=binding.broker_account_id, through=through, **options)
     except BrokerAuthorityRefused:
@@ -225,6 +225,11 @@ async def _broker_cash_state_or_refuse(
         raise PaperRetryableRefused(
             "broker cash activity evidence is temporarily unavailable: "
             f"{type(exc).__name__}: {exc}") from exc
+    if state.trade_amendments_applied:
+        # All old reconciliation and sizing evidence predates the amendment.
+        conn.commit()
+        raise PaperRetryableRefused("Alpaca amended owned executions; repeat current reconciliation")
+    return state
 
 def fractional_posting_reserve(conn, *, plan, deployment, account, observation,
                                activity_state, candidate_key=None):

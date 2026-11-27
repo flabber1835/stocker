@@ -25,7 +25,7 @@ from .model import AuthorityRefused
 
 
 LIVE_CERTIFICATE_SCHEMA = "sentinel.live_execution_certificate/1"
-LIVE_OPERATIONS = frozenset({"READ", "SUBMIT", "CANCEL", "AUTOMATION"})
+LIVE_OPERATIONS = frozenset({"READ", "ACTIVITY_READ", "SUBMIT", "CANCEL", "AUTOMATION"})
 LIVE_RUNTIME_FIELDS = frozenset({
     "runtime_image_digest", "sentinel_source_sha256", "runtime_identity_sha256",
     "strategy_identity_sha256", "execution_config_sha256",
@@ -85,7 +85,9 @@ class LiveClaims(BaseModel):
     runtime_bindings: dict[str, str]
     limits: LiveLimits
     qualification_receipts: dict[str, str]
-    permitted_operations: tuple[Literal["READ", "SUBMIT", "CANCEL", "AUTOMATION"], ...] = Field(min_length=1, max_length=4)
+    permitted_operations: tuple[
+        Literal["READ", "ACTIVITY_READ", "SUBMIT", "CANCEL", "AUTOMATION"], ...
+    ] = Field(min_length=1, max_length=5)
 
     @field_validator("certificate_id")
     @classmethod
@@ -124,6 +126,8 @@ class LiveClaims(BaseModel):
             raise ValueError("LIVE authority may last at most one day")
         if len(set(self.permitted_operations)) != len(self.permitted_operations):
             raise ValueError("LIVE operations must be unique")
+        if "ACTIVITY_READ" in self.permitted_operations and "READ" not in self.permitted_operations:
+            raise ValueError("LIVE activity discovery requires ordinary account READ")
         return self
 
 

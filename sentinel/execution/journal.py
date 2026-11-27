@@ -42,6 +42,7 @@ from typing import Iterable, Optional, Sequence
 
 from sentinel import backup_runtime_authority
 from sentinel.execution.commands import Command
+from sentinel.execution.alpaca_trade_amendments import PREFIX as _TRADE_AMENDMENT_PREFIX
 from sentinel.execution.contract import (
     BrokerFill, BrokerInstrument, BrokerObservation, OrderTerms, Side)
 from sentinel.execution.identity import CommandIdentity, DeploymentIdentity
@@ -533,7 +534,8 @@ def _assert_economics_unchanged(cur, command: Command) -> None:
               "broker may already have acted on stays intact.")
 
 
-def save_command(conn, command: Command, *, previous: Optional[CommandState] = None
+def save_command(conn, command: Command, *, previous: Optional[CommandState] = None,
+                 commit: bool = True
                  ) -> None:
     """Persist the current state AND append the transition that produced it.
 
@@ -557,9 +559,8 @@ def save_command(conn, command: Command, *, previous: Optional[CommandState] = N
             " broker_order_id = COALESCE(EXCLUDED.broker_order_id,"
             "                            sentinel_commands.broker_order_id),"
             " filled_quantity = EXCLUDED.filled_quantity,"
-            " filled_average_price = COALESCE("
-            "     EXCLUDED.filled_average_price,"
-            "     sentinel_commands.filled_average_price),"
+            " filled_average_price = CASE WHEN EXCLUDED.filled_quantity=0 THEN NULL ELSE COALESCE("
+            "     EXCLUDED.filled_average_price, sentinel_commands.filled_average_price) END,"
             " detail = EXCLUDED.detail, updated_at = NOW()",
             (command.client_key, command.identity.plan_id, command.security_id,
              command.identity.revision,
@@ -580,7 +581,8 @@ def save_command(conn, command: Command, *, previous: Optional[CommandState] = N
             " to_state, filled_quantity, detail) VALUES (%s,%s,%s,%s,%s)",
             (command.client_key, previous.value if previous else None,
              command.state.value, str(command.filled_quantity), command.detail))
-    conn.commit()
+    if commit:
+        conn.commit()
 
 
 def restore_proven_unsent(conn, command: Command, *, broker, refusal) -> None:
@@ -843,19 +845,32 @@ def fill_fingerprint(fill: BrokerFill) -> str:
     """Use the broker-native fill id when the adapter supplies one."""
     activity_id = getattr(fill, "activity_id", None)
     if activity_id:
-        payload = {
-            "kind": "broker-native-fill/v1",
-            "activity_id": str(activity_id),
-        }
-        return hashlib.sha256(
-            json.dumps(payload, sort_keys=True, separators=(",", ":"))
-            .encode("utf-8")
-        ).hexdigest()
+        return native_fill_key(str(activity_id))
     blob = "|".join((
         str(fill.broker_order_id), str(fill.quantity), str(fill.price),
         fill.filled_at.isoformat() if fill.filled_at else "",
     ))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:24]
+
+
+def native_fill_key(activity_id: str) -> str:
+    payload = {"kind": "broker-native-fill/v1", "activity_id": activity_id}
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"))
+                          .encode("utf-8")).hexdigest()
+
+
+# Immutable originals remain available to the journal and restore validator;
+# economic consumers use this current projection.
+def active_fill_predicate(alias):
+    return (
+        "NOT EXISTS (SELECT 1 FROM sentinel_processed_sessions amendment"
+        f" WHERE amendment.cursor_name='{_TRADE_AMENDMENT_PREFIX}' || {alias}.fill_key"
+        f" AND amendment.state->>'broker_order_id'={alias}.broker_order_id)"
+    )
+
+
+ACTIVE_FILLS = ("(SELECT original.* FROM sentinel_fills original WHERE "
+                + active_fill_predicate("original") + ")")
 
 
 class FillEconomicsChanged(RuntimeError):

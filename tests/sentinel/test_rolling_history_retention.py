@@ -621,11 +621,20 @@ def test_idle_maintenance_drains_backlog_without_another_publication(conn, opera
     for _ in range(4):
         latest = publish(conn)
     conn.commit()
-    # One normal polling interval can perform independent bounded idle passes.
+    assert conn.execute('SELECT count(*) FROM sentinel_snapshot_bars').fetchone()[0] == 2400
+    conn.rollback()
+    with store.connect(conn.info.dsn) as other_worker:
+        other_worker.execute('LOCK TABLE sentinel_snapshot_maintenance IN SHARE ROW EXCLUSIVE MODE')
+        assert retention.idle_pass(conn.info.dsn) is False
+    # A deferred pass stops work for its current wake only. Later independent
+    # wakes must drain the backlog without publishing another snapshot.
     for _ in range(10):
-        if not retention.idle_pass(conn.info.dsn):
+        if conn.execute('SELECT count(*) FROM sentinel_snapshot_bars').fetchone()[0] == 600:
             break
+        conn.rollback()
+        retention.idle_pass(conn.info.dsn)
     assert conn.execute('SELECT count(*) FROM sentinel_snapshot_bars').fetchone()[0] == 600
+    assert conn.execute('SELECT count(*) FROM sentinel_corpus_publications').fetchone()[0] == 4
     assert not rolling_store.retired(conn, latest['candidate_id'])
 
 

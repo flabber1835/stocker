@@ -46,6 +46,7 @@ from sentinel.execution.numeric import decimal_text
 SCHEMA = "sentinel.dual-plan-sizing-authority/1"
 HELD_SCHEMA = "sentinel.dual-plan-sizing-authority/2"
 MARKET_SCHEMA = "sentinel.dual-plan-sizing-authority/3"
+LIVE_FRACTIONAL_SCHEMA = "sentinel.dual-plan-sizing-authority/4"
 CURSOR_PREFIX = "dual-plan-sizing-authority:v1:"
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 _REGENESIS_FLAT_SIZING_REQUIRED = ContextVar(
@@ -386,7 +387,8 @@ def build_authority(
         *, plan, shadow_result, publication, account_snapshot,
         observation, marks: Mapping, tickers: Mapping,
         held_share_targets: Mapping | None = None,
-        market_buy_policy_sha256: str | None = None) -> dict:
+        market_buy_policy_sha256: str | None = None,
+        live_fractional_policy=None) -> dict:
     """Build the immutable evidence committed beside one PAPER plan."""
     state = getattr(shadow_result, "state", None)
     if not isinstance(state, SessionState):
@@ -430,6 +432,16 @@ def build_authority(
             raise DualPlanAuthorityRefused("market sizing authority requires held targets and the reviewed policy")
         body["schema"] = MARKET_SCHEMA
         body["market_buy_policy_sha256"] = market_buy_policy_sha256
+    if live_fractional_policy is not None:
+        from sentinel.execution.identity import ALPACA_LIVE_BROKER
+        from sentinel.execution.protected_limits import ProtectedLimitPolicy
+
+        if (type(live_fractional_policy) is not ProtectedLimitPolicy
+                or not live_fractional_policy.fractional or plan.broker != ALPACA_LIVE_BROKER
+                or held_share_targets is None or market_buy_policy_sha256 is not None):
+            raise DualPlanAuthorityRefused("LIVE fractional sizing requires the exact protected policy and held targets")
+        body["schema"] = LIVE_FRACTIONAL_SCHEMA
+        body["live_fractional_policy"] = live_fractional_policy.to_dict()
     body["authority_sha256"] = _sha256(body)
     return json.loads(_canonical(body))
 
@@ -443,11 +455,13 @@ def _validate_payload(value: Any, *, plan_id: str | None = None) -> dict:
         "broker_observation", "marks", "tickers", "authority_sha256",
     }
     schema = raw.get("schema")
-    if schema in (HELD_SCHEMA, MARKET_SCHEMA):
+    if schema in (HELD_SCHEMA, MARKET_SCHEMA, LIVE_FRACTIONAL_SCHEMA):
         expected.add("held_share_targets")
     if schema == MARKET_SCHEMA:
         expected.add("market_buy_policy_sha256")
-    if set(raw) != expected or schema not in (SCHEMA, HELD_SCHEMA, MARKET_SCHEMA):
+    if schema == LIVE_FRACTIONAL_SCHEMA:
+        expected.add("live_fractional_policy")
+    if set(raw) != expected or schema not in (SCHEMA, HELD_SCHEMA, MARKET_SCHEMA, LIVE_FRACTIONAL_SCHEMA):
         raise DualPlanAuthorityRefused(
             "dual sizing authority has an unknown schema or shape")
     if schema == MARKET_SCHEMA:
@@ -456,6 +470,16 @@ def _validate_payload(value: Any, *, plan_id: str | None = None) -> dict:
         if raw["market_buy_policy_sha256"] not in {
                 MarketBuyPolicy().fingerprint(), MarketBuyPolicy(fractional=True).fingerprint()}:
             raise DualPlanAuthorityRefused("dual sizing authority has an unknown market BUY policy")
+    if schema == LIVE_FRACTIONAL_SCHEMA:
+        from sentinel.execution.protected_limits import ProtectedLimitPolicy
+        from sentinel.execution.target_reprojection import TargetProjectionRefused
+
+        try:
+            live_policy = ProtectedLimitPolicy.from_dict(raw["live_fractional_policy"])
+        except (TypeError, ValueError, TargetProjectionRefused) as exc:
+            raise DualPlanAuthorityRefused("retained LIVE fractional policy is malformed") from exc
+        if not live_policy.fractional:
+            raise DualPlanAuthorityRefused("retained LIVE policy does not select fractional shares")
     digest = str(raw.get("authority_sha256") or "")
     unsigned = dict(raw)
     unsigned.pop("authority_sha256", None)
@@ -671,7 +695,12 @@ def _rederive_plan(conn, *, plan, binding, rollout_state, expected_shadow_result
         build = build_execution_plan
         fractional = (authority.get("market_buy_policy_sha256")
                       == MarketBuyPolicy(fractional=True).fingerprint())
-        if authority["schema"] in (HELD_SCHEMA, MARKET_SCHEMA):
+        if authority["schema"] == LIVE_FRACTIONAL_SCHEMA:
+            from sentinel.execution.identity import ALPACA_LIVE_BROKER
+            if plan.broker != ALPACA_LIVE_BROKER:
+                raise DualPlanAuthorityRefused("LIVE fractional sizing cannot derive a PAPER plan")
+            fractional = True
+        if authority["schema"] in (HELD_SCHEMA, MARKET_SCHEMA, LIVE_FRACTIONAL_SCHEMA):
             from sentinel.execution import held_targets
             basis = authority["held_share_targets"]
             retained_targets = held_targets.verified_targets(conn, plan=plan,

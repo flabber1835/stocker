@@ -8,9 +8,19 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal, Inexact
 from fractions import Fraction
+import hashlib
 from typing import Mapping
 
 from sentinel.execution.numeric import exact_decimal
+
+
+_EMPTY_RECEIPT_SHA = hashlib.sha256(b'{}').hexdigest()
+
+
+def has_native_position_receipts(state) -> bool:
+    return state is not None and any(isinstance(proof, dict)
+            and proof.get('sha256') not in (None, _EMPTY_RECEIPT_SHA)
+            for proof in (state.stock_merger_proof, state.security_transfer_commitment))
 
 
 def decimal_or_rational(value: Fraction) -> Decimal | Fraction:
@@ -106,6 +116,72 @@ def entitlement_matches_observation(entitlement, held, prior, increment):
     lot = Fraction(increment)
     floor = (entitlement // lot) * lot
     return Fraction(held) in {floor, floor + lot}
+
+
+def pending_entitlements(expected, prior, increment, *, enforce_increment):
+    """Keep exact action-adjusted ownership when native shares cannot express it."""
+    lot = Fraction(increment)
+    return {
+        sid: Fraction(qty) for sid, qty in expected.items()
+        if isinstance(qty, Fraction) or (enforce_increment and qty != prior.get(sid, 0)
+                                         and (Fraction(qty) / lot).denominator != 1)
+    }
+
+
+def scalar_position_restrictions(*, actions, commands, expected, prior, observed,
+                                 increment, pending, mismatches, existing=None):
+    """Return only fresh, quantity-specific split explanations and restrictions."""
+    restrictions = dict(existing or {})
+    explained = set()
+    for sid, raw in prior.items():
+        if raw > 0 and expected.get(sid, 0) != raw and observed.get(sid, 0) == raw:
+            restrictions[sid] = "CORPORATE_ACTION_PENDING: broker quantity is still in prior share units"
+            explained.add(sid)
+    for sid, entitlement in pending.items():
+        restrictions[sid] = f"CORPORATE_ACTION_PENDING: exact entitlement {entitlement} shares"
+        explained.discard(sid)
+        if entitlement_matches_observation(
+                entitlement, observed.get(sid, 0), prior.get(sid, 0), increment):
+            explained.add(sid)
+    for sid in mismatches - explained:
+        if matches_intermediate_split_units(actions, commands, sid, observed.get(sid, 0)):
+            restrictions.setdefault(sid, "CORPORATE_ACTION_PENDING: broker quantity is in intermediate share units")
+            explained.add(sid)
+    return restrictions, explained
+
+
+def native_receipt_restrictions(conn, *, deployment, actions, commands, expected,
+                                observation, eligible):
+    """Keep fully attributed Alpaca share receipts out of order admission."""
+    if not eligible or not observation.is_complete or not deployment.matches_account(
+            observation.account_identity) or deployment.broker not in {'alpaca', 'alpaca-live'}:
+        return {}
+    import logging
+
+    from sentinel.execution import alpaca_security_transfers, alpaca_stock_mergers, broker_cash
+
+    log = logging.getLogger(__name__)
+    try:
+        state = broker_cash.load_activity_state(
+            conn, broker=deployment.broker, account_id=deployment.broker_account_id)
+    except broker_cash.BrokerCashAuthorityRefused as exc:
+        log.warning("Alpaca share receipt cursor refused: %s", exc)
+        return {}
+    try:
+        mergers = alpaca_stock_mergers.reconciled_restrictions(conn, state=state,
+            deployment=deployment, actions=actions, commands=commands,
+            expected=expected, observation=observation)
+    except alpaca_stock_mergers.StockMergerEvidenceRefused as exc:
+        log.warning("Alpaca stock-merger receipt evidence refused: %s", exc)
+        mergers = {}
+    try:
+        transfers = alpaca_security_transfers.reconciled_restrictions(conn, state=state,
+            commands=commands, expected=expected, observation=observation,
+            eligible=eligible - mergers.keys(), actions=actions)
+    except alpaca_security_transfers.SecurityTransferRefused as exc:
+        log.warning("Alpaca securities transfer evidence refused: %s", exc)
+        transfers = {}
+    return {**mergers, **transfers}
 
 
 def matches_intermediate_split_units(actions, commands, security_id, observed) -> bool:

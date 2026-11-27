@@ -8,7 +8,7 @@ import pytest
 
 from sentinel.authority.model import AuthorityRefused
 from sentinel.execution import live_order_policy as policy
-from sentinel.execution.contract import BrokerAccountIdentity, BrokerPosition, OrderTerms, Side
+from sentinel.execution.contract import BrokerAccountIdentity, BrokerAssetRules, BrokerPosition, OrderTerms, Side
 from sentinel.execution.identity import CommandIdentity
 from sentinel.execution.live_settlement import LiveFundingAdmission
 from sentinel.execution.states import CommandState
@@ -133,12 +133,50 @@ def test_only_actual_preceding_exchange_close_can_anchor_price(reference):
     refused("PRECEDING_CLOSE", reference_session=reference)
 
 
-def test_live_does_not_accept_market_buy_or_fractional_shares():
+def test_live_does_not_accept_market_buy():
     fixture = order_fixture()
     market = replace(fixture.request, order_terms=OrderTerms())
     refused("PROTECTED_LIMIT_DAY", fixture, request=market, commitments=(market,))
-    fractional = replace(fixture.request, quantity=Decimal("1.5"))
-    refused("WHOLE_SHARES", fixture, request=fractional, commitments=(fractional,))
+
+
+def test_fractional_buy_charges_exact_original_quantity_and_qualifies_asset():
+    fixture = order_fixture()
+    request = replace(fixture.request, quantity=Decimal("1.500000001"))
+    options = dict(request=request, commitments=(request,))
+    refused("FRACTIONAL_ELIGIBILITY_UNAVAILABLE", fixture, **options)
+    rules = BrokerAssetRules(request.instrument, NOW, True)
+    refused("FRACTIONAL_ELIGIBILITY_UNAVAILABLE", fixture,
+            asset_rules=replace(rules, fractionable=False), **options)
+    refused("FRACTIONAL_ELIGIBILITY_NOT_CURRENT", fixture,
+            asset_rules=replace(rules, observed_at=NOW - timedelta(seconds=31)), **options)
+    refused("FRACTIONAL_ELIGIBILITY_NOT_CURRENT", fixture,
+            asset_rules=replace(rules, instrument=replace(request.instrument, broker_id="wrong")), **options)
+    result = assess(fixture, asset_rules=rules, **options)
+    assert result.outstanding_buy_commitment == Decimal("15.1500000101")
+    assert result.daily_buy_commitment == Decimal("15.1500000101")
+    assert result.remaining_settled_cash == Decimal("984.8499999899")
+
+
+def test_fractional_asset_eligibility_guard_has_a_falsifier(monkeypatch):
+    source = inspect.getsource(policy.require_live_order)
+    branch = "if fractional:"
+    assert source.count(branch) == 1
+    namespace = dict(policy.__dict__)
+    exec(compile(source.replace(branch, "if False:"), "<removed fractional eligibility>", "exec"), namespace)
+    monkeypatch.setattr(policy, "require_live_order", namespace["require_live_order"])
+    with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
+        test_fractional_buy_charges_exact_original_quantity_and_qualifies_asset()
+
+
+@pytest.mark.parametrize(("quantity", "code"), [
+    ("0.0000000001", "SHARE_PRECISION_EXCEEDED"),
+    ("0.01", "FRACTIONAL_PURCHASE_BELOW_MINIMUM"),
+])
+def test_fractional_buy_refuses_unusable_quantity(quantity, code):
+    fixture = order_fixture()
+    request = replace(fixture.request, quantity=Decimal(quantity))
+    refused(code, fixture, request=request, commitments=(request,),
+            asset_rules=BrokerAssetRules(request.instrument, NOW, True))
 
 
 def test_request_must_equal_actual_original_pending_journal_record():

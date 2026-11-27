@@ -819,10 +819,11 @@ def _reconstruct_close_cash(
     # publication.  Reading account-wide (without a current-plan JOIN) makes a
     # foreign, off-plan, post-close, null-time, stale or mislinked row blocking
     # instead of silently filtering it out.
+    from sentinel.execution.journal import ACTIVE_FILLS
     with conn.cursor() as cur:
         cur.execute(
             "SELECT broker_order_id,fill_key,client_key,quantity,price,filled_at"
-            " FROM sentinel_fills WHERE filled_at IS NULL OR filled_at >= %s"
+            f" FROM {ACTIVE_FILLS} f WHERE filled_at IS NULL OR filled_at >= %s"
             " ORDER BY filled_at NULLS FIRST,broker_order_id,fill_key",
             (evidence_start,))
         durable_rows = cur.fetchall()

@@ -334,9 +334,10 @@ def test_securities_transfer_refuses_unweighted_external_value(
         "/v2beta1/events/activities": Response(text=sse(event)),
     })
 
+    assert broker.financial_activity_sse is False
     with pytest.raises(
             broker_cash.BrokerCashAuthorityRefused,
-            match="unweighted external securities transfer"):
+            match=rf"securities transfer \({activity_type}\) lacks native proof"):
         run(broker.account_cash_activities(
             after=datetime(2026, 8, 19, 16, tzinfo=UTC),
             through=datetime(2026, 8, 19, 18, tzinfo=UTC)))

@@ -120,7 +120,7 @@ def test_complete_account_interval_drives_cash_and_sql_is_account_wide():
     assert cash == Decimal("80")
     assert rows[0]["fill_key"] == "fill-native-1"
     statement, params = conn.statements[-1]
-    assert "FROM sentinel_fills WHERE" in statement
+    assert f"FROM {journal.ACTIVE_FILLS} f WHERE" in statement
     assert "JOIN sentinel_commands" not in statement
     assert "filled_at IS NULL OR filled_at >= %s" in statement
     assert params == (BASELINE_AT,)

@@ -151,10 +151,11 @@ def scan_entitlements(conn, *, binding: Mapping, through: date, account,
             return None
     else:
         require_durable_coverage(conn, binding)
+    from sentinel.execution.journal import ACTIVE_FILLS
     with conn.cursor() as cur:
         cur.execute(
             "SELECT c.security_id,c.side,f.quantity,f.filled_at"
-            " FROM sentinel_fills f JOIN sentinel_commands c ON c.client_key=f.client_key"
+            f" FROM {ACTIVE_FILLS} f JOIN sentinel_commands c ON c.client_key=f.client_key"
             " AND c.broker_order_id=f.broker_order_id"
             " WHERE c.broker=%s AND c.broker_account_id=%s ORDER BY f.filled_at,f.fill_key",
             (binding["broker"], binding["broker_account_id"]))

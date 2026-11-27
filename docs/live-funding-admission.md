@@ -25,7 +25,7 @@ boundary, so intervening authority work cannot extend an observation's lifetime.
 The signed valuations supply capital evidence; no caller-supplied completeness
 boolean or unverified market-value dictionary substitutes for that source.
 
-Every nonterminal durable BUY reserves its original whole-share quantity times
+Every nonterminal durable BUY reserves its original exact share quantity times
 its immutable limit, including PLANNED, SEND_PENDING and UNKNOWN commands. The
 provider reservation total is added conservatively, without assuming overlap or
 releasing a journal promise from a balance. Daily commitment counts original BUY
@@ -36,13 +36,69 @@ Fresh settled cash remains bounded by actual cash and buying power; sale proceed
 never enlarge the signed settled amount by local arithmetic. Limits and all
 arithmetic use exact Decimal inputs and Fraction accumulation.
 
-Protected BUYs require immutable whole-share LIMIT/DAY terms and an authenticated
+Protected BUYs require immutable share-quantity LIMIT/DAY terms and an authenticated
 preceding closed-session reference, capped by both the signed premium and the
 existing maximum of 100 basis points. Original per-order, total capital and daily
 BUY commitment limits apply before transport. A repeated key must preserve every
 original economic term; contradictory snapshots refuse rather than being merged.
 The prior RAW price and canonical share-unit factor are compared as exact
 Fractions. A 3:2 action must not force a rounded Decimal reference into the gate.
+
+## Fractional share execution
+
+The selected protected policy on the exact LIVE origin uses quantities down to
+one billionth of a share. PAPER's protected policy keeps whole-share sizing and
+its saved policy bytes. The LIVE configuration fingerprint and the new plan's
+retained sizing evidence commit the fractional protected policy. Existing
+whole-share plans remain readable and reproducible. They do not execute under
+the new selection without a fresh plan.
+
+Core and BIL use the same account share increment. Protected opening quantities
+round down from the reserved dollars and authenticated price cap, with the
+existing cash headroom. The canonical strategy and its entry eligibility do
+not change. LIVE sends shares for both sides, with protected LIMIT/DAY buys and
+ordinary MARKET/DAY reductions. The existing signed caps and settled funding
+still apply to the exact original share quantity times the limit. Fractional
+purchases below one dollar defer. The native adapter serializes the exact share
+quantity under the LIVE permit. PAPER retains its whole-share LIMIT/DAY guard.
+
+Before a fractional submission, read the active asset's native fractional
+eligibility by its resolved identity through the guarded broker. An ineligible,
+missing, changed or stale observation defers the exact command. Do not round,
+rescale, or substitute an already recorded request. The eligibility observation
+must still be current at the final transport check. Fractional support in a
+generated fixture does not grant LIVE account authority or prove vendor behavior.
+See [Alpaca fractional trading](https://docs.alpaca.markets/us/docs/fractional-trading).
+
+If an asset is active and tradeable but its current rules explicitly prohibit
+fractional orders, the executor may send the whole-share portion of an otherwise
+authorized sale. Read fresh rules for the exact native asset before creating its
+command. An absent, stale, or mismatched rules response defers instead. The
+whole-share command keeps the normal LIVE identity, sell reservation, journal,
+session and transport checks. A pending, working or uncertain order cannot be
+resized to take the fallback.
+
+The durable plan keeps the exact target. A 12.345-share exit can send 12 shares
+and leaves 0.345 shares visibly pending. No whole share is sold twice, since a
+retry reconciles actual shares and derives the remaining sale from the saved
+target. Purchases and completion of the intended reductions wait for the
+remaining shares. If the asset becomes fractionable again, the still-required
+amount can use the ordinary fractional sale path. A fallback is never used to
+create a buy or round a fractional exit up.
+
+An authenticated split can create an exact share amount the broker cannot
+represent at its nine-decimal increment. Retain that amount as a rational
+entitlement with a blocked share target. Carry the original evidence across
+sessions and restarts. A broker quantity in prior split units or at an adjacent
+supported increment can explain the mismatch for quarantine purposes. It
+cannot authorize rounding, cash credit or a compensating order.
+
+The affected asset stays restricted until its disposition can be reconciled
+from real broker evidence. Unrelated reductions may proceed if fresh reads
+match the durable order journal and prove that every remaining quantity
+mismatch is confined to one of these identified share transitions. A changed
+native asset identity or any unexplained mismatch still refuses transport.
+Increases wait while a share target or a broker position remains restricted.
 
 The public funding file is selected explicitly by
 `SENTINEL_LIVE_FUNDING_CERTIFICATE_PATH`. Absence selects no funding authority;

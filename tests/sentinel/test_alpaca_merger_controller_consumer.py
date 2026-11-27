@@ -1,13 +1,18 @@
-"""A merger may close a controller witness without changing Wealth Core ownership."""
+"""Canonical book and controller continuity across source-proven Alpaca mergers."""
 from copy import deepcopy
+from datetime import date
+from fractions import Fraction
 from types import SimpleNamespace
 
 import pytest
 
 from sentinel.controller import median5, terminal_returns
-from sentinel.core import rolling_continuity, window_continuity
-from sentinel.feed import rolling_store
-from stock_strategy_shared.wealth_core.feed import SecurityMeta, VendorBar
+from sentinel.core import rolling_continuity, window_continuity, window_material
+from sentinel.feed import calendar, rolling_store
+from stock_strategy_shared.wealth_core.feed import Feed, SecurityMeta, VendorBar
+from stock_strategy_shared.wealth_core.ledger import Ledger
+from stock_strategy_shared.wealth_core.live import plan_session
+from stock_strategy_shared.wealth_core.state import HoldingEpisode, PortfolioState
 
 
 CURSOR = '2026-11-20'
@@ -53,11 +58,11 @@ def _case(*, held=False, anchor=None, source_row=None):
     prior = SimpleNamespace(
         last_processed_session=CURSOR,
         median5={'selected': [OLD], 'selected_closes': {OLD: 100.}},
-        wealth_core={'episodes': {'episode': {'security_id': OLD}}} if held else {},
+        wealth_core={'episodes': {'episode': {'security_id': OLD, 'current_shares': 2}}} if held else {},
         pending=[],
         feed={'series': {OLD: {'signal_basis_anchor': anchor or [CURSOR, 50., 100.],
                               'signal_basis_multiplier': 2.}}})
-    conn = _Connection([source_row or (CURSOR, OLD, 'AAA', 50., 50.)])
+    conn = _Connection([source_row or (CURSOR, OLD, 'AAA', 50., 50., 50., 1000., 1., 0.)])
     return conn, prior, previous, current, conversion
 
 
@@ -71,8 +76,17 @@ def _bound_source(monkeypatch, previous, current, *, old_provider=OLD,
 
 
 @pytest.mark.parametrize('current_symbol', [None, 'AAA'])
-def test_selected_identity_discontinuity_waits_for_new_action(current_symbol):
+@pytest.mark.parametrize('dependent', ['selected', 'held', 'pending', 'reserved'])
+def test_identity_discontinuity_waits_for_new_action(current_symbol, dependent):
     prior = SimpleNamespace(median5={'selected': [OLD]}, wealth_core={}, pending=[])
+    if dependent != 'selected':
+        prior.median5['selected'] = []
+    if dependent == 'held':
+        prior.wealth_core['episodes'] = {'1': {'security_id': OLD}}
+    if dependent == 'pending':
+        prior.pending = [{'security_id': OLD}]
+    if dependent == 'reserved':
+        prior.wealth_core['slots'] = {'1': {'reserved_for': OLD}}
     previous = SimpleNamespace(manifest=SimpleNamespace(provider='ALPACA_OPENFIGI'),
         resolver=SimpleNamespace(
             ticker_for_security=lambda sid, day: 'AAA' if (sid, day) == (OLD, CURSOR) else None,
@@ -82,9 +96,10 @@ def test_selected_identity_discontinuity_waits_for_new_action(current_symbol):
             ticker_for_security=lambda _sid, _day: None,
             resolve=lambda symbol, day: NEW if (symbol, day) == (current_symbol, SESSION) else None))
     retained = deepcopy(prior.__dict__)
+    reason = 'SELECTED' if dependent == 'selected' else 'HELD'
     with pytest.raises(window_continuity.MergerActionPending,
-                       match='SELECTED_IDENTITY_ACTION_PENDING:' + SESSION + ':' + OLD):
-        window_continuity._pending_selected_action(
+                       match=reason + '_IDENTITY_ACTION_PENDING:' + SESSION + ':' + OLD):
+        window_continuity._pending_merger_action(
             prior=prior, previous=previous, current=current, cursor=CURSOR, session=SESSION)
     assert prior.__dict__ == retained
 
@@ -98,7 +113,7 @@ def test_complete_conversion_or_source_proven_rename_resolves_action_wait():
         merger_conversions=(SimpleNamespace(old_security_id=OLD),),
         resolver=SimpleNamespace(ticker_for_security=lambda *_: None,
                                  resolve=lambda *_: None))
-    window_continuity._pending_selected_action(
+    window_continuity._pending_merger_action(
         prior=prior, previous=previous, current=current, cursor=CURSOR, session=SESSION)
 
 
@@ -138,7 +153,7 @@ def test_selected_action_wait_precedes_price_read_and_book_transition(monkeypatc
     current.merger_conversions = ()
     current.resolver.ticker_for_security = lambda *_: 'BBB'
     current.resolver.resolve = lambda symbol, day: OLD if (symbol, day) == ('BBB', SESSION) else None
-    window_continuity._pending_selected_action(
+    window_continuity._pending_merger_action(
         prior=prior, previous=previous, current=current, cursor=CURSOR, session=SESSION)
 
 
@@ -148,8 +163,8 @@ def test_selected_only_merger_uses_prior_published_anchor_and_fractional_return(
     bridges, conversions = window_continuity._merger_bridges(
         conn, prior=prior, previous=previous, current=current, cursor=CURSOR, session=SESSION)
     assert set(bridges) == {OLD}
-    assert bridges[OLD].session == CURSOR and bridges[OLD].raw_close == 50.
-    assert bridges[OLD].signal_close == 50.
+    assert bridges[OLD].session == date.fromisoformat(CURSOR) and bridges[OLD].close_unadjusted == 50.
+    assert bridges[OLD].close_signal == 50.
     assert conn.queries[0][1] == ('previous-candidate', OLD, CURSOR)
     prices = SimpleNamespace(bars=(VendorBar(SESSION, NEW, 'BBB', 40., 40., 1000.,
                                              signal_close=40.),))
@@ -189,19 +204,73 @@ def test_unadmitted_successor_names_missing_current_close(monkeypatch):
     assert conn.queries == []
 
 
-def test_held_merger_refuses_before_reading_a_price(monkeypatch):
+def test_held_merger_without_current_predecessor_history_uses_canonical_book(monkeypatch):
     conn, prior, previous, current, _ = _case(held=True)
+    prior.median5['selected'] = []
     _bound_source(monkeypatch, previous, current)
-    with pytest.raises(rolling_continuity.RollingContinuityRefused,
-                       match='OWNED_MERGER_CONVERSION_UNSUPPORTED'):
-        window_continuity._merger_bridges(
-            conn, prior=prior, previous=previous, current=current, cursor=CURSOR, session=SESSION)
-    assert conn.queries == []
-    # Falsifier: disabling the ownership check would admit the exact same event.
-    monkeypatch.setattr(window_continuity, 'merger_owned_security_ids', lambda _prior: set())
-    bridges, _ = window_continuity._merger_bridges(
+    bridges, conversions = window_continuity._merger_bridges(
         conn, prior=prior, previous=previous, current=current, cursor=CURSOR, session=SESSION)
     assert OLD in bridges
+    metadata = {sid: SecurityMeta(sid, ticker, permaticker=sid)
+                for sid, ticker in ((OLD, 'AAA'), (NEW, 'BBB'))}
+    current_bar = VendorBar(SESSION, NEW, 'BBB', 40., 40., 1000., signal_close=40.)
+    signal = window_material.Signal(security_id=NEW, ticker='BBB', issuer_id=NEW,
+        closes=(40.,), raw_close=40., eligible=False, eligibility_reason='NEW',
+        certified_signals=None)
+    features = window_material.WindowFeatures(snapshot_sha256=SNAPSHOT,
+        prior_state_sha256=SNAPSHOT, publication_version=2,
+        sessions=calendar.previous_sessions(SESSION, 300), signals=(signal,),
+        histories={OLD: ()})
+    prior.last_processed_session = CURSOR
+    prior.state_hash = SNAPSHOT
+
+    def run(material):
+        feed = Feed(metadata)
+        feed.warmup([CURSOR], {CURSOR: [
+            VendorBar(CURSOR, OLD, 'AAA', 50., 50., 1000., split_ratio=2)]})
+        feed.series[OLD].signal_basis_multiplier = 2.
+        feed.median5_state = {'last_index': feed._session_index}
+        published = SimpleNamespace(session=SESSION, data_version=2,
+            window_features=material.model_dump(mode='json', by_alias=True),
+            history_proof={'features_sha256': material.sha256, 'snapshot_sha256': SNAPSHOT},
+            signal_basis_anchors={OLD: window_continuity.merger_anchor_bar(
+                CURSOR, OLD, 'AAA', 50., 50.)}, bars=(current_bar,))
+        window_material.install(feed, prior=prior, published=published)
+        state = PortfolioState.fresh(1000.)
+        state.initialized = True
+        state.slots[0].occupied_by = OLD
+        state.episodes[0] = HoldingEpisode(OLD, 'AAA', metadata[OLD].issuer_key()[0],
+            0, '2026-11-10', '2026-11-10', 45., 90., 2., 2., 100.)
+        terms = window_continuity._merger_terminals(conversions=conversions,
+            prices=published, metadata=metadata, session=SESSION, held={OLD: Fraction(2)})
+        plan = plan_session(session=SESSION, bars=published.bars, meta=metadata, state=state,
+            pending=[], ledger=Ledger(), last_known={OLD: 50.}, feed=feed, terminal_events=terms)
+        return state, plan
+
+    rebuilt = window_continuity._merger_histories(features, bridges=bridges, held={OLD})
+    state, plan = run(rebuilt)
+    assert state.episodes[0].security_id == NEW
+    assert state.episodes[0].current_shares == 3.
+    assert state.episodes[0].entry_split_adjusted_price == pytest.approx(30.)
+    assert state.episodes[0].entry_date == '2026-11-10'
+    assert state.cash == 1000. and plan.resolved_equity == 1120.
+
+    # The old implementation lost the prior basis when the new source omitted
+    # every predecessor bar. The same fixture then fails to convert.
+    without_bridge, unresolved = run(features)
+    assert without_bridge.episodes[0].security_id == OLD
+    assert unresolved.resolved_equity is None
+
+
+def test_held_fractional_entitlement_without_price_remains_pending():
+    _, _, _, _, conversion = _case(held=True)
+    prices = SimpleNamespace(bars=(VendorBar(SESSION, NEW, 'BBB', 40., 40., 1000.,
+                                              signal_close=40.),))
+    metadata = {NEW: SecurityMeta(NEW, 'BBB', permaticker=NEW)}
+    with pytest.raises(window_continuity.MergerActionPending,
+                       match='MISSING_CASH_IN_LIEU_PRICE:' + SESSION + ':' + OLD):
+        window_continuity._merger_terminals(conversions=(conversion,), prices=prices,
+            metadata=metadata, session=SESSION, held={OLD: Fraction(1)})
 
 
 @pytest.mark.parametrize('damage', ['wrong-origin', 'wrong-provider', 'wrong-date',
@@ -221,7 +290,7 @@ def test_merger_anchor_and_source_identity_must_agree(monkeypatch, damage):
     elif damage == 'wrong-successor-identity':
         conversion.successor_security_id = 'unrelated-new-id'
     elif damage == 'wrong-raw':
-        conn.rows = [(CURSOR, OLD, 'AAA', 51., 50.)]
+        conn.rows = [(CURSOR, OLD, 'AAA', 51., 50., 50., 1000., 1., 0.)]
     elif damage == 'wrong-signal-basis':
         prior.feed['series'][OLD]['signal_basis_multiplier'] = 1.
     else:

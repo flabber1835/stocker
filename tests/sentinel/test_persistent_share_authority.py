@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.support.alpaca_coverage_source import CURRENT_STRATEGY
+
 from sentinel import authority, persistent_share_authority as upgrade
 from sentinel import standing_observation_authority as standing
 from sentinel import local_paper
@@ -16,7 +18,7 @@ from sentinel.strategy import production_strategy
 
 _PREDECESSOR = Path(__file__).resolve().parents[1] / 'support/architecture-b2-economic-identity.json'
 _PREDECESSOR_SHA256 = '5547702880b5c41578c4fc312bebf38dab768222d3f5b8041481b324c1f15ebe'
-MERGER_STRATEGY_SHA256 = '421a1697353ced9bdb0efba82150e900265c8f1bb7e296dbb7f6423b40a6cc81'
+MERGER_STRATEGY_SHA256 = CURRENT_STRATEGY
 
 
 def _historical_persistent_share_strategy():

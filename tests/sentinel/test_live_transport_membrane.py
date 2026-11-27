@@ -9,7 +9,7 @@ import pytest
 
 from sentinel.authority.live import require_live_adapter_admission
 from sentinel.execution import live_transport
-from sentinel.execution.contract import BrokerCapabilities, BrokerPosition, ExecutionBroker, OrderTerms, Side
+from sentinel.execution.contract import BrokerAssetRules, BrokerCapabilities, BrokerPosition, ExecutionBroker, OrderTerms, Side
 from sentinel.execution.guarded import (
     ExecutionBrokerGuard, GuardedExecutionBroker, LiveExecutionGrant,
     ManualExecutionGrant, PreTransportAuthorityRefused,
@@ -210,6 +210,30 @@ def test_twenty_owned_live_sales_clear_transport_after_purchase_cutoff():
 
     assert not positions
     assert [key for operation, key, _qty in case.inner.calls if operation == "SUBMIT"] == list(sales)
+
+
+@pytest.mark.parametrize("side", [Side.BUY, Side.SELL])
+def test_live_fractional_transport_preserves_exact_amount_and_expires_eligibility(side):
+    case = composition()
+    request = (case.fixture.request if side is Side.BUY else command(case.fixture, side=side))
+    request = replace(request, quantity=Decimal("1.500000001"))
+    rules = BrokerAssetRules(request.instrument, NOW - timedelta(seconds=29), True)
+    positions = ((BrokerPosition(request.instrument, request.quantity),)
+                 if side is Side.SELL else case.context.positions)
+    case.policy._load_submit = lambda _key: replace(case.context, request=request,
+        commitments=(request,), positions=positions, asset_rules=rules)
+    arguments = dict(client_key=request.client_key, instrument=request.instrument,
+                     side=request.side, quantity=request.quantity, order_terms=request.order_terms)
+    assert asyncio.run(case.wrapped.submit(**arguments)) == "transported"
+    assert case.inner.calls == [("SUBMIT", request.client_key, Decimal("1.500000001"))]
+
+    async def expire_eligibility(_grant, _operation):
+        case.clock[0] = NOW + timedelta(seconds=2)
+
+    case.wrapped._guard = replace(case.guard, before_mutation=expire_eligibility)
+    with pytest.raises(PreTransportAuthorityRefused, match="expired|current"):
+        asyncio.run(case.wrapped.submit(**arguments))
+    assert len(case.inner.calls) == 1
 
 
 def test_live_sale_permit_expires_if_final_authority_crosses_exchange_close():

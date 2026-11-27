@@ -3,11 +3,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import contextmanager
+from copy import deepcopy
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
+from psycopg.pq import TransactionStatus
 
 from sentinel.core import cashflow
 from sentinel.execution import broker_cash, recovery
@@ -377,9 +381,20 @@ class MemoryConnection:
             "alpaca", "PA-1", datetime(2026, 8, 18, 15, tzinfo=UTC))
         self.cash_flows = {}
         self.cursors = {}
+        self.info = SimpleNamespace(transaction_status=TransactionStatus.IDLE)
 
     def cursor(self):
         return MemoryCursor(self)
+
+    @contextmanager
+    def transaction(self):
+        assert self.info.transaction_status == TransactionStatus.INTRANS
+        cash_flows, cursors = deepcopy((self.cash_flows, self.cursors))
+        try:
+            yield
+        except BaseException:
+            self.cash_flows, self.cursors = cash_flows, cursors
+            raise
 
 
 class MemoryCursor:
@@ -398,6 +413,7 @@ class MemoryCursor:
         pass
 
     def execute(self, sql, params=()):
+        self.conn.info.transaction_status = TransactionStatus.INTRANS
         q = " ".join(sql.lower().split())
         self.one = None
         self.all = []
