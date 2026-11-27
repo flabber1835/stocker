@@ -210,7 +210,7 @@ def test_local_execution_configuration_guard_falsifier(owner, monkeypatch):
 
 def test_retained_process_identity_guard_falsifier(owner, monkeypatch):
     from sentinel import runtime_admission as admission
-    tree = ast.parse(inspect.getsource(admission.bind_context))
+    tree = ast.parse(inspect.getsource(admission.require_retained_process))
     guard = next(node for node in ast.walk(tree) if isinstance(node, ast.If)
         and any(isinstance(item, ast.Constant) and item.value == 'LOCAL_PAPER_RETAINED_PROCESS_IDENTITY_CHANGED'
                 for child in node.body if isinstance(child, ast.Raise) for item in ast.walk(child)))
@@ -218,8 +218,8 @@ def test_retained_process_identity_guard_falsifier(owner, monkeypatch):
     ast.fix_missing_locations(tree)
     namespace = {}
     exec(compile(tree, 'removed-retained-local-process-guard', 'exec'), vars(admission), namespace)
-    monkeypatch.setattr(admission, 'bind_context', namespace['bind_context'])
-    with pytest.raises(pytest.fail.Exception):
+    monkeypatch.setattr(admission, 'require_retained_process', namespace['require_retained_process'])
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
         test_retained_local_process_preserves_book_and_requires_current_bytes(owner, monkeypatch, True)
 
 
