@@ -105,3 +105,14 @@ the table for the first time during a later restore drill changes that schema
 and correctly stops a subsequent opening before it can submit an order. Keep
 that refusal in the test record. A rehearsal may start again from a correctly
 initialized private database.
+
+Before activating a new cash-only PAPER rehearsal account, verify that its
+broker-recovery record identifies the original PostgreSQL cluster, timeline
+and account takeover epoch. Where the initial backup already exists and the
+account has never traded, use the documented [initial PAPER
+anchor procedure](sentinel-execution-contract.md#initial-paper-anchor-on-the-unchanged-appliance)
+with the independently recorded private cluster identity and the private
+venue. A missing record can allow the scheduler to prepare a plan and still
+prevent every purchase at the open. Keep the original funded database on
+its timeline for next-session exit and process-restart tests. A promoted
+restore exercises the separate replacement-host procedure.
