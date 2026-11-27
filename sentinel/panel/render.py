@@ -29,7 +29,7 @@ from sentinel.panel.presentation import (
     dashboard_health, describe,
 )
 from sentinel.panel.overview import overview_html
-from sentinel.panel.run_progress import order_summary
+from sentinel.panel.run_progress import current_execution_refusal, order_summary
 from sentinel.panel.styles import CSS
 from sentinel.panel.banner import BANNER_SCRIPT
 from sentinel.panel.dom_refresh import SCRIPT as DOM_REFRESH_SCRIPT
@@ -569,18 +569,23 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     review_html = render_review(panel.operator_review,
         current=panel.observation_current and not refresh_pending)
     reasons = []
-    for row in rendered_rows:
+    refusal = None if refresh_pending else current_execution_refusal(panel)
+    reason_rows = (sorted(rendered_rows, key=lambda row: row.key != 'automation_cycle')
+                   if refusal else rendered_rows)
+    for row in reason_rows:
         status = delivery.row_status(panel, row)
-        if (status in {FAIL, UNKNOWN} and delivery.row_current(panel, row)
-                and not activation_wait_history(panel, row)):
+        primary = row.key == 'automation_cycle' and refusal is not None
+        if primary or (status in {FAIL, UNKNOWN} and delivery.row_current(panel, row)
+                       and not activation_wait_history(panel, row)):
             label, value, _ = describe(row, status, live=panel.is_live_trading)
-            value = _display_value(row, value)
+            value = refusal if primary else _display_value(row, value)
             if row.key == 'trading_run' and not refresh_pending:
                 counts = (order_summary(row.trading_run) if row.can_show_trading_run(now)
                           else 'Order counts unavailable.')
                 if counts:
                     value += ' · ' + counts
-            kind = ' class="review-warning"' if row.key in historical_warning_keys else ''
+            kind = (' class="review-warning"'
+                    if row.key in historical_warning_keys or primary and status == WARN else '')
             reasons.append(f'<li{kind}><a href="#status-{_esc(row.key)}" '
                            'onclick="document.getElementById(\'system-details\').open=true">'
                            f'{_esc(label)}: {_esc(value)}</a></li>')

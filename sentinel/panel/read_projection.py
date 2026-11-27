@@ -502,7 +502,14 @@ def read_owned(conn, database_url, *, include_paper=True, now=None, only_scope=N
             detail = ('durable '+scope.lower()+' verification unavailable: '
                       +failure_site+': '+type(exc).__name__)
             result = financial._unknown(scope == 'PAPER', detail, retained)
-            result = ([r for r in result[0] if (r.key == 'paper_reconciliation') == (scope == 'PAPER')], {}, [], result[3])
+            scoped = [r for r in result[0] if (r.key == 'paper_reconciliation') == (scope == 'PAPER')]
+            if failure_site == 'RECEIPT_SUBJECT_STALE':
+                # The old receipt authenticated under its original inputs. It
+                # proves neither current verification nor an active recheck.
+                scoped = [replace(r, value='Inputs changed · current verification unavailable')
+                          if r.key in {'paper_reconciliation', 'shadow_verification'} else r
+                          for r in scoped]
+            result = (scoped, {}, [], result[3])
         results.append(result)
     rows = {row.key:row for result in results for row in result[0]}
     order = ('shadow_verification','shadow_nav','shadow_return','paper_reconciliation','exposure','book','terminals')

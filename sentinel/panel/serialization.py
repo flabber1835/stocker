@@ -4,12 +4,14 @@ import json
 from sentinel.operational_status import color
 from sentinel.panel import model, delivery
 from sentinel.panel.presentation import dashboard_health, describe
+from sentinel.panel.run_progress import current_execution_refusal
 
 
 def public_payload(panel):
     """Use exactly the same evidence eligibility and clocks on every surface."""
     health = dashboard_health(panel)
     display_current = delivery.display_current(panel)
+    refusal = current_execution_refusal(panel)
     review = panel.operator_review
     public_review = None
     if review is not None and panel.observation_current:
@@ -41,6 +43,7 @@ def public_payload(panel):
         'source_errors': panel.source_errors,
         'rows': [
             {'key': row.key, 'label': row.label, 'value': row.value,
+             **({'display_value': refusal} if refusal and row.key == 'automation_cycle' else {}),
              **({'display_value': describe(row, delivery.row_status(panel, row),
                  now=panel.now if delivery.row_current(panel, row) else None)[1]}
                 if row.value == 'WAITING_OPEN' else {}),

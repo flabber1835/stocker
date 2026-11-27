@@ -665,6 +665,22 @@ def test_receipt_failure_site_is_finite_and_keeps_unknown_authority(monkeypatch,
     assert secret not in errors[0] and secret not in authority.detail
 
 
+@pytest.mark.parametrize('scope', ['PAPER', 'SHADOW'])
+@pytest.mark.parametrize('authentic', [True, False])
+def test_changed_inputs_get_precise_unknown_only_after_authentication(scope, authentic, monkeypatch):
+    connection,_ = snapshot_receipts(monkeypatch)
+    if not authentic:
+        record = connection.receipts[scope]
+        connection.receipts[scope] = (*record[:-1], 'forged')
+    rows,_,_,errors = projection.read_owned(connection, 'fixture', now=NOW, only_scope=scope,
+                                             native_subjects={scope: 'f'*64})
+    key = 'shadow_verification' if scope == 'SHADOW' else 'paper_reconciliation'
+    row = next(item for item in rows if item.key == key)
+    assert row.status == model.UNKNOWN and row.recovery is None and errors
+    assert (row.value == 'Inputs changed · current verification unavailable') == authentic
+    assert ('RECEIPT_SUBJECT_STALE' in row.detail) == authentic
+
+
 def test_http_snapshot_reuses_common_subject_facts_without_changing_either_digest(monkeypatch):
     from sentinel.feed import store
     connection,calls=snapshot_receipts(monkeypatch)

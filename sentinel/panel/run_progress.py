@@ -2,12 +2,41 @@
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-from sentinel.panel import model
+from sentinel.panel import delivery, model
 from sentinel.paper_plan_preview import project_original_intent, quantity
 
 
 def confirmed_sent(order: model.RunOrder) -> bool:
     return order.broker_order_id is not None or order.filled_quantity > 0
+
+
+def current_execution_refusal(panel: model.Panel) -> str | None:
+    """Describe a recorded refusal only while this plan and cycle are current."""
+    row = panel.row('automation_cycle')
+    if (row is None or row.operational_fact is None or not row.required_current
+            or not delivery.display_current(panel) or panel.observation_retained
+            or panel.observation_valid_until is not None and panel.now >= panel.observation_valid_until
+            or not delivery.row_current(panel, row) or row.as_of is None
+            or row.is_stale(panel.now) or row.is_future(panel.now)
+            or row.effective_status(panel.now) not in {model.FAIL, model.WARN}):
+        return None
+    fact = row.operational_fact
+    refusal = fact.execution_refusal
+    if refusal is None:
+        return None
+    run_row = panel.row('trading_run')
+    plan_row = panel.row('paper_plan')
+    run = run_row.trading_run if run_row and delivery.row_current(panel, run_row) else None
+    plan = plan_row.paper_plan if plan_row and delivery.row_current(panel, plan_row) else None
+    if any((intent.cycle_id, intent.plan_id) != (refusal.cycle_id, refusal.plan_id)
+           for intent in (plan, run.intent if run else None) if intent is not None):
+        return None
+    if run and run.updated_at >= row.as_of and (
+            run.state == 'SUCCEEDED' or run.updated_at > row.as_of and run.state != fact.state):
+        return None
+    if refusal.code == 'PURCHASES_REQUIRE_DATABASE_ANCHOR':
+        return 'Purchases withheld. An operator must verify the recovery history of this database and broker account before Sentinel can buy.'
+    return 'Last execution attempt: ' + (refusal.detail or 'The plan still had trades to place.')
 
 
 def order_summary(run: model.TradingRun) -> str:

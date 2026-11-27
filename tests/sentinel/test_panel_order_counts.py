@@ -109,3 +109,66 @@ def test_selected_account_mode_labels_each_trading_card(endpoint, mode, account)
         assert account in document
         if mode != 'PAPER':
             assert 'class="overview-tag">PAPER<' not in document
+
+
+def refused_panel(*, code='PURCHASES_REQUIRE_DATABASE_ANCHOR', state='RECONCILING', **overrides):
+    from sentinel.panel import serialization
+
+    panel = page([], 'RECONCILING')
+    intent = panel.row('trading_run').trading_run.intent
+    fields = dict(installed=True, enabled=True, cycle_id=intent.cycle_id, plan_id=intent.plan_id,
+                  state=state, updated_at=NOW, failure_code=code, failure_detail='0 submitted, check <failed>')
+    cycle = model.automation_cycle_row(**(fields | overrides))
+    unrelated = model.Row('paper_reconciliation', 'Paper account', 'Unable to read verification',
+                          model.UNKNOWN, required_current=True)
+    panel = replace(panel, rows=[unrelated, cycle, *panel.rows])
+    public_cycle = next(row for row in serialization.public_payload(panel)['rows'] if row['key'] == cycle.key)
+    return panel, public_cycle
+
+
+@pytest.mark.parametrize('state', ['RECONCILING', 'RETRY_WAIT', 'BLOCKED', 'SUPERSEDED'])
+def test_current_purchase_refusal_precedes_secondary_unknown_without_changing_its_verdict(state):
+    panel, public = refused_panel(state=state)
+    reason = 'Purchases withheld. An operator must verify the recovery history of this database and broker account before Sentinel can buy.'
+    header = render(panel).split('</header>', 1)[0]
+    assert public['value'] == state and public['display_value'] == reason
+    assert header.index(reason) < header.index('Unable to read verification')
+
+
+def test_legacy_record_quotes_only_the_actual_attempt_and_preserves_unknowns():
+    panel, public = refused_panel(code='ACTIONABLE_DELTA_REMAINS')
+    assert public['display_value'] == 'Last execution attempt: 0 submitted, check <failed>'
+    header = render(panel).split('</header>', 1)[0]
+    assert 'Last execution attempt: 0 submitted, check &lt;failed&gt;' in header
+    assert 'Unable to read verification' in header and 'Purchases withheld' not in header
+
+
+@pytest.mark.parametrize('changes', [
+    {'plan_id': 'previous-plan'}, {'cycle_id': 'previous-cycle'}, {'enabled': False},
+    {'state': 'SUCCEEDED'}, {'state': 'EXECUTING', 'failure_code': None},
+    {'updated_at': NOW+timedelta(hours=1)}, {'failure_code': 'OTHER_REASON'},
+])
+def test_previous_foreign_or_unverified_reason_cannot_claim_current_purchases_are_withheld(changes):
+    panel, public = refused_panel(**changes)
+    assert 'display_value' not in public
+    assert 'Purchases withheld' not in render(panel).split('</header>', 1)[0]
+
+
+def test_newer_current_success_and_retained_or_expired_observation_do_not_repeat_a_refusal():
+    from sentinel.panel.run_progress import current_execution_refusal
+
+    panel, _ = refused_panel()
+    run_row = panel.row('trading_run')
+    finished = replace(run_row, trading_run=run_row.trading_run.model_copy(
+        update={'state': 'SUCCEEDED', 'updated_at': NOW+timedelta(seconds=1)}))
+    later = replace(panel, now=NOW+timedelta(seconds=1), rows=[panel.row('automation_cycle'), finished])
+    for view in (later, replace(panel, observation_current=False, observation_retained=True),
+                 replace(panel, observation_valid_until=NOW),
+                 replace(panel, rows=[replace(panel.row('automation_cycle'), valid_until=NOW-timedelta(seconds=1))])):
+        assert current_execution_refusal(view) is None
+    assert 'Purchases withheld' not in render(panel, refresh_pending=True).split('</header>', 1)[0]
+
+
+def test_healthy_operational_facts_keep_their_original_wire_shape():
+    values = model.OperationalFact(kind='AUTOMATION_CYCLE', state='EXECUTING').model_dump(mode='json')
+    assert 'execution_refusal' not in values

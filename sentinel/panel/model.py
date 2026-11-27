@@ -137,6 +137,15 @@ def opening_schedule(cycle, events=()):
 AWAITING_PLAN_ADOPTION = 'SAVED · AWAITING VERIFICATION'
 
 
+class ExecutionRefusal(BaseModel):
+    """The current cycle's own recorded reason. This grants no execution authority."""
+    model_config = ConfigDict(extra='forbid', frozen=True)
+    cycle_id: str = Field(min_length=1, max_length=100)
+    plan_id: str = Field(min_length=1, max_length=100)
+    code: Literal['ACTIONABLE_DELTA_REMAINS', 'PURCHASES_REQUIRE_DATABASE_ANCHOR']
+    detail: str = Field(max_length=500)
+
+
 class OperationalFact(BaseModel):
     """Closed producer facts for human workflow health, independent of copy."""
     model_config = ConfigDict(extra='forbid', frozen=True, revalidate_instances='always')
@@ -158,6 +167,7 @@ class OperationalFact(BaseModel):
     exposure: Decimal | None = Field(default=None, ge=0, le=1, allow_inf_nan=False)
     opening: OpeningEvidence | None = None
     schedule: OpeningSchedule | None = None
+    execution_refusal: ExecutionRefusal | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode='after')
     def coherent_fact(self):
@@ -182,6 +192,9 @@ class OperationalFact(BaseModel):
             raise ValueError('operational state belongs to another producer')
         if self.schedule is not None and self.kind != 'AUTOMATION_CYCLE':
             raise ValueError('opening schedule belongs to its cycle')
+        if self.execution_refusal is not None and (self.kind != 'AUTOMATION_CYCLE'
+                or self.state not in {'RECONCILING', 'RETRY_WAIT', 'BLOCKED', 'SUPERSEDED'}):
+            raise ValueError('recorded execution refusal belongs to its current cycle state')
         cutoff = (self.kind, self.state) == ('PAPER_VERIFICATION', 'SUPERSEDED')
         historical = self.kind == 'EXECUTION_HISTORY' or cutoff
         if ((self.kind == 'EXECUTION_PROGRESS' or historical or self.state == 'AWAITING_NEXT_DECISION')
@@ -224,6 +237,8 @@ class OperationalFact(BaseModel):
         }
         if key not in owned[self.kind]:
             raise ValueError('operational fact belongs to another row')
+        if self.execution_refusal is not None and key != 'automation_cycle':
+            raise ValueError('recorded execution refusal belongs to the cycle row')
 
 
 class PreparationPhase(BaseModel):
@@ -1966,6 +1981,12 @@ def automation_cycle_row(*, installed: Optional[bool],
                 deadline=deadlines.get(normalized))
     if schedule is not None:
         detail += " · " + schedule.deadlines()
+    refusal = None
+    if (status in {FAIL, WARN} and plan_id and updated_at is not None
+            and normalized in {'RECONCILING', 'RETRY_WAIT', 'BLOCKED', 'SUPERSEDED'}
+            and failure_code in {'ACTIONABLE_DELTA_REMAINS', 'PURCHASES_REQUIRE_DATABASE_ANCHOR'}):
+        refusal = ExecutionRefusal(cycle_id=cycle_id, plan_id=plan_id, code=failure_code,
+                                   detail=(failure_detail or '')[:500])
     return Row("automation_cycle", "Automation cycle",
                (availability_label(availability_cycle, availability) if availability is not None
                 else "AWAITING CONFIRMED CASH" if funding_deadline is not None
@@ -1975,7 +1996,7 @@ def automation_cycle_row(*, installed: Optional[bool],
                             and recovery.phase == 'AUTOMATION_CLOSING_DATA' else funding_deadline),
                operational_fact=(OperationalFact(kind='AUTOMATION_CYCLE', state=normalized,
                    session=decision_session if normalized in {'DISCOVERED', 'REFRESHING_DATA', 'PREPARING'} else None,
-                   schedule=schedule)
+                   schedule=schedule, execution_refusal=refusal)
                    if normalized in {'DISCOVERED', 'REFRESHING_DATA', 'PREPARING', 'PLAN_READY',
                        'WAITING_OPEN', 'EXECUTING', 'RECONCILING', 'RETRY_WAIT', 'SUCCEEDED',
                        'BLOCKED', 'MISSED_STATE_ONLY', 'SUPERSEDED'} else None))
