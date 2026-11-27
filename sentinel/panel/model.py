@@ -2420,6 +2420,7 @@ def alpaca_account_row(
         recovery: Optional[RecoveryEvidence] = None,
         matched_protected_reservation: Optional[dict] = None,
         matched_operator_reservation: Optional[str] = None,
+        operator_reservation_terms: str = "LIMIT/DAY",
         market_working: Optional[RecoveryEvidence] = None,
         error: Optional[str] = None) -> Row:
     """Latest account result already admitted through the execution membrane."""
@@ -2534,7 +2535,7 @@ def alpaca_account_row(
            if market_wait else " · cash-only contract valid")
         + (f" · ${reservation.reserved_cash:,.2f} reserved by {len(reservation.commands)} positively matched protected DAY orders"
            if all(value.is_finite() for value in (cash_value, buying_power_value)) and matched_hold else "")
-        + (f" · ${operator_hold:,.2f} reserved by freshly matched native LIMIT/DAY buys (operator evidence only)"
+        + (f" · ${operator_hold:,.2f} reserved by freshly matched native {operator_reservation_terms} buys (operator evidence only)"
            if operator_hold is not None else ""))
     return Row(
         "alpaca_account", "Alpaca Account", value,

@@ -50,6 +50,20 @@ aggregate reservations and the individual order. If these endpoints straddle
 a fill it makes the same bounded fresh retry. All observations used in the
 retry are read again. A process restart discards every prefetched input.
 
+The account display explains a cash hold at the time of its sample. During a
+reserved PAPER opening basket, the native open-order list can contain one
+purchase while earlier journal acknowledgments have already filled and other
+members are still waiting to send. For fixed-dollar buys only, the collector
+matches the complete native open list to that session's durable reservation
+and accounts for the entire difference between cash and buying power. It
+requires positive terminal broker records for acknowledged purchases missing
+from the open list. Native account identity and balances bracket those reads.
+The panel may show this dated evidence as purchases advance to confirmed fills
+on the same plan. Foreign or uncertain commands, changed identity, amounts or
+terms, unexplained cash, blocked accounts and expired samples still fail the
+account check. This evidence cannot authorize orders or resolve a journal
+command. Alpaca describes the hold in its [order buying-power documentation](https://docs.alpaca.markets/us/docs/orders-at-alpaca).
+
 One writer prepares and checkpoints commands. Up to four independent requests
 may await a broker response together. Each starts only after its own committed
 SEND_PENDING checkpoint. Its worker owns its single-use pretransport proof,

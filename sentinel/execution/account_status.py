@@ -194,6 +194,10 @@ def recorded_market_working(conn, *, account, now, plan_id):
             or native.get("cash") != decimal_text(cash)
             or native.get("buying_power") != decimal_text(power)):
         return None
+    if cash - power > 1 and all(o["side"] == "BUY" and o.get("notional") for o in commands):
+        # A fixed-dollar basket can be valued exactly. Only the funded-basket
+        # receipt can attribute its hold; generic working orders cannot.
+        return None
     if any(o["side"] == "SELL" for o in commands):
         # A sale cannot explain a buying-power hold. In a mixed sleeve sweep
         # only the BIL order's unfilled dollars can explain a discrepancy.
@@ -213,6 +217,7 @@ def _healthy_cash_snapshot(snapshot):
 
 
 async def _observation(conn, *, reader, bound, commands, config):
+    from sentinel.execution import observed_dollar_hold
     conn.commit()  # Never retain a database transaction over provider I/O.
     snapshot = await reader.account_snapshot()
     _inspection_account_or_refuse(snapshot, bound[2])
@@ -221,8 +226,14 @@ async def _observation(conn, *, reader, bound, commands, config):
     if first.broker != bound[1] or first.raw.get("currency") != "USD":
         raise AccountStatusRefused("ACCOUNT_IDENTITY_OR_CURRENCY_CHANGED")
     native_orders = None
+    dollar_basket = dollar_proof = None
     market = _market_working(commands)
-    if (market and _healthy_cash_snapshot(snapshot)
+    if config is None and _healthy_cash_snapshot(snapshot) and snapshot.cash - snapshot.buying_power > 1:
+        dollar_basket = observed_dollar_hold.basket(conn, bound)
+        conn.commit()
+    if dollar_basket:
+        dollar_proof = await observed_dollar_hold.capture(reader, dollar_basket, snapshot)
+    elif (market and _healthy_cash_snapshot(snapshot)
             or commands and not market and snapshot.cash > snapshot.buying_power):
         native_orders = await _native_orders(reader, commands)
     last = await reader.account_snapshot()
@@ -237,8 +248,11 @@ async def _observation(conn, *, reader, bound, commands, config):
         raise AccountStatusRefused("DURABLE_BINDING_CHANGED")
     current_commands = _commands(conn, bound) if commands is not None else None
     proof = None
-    if (native_orders and commands == current_commands
-            and snapshot.cash == last.cash and snapshot.buying_power == last.buying_power):
+    balances_stable = snapshot.cash == last.cash and snapshot.buying_power == last.buying_power
+    if dollar_proof and balances_stable and _healthy_cash_snapshot(last):
+        if observed_dollar_hold.verify(conn, bound, dollar_proof, last.cash, last.buying_power, observed_at, observed_at):
+            proof = dollar_proof
+    elif native_orders and commands == current_commands and balances_stable:
         if market and _healthy_cash_snapshot(snapshot) and _healthy_cash_snapshot(last):
             proof = dict(schema=MARKET_WORKING_SCHEMA, binding=list(bound), native_orders=native_orders,
                          cash=decimal_text(last.cash), buying_power=decimal_text(last.buying_power))
@@ -252,6 +266,8 @@ async def _observation(conn, *, reader, bound, commands, config):
         and last.equity > 0 and last.buying_power >= 0
         and 1 < last.cash - last.buying_power <= _reserved(current_commands) + 1
     )
+    if dollar_basket and not balances_stable and _healthy_cash_snapshot(last) and last.cash - last.buying_power > 1:
+        unsettled = True
     return last, proof, unsettled, current_commands, observed_at
 
 
@@ -276,7 +292,7 @@ async def _collect(conn, *, reader, bound, commands, config=None):
 async def _publish(conn, *, bound, config, sample, opening, report):
     from psycopg.errors import LockNotAvailable
     from sentinel import account_lock_observation
-    from sentinel.execution import opening_display
+    from sentinel.execution import observed_dollar_hold, opening_display
 
     last, proof, unsettled, commands, observed_at = sample
     clock = asyncio.get_running_loop().time
@@ -321,7 +337,10 @@ async def _publish(conn, *, bound, config, sample, opening, report):
         if current_bound != bound:
             conn.rollback()
             raise AccountStatusRefused('DURABLE_BINDING_CHANGED')
-        if ((proof and _commands(conn, bound) != commands)
+        dollar = proof and proof.get("schema") == observed_dollar_hold.SCHEMA
+        if ((dollar and not observed_dollar_hold.verify(conn, bound, proof, last.cash, last.buying_power,
+                                                        observed_at, observed_at))
+                or (proof and not dollar and _commands(conn, bound) != commands)
                 or (current_opening and opening_display.confirm(conn, bound, opening) != current_opening)):
             conn.rollback()
             raise AccountStatusRefused('ACCOUNT_EVIDENCE_ORDER_CONTEXT_CHANGED')

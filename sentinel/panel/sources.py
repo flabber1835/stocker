@@ -2190,9 +2190,15 @@ def _operator_evidence_rows(
 
         operator_reservation = market_working = None
         if local and reservation is None and reservation_error is None:
-            from sentinel.execution import account_status
+            from sentinel.execution import account_status, observed_dollar_hold
             proof = ((account or {}).get("flags") or {}).get(account_status.RESERVATION_FLAG)
-            if isinstance(proof, Mapping) and proof.get("schema") == account_status.MARKET_WORKING_SCHEMA:
+            if isinstance(proof, Mapping) and proof.get("schema") == observed_dollar_hold.SCHEMA:
+                if proof.get("plan_id") == (cycle or {}).get("plan_id") and account.get("account_id") == bound:
+                    operator_reservation, reservation_error = _read(
+                        conn, lambda c: observed_dollar_hold.verify(c, account_status._bound(c), proof,
+                            account["cash"], account["buying_power"], account["observed_at"], account_observed_at),
+                        STATEMENT_TIMEOUT_MS, default=None)
+            elif isinstance(proof, Mapping) and proof.get("schema") == account_status.MARKET_WORKING_SCHEMA:
                 market_working, reservation_error = _read(
                     conn, lambda c: _matched_market_order_wait(
                         c, account=account, cycle=cycle, now=account_observed_at),
@@ -2234,6 +2240,7 @@ def _operator_evidence_rows(
                 recovery=account_recovery,
                 matched_protected_reservation=reservation,
                 matched_operator_reservation=(operator_reservation or {}).get("reserved_cash"),
+                operator_reservation_terms=(operator_reservation or {}).get("terms", "LIMIT/DAY"),
                 market_working=market_working, **(account or {})))
         if account_row.status == model.OK or (
                 market_working is not None and account_row.recovery == market_working):
