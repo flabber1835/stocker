@@ -870,7 +870,8 @@ async def _ingest_account_cash(
         amendments_applied = await alpaca_trade_amendments.apply(
             conn, broker_adapter=broker_adapter, broker=broker, account_id=account_id,
             amendments=batch.trade_amendments, trade_history=batch.trade_history,
-            trade_publications=batch.trade_publications)
+            trade_publications=batch.trade_publications,
+            prior_event_id=prior.last_event_id if prior else None)
     except alpaca_trade_amendments.TradeAmendmentRefused as exc:
         raise BrokerCashAuthorityRefused(str(exc)) from exc
 

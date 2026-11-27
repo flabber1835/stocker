@@ -33,6 +33,13 @@ native cash posting. If the current exact order already reflects an execution th
 the accepted prefix does not contain, keep the cursor pending until a fresh
 complete read can explain it.
 
+An ordinary fill can be older than the committed cash cursor and still
+absent from the owned order journal. If a new amendment explicitly names
+that fill, authenticated history may supply the earlier positive execution
+at or before the prior cursor. Verify its native identity, order and cash
+economics, and journal and consume it together with the amendment. Other
+new ordinary effects still require the first bounded read.
+
 The journal retains original fills and immutable amendment evidence. The active
 execution projection excludes replaced fills and includes replacements so a
 replay, a correction of a correction, and a restart use the same economics.

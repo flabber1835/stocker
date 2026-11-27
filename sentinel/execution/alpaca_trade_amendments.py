@@ -291,7 +291,8 @@ def _backfill_predecessors(*, active, order, command, event, trade_history, obse
     return found
 
 
-def _order_publications(conn, *, active, order, group, trade_history, trade_publications, observed_at):
+def _order_publications(conn, *, active, order, group, trade_history, trade_publications,
+                        prior_event_id, observed_at):
     """Return new ordinary fills and the amendments in the first accepted prefix."""
     from zoneinfo import ZoneInfo
 
@@ -301,10 +302,12 @@ def _order_publications(conn, *, active, order, group, trade_history, trade_publ
 
     order_id = order.broker_order_id
     account_uuid = group[0][1].account_uuid
-    history = {row["event_id"]: row for row in trade_history
-               if row["details"].get("order_id") == order_id}
+    order_history = tuple(row for row in trade_history if row["details"].get("order_id") == order_id)
+    history = {row["event_id"]: row for row in order_history}
+    if len(history) != len(order_history):
+        raise TradeAmendmentRefused("owned trade history repeats a publication identity")
     confirmed = {}
-    ordinary = []
+    ordinary_rows = []
     for row in trade_publications:
         if row["details"].get("order_id") != order_id:
             continue
@@ -315,17 +318,38 @@ def _order_publications(conn, *, active, order, group, trade_history, trade_publ
             raise TradeAmendmentRefused("owned trade publication differs from its corroborating history")
         confirmed[event_id] = row
         if not row.get("previous_id") and row["details"].get("execution_type") not in _EFFECTS:
-            _uuid(row["ref_id"])
-            fill = AlpacaExecutionBroker._activity_execution_fill(row)
-            ordinary.append((event_id, journal.fill_fingerprint(fill), fill))
+            ordinary_rows.append(row)
     for _, event, _ in group:
         if confirmed.get(event.event_id) != json.loads(event.native_json):
             raise TradeAmendmentRefused("owned trade amendment is absent from the accepted publication prefix")
+    if prior_event_id is not None and _PUBLICATION_ID.fullmatch(prior_event_id):
+        # Older history can introduce an ordinary row only when this accepted
+        # prefix will consume that exact referenced predecessor. It cannot
+        # introduce a previously unobserved, unreferenced active fill.
+        predecessors = {event.previous_activity_id: event.event_id for _, event, _ in group}
+        for row in order_history:
+            row_id = row["event_id"]
+            successor = predecessors.get(row["ref_id"])
+            if (successor is not None and row_id not in confirmed
+                    and row_id <= prior_event_id and row_id < successor
+                    and not row.get("previous_id")
+                    and row["details"].get("execution_type") in {"fill", "partial_fill"}):
+                ordinary_rows.append(row)
     effects = [(event.event_id, key.removeprefix(PREFIX), None, event) for key, event, _ in group]
-    if not ordinary:
+    if not ordinary_rows:
         return effects
     if order.submitted_at is None or order.submitted_at.utcoffset() is None:
         raise TradeAmendmentRefused("ordinary publications lack the owned order submission clock")
+    ordinary = []
+    seen = set()
+    for row in ordinary_rows:
+        if (not _PUBLICATION_ID.fullmatch(row["event_id"]) or row["ref_id"] in seen
+                or row.get("activity_type") != "TRD"
+                or row.get("account_id", account_uuid) != account_uuid):
+            raise TradeAmendmentRefused("ordinary publication changed account or native identity")
+        seen.add(_uuid(row["ref_id"]))
+        fill = AlpacaExecutionBroker._activity_execution_fill(row)
+        ordinary.append((row["event_id"], journal.fill_fingerprint(fill), fill))
     rows = conn.execute(
         "SELECT f.fill_key,f.broker_order_id,f.client_key,f.quantity,f.price,f.filled_at,cash.state"
         " FROM sentinel_fills f" + journal.FILL_CASH_JOIN_SQL + " WHERE f.fill_key=ANY(%s)",
@@ -358,7 +382,8 @@ def _order_publications(conn, *, active, order, group, trade_history, trade_publ
     return sorted(additions + effects, key=lambda entry: entry[0])
 
 
-async def apply(conn, *, broker_adapter, broker, account_id, amendments, trade_history=(), trade_publications=()):
+async def apply(conn, *, broker_adapter, broker, account_id, amendments, trade_history=(),
+                trade_publications=(), prior_event_id=None):
     """Stage native rebooking in the cash cursor owner's transaction."""
     from sentinel import binding
     from sentinel.execution import fill_integrity, journal
@@ -443,7 +468,7 @@ async def apply(conn, *, broker_adapter, broker, account_id, amendments, trade_h
             history_complete=True, position_leading_order_ids=())
         publications = _order_publications(conn, active=active, order=order, group=group,
             trade_history=trade_history, trade_publications=trade_publications,
-            observed_at=lookup.request_completed_at)
+            prior_event_id=prior_event_id, observed_at=lookup.request_completed_at)
         for _, key, fill, event in publications:
             if event is None:
                 if key in active:

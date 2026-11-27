@@ -173,7 +173,7 @@ def test_cash_cursor_and_owned_execution_update_share_one_transaction(conn, bust
     conn.rollback()
 
 
-def _mixed_order(conn, *, live_namespace, cache_original):
+def _mixed_order(conn, *, live_namespace, cache_original, known_filled=Decimal(4)):
     live = live_fixture(operations=("READ", "ACTIVITY_READ"), account_id=ACCOUNT_UUID) if live_namespace else None
     if live:
         conn.execute("DELETE FROM sentinel_account_binding")
@@ -183,15 +183,18 @@ def _mixed_order(conn, *, live_namespace, cache_original):
         owner = binding.require(conn)
     conn.execute("UPDATE sentinel_account_binding SET established_at=%s WHERE id=1", (START,))
     instrument = BrokerInstrument("SEC-AAPL", "AAPL", ASSET)
+    state = CommandState.PARTIALLY_FILLED if known_filled else CommandState.ACKNOWLEDGED
+    average = Decimal(100) if known_filled else None
     command = Command(CommandIdentity(owner.identity, "mixed-prefix", instrument.security_id),
-        instrument, Side.BUY, Decimal(10), state=CommandState.PARTIALLY_FILLED,
-        broker_order_id=ORDER, filled_quantity=Decimal(4), filled_average_price=Decimal(100))
+        instrument, Side.BUY, Decimal(10), state=state,
+        broker_order_id=ORDER, filled_quantity=known_filled, filled_average_price=average)
     journal.save_command(conn, command)
     original = _quantity(_trade(1, key=command.client_key), "4")
     if cache_original:
         journal.record_fills(conn, (AlpacaExecutionBroker._activity_execution_fill(original),))
     order = full_order(id=ORDER, asset_id=ASSET, client_order_id=command.client_key, qty="10",
-        submitted_at=START.isoformat(), status="partially_filled", filled_qty="4", filled_avg_price="100")
+        submitted_at=START.isoformat(), status="partially_filled" if known_filled else "new",
+        filled_qty=str(known_filled), filled_avg_price=str(average) if average else None)
     broker, http = _adapter(order=order, live=live)
     scope = {"broker": owner.broker, "account_id": owner.broker_account_id}
     return owner, command, broker, http, scope, order, original
@@ -307,3 +310,58 @@ def test_replayed_ordinary_fill_cannot_change_its_archived_native_cash(conn):
     assert broker_cash.load_activity_state(conn, **scope) == old
     assert journal.load_commands(conn, owner.identity)[0].filled_quantity == Decimal(4)
     assert conn.execute("SELECT COUNT(*) FROM sentinel_fills").fetchone() == (1,)
+
+
+@pytest.mark.parametrize("live_namespace", [False, True])
+@pytest.mark.parametrize("unreferenced_old_fill", [False, True])
+def test_prior_cursor_history_can_supply_only_an_explicitly_consumed_ordinary_fill(
+        conn, live_namespace, unreferenced_old_fill):
+    owner, command, broker, http, scope, order, original = _mixed_order(
+        conn, live_namespace=live_namespace, cache_original=False, known_filled=Decimal(0))
+    older_unreferenced = _quantity(_trade(2, key=command.client_key), "1")
+    watermark = activity_event(
+        event_id=f"01J5R{3:021d}", ref_id="55555555-5555-5555-5555-555555555555",
+        activity_type="CSD", net_amount="7")
+    revision = _quantity(_trade(4, key=command.client_key, prior=original), "3")
+    later = _quantity(_trade(5, key=command.client_key), "6")
+    source = [original]
+    if unreferenced_old_fill:
+        source.append(older_unreferenced)
+    source.append(watermark)
+    cursored_reads = []
+
+    def stream(params):
+        visible = _visible_rows(source, params)
+        if "since_id" in params:
+            cursored_reads.extend(event["ref_id"] for event in visible)
+        return Response(text=sse(*visible))
+
+    http.routes["/v2beta1/events/activities"] = stream
+
+    def ingest(upper):
+        return asyncio.run(broker_cash.ingest_account_cash(conn, broker_adapter=broker, through=upper, **scope))
+
+    old = ingest(UPPER)
+    conn.commit()
+    assert old.last_event_id == watermark["event_id"]
+    assert conn.execute("SELECT COUNT(*) FROM sentinel_fills").fetchone() == (0,)
+    source.extend((revision, later))
+    order.update(status="filled" if unreferenced_old_fill else "partially_filled",
+                 filled_qty="10" if unreferenced_old_fill else "9", filled_avg_price="100")
+    if unreferenced_old_fill:
+        with pytest.raises(amendments.TradeAmendmentPending, match="await concordant exact order"):
+            ingest(UPPER + timedelta(seconds=1))
+        conn.commit()
+        assert broker_cash.load_activity_state(conn, **scope) == old
+        assert journal.load_commands(conn, owner.identity)[0].filled_quantity == 0
+        assert conn.execute("SELECT COUNT(*) FROM sentinel_fills").fetchone() == (0,)
+    else:
+        accepted = ingest(UPPER + timedelta(seconds=1))
+        conn.commit()
+        assert accepted.last_event_id == later["event_id"]
+        assert journal.load_commands(conn, owner.identity)[0].filled_quantity == Decimal(9)
+        assert conn.execute("SELECT COUNT(*) FROM sentinel_fills").fetchone() == (3,)
+        assert conn.execute(f"SELECT quantity FROM {journal.ACTIVE_FILLS} active ORDER BY quantity").fetchall() == [
+            (Decimal(3),), (Decimal(6),)]
+        amendments.verify_restored(conn, expected_commitment=accepted.trade_amendment_commitment)
+    assert revision["ref_id"] in cursored_reads and original["ref_id"] not in cursored_reads
