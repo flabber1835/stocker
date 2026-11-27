@@ -111,7 +111,8 @@ def carry_quantities(*, previous, previous_state, projection, state,
 def retry_openings(basis):
     if basis is None:
         return ()
-    if isinstance(basis, dict) and basis.get("schema") in {SCHEMA, LEGACY_FRACTIONAL_SCHEMA, FRACTIONAL_SCHEMA}:
+    if isinstance(basis, dict) and basis.get("schema") in {
+            SCHEMA, LEGACY_FRACTIONAL_SCHEMA, FRACTIONAL_SCHEMA, LIVE_PENDING_SCHEMA}:
         return ()
     if (not isinstance(basis, dict) or basis.get("schema") != RETRY_SCHEMA
             or not isinstance(basis.get("retry_openings"), list)):

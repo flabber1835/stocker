@@ -248,13 +248,13 @@ def _guard(conn, broker, *, base_url, grant, observation_id, starting_cash,
     return wrapped
 
 
-async def _refresh_live_account_activity(conn, *, broker, binding, through):
+async def _refresh_live_account_activity(conn, *, broker, binding):
     """Commit one qualified stream prefix before reading revised holdings."""
     if not (broker.supports_account_cash_activities and broker.financial_activity_sse):
         return
     await broker_cash.ingest_account_cash(
         conn, broker_adapter=broker, broker=binding.broker,
-        account_id=binding.broker_account_id, through=through)
+        account_id=binding.broker_account_id, through=_clock())
     conn.commit()
 
 
@@ -295,8 +295,7 @@ async def prepare_trading_plan(*, conn, broker, base_url, through,
                 automation_config_sha256=automation_config_sha256)
             account = await guarded.account_snapshot()
             _account_or_refuse(account, bound, expected_account)
-            await _refresh_live_account_activity(
-                conn, broker=guarded, binding=bound, through=account.observed_at)
+            await _refresh_live_account_activity(conn, broker=guarded, binding=bound)
             actions = _action_lookup(conn, shadow.state, through)
             rec = await reconcile.reconcile(broker=guarded, conn=conn,
                 binding=None, deployment=bound.identity, actions=actions)
@@ -393,8 +392,7 @@ async def recover_trading_account(*, conn, broker, base_url, expected_account=No
             account = await guarded.account_snapshot()
             if not bound.identity.matches_account(account.identity):
                 raise TradingGatewayRefused("recovery account identity differs from binding")
-            await _refresh_live_account_activity(
-                conn, broker=guarded, binding=bound, through=account.observed_at)
+            await _refresh_live_account_activity(conn, broker=guarded, binding=bound)
             actions = _action_lookup(conn, None, _clock().date())
             result = await reconcile.reconcile(broker=guarded, conn=conn,
                 binding=None, deployment=bound.identity, actions=actions)
@@ -462,8 +460,7 @@ async def execute_trading_plan(*, conn, broker, base_url, confirm_account,
                 actions=lambda: action_context["value"], issuer_admission_check=issuer.final_check)
             account = await guarded.account_snapshot()
             _account_or_refuse(account, bound, confirm_account)
-            await _refresh_live_account_activity(
-                conn, broker=guarded, binding=bound, through=account.observed_at)
+            await _refresh_live_account_activity(conn, broker=guarded, binding=bound)
             active_ids = _preopen_active_security_ids(plan=plan,
                 commands=journal.load_commands(conn, bound.identity), actions=actions, conn=conn)
             _authority, actions, target_actions = _preopen_views_or_none(conn,

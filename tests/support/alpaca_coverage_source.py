@@ -15,6 +15,9 @@ CHANGED_COMPILERS = frozenset({
 })
 _FIXTURE = Path(__file__).with_name('alpaca-coverage-2adeda3-compilers.json')
 _FIXTURE_SHA = '6b5a5f4849de1d08b66d4151b9ea9165be59f98aa4fc9e28a811b617c9e63271'
+PAPER_OWNERS = frozenset({'cash', 'execution', 'targets'})
+_PAPER_FIXTURE = Path(__file__).with_name('alpaca-coverage-2adeda3-paper.json')
+_PAPER_FIXTURE_SHA = 'c76f5cee6d30e2e37cc40159afa5c84a074aa646b363dd2fd5f4505a2da622c2'
 
 
 def _sha(raw):
@@ -23,12 +26,22 @@ def _sha(raw):
 
 def predecessor(module, raw):
     """Undo only the exact successor to recover independently pinned Git bytes."""
-    fixture = _FIXTURE.read_bytes()
-    assert _sha(fixture) == _FIXTURE_SHA
+    return _reverse(module, raw, path=_FIXTURE, fixture_sha=_FIXTURE_SHA,
+                    kind='compiler', members=CHANGED_COMPILERS)
+
+
+def paper_predecessor(module, raw):
+    return _reverse(module, raw, path=_PAPER_FIXTURE, fixture_sha=_PAPER_FIXTURE_SHA,
+                    kind='paper', members=PAPER_OWNERS)
+
+
+def _reverse(module, raw, *, path, fixture_sha, kind, members):
+    fixture = path.read_bytes()
+    assert _sha(fixture) == fixture_sha
     value = json.loads(fixture)
-    assert value['schema'] == 'sentinel.alpaca-coverage-compiler-fixture/1'
+    assert value['schema'] == f'sentinel.alpaca-coverage-{kind}-fixture/1'
     assert value['base_revision'] == BASE_REVISION
-    assert set(value['files']) == CHANGED_COMPILERS
+    assert set(value['files']) == members
     record = value['files'][module]
     assert _sha(raw) == record['after_sha256'], 'source is not the reviewed Alpaca successor'
     for pair in record['edits']:

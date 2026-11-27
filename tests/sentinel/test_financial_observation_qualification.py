@@ -46,7 +46,8 @@ def test_concurrent_snapshots_isolate_clients_and_recheck_every_request(monkeypa
             closed.append(self)
             return await super().__aexit__(*args)
     http.AsyncClient = Client
-    monkeypatch.setattr(broker, "_require_transport_authority", lambda: checks.append(1))
+    monkeypatch.setattr(broker, "_require_transport_authority",
+                        lambda *, operation="READ": checks.append(operation))
     async def observe():
         return await asyncio.gather(broker.observe(), broker.observe_with_terminal_recovery(
             submitted_after=NOW, processed_through=NOW))
@@ -54,6 +55,8 @@ def test_concurrent_snapshots_isolate_clients_and_recheck_every_request(monkeypa
     assert all(o.completeness is Completeness.COMPLETE for o in result)
     assert len(owners) == 2 and all(len(tasks) == 1 for tasks in owners.values())
     assert set(owners) == set(closed) and len(checks) == len(http.calls)
+    assert checks.count("ACTIVITY_READ") == sum(
+        path == "/v2beta1/events/activities" for _, path, _ in http.calls)
 
 
 @pytest.mark.parametrize("interrupted_after_headers", [False, True])
@@ -177,6 +180,7 @@ def test_legacy_cursor_backfills_exact_rows_once_without_promoting_legacy_plan(c
     cursor = broker_cash.ACTIVITY_CURSOR_PREFIX + "alpaca:" + state.account_id
     raw = conn.execute("SELECT state FROM sentinel_processed_sessions WHERE cursor_name=%s", (cursor,)).fetchone()[0]
     raw.pop("membership_root")
+    assert raw.pop("stock_merger_proof", None) == state.stock_merger_proof
     raw["kind"] = "broker-cash-activity/v4" if "posting_kinds" in raw else "broker-cash-activity/v3"
     conn.execute("UPDATE sentinel_processed_sessions SET state=%s::jsonb WHERE cursor_name=%s", (json.dumps(raw), cursor))
     # Real legacy installations had inline plan memberships and no prefix nodes.

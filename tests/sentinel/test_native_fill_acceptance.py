@@ -116,8 +116,11 @@ def test_initial_observation_failure_classifies_native_integrity(
         monkeypatch, native_refusal):
     from sentinel import binding as binding_mod
     from sentinel.execution import alpaca, fill_integrity
+    from sentinel.execution.contract import BrokerAccountIdentity
+    from sentinel.execution.identity import DeploymentIdentity
 
-    identity = object()
+    identity = BrokerAccountIdentity('alpaca', 'mock-account')
+    deployment = DeploymentIdentity('mock-deployment', identity.broker, identity.account_id, 1)
     connection = object()
     raw_event = {'ref_id': 'ref-1', 'details': {'execution_type': 'unknown'}}
     failure = (alpaca.MalformedBrokerPayload('unsupported native event',
@@ -147,7 +150,7 @@ def test_initial_observation_failure_classifies_native_integrity(
 
     result = asyncio.run(R.reconcile(
         broker=FailingBroker(), conn=connection, binding=None,
-        deployment=object()))
+        deployment=deployment))
     assert result.native_fill_integrity_refused is native_refusal
     assert result.runtime_state is (
         RuntimeState.RECONCILING if native_refusal else RuntimeState.BROKER_DEGRADED)

@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 import sentinel.paper as paper
+from tests.support import alpaca_coverage_source as alpaca_coverage
 
 TEST_ROOT = Path(__file__).resolve().parents[2]
 ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT", TEST_ROOT)).resolve()
@@ -181,13 +182,21 @@ def test_equivalence_manifest_covers_every_canonical_definition():
     assert manifest["source_sha256"] == 'c14cc619ca19e91b53e3f618543ea782e97f5a87bdde65af6370bd313bd63ffe'
     delta = json.loads((ROOT / "docs" / "production-champion-paper-deltas.json").read_text())
     assert delta["schema"] == "sentinel.production-champion-paper-deltas/1"
+    alpaca = delta["alpaca_coverage"]
+    assert alpaca["base_revision"] == alpaca_coverage.BASE_REVISION
+    assert alpaca["design"] == "docs/operational-work-coordination.md"
+    alpaca_definitions = {}
     revisions = delta["definitions"]
     expected = set(manifest["definitions"]) | set(revisions) | {"_require_mutation_backup"}
     actual = set()
     unreviewed = []
     for module_name in MODULES:
-        tree = ast.parse(
-            (PACKAGE / f"{module_name}.py").read_text(encoding="utf-8"))
+        raw = (PACKAGE / f"{module_name}.py").read_bytes()
+        if module_name in alpaca_coverage.PAPER_OWNERS:
+            before = alpaca_coverage.paper_predecessor(module_name, raw)
+            alpaca_definitions.update(_paper_definition_changes(module_name, before, raw))
+            raw = before
+        tree = ast.parse(raw)
         for node in tree.body:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
                                  ast.ClassDef)):
@@ -239,7 +248,20 @@ def test_equivalence_manifest_covers_every_canonical_definition():
                     unreviewed.append(
                         f"unreviewed canonical paper definition: {module_name}.{node.name}")
     assert actual == expected
+    assert alpaca["definitions"] == alpaca_definitions, "unreviewed Alpaca PAPER definition delta"
     assert not unreviewed, "\n".join(unreviewed)
+
+
+def _paper_definition_changes(module, before, after):
+    def definitions(raw):
+        return {node.name: hashlib.sha256(ast.dump(node).encode()).hexdigest()
+                for node in ast.parse(raw).body
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))}
+
+    old, new = definitions(before), definitions(after)
+    assert old.keys() == new.keys()
+    return {name: {"module": module, "before_ast_sha256": old[name], "after_ast_sha256": digest}
+            for name, digest in new.items() if digest != old[name]}
 
 
 def _restore_preparation_publication_calls(node):
@@ -326,7 +348,8 @@ def test_opening_projection_equivalence_witness_rejects_other_deltas(defect):
     module, name = (('execution', '_execute_current_paper_plan')
                     if defect == 'changed_scope' else
                     ('targets', '_target_projection_or_refuse'))
-    tree = ast.parse((PACKAGE / f'{module}.py').read_text(encoding='utf-8'))
+    source = (PACKAGE / f'{module}.py').read_bytes()
+    tree = ast.parse(alpaca_coverage.paper_predecessor(module, source))
     node = next(item for item in tree.body
                 if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
                 and item.name == name)
@@ -342,6 +365,21 @@ def test_opening_projection_equivalence_witness_rejects_other_deltas(defect):
         owner.body[42].items[0].context_expr.args[0].value = 'unexpected'
     with pytest.raises(AssertionError, match='opening projection'):
         _check_and_remove_opening_projection_delta(node)
+
+
+@pytest.mark.parametrize('module,reviewed,unreviewed', [
+    ('cash', b'    if state.trade_amendments_applied:', b'    if False:'),
+    ('execution', b'if has_native_position_receipts(refreshed_activity):', b'if True:'),
+    ('execution', b'opening_diagnostics.projection("final")', b'opening_diagnostics.projection("initial")'),
+    ('targets', b'opening_diagnostics.projection_phase("action_inputs")',
+     b'opening_diagnostics.projection_phase("unit_projection")'),
+    ('targets', b'if live_fractional and retained:', b'if live_fractional:'),
+])
+def test_current_alpaca_paper_witness_refuses_changed_guard_or_projection(module, reviewed, unreviewed):
+    source = (PACKAGE / f'{module}.py').read_bytes()
+    assert source.count(reviewed) == 1
+    with pytest.raises(AssertionError, match='not the reviewed Alpaca successor'):
+        alpaca_coverage.paper_predecessor(module, source.replace(reviewed, unreviewed, 1))
 
 
 @pytest.mark.parametrize('arguments', ['conn', 'conn, unrelated'])

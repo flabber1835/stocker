@@ -29,6 +29,12 @@ the group complete or reconciles the corresponding holdings.
 
 ## Qualified LIVE activity discovery
 
+After a fresh account snapshot confirms the bound account, the gateway checks
+the current activity capability and captures its local clock for the activity
+request's upper bound. The account snapshot carries sizing facts. Settlement
+facts can carry their own separate clock when present. The activity adapter
+checks account identity around the stream read and supplies the cursor evidence.
+
 The current LIVE execution certificate may authorize `ACTIVITY_READ` alongside
 `READ`. An issuer must grant the operation only when its accounting and
 recovery receipts cover the exact account's Trading API Activity SSE origin,

@@ -1,4 +1,30 @@
 {
+  "alpaca_coverage": {
+    "design": "docs/operational-work-coordination.md",
+    "base_revision": "2adeda3b18e9323827e9d12e8782034c3ecc3e55",
+    "definitions": {
+      "_broker_cash_state_or_refuse": {
+        "module": "cash",
+        "before_ast_sha256": "52a87a5a2c0208d53284893accefe012dcbcb2905c461c4865ebc22e4c79eb3c",
+        "after_ast_sha256": "75277947a10b28cd25c019af97ab39a0ce9521b4c5f0fcc5197d4ee58edf5406"
+      },
+      "_execute_current_paper_plan": {
+        "module": "execution",
+        "before_ast_sha256": "516bda3f1fb765f2ea9fb02209989d4bfdcfa8cf7a5edf5b99bda16df4a63a95",
+        "after_ast_sha256": "682ef744352985c4c08352f5d0b29d1257a6ff1fb69523364bb7da136dca4b7e"
+      },
+      "_preopen_active_security_ids": {
+        "module": "targets",
+        "before_ast_sha256": "72ea6e0552fe4dec41dfa41d4bddc7d8e322aa182dcd3e2ffd8454c60cd80130",
+        "after_ast_sha256": "edf33c58d84dfa3682f50e3e3300d59140a785a6f1ff28d74376dec25e4892cf"
+      },
+      "_target_projection_or_refuse": {
+        "module": "targets",
+        "before_ast_sha256": "16a63612bb18417677a942f8c170e4e859a0d072ff73c03ba60f97a22abbd7e8",
+        "after_ast_sha256": "eea26511aa7819c193fc4a33b9e96f17a3f0b11a8be24a97b83dd154f86378e8"
+      }
+    }
+  },
   "automatic_share_unit_design": "docs/automatic-share-unit-reconciliation.md",
   "autonomous_paper_design": "docs/autonomous-paper-readiness.md",
   "base": "4bba6875b07288cf6ebc6a149b926075b1e41c60",

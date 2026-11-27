@@ -27,6 +27,17 @@ def _scope(value=None, **_kwargs):
     yield value
 
 
+@pytest.fixture
+def live_fractional_policy(monkeypatch):
+    monkeypatch.setenv("ALPACA_BASE_URL", LIVE)
+    monkeypatch.setenv("SENTINEL_PAPER_BUY_POLICY", "PROTECTED_LIMIT_DAY_V1")
+    monkeypatch.setenv("SENTINEL_PAPER_BUY_CAP_BPS", "100")
+    monkeypatch.delenv("SENTINEL_PAPER_DEBUG_WINDOW", raising=False)
+    policy = trading.ProtectedLimitPolicy.from_env()
+    assert policy.fractional
+    return policy
+
+
 def test_paper_gateway_delegates_without_loading_live_authority(monkeypatch):
     calls = []
     result = object()
@@ -67,7 +78,7 @@ def test_explicit_paper_current_plan_url_guard_has_a_behavioral_falsifier(monkey
         test_explicit_paper_current_plan_api_refuses_live_before_database(monkeypatch)
 
 
-def test_wrong_live_namespace_refuses_before_any_broker_access(monkeypatch):
+def test_wrong_live_namespace_refuses_before_any_broker_access(monkeypatch, live_fractional_policy):
     monkeypatch.setattr(trading, "_schema", lambda _c: None)
     monkeypatch.setattr(trading.journal, "writer_lock", lambda *_a, **_k: _scope())
     monkeypatch.setattr(trading.feed_inputs, "pinned", lambda *_a, **_k: _scope(SimpleNamespace(version=1)))
@@ -203,9 +214,9 @@ def test_live_consumer_reads_verified_shadow_independently_of_worker_enable_flag
     assert runtime._shadow_observation_id == 'canonical'
 
 
-def test_live_repeated_prepare_reuses_immutable_plan_without_resizing(monkeypatch):
+def test_live_repeated_prepare_reuses_immutable_plan_without_resizing(monkeypatch, live_fractional_policy):
     fixture = live_fixture()
-    plan = SimpleNamespace(decision_session=date(2026, 10, 30))
+    plan = SimpleNamespace(plan_id="immutable", decision_session=date(2026, 10, 30))
     bound = SimpleNamespace(is_owned=True, broker="alpaca-live",
         broker_account_id=fixture.subject.account_id, identity=object())
     shadow = SimpleNamespace(session="2026-10-30",
@@ -220,8 +231,11 @@ def test_live_repeated_prepare_reuses_immutable_plan_without_resizing(monkeypatc
     monkeypatch.setattr(trading, "load_rollout_state", lambda _c: object())
     monkeypatch.setattr(trading, "_manual_grant", lambda *_a, **_k: object())
     class Broker:
+        supports_account_cash_activities = False
+        financial_activity_sse = False
+
         async def account_snapshot(self):
-            return object()  # A new NAV observation must not resize a retained plan.
+            return SimpleNamespace(equity=1234)  # A fresh NAV cannot resize a retained plan.
     monkeypatch.setattr(trading, "_guard", lambda *_a, **_k: Broker())
     monkeypatch.setattr(trading, "_account_or_refuse", lambda *_a: None)
     monkeypatch.setattr(trading, "_action_lookup", lambda *_a: object())
@@ -230,6 +244,10 @@ def test_live_repeated_prepare_reuses_immutable_plan_without_resizing(monkeypatc
     monkeypatch.setattr(trading.reconcile, "reconcile", reconcile)
     monkeypatch.setattr(trading, "_transport_observation_or_refuse", lambda _r: object())
     monkeypatch.setattr(trading.journal, "latest_plan", lambda _c: plan)
+    def load_authority(_conn, *, plan_id):
+        assert plan_id == plan.plan_id
+        return {"live_fractional_policy": live_fractional_policy.to_dict()}
+    monkeypatch.setattr(trading.dual_plan_authority, "load_authority", load_authority)
     proofs = []
     monkeypatch.setattr(trading.dual_plan_authority, "rederive_plan", lambda *a, **kw: proofs.append(kw))
     monkeypatch.setattr(trading, "build_execution_plan", lambda **_k: pytest.fail("retained economics resized"))
@@ -261,7 +279,9 @@ def test_live_global_kill_fences_manual_mutation_before_transport(monkeypatch):
             base_url=LIVE, observation_id="test", starting_cash="100", now=fixture.now)
 
 
-def test_live_preparation_uses_canonical_builder_and_real_immutable_sizing_proof(monkeypatch):
+def test_live_preparation_uses_canonical_builder_and_real_immutable_sizing_proof(
+        monkeypatch, live_fractional_policy):
+    from decimal import Decimal
     from tests.sentinel.test_production_decision import (
         DECISION_SESSION, _account, _binding, _observation, _publication, _state,
     )
@@ -270,7 +290,8 @@ def test_live_preparation_uses_canonical_builder_and_real_immutable_sizing_proof
     from sentinel.execution.contract import BrokerAccountIdentity
     fixture = live_fixture()
     bound = replace(_binding(fixture.subject.account_id), broker="alpaca-live")
-    account = replace(_account(fixture.subject.account_id), status="ACTIVE", identity=BrokerAccountIdentity(
+    account = replace(_account(fixture.subject.account_id, equity="10001"), status="ACTIVE",
+        identity=BrokerAccountIdentity(
         broker="alpaca-live", account_id=fixture.subject.account_id))
     observation = replace(_observation(), account_identity=account.identity)
     shadow = SimpleNamespace(session=str(DECISION_SESSION), state=_state(),
@@ -289,6 +310,9 @@ def test_live_preparation_uses_canonical_builder_and_real_immutable_sizing_proof
     monkeypatch.setattr(trading, "load_rollout_state", lambda _c: rollout)
     monkeypatch.setattr(trading, "_manual_grant", lambda *_a, **_k: object())
     class Broker:
+        supports_account_cash_activities = False
+        financial_activity_sse = False
+
         async def account_snapshot(self): return account
     monkeypatch.setattr(trading, "_guard", lambda *_a, **_k: Broker())
     monkeypatch.setattr(trading, "_action_lookup", lambda *_a: object())
@@ -316,7 +340,9 @@ def test_live_preparation_uses_canonical_builder_and_real_immutable_sizing_proof
     assert result.plan.broker == "alpaca-live"
     assert result.plan.plan_id == "sentinel-" + result.plan.fingerprint()
     assert result.plan.shadow_snapshot_hash == shadow.state.state_hash
+    assert result.plan.target_basket["SENTINEL:BIL"] == Decimal("50.005")
     assert committed["proof"]["account_snapshot"]["identity"]["broker"] == "alpaca-live"
+    assert committed["proof"]["live_fractional_policy"] == live_fractional_policy.to_dict()
     assert committed["commits"] == 1
     proof = trading.dual_plan_authority.rederive_plan(conn, plan=result.plan,
         binding=bound, rollout_state=rollout, expected_shadow_result=shadow)
@@ -363,26 +389,35 @@ def test_production_live_policy_rechecks_actual_fresh_control_at_transport(monke
     assert state['checks'] == state['connections'] == state['closed'] == 2
 
 
-def test_live_execution_reaches_same_executor_with_strict_reconciliation_and_issuer_gate(monkeypatch):
+@pytest.mark.parametrize("activity_enabled", [False, True])
+def test_live_execution_reaches_same_executor_with_strict_reconciliation_and_issuer_gate(
+        monkeypatch, live_fractional_policy, activity_enabled):
     from decimal import Decimal
     from sentinel.execution import issuer_runtime
+    from sentinel.execution.contract import BrokerAccountIdentity, BrokerAccountSnapshot
     from sentinel.execution.states import RuntimeState
     fixture = live_fixture()
     plan = SimpleNamespace(plan_id='immutable', decision_session=date(2026, 10, 30),
         effective_session=date(2026, 11, 2))
-    bound = SimpleNamespace(identity=object())
+    bound = SimpleNamespace(identity=object(), broker="alpaca-live",
+                            broker_account_id=fixture.subject.account_id)
     state = object()
     actions, projected_actions = object(), object()
     target_actions = object()
-    projection, observation, publication = object(), object(), object()
+    observation, publication = object(), object()
+    projection = SimpleNamespace(target_basket={}, pending_share_targets={})
     preflight = SimpleNamespace(restricted_securities={}, observation=observation)
     captured = {}
+    events = []
+    conn = SimpleNamespace(commit=lambda: events.append("commit"))
     monkeypatch.setattr(trading, '_schema', lambda _c: None)
-    monkeypatch.setattr(trading.ProtectedLimitPolicy, 'from_env', lambda: object())
+    monkeypatch.setattr(trading, "_clock", lambda: fixture.now)
     monkeypatch.setattr(trading.journal, 'writer_lock', lambda *_a, **_k: _scope())
     monkeypatch.setattr(trading.feed_inputs, 'pinned', lambda *_a, **_k: _scope(publication))
     monkeypatch.setattr(trading, '_bound', lambda *_a: bound)
     monkeypatch.setattr(trading.journal, 'latest_plan', lambda _c: plan)
+    monkeypatch.setattr(trading.dual_plan_authority, "load_authority", lambda _c, *, plan_id: {
+        "live_fractional_policy": live_fractional_policy.to_dict()} if plan_id == plan.plan_id else None)
     monkeypatch.setattr(trading.journal, 'load_commands', lambda *_a: ())
     monkeypatch.setattr(trading, '_shadow', lambda *_a, **_k: SimpleNamespace(state=state))
     monkeypatch.setattr(trading, '_action_lookup', lambda *_a: actions)
@@ -391,7 +426,6 @@ def test_live_execution_reaches_same_executor_with_strict_reconciliation_and_iss
     monkeypatch.setattr(trading, '_official_preopen_cutoff', lambda _p: fixture.now)
     monkeypatch.setattr(trading, '_preopen_views_or_none', lambda *_a, **_k: (None, projected_actions, target_actions))
     monkeypatch.setattr(trading, '_target_projection_or_refuse', lambda *_a, **_k: projection)
-    projection = SimpleNamespace(target_basket={})
     async def reconcile(**kwargs):
         assert kwargs['actions'] is projected_actions
         assert kwargs.get('informational_current_book', False) is False
@@ -401,9 +435,22 @@ def test_live_execution_reaches_same_executor_with_strict_reconciliation_and_iss
     async def instruments(*_a, **_k): return {}
     monkeypatch.setattr(trading, '_instrument_map', instruments)
     class Broker:
-        capabilities = SimpleNamespace(minimum_quantity_increment=Decimal(1))
-        async def account_snapshot(self): return object()
+        capabilities = SimpleNamespace(minimum_quantity_increment=Decimal("0.000000001"))
+        supports_account_cash_activities = activity_enabled
+        financial_activity_sse = activity_enabled
+
+        async def account_snapshot(self):
+            events.append("account")
+            return BrokerAccountSnapshot(
+                BrokerAccountIdentity("alpaca-live", fixture.subject.account_id),
+                equity=Decimal(100), cash=Decimal(100))
     broker = Broker()
+    async def ingest(actual_conn, **kwargs):
+        assert actual_conn is conn
+        assert kwargs == dict(broker_adapter=broker, broker=bound.broker,
+                              account_id=bound.broker_account_id, through=fixture.now)
+        events.append("activity")
+    monkeypatch.setattr(trading.broker_cash, "ingest_account_cash", ingest)
     def guard(*_a, **kwargs):
         captured['guard'] = kwargs
         return broker
@@ -426,16 +473,18 @@ def test_live_execution_reaches_same_executor_with_strict_reconciliation_and_iss
     monkeypatch.setattr(trading.executor, 'execute_session', execute)
     grant = LiveExecutionGrant(subject=fixture.subject, operation_scope='EXECUTE',
         plan_id=plan.plan_id, effective_session=plan.effective_session, confirm_submit_live_orders=True)
-    result = asyncio.run(trading.execute_trading_plan(conn=object(), broker=object(), base_url=LIVE,
+    result = asyncio.run(trading.execute_trading_plan(conn=conn, broker=object(), base_url=LIVE,
         confirm_account=fixture.subject.account_id, confirm_plan_id=plan.plan_id,
         confirm_effective_session=plan.effective_session, confirm_submit=True, grant=grant,
         dual_shadow_observation_id='test', dual_shadow_starting_cash='100'))
     assert result.plan is plan and result.session is session
     assert captured['executor']['broker'] is broker
     assert captured['executor']['target_projection'] is projection
+    assert captured['executor']['min_increment'] == Decimal("0.000000001")
     assert captured['executor']['actions'] is projected_actions
     assert captured['executor']['buy_admission'].__self__ is captured['guard']['issuer_admission_check'].__self__
     assert captured['guard']['actions']() is projected_actions
     assert captured['issuer']['publication'] is publication
     assert captured['issuer']['reconciliation'] is preflight
     assert captured['executor'].get('informational_current_book', False) is False
+    assert events == (["account", "activity", "commit"] if activity_enabled else ["account"])
