@@ -52,7 +52,11 @@ async function launch() {
     window:{addEventListener:(name,fn)=>{listeners[name]=fn;}},
     requestAnimationFrame:fn=>frames.push(fn),
     setTimeout:(fn,delay)=>{timers.set(++serial,{fn,delay});return serial;},clearTimeout:id=>timers.delete(id),
-    fetch:(_url,options)=>new Promise((resolve,reject)=>{reads.push({resolve,reject,options});})};
+    fetch:(_url,options)=>new Promise((resolve,reject)=>{
+      const read={resolve,reject,options,aborted:false};
+      options.signal.addEventListener('abort',()=>{read.aborted=true;});
+      reads.push(read);
+    })};
   vm.runInNewContext(input.source,context);
   assert.equal(reads.length,0,'first paint must precede the status fetch');
   frames.shift()();assert.equal(reads.length,0);frames.shift()();
@@ -67,6 +71,74 @@ async function launch() {
     timers.delete(id);
     return timer.fn;
   };
+  if (input.kind.startsWith('suspend-') || input.kind==='retry-online') {
+    const pendingRetry=input.kind.startsWith('suspend-retry-') || input.kind==='retry-online';
+    const pagehide=input.kind.endsWith('-pagehide');
+    const offline=input.kind.endsWith('-offline');
+    const body=input.kind==='suspend-body-visibility';
+    let completeBody;
+    if (body) {
+      reads[0].resolve({ok:true,status:200,url:context.location.href,
+        headers:responseHeaders(),text:()=>new Promise(resolve=>{completeBody=resolve;})});
+      await settle();
+      assert.equal(typeof completeBody,'function','body transport must be pending before suspension');
+    }
+    let retiredRetry;
+    if (pendingRetry) {
+      reads[0].reject(new Error('connection reset'));
+      await settle();
+      const pending=[...timers].filter(([,timer])=>timer.delay===5000);
+      assert.equal(pending.length,1,'failed launch owns one retry before suspension');
+      retiredRetry=pending[0];
+    }
+    if (input.kind!=='retry-online') {
+      if (offline) {
+        context.navigator.onLine=false;listeners.offline();
+        assert.match(status.textContent,/OFFLINE/);
+      } else if (pagehide) {
+        listeners.pagehide();
+      } else {
+        document.visibilityState='hidden';listeners.visibilitychange();
+      }
+      if (pendingRetry) {
+        assert(!timers.has(retiredRetry[0]),'suspension must synchronously cancel the old retry');
+      } else {
+        assert(reads[0].aborted,'suspension must synchronously abort the old request');
+      }
+      if (offline) {
+        context.navigator.onLine=true;listeners.online();
+      } else if (pagehide) {
+        listeners.pageshow({persisted:true});
+      } else {
+        document.visibilityState='visible';listeners.visibilitychange();
+      }
+    } else {
+      listeners.online();
+      assert(!timers.has(retiredRetry[0]),'an online wake must retire the old retry');
+    }
+    assert.equal(reads.length,2,'foreground return must immediately own one fresh request');
+    listeners.online();listeners.pageshow({persisted:true});
+    assert.equal(reads.length,2,'duplicate lifecycle events must share the fresh request');
+    if (retiredRetry) { retiredRetry[1].fn(); }
+    if (completeBody) { completeBody('late'); }
+    else if (!pendingRetry) {
+      if (offline) { reads[0].reject(new Error('late offline failure')); }
+      else { reads[0].resolve({ok:true,status:200,url:context.location.href,
+        headers:responseHeaders(),text:async()=> 'late'}); }
+    }
+    await settle();
+    assert.deepEqual(writes,[],'retired completion cannot replace the current launcher');
+    assert.equal(retry.disabled,true,'retired finally cannot release the new request control');
+    assert.equal(reads.length,2,'retired callback cannot start another request');
+    assert(![...timers.values()].some(timer=>timer.delay===5000),
+      'retired completion cannot schedule a retry');
+    reads[1].resolve({ok:true,status:200,url:context.location.href,
+      headers:responseHeaders(),text:async()=> 'fresh'});
+    await settle();
+    assert.deepEqual(writes,['open','fresh','close'],'only the current request may install');
+    assert.equal(timers.size,0);
+    return;
+  }
   if (['reset-recovery','timeout-recovery','unsettled-fetch','unsettled-body','backoff','pause-offline','pause-hidden',
        'foreign-progress','malformed-progress'].includes(input.kind)) {
     let completeBody;

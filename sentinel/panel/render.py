@@ -680,13 +680,12 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   var pageAway = !hasBeenVisible;
   var wentToBackground = false;
   var wentOffline = !navigator.onLine;
-  var refreshing = false;
+  var requests = dashboardRequests();
   var refreshDeferred = false;
   var refreshDelayed = document.body.dataset.refreshPending === "true";
   // Server health and browser freshness are separate. A server-side incident
   // never turns a sleeping phone into twenty new model-slot failures.
   var hardFailure = false;
-  var retryTimer = null;
   var ordinaryStarted = null;
   var ordinaryEligible = false;
   var ordinaryTimer = null;
@@ -743,12 +742,14 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     refreshTimer = setTimeout(function(){{ checkAge(); refreshDocument(); }}, refreshDelayMs);
   }}
   async function refreshDocument(){{
-    if (refreshing || retryTimer !== null || !navigator.onLine){{ return; }}
+    if (!navigator.onLine){{ return; }}
     if (document.visibilityState !== "visible" || pageAway){{
       refreshDeferred = true;
       return;
     }}
     if (ordinaryStarted === null && resumeStarted === null && !hardFailure && performance.now() < ordinaryDue){{ return; }}
+    var active = requests.begin();
+    if (!active){{ return; }}
     refreshDeferred = false;
     if (ordinaryStarted === null){{
       ordinaryStarted = performance.now();
@@ -764,8 +765,6 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
         if (resumeStarted === null && !originalCurrent()){{ invalidate(false); }}
       }}, 15000);
     }}
-    refreshing = true;
-    var controller = new AbortController();
     var started = performance.now();
     var response;
     var responseStatus;
@@ -773,11 +772,11 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     var sameOrigin = false;
     var transportDelay = true;
     try {{
-      var html = await dashboardDeadline(controller, async function(){{
+      var html = await dashboardDeadline(active, async function(){{
         response = await fetch(location.href, {{cache:"no-store", headers:{{
           "X-Sentinel-Refresh":"1",
           "X-Sentinel-Panel-Fragment":window.sentinelDashboardControllerVersion
-        }}, signal:controller.signal}});
+        }}, signal:active.signal}});
         sameOrigin = new URL(response.url || location.href, location.href).origin === location.origin;
         responseStatus = response.headers.get("X-Sentinel-Panel-Status");
         responseAllowed = sameOrigin && response.ok && ["CURRENT", "PARTIAL"].includes(responseStatus);
@@ -786,10 +785,9 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
         }}
         return response.text();
       }});
+      if (!requests.owns(active) || document.visibilityState !== "visible" || pageAway){{ return; }}
       transportDelay = false;
       var next = currentDocument(html, responseStatus, response, started);
-      // Keep the foreground lifecycle and original clocks while the tab is hidden.
-      if (document.visibilityState !== "visible" || pageAway){{ return; }}
       clearTimeout(refreshTimer);
       clearTimeout(resumeTimer);
       clearTimeout(ordinaryTimer);
@@ -823,9 +821,11 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       checkAge();
       armHeartbeat();
     }} catch (_error) {{
+      if (!requests.owns(active)){{ return; }}
+      if (document.visibilityState !== "visible" || pageAway){{ refreshDeferred = true; return; }}
       var progress = "";
       if (response){{
-        if (sameOrigin && response.status === 503 && !pageAway && navigator.onLine){{
+        if (sameOrigin && response.status === 503 && navigator.onLine){{
           try {{ progress = decodeURIComponent(response.headers.get("X-Sentinel-Deployment-Progress") || ""); }}
           catch (_malformedProgress) {{}}
         }}
@@ -833,7 +833,6 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
             responseStatus !== "LAST_KNOWN")){{ transportDelay = false; }}
       }}
       setDeploymentProgress(progress);
-      if (document.visibilityState !== "visible" || pageAway){{ refreshDeferred = true; return; }}
       if (transportDelay && !invalidated && continuityCurrent()){{
         showResume();
       }} else if (transportDelay && !invalidated && originalCurrent()){{
@@ -842,9 +841,9 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
         invalidate(false, !transportDelay);
         heartbeat.textContent = "Refreshing status · showing last known values";
       }}
-      retryTimer = setTimeout(function(){{ retryTimer = null; refreshDocument(); }}, 5000);
+      requests.retryAfter(refreshDocument, 5000);
     }} finally {{
-      refreshing = false;
+      requests.finish(active);
     }}
   }}
   function originalCurrent(){{
@@ -872,7 +871,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   function continuityCurrent(){{
     var elapsed = performance.now() - ordinaryStarted;
     return !hardFailure && navigator.onLine &&
-      (refreshing || retryTimer !== null) &&
+      requests.pending() &&
       (resumeStarted !== null ? resumeCurrent() :
         ordinaryEligible && ordinaryStarted !== null && elapsed >= 0 && elapsed < 15000);
   }}
@@ -995,12 +994,14 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     else {{ checkAge(); }}
     hasBeenVisible = true;
   }});
-  window.addEventListener("pagehide", function(){{
+  function suspendDocument(){{
     wentToBackground = true;
     pageAway = true;
+    requests.cancel();
     setDeploymentProgress("");
     if (Number.isFinite(generated)){{ showResume(); }}
-  }});
+  }}
+  window.addEventListener("pagehide", suspendDocument);
   window.addEventListener("focus", function(){{
     if (document.visibilityState === "visible"){{
       pageAway = false;
@@ -1014,9 +1015,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   document.addEventListener("visibilitychange", function(){{
     pageAway = document.visibilityState !== "visible";
     if (document.visibilityState === "hidden" && hasBeenVisible){{
-      setDeploymentProgress("");
-      wentToBackground = true;
-      if (Number.isFinite(generated)){{ showResume(); }}
+      suspendDocument();
     }} else if (document.visibilityState === "visible"){{
       if (wentToBackground || !originalCurrent()){{ resumeDocument(); }}
       else if (refreshDeferred){{ refreshDocument(); }}
@@ -1028,6 +1027,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   }});
   window.addEventListener("offline", function(){{
     wentOffline = true;
+    requests.cancel();
     setDeploymentProgress("");
     invalidate(false, true);
   }});

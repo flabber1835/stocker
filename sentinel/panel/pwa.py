@@ -36,6 +36,45 @@ function dashboardDeadline(controller, operation) {
 """
 
 CURRENT_DOCUMENT_SCRIPT = REQUEST_DEADLINE_SCRIPT + r"""
+function dashboardRequests() {
+  var active = null;
+  var retry = null;
+  function pending() { return active !== null || retry !== null; }
+  function clearRetry() {
+    clearTimeout(retry);
+    retry = null;
+  }
+  return {
+    pending: pending,
+    begin() {
+      if (pending()) { return null; }
+      active = new AbortController();
+      return active;
+    },
+    owns(request) { return active === request; },
+    finish(request) {
+      if (active !== request) { return false; }
+      active = null;
+      return true;
+    },
+    retryAfter(read, delay) {
+      var scheduled = setTimeout(function() {
+        if (retry !== scheduled) { return; }
+        retry = null;
+        read();
+      }, delay);
+      retry = scheduled;
+    },
+    clearRetry: clearRetry,
+    cancel() {
+      clearRetry();
+      var request = active;
+      active = null;
+      if (request) { request.abort(); }
+    }
+  };
+}
+
 function currentDocument(html, status, response, started) {
   if (typeof html !== "string" || html.length > 2097152) {
     throw new Error("Dashboard response exceeds its document bound");
@@ -88,7 +127,8 @@ button:disabled{opacity:.6}
 (function(){
   "use strict";
   __CURRENT_DOCUMENT_SCRIPT__
-  var busy = false, controller = null, again = false, away = false, retryTimer = null;
+  var requests = dashboardRequests();
+  var away = false;
   var retryDelay = 5000;
   var status = document.getElementById("launch-status");
   var detail = document.getElementById("launch-detail");
@@ -108,12 +148,10 @@ button:disabled{opacity:.6}
   }
   async function load() {
     if (document.body.dataset.panelLaunch !== "true" || !visible()) { return; }
-    clearTimeout(retryTimer);
-    if (busy) { again = true; return; }
     if (!navigator.onLine) { offline(); return; }
-    busy = true; retry.disabled = true;
-    controller = new AbortController();
-    var active = controller;
+    var active = requests.begin();
+    if (!active) { return; }
+    retry.disabled = true;
     var response;
     var started = performance.now();
     try {
@@ -123,13 +161,13 @@ button:disabled{opacity:.6}
             !sameOrigin(response)) { throw new Error("Current status is not available"); }
         return response.text();
       });
+      if (!requests.owns(active) || !visible()) { return; }
       var documentStatus = response.headers.get("X-Sentinel-Panel-Status");
       var next = currentDocument(html, documentStatus, response, started);
-      if (active.signal.aborted || !visible()) { throw new Error("Launch request interrupted"); }
       window.sentinelDashboardClock = next.sentinelClock;
       document.open(); document.write(html); document.close();
     } catch (_error) {
-      if (visible()) {
+      if (requests.owns(active) && visible()) {
         if (!navigator.onLine) { offline(); }
         else {
           var progress = deploymentProgress(response);
@@ -137,16 +175,14 @@ button:disabled{opacity:.6}
           retryDelay = progress ? 5000 : Math.min(delay * 2, 30000);
           status.textContent = progress || "STATUS NOT CURRENT — CONNECTION DELAYED";
           detail.textContent = "Current health is unavailable. Checking again in " + delay / 1000 + " seconds.";
-          retryTimer = setTimeout(load, delay);
+          requests.retryAfter(load, delay);
         }
       }
     } finally {
-      busy = false; controller = null; retry.disabled = false;
-      if (again && visible()) { again = false; load(); }
+      if (requests.finish(active)) { retry.disabled = false; }
     }
   }
   function resume() {
-    retryDelay = 5000;
     if (status.textContent === "STATUS NOT CURRENT — OFFLINE" && navigator.onLine) {
       status.textContent = "Connecting to current status…";
       detail.textContent = "Current system health has not been checked yet.";
@@ -154,18 +190,23 @@ button:disabled{opacity:.6}
     load();
   }
   function pause() {
-    clearTimeout(retryTimer);
-    again = false;
-    if (controller) { controller.abort(); }
+    requests.cancel();
+    retryDelay = 5000;
+    retry.disabled = false;
   }
-  retry.addEventListener("click", resume);
+  function retryNow() {
+    requests.clearRetry();
+    retryDelay = 5000;
+    resume();
+  }
+  retry.addEventListener("click", retryNow);
   document.addEventListener("visibilitychange", function(){
     away = document.visibilityState !== "visible";
     if (away) { pause(); } else { resume(); }
   });
   window.addEventListener("pagehide", function(){ away = true; pause(); });
   window.addEventListener("pageshow", function(event){ if (event.persisted) { away = false; resume(); } });
-  window.addEventListener("online", resume);
+  window.addEventListener("online", retryNow);
   window.addEventListener("offline", function(){ pause(); offline(); });
   // Commit a painted neutral document before beginning the status round trip.
   requestAnimationFrame(function(){ requestAnimationFrame(load); });

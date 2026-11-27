@@ -30,7 +30,9 @@ def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None, pan
     script = script.replace(DOM_SCRIPT,
         'function reconcileDocument(next) { document.acceptSnapshot(next); }')
     if remove_guard:
-        script = script.replace('refreshing || retryTimer !== null || ', '')
+        guard = 'if (pending()) { return null; }'
+        assert script.count(guard) == 1
+        script = script.replace(guard, 'if (false) { return null; }')
     if mutation == 'premature-invalidation':
         guard='refreshTimer = setTimeout(function(){ checkAge(); refreshDocument(); }, refreshDelayMs);'
         assert script.count(guard)==1
@@ -67,9 +69,13 @@ def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None, pan
         assert script.count(guard) == 1
         script = script.replace(guard, '')
     elif mutation == 'hidden-install':
-        guard = 'if (document.visibilityState !== "visible" || pageAway){ return; }'
-        assert script.count(guard) == 1
-        script = script.replace(guard, '')
+        # A hidden completion is blocked by both synchronous cancellation and
+        # the post-read owner/visibility check. Break both to prove the witness.
+        cancel = 'function suspendDocument(){\n    wentToBackground = true;\n    pageAway = true;\n    requests.cancel();'
+        guard = 'if (!requests.owns(active) || document.visibilityState !== "visible" || pageAway){ return; }'
+        assert script.count(cancel) == script.count(guard) == 1
+        script = script.replace(cancel, cancel.replace('requests.cancel();', ''))
+        script = script.replace(guard, 'if (false){ return; }')
     elif mutation == 'hidden-age':
         guard = '} else if (document.visibilityState !== "visible" || pageAway){\n      return;'
         assert script.count(guard) == 1
@@ -131,9 +137,29 @@ def run_refresh(failure, *, remove_guard=False, wake='timer', mutation=None, pan
         assert script.count(guard) == 1
         script = script.replace(guard, 'if (!navigator.onLine ||')
     elif mutation == 'pagehide':
-        guard = 'window.addEventListener("pagehide", function(){\n    wentToBackground = true;'
+        guard = 'window.addEventListener("pagehide", suspendDocument);'
         assert script.count(guard) == 1
-        script = script.replace(guard, 'window.addEventListener("pagehide", function(){')
+        script = script.replace(guard, 'window.addEventListener("pagehide", function(){});')
+    elif mutation == 'suspend-active':
+        guard = 'var request = active;\n      active = null;'
+        assert script.count(guard) == 1
+        script = script.replace(guard, 'var request = active;')
+    elif mutation == 'retired-owner':
+        guard = 'owns(request) { return active === request; }'
+        assert script.count(guard) == 1
+        script = script.replace(guard, 'owns(request) { return true; }')
+    elif mutation == 'retired-finish':
+        guard = 'if (active !== request) { return false; }'
+        assert script.count(guard) == 1
+        script = script.replace(guard, 'if (false) { return false; }')
+    elif mutation == 'suspend-retry':
+        guard = 'cancel() {\n      clearRetry();'
+        assert script.count(guard) == 1
+        script = script.replace(guard, 'cancel() {')
+    elif mutation == 'new-backoff':
+        guard = 'requests.retryAfter(refreshDocument, 5000);'
+        assert script.count(guard) == 1
+        script = script.replace(guard, 'requests.retryAfter(refreshDocument, 0);')
     elif mutation == 'focus':
         guard = 'window.addEventListener("focus", function(){'
         assert script.count(guard) == 1
@@ -409,6 +435,33 @@ def test_transport_and_ios_lifecycle_share_only_their_original_bounded_windows(w
     assert result.returncode == 0, result.stderr
 
 
+@pytest.mark.parametrize('wake,case', [
+    ('transport-suspend', {'trigger':'visibility','oldOutcome':'success'}),
+    ('transport-suspend', {'trigger':'pagehide','oldOutcome':'failure','newOutcome':'failure'}),
+    ('transport-suspend', {'trigger':'visibility','oldOutcome':'body','newOutcome':'stalled'}),
+    ('transport-suspend', {'trigger':'offline','oldOutcome':'success'}),
+    ('transport-suspend-retry', {'trigger':'visibility'}),
+    ('transport-suspend-retry', {'trigger':'pagehide','newOutcome':'failure'}),
+    ('transport-suspend-retry', {'trigger':'offline'}),
+])
+def test_suspension_retires_request_and_retry_without_renewing_proof(wake,case):
+    result=run_refresh('busy',wake=wake,panel=transport_panel(),case=case)
+    assert result.returncode==0,result.stderr
+
+
+@pytest.mark.parametrize('mutation,wake,case,expected', [
+    ('suspend-active','transport-suspend',{'trigger':'visibility'},'starts one new request immediately'),
+    ('retired-owner','transport-suspend',{'trigger':'pagehide'},'retired completion cannot schedule a retry'),
+    ('retired-finish','transport-suspend',{'trigger':'visibility'},'retired completion cannot release'),
+    ('suspend-retry','transport-suspend-retry',{'trigger':'visibility'},'cancel its scheduled retry'),
+    ('new-backoff','transport-suspend',{'trigger':'pagehide','newOutcome':'failure'},'five-second backoff'),
+])
+def test_suspension_request_ownership_falsifiers(mutation,wake,case,expected):
+    broken=run_refresh('busy',wake=wake,panel=transport_panel(),case=case,mutation=mutation)
+    assert broken.returncode!=0
+    assert expected in broken.stderr
+
+
 @pytest.mark.parametrize('kind', ['malformed','future','offline','clock'])
 def test_foreground_resume_cannot_soften_a_hard_negative(kind):
     result = run_refresh('busy', wake='transport-negative', panel=transport_panel(),
@@ -425,7 +478,7 @@ def test_foreground_resume_cannot_soften_a_hard_negative(kind):
     ('body-transport','transport-body',{},'owned refresh keeps expired proof'),
     ('resume-availability','transport-hidden',{'order':'after-timeout'},'owned refresh keeps expired proof'),
     ('hard-negative-resume','transport-negative',{'kind':'malformed'},'foreground resume cannot soften a hard negative'),
-    ('pagehide','transport-hidden',{'order':'after-timeout','visibility':False,'event':'focus'},'owned refresh keeps expired proof'),
+    ('pagehide','transport-suspend',{'trigger':'pagehide'},'suspension must abort the old request synchronously'),
     ('focus','transport-hidden',{'order':'after-timeout','visibility':False,'event':'focus'},'owned refresh keeps expired proof'),
     ('page-away','transport-hidden',{'order':'after-timeout','visibility':False,'event':'focus'},'owned refresh keeps expired proof'),
     ('pageshow-expired','transport-expired-initial',{},'expired initial pageshow starts one'),
