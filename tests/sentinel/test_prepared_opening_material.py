@@ -46,11 +46,14 @@ def test_first_callback_reuses_preparation_full_scan_and_rejects_changed_block(
                 return result
     first = run()
     assert first.ready and run().checks == first.checks and len(scans) == 1
-    assert (tmp_path / 'prepared-opening-snapshot.json').is_file()
+    proof = tmp_path / 'prepared-opening-snapshot.json'
+    previous = proof.read_bytes()
     _substitute_block(conn, published['candidate_id'])
-    with pytest.raises(rolling_store.SnapshotStorageRefused, match='content differs'):
-        run()
-    assert len(scans) == 2
+    for attempts in (2, 3):
+        with pytest.raises(rolling_store.SnapshotStorageRefused, match='content differs'):
+            run()
+        assert len(scans) == attempts
+        assert proof.read_bytes() == previous
 
 
 def test_committed_strategy_input_change_and_foreign_broker_lineage(conn, published, cycle, tmp_path, monkeypatch):
