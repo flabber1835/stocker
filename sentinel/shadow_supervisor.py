@@ -195,8 +195,6 @@ def _wait_for_next_attempt(poll, hint, config):
             if cutoff is None:
                 return
             limit = hint.started + (cutoff - hint.started_at).total_seconds()
-            if observed_at >= cutoff or observed_tick >= limit:
-                return
             # A full proof has expired. Only an independently reobserved
             # unchanged publication can postpone its optional maintenance.
             reserved = True
