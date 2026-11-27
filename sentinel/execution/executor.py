@@ -1500,12 +1500,12 @@ async def _persist_and_send(conn, broker, command: C.Command, *,
     except Exception as exc:
         from sentinel.execution.guarded import (
             InsufficientPurchaseCash,
-            OrderEvidenceNotReady, PreTransportAuthorityRefused, PurchaseInstrumentUnavailable)
+            OrderEvidenceNotReady, PreTransportAuthorityRefused, PurchaseInstrumentUnavailable, PurchaseRulesExpired)
         if (type(broker) is GuardedExecutionBroker
                 and isinstance(exc, PreTransportAuthorityRefused)
                 and getattr(exc, '_not_transported', None) is not None):
             scoped = report_scoped_buy_deferral and isinstance(
-                exc, (InsufficientPurchaseCash, PurchaseInstrumentUnavailable))
+                exc, (InsufficientPurchaseCash, PurchaseInstrumentUnavailable, PurchaseRulesExpired))
             if not scoped:
                 submission_group.stop(command.client_key)
             async with section:

@@ -29,6 +29,8 @@ from zoneinfo import ZoneInfo
 from sentinel.execution.contract import (
     BrokerAccountIdentity,
     BrokerAccountSnapshot,
+    BrokerAssetRules,
+    BrokerAssetRulesExpired,
     BrokerCloseValuation,
     BrokerExactOrderLookup,
     BrokerFill,
@@ -81,6 +83,10 @@ class OrderEvidenceNotReady(PreTransportAuthorityRefused):
     """This security lacks a fresh quote/funding; its transport was prevented."""
 
 
+class PurchaseRulesExpired(OrderEvidenceNotReady):
+    """Only the exact unsent purchase has exhausted its instrument evidence."""
+
+
 @dataclass
 class _PaperSubmitWindow:
     adapter: object
@@ -89,6 +95,7 @@ class _PaperSubmitWindow:
     economics: tuple
     window: tuple[datetime, datetime] | None
     task: object
+    rules: BrokerAssetRules | None = None
     used: bool = False
     headers_started: bool = False
     refusal: OrderEvidenceNotReady | None = None
@@ -128,18 +135,29 @@ def _check_paper_scope_clock(scope):
     if submission_group.stopped(scope.client_key):
         scope.refusal = OrderEvidenceNotReady("independent submission stopped before PAPER transport")
         raise scope.refusal
-    if scope.window is None:
+    if scope.window is None and scope.rules is None:
         return
-    opened, closed = scope.window
     try:
         now = scope.adapter._now()
     except (MalformedBrokerEvidence, TypeError, ValueError):
         now = None
-    if not isinstance(now, datetime) or now.utcoffset() is None or not opened <= now < closed:
+    if not isinstance(now, datetime) or now.utcoffset() is None or (
+            scope.window is not None and not scope.window[0] <= now < scope.window[1]):
         reason = ("PAPER reduction is outside the plan's regular session" if scope.side is Side.SELL
                   else "PAPER BUY is outside the plan's opening window")
         scope.refusal = OrderEvidenceNotReady(reason)
         raise scope.refusal
+    if scope.rules is not None:
+        try:
+            scope.rules.require_current(scope.economics[0], now)
+        except BrokerAssetRulesExpired as exc:
+            error = (PurchaseRulesExpired if scope.side is Side.BUY and scope.economics[3] is not None
+                     and submission_group.member(scope.client_key) else OrderEvidenceNotReady)
+            scope.refusal = error(str(exc))
+            raise scope.refusal from exc
+        except ValueError as exc:
+            scope.refusal = OrderEvidenceNotReady(str(exc))
+            raise scope.refusal from exc
 
 
 class InsufficientPurchaseCash(OrderEvidenceNotReady):
@@ -762,7 +780,7 @@ class GuardedExecutionBroker(ExecutionBroker):
                     await scope.enter_async_context(self.submission_lock)
                 if submission_group.stopped(client_key):
                     raise OrderEvidenceNotReady("independent submission stopped before broker checks")
-                live_permit, paper_window = await self._prepare_submit(
+                live_permit, paper_window, rules = await self._prepare_submit(
                     client_key=client_key, instrument=instrument, side=side,
                     quantity=quantity, order_terms=order_terms, notional=notional,
                     funding_lock=scope if parallel_inputs else None)
@@ -792,7 +810,7 @@ class GuardedExecutionBroker(ExecutionBroker):
         if paper_window is not None or submission_group.member(client_key):
             scope = _PaperSubmitWindow(
                 self._inner, client_key, side, (instrument, quantity, order_terms, notional),
-                paper_window, asyncio.current_task())
+                paper_window, asyncio.current_task(), rules)
             token = _PAPER_SUBMIT_WINDOW.set(scope)
             try:
                 return await self._inner.submit(**kwargs)
@@ -999,14 +1017,24 @@ class GuardedExecutionBroker(ExecutionBroker):
         async def current_rules():
             try:
                 rules = await self.asset_rules(instrument=instrument)
-                rules.require_current(instrument, self._inner._now())
-                if (notional is not None or (quantity is not None and quantity != quantity.to_integral_value())) and not rules.fractionable:
-                    raise ValueError("asset is not currently fractionable; unresolved fractional amount retained")
-                return rules
+                now = self._inner._now()
             except BrokerInstrumentUnavailable as exc:
                 if side is Side.BUY and exc.instrument == instrument:
                     raise PurchaseInstrumentUnavailable(f"BUY_INSTRUMENT_UNAVAILABLE: {exc}") from exc
                 raise OrderEvidenceNotReady(f"fractional eligibility unavailable: {exc}") from exc
+            except Exception as exc:
+                raise OrderEvidenceNotReady(f"fractional eligibility unavailable: {exc}") from exc
+            try:
+                if type(rules) is not BrokerAssetRules:
+                    raise ValueError("native asset eligibility requires typed rules")
+                rules.require_current(instrument, now)
+                if (notional is not None or (quantity is not None and quantity != quantity.to_integral_value())) and not rules.fractionable:
+                    raise ValueError("asset is not currently fractionable; unresolved fractional amount retained")
+                return rules
+            except BrokerAssetRulesExpired as exc:
+                if funding_lock is not None:
+                    raise PurchaseRulesExpired(str(exc)) from exc
+                raise OrderEvidenceNotReady(str(exc)) from exc
             except Exception as exc:
                 raise OrderEvidenceNotReady(f"fractional eligibility unavailable: {exc}") from exc
 
@@ -1118,17 +1146,30 @@ class GuardedExecutionBroker(ExecutionBroker):
                     raise OrderEvidenceNotReady(str(exc)) from exc
                 raise PreTransportAuthorityRefused(
                     "LIVE original order authority refused: " + type(exc).__name__) from exc
-        if funding_lock is not None:
+        def rules_current():
+            if rules is None:
+                return True
+            now = self._inner._now()
             try:
-                rules.require_current(instrument, self._inner._now())
-            except ValueError:
-                rules = await current_rules()
-        await self._authorize_mutation(BrokerOperation.SUBMIT)
-        if rules is not None:
-            try:
-                rules.require_current(instrument, self._inner._now())
+                rules.require_current(instrument, now)
+            except BrokerAssetRulesExpired:
+                return False
             except ValueError as exc:
                 raise OrderEvidenceNotReady(str(exc)) from exc
+            return True
+
+        # Only an exact, already-funded group purchase can renew an expired
+        # instrument observation. Every renewal precedes a fresh mutation check.
+        for attempt in range(2):
+            if funding_lock is None or rules_current():
+                await self._authorize_mutation(BrokerOperation.SUBMIT)
+                if rules_current():
+                    break
+            if funding_lock is None:
+                raise OrderEvidenceNotReady("asset trading rules are stale")
+            if attempt:
+                raise PurchaseRulesExpired("asset trading rules are stale after renewal")
+            rules = await current_rules()
         if fractional and side is Side.SELL:
             from sentinel.feed import calendar
             now = self._inner._now()
@@ -1217,7 +1258,7 @@ class GuardedExecutionBroker(ExecutionBroker):
                     raise PreTransportAuthorityRefused("market BUY policy changed during submission checks")
             except TargetProjectionRefused as exc:
                 raise PreTransportAuthorityRefused("market BUY policy became invalid") from exc
-        return live_permit, paper_reduction_window
+        return live_permit, paper_reduction_window, rules
 
     async def asset_rules(self, *, instrument):
         async def read():

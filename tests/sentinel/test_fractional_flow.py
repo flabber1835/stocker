@@ -70,6 +70,120 @@ def test_guard_funds_dollars_without_requesting_a_quote():
     assert result.state is S.ACKNOWLEDGED and inner.dollars == {"dollar": D(999)}
 
 
+@pytest.mark.parametrize('funding_seconds,approval_delays,expected_approvals', [
+    (31, [1], 1), (29, [2, 1], 2),
+])
+def test_reserved_purchase_renews_only_expired_rules_and_final_authority(
+        monkeypatch, funding_seconds, approval_delays, expected_approvals):
+    from sentinel.execution import submission_group
+    from sentinel.execution.commands import Command
+    from sentinel.execution.identity import CommandIdentity
+
+    inner = DollarBroker(cash=D(1000))
+    set_clock(inner, 60)
+    instrument = market_instruments()['SEC-AAA']
+    order = Command(CommandIdentity(DEPLOYMENT, 'group', instrument.security_id), instrument,
+                    Side.BUY, None, notional=D(100))
+    reads, approvals = [], []
+    async def rules(*, instrument):
+        reads.append(inner.now)
+        return BrokerAssetRules(instrument, inner.now, True)
+    async def funding(**_):
+        inner.now += timedelta(seconds=funding_seconds)
+    async def approval(*_):
+        approvals.append(inner.now)
+        inner.now += timedelta(seconds=approval_delays[len(approvals)-1])
+    monkeypatch.setattr(inner, 'asset_rules', rules)
+    broker = wrapper(inner, funding=funding, before_mutation=approval)
+    with submission_group.independent_dispatch_scope((order,)):
+        outcome = asyncio.run(broker.submit(client_key=order.client_key, instrument=instrument,
+            side=Side.BUY, quantity=None, notional=order.notional))
+    assert outcome.state is S.ACKNOWLEDGED and inner.dollars == {order.client_key: order.notional}
+    assert len(reads) == 2 and len(approvals) == expected_approvals
+    assert approvals[-1] >= reads[-1]
+
+
+def test_expired_purchase_retains_same_key_and_an_independent_purchase_can_trade(database):
+    from contextvars import ContextVar
+    from sentinel.execution.commands import Command
+    from sentinel.execution.identity import CommandIdentity
+
+    schema.ensure_schema(database)
+    inner = DollarBroker(cash=D(2000))
+    set_clock(inner, 60)
+    commands = [Command(CommandIdentity(DEPLOYMENT, 'group', sid), market_instruments()[sid],
+                        Side.BUY, None, notional=D(100)) for sid in ('SEC-AAA', 'SEC-BBB')]
+    journal.reserve_planned_commands(database, commands)
+    database.commit()
+    delayed, independent = commands
+    current = ContextVar('current_purchase')
+    approvals = []
+    async def funding(*, client_key, **_):
+        current.set(client_key)
+    async def approve(*_):
+        approvals.append(current.get())
+        if current.get() == delayed.client_key:
+            inner.now += timedelta(seconds=31)
+    broker = wrapper(inner, funding=funding, before_mutation=approve)
+    result = asyncio.run(executor._dispatch_independent(database, broker,
+        [(order, True, None, False) for order in commands], reserved=True))
+    assert isinstance(result[0], executor._ProvenUnsentPurchaseDeferral)
+    assert result[1].state is S.ACKNOWLEDGED
+    assert approvals.count(delayed.client_key) == 2
+    assert inner.dollars == {independent.client_key: D(100)}
+    stored = {row.client_key: row for row in journal.load_commands(database, DEPLOYMENT)}
+    assert set(stored) == {order.client_key for order in commands}
+    assert stored[delayed.client_key].state is S.PLANNED
+    outcome, = asyncio.run(executor._dispatch_independent(database, wrapper(inner),
+        [(stored[delayed.client_key], True, None, False)], reserved=True))
+    assert outcome.state is S.ACKNOWLEDGED and outcome.client_key == delayed.client_key
+    assert set(inner.dollars) == set(stored)
+
+
+@pytest.mark.parametrize('withdraw,reason', [
+    ('identity', 'another instrument'), ('future', 'future dated'),
+    ('eligibility', 'not currently fractionable'), ('authority', 'withdrawn'), ('cutoff', 'final next-open freshness'),
+    ('foreign-expiry', 'unrelated approval'), ('adapter-expiry', 'unrelated adapter'),
+])
+def test_reserved_purchase_renewal_cannot_override_current_authority(monkeypatch, withdraw, reason):
+    from sentinel.execution import submission_group
+    from sentinel.execution.commands import Command
+    from sentinel.execution.contract import BrokerAssetRulesExpired
+    from sentinel.execution.guarded import BrokerAuthorityRefused, PurchaseRulesExpired
+    from sentinel.execution.identity import CommandIdentity
+
+    inner = DollarBroker(cash=D(1000))
+    set_clock(inner, 568 if withdraw == 'cutoff' else 60)
+    instrument = market_instruments()['SEC-AAA']
+    order = Command(CommandIdentity(DEPLOYMENT, 'group', instrument.security_id), instrument,
+                    Side.BUY, None, notional=D(100))
+    reads, approvals = [], []
+    async def rules(*, instrument):
+        reads.append(inner.now)
+        renewed = len(reads) == 2
+        if renewed and withdraw == 'adapter-expiry':
+            raise BrokerAssetRulesExpired('unrelated adapter')
+        return BrokerAssetRules(market_instruments()['SEC-BBB'] if renewed and withdraw == 'identity' else instrument,
+            inner.now + timedelta(seconds=int(renewed and withdraw == 'future')),
+            not (renewed and withdraw == 'eligibility'))
+    async def approve(*_):
+        approvals.append(inner.now)
+        inner.now += timedelta(seconds=31 if len(approvals) == 1 else 1)
+        if len(approvals) == 2 and withdraw == 'authority':
+            raise BrokerAuthorityRefused('withdrawn')
+        if len(approvals) == 2 and withdraw == 'foreign-expiry':
+            raise BrokerAssetRulesExpired('unrelated approval')
+    monkeypatch.setattr(inner, 'asset_rules', rules)
+    broker = wrapper(inner, before_mutation=approve)
+    with submission_group.independent_dispatch_scope((order,)):
+        with pytest.raises(PreTransportAuthorityRefused, match=reason) as blocked:
+            asyncio.run(broker.submit(client_key=order.client_key, instrument=instrument,
+                side=Side.BUY, quantity=None, notional=order.notional))
+    assert not isinstance(blocked.value, PurchaseRulesExpired)
+    broker.consume_not_transported(blocked.value, order)
+    assert not inner.dollars
+
+
 @pytest.mark.parametrize("cash,power", [("999", "1000"), ("1000", "999")])
 def test_notional_and_headroom_fit_both_native_cash_bounds(cash, power):
     inner = DollarBroker(cash=D(cash), buying_power=D(power))
@@ -374,7 +488,8 @@ def test_two_proven_unsent_attempts_keep_independent_single_use_proofs():
     assert not inner.dollars
 
 
-def test_http_connection_setup_cannot_carry_a_paper_buy_past_cutoff(monkeypatch):
+@pytest.mark.parametrize('expires', ['cutoff', 'asset'])
+def test_http_connection_setup_cannot_carry_a_paper_buy_past_cutoff(monkeypatch, expires):
     import httpcore
     import httpx
     from httpcore._backends.mock import AsyncMockBackend, AsyncMockStream
@@ -385,7 +500,10 @@ def test_http_connection_setup_cannot_carry_a_paper_buy_past_cutoff(monkeypatch)
 
     opened, _ = calendar.session_window(date(2026, 8, 18))
     cutoff = opened + timedelta(minutes=10)
-    clock = [cutoff - timedelta(seconds=1)]
+    clock = [cutoff - timedelta(seconds=1) if expires == 'cutoff' else opened + timedelta(minutes=2)]
+    rules = (BrokerAssetRules(INSTRUMENT, clock[0] - timedelta(seconds=29), True)
+             if expires == 'asset' else None)
+    connected = clock[0] + timedelta(seconds=1 if expires == 'cutoff' else 2)
     writes = []
 
     class Wire(AsyncMockStream):
@@ -394,7 +512,7 @@ def test_http_connection_setup_cannot_carry_a_paper_buy_past_cutoff(monkeypatch)
 
     class DelayedConnect(AsyncMockBackend):
         async def connect_tcp(self, *args, **kwargs):
-            clock[0] = cutoff
+            clock[0] = connected
             return Wire([])
 
     raw, _ = adapter()
@@ -407,22 +525,24 @@ def test_http_connection_setup_cannot_carry_a_paper_buy_past_cutoff(monkeypatch)
     broker = wrapper(raw)
 
     async def before_submit(**_kwargs):
-        return None, (opened + timedelta(minutes=1), cutoff)
+        return None, (opened + timedelta(minutes=1), cutoff), rules
     monkeypatch.setattr(broker, "_prepare_submit", before_submit)
     order = Command(CommandIdentity(DEPLOYMENT, "group", INSTRUMENT.security_id),
                     INSTRUMENT, Side.BUY, D(1))
-    with pytest.raises(OrderEvidenceNotReady, match="opening window") as stopped:
+    reason = 'opening window' if expires == 'cutoff' else 'asset trading rules are stale'
+    with pytest.raises(OrderEvidenceNotReady, match=reason) as stopped:
         asyncio.run(broker.submit(client_key=order.client_key, instrument=INSTRUMENT,
                                   side=Side.BUY, quantity=D(1)))
-    assert not writes and clock[0] == cutoff
+    assert not writes and clock[0] == connected
     broker.consume_not_transported(stopped.value, order)
 
 
-def test_http_header_deadline_guard_falsifier(monkeypatch):
+@pytest.mark.parametrize('expires', ['cutoff', 'asset'])
+def test_http_header_deadline_guard_falsifier(monkeypatch, expires):
     from sentinel.execution import guarded
     monkeypatch.setattr(guarded, "recheck_paper_before_headers", lambda *_args, **_kwargs: None)
     with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
-        test_http_connection_setup_cannot_carry_a_paper_buy_past_cutoff(monkeypatch)
+        test_http_connection_setup_cannot_carry_a_paper_buy_past_cutoff(monkeypatch, expires)
 
 
 def test_unknown_stops_a_sibling_in_tls_and_keeps_already_sent_receipt(database, monkeypatch):
@@ -494,7 +614,7 @@ def test_unknown_stops_a_sibling_in_tls_and_keeps_already_sent_receipt(database,
 
     raw._http_provider = lambda: SimpleNamespace(AsyncClient=client)
     async def prepared(**_kwargs):
-        return None, (opened, closed)
+        return None, (opened, closed), None
     monkeypatch.setattr(broker, "_prepare_submit", prepared)
     async def run():
         async with asyncio.timeout(8):

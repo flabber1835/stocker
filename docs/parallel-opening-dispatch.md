@@ -36,6 +36,20 @@ Independent instrument and exchange-clock reads can proceed while a sibling
 is awaiting a network response. Each order still receives its own mutation
 check and its original, single-use deadline check at the native request.
 
+For two to four reserved PAPER dollar buys, the exact asset-ID adapter may
+read one current exchange clock and the named instruments' trading rules as
+a bounded batch. Only the named key and instrument can consume its result.
+Stale evidence returns to the individual reader. Financial observations have
+a shorter lifetime: after any sibling can reach the broker, cash alone cannot
+prove that holdings, working orders and activity stayed unchanged. Each
+purchase reads its own account snapshot followed by a complete orders and
+positions observation under one signed read bracket. Both identities must
+match the bound account before any financial information is used. The
+existing writer still verifies cash activity, fills, open orders, holdings,
+aggregate reservations and the individual order. If these endpoints straddle
+a fill it makes the same bounded fresh retry. All observations used in the
+retry are read again. A process restart discards every prefetched input.
+
 One writer prepares and checkpoints commands. Up to four independent requests
 may await a broker response together. Each starts only after its own committed
 SEND_PENDING checkpoint. Its worker owns its single-use pretransport proof,
@@ -53,8 +67,15 @@ reconciliation retains the existing UNKNOWN policy and same-security exclusion.
 
 Each PAPER order checks its applicable exchange window at the native POST.
 The HTTP transport checks it again after socket and TLS setup, before writing
-the order request headers. A fractional order sent by native asset ID uses one
-current asset lookup to verify identity, tradability and denomination at submit.
+the order request headers. A fractional order sent by native asset ID carries
+its exact instrument's 30-second eligibility through to that write. A reserved
+PAPER dollar purchase can fetch rules alongside another order's funding check.
+If funding or mutation approval consumes the rules' lifetime, it may fetch
+them once more and obtain fresh mutation approval before sending the original
+order. If the same instrument's evidence expires again, only that proven
+unsent purchase waits. A different asset, a backward clock, an unknown order
+outcome or loss of account authority still stops the group's unsent orders.
+The opening deadline applies to every attempt.
 The native write check is qualified against the HTTPX and httpcore versions in
 the release lock. Changing either version requires exercising the mock-socket
 deadline test before selecting the new version for order submission.
@@ -96,6 +117,10 @@ checks. Run the clock at wall speed through the original cutoff. Match planned
 orders and durable commands to an independent private venue ledger and its final
 cash and holdings. Record separately how many orders reached the venue by the
 cutoff, how many filled by then and when the scheduler confirmed the result.
+Before accepting a deadline measurement, exercise concurrent wall-clock reads
+on the actual worker threads throughout the run. Compare their elapsed time
+with independent monotonic time and PostgreSQL's clock. A single clock sample
+from each service cannot detect an intermittent jump to host time.
 Show a worker loss separately when exercised and observe the actual dashboard
 at those same times. All venue timings from these tests describe a simulator.
 
