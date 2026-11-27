@@ -6,6 +6,7 @@ from datetime import date
 from decimal import Decimal
 from fractions import Fraction
 
+from sentinel.execution.identity import ALPACA_LIVE_BROKER
 from sentinel.execution.numeric import decimal_text, exact_decimal
 from sentinel.execution.plan import OpeningIntent
 from sentinel.execution.target_reprojection import TargetProjectionRefused, share_action_factor
@@ -14,6 +15,7 @@ SCHEMA = "sentinel.held-share-targets/1"
 RETRY_SCHEMA = "sentinel.held-share-targets/2"
 LEGACY_FRACTIONAL_SCHEMA = "sentinel.held-share-targets/3"
 FRACTIONAL_SCHEMA = "sentinel.held-share-targets/4"
+LIVE_PENDING_SCHEMA = "sentinel.held-share-targets/5"
 
 
 def ownership(state):
@@ -41,7 +43,7 @@ def effective_exposure(state, rollout):
 
 
 def carry_quantities(*, previous, previous_state, projection, state,
-                     exposure, actions=None, fulfilled_targets=None):
+                     exposure, actions=None, fulfilled_targets=None, allow_rational=False):
     """Use retained intent, never the observed partially filled broker book."""
     from sentinel.core.decision import DEFENSIVE_SECURITY_ID
     if previous.target_exposure != exposure:
@@ -99,7 +101,7 @@ def carry_quantities(*, previous, previous_state, projection, state,
                 or isinstance(quantity, Decimal) and not quantity.is_finite() or quantity < 0):
             raise TargetProjectionRefused("retained account share quantity is invalid")
         units = Fraction(quantity) * factor
-        if fulfilled_targets is not None and (units / Fraction("0.000000001")).denominator != 1:
+        if (allow_rational or fulfilled_targets is not None) and (units / Fraction("0.000000001")).denominator != 1:
             result[sid] = units
         else:
             result[sid] = exact_decimal(units)
@@ -174,7 +176,7 @@ def build_execution_plan(*, retained_targets, retry_openings, **kwargs):
 
 
 def build_basis(conn, *, previous, state, binding, rollout, retry_skipped=False,
-                legacy_fractional=False, carry_unprojected=True):
+                legacy_fractional=False, carry_unprojected=True, live_fractional=False):
     """Freeze the immediate predecessor and the derived continuing targets."""
     from sentinel import dual_plan_authority
     from sentinel.core.production import SessionState
@@ -183,6 +185,10 @@ def build_basis(conn, *, previous, state, binding, rollout, retry_skipped=False,
     body = {"schema": SCHEMA, "previous_plan_id": None,
             "previous_plan_fingerprint": None, "previous_authority_sha256": None,
             "previous_projection_fingerprint": None, "targets": {}}
+    if live_fractional and binding.broker != ALPACA_LIVE_BROKER:
+        raise TargetProjectionRefused("LIVE share entitlement basis requires the LIVE account")
+    if live_fractional:
+        body.update(schema=LIVE_PENDING_SCHEMA, pending_share_targets={})
     if previous is None or dual_plan_authority.regenesis_flat_sizing_required():
         return body
     if (previous.deployment_id != binding.deployment_id
@@ -231,9 +237,14 @@ def build_basis(conn, *, previous, state, binding, rollout, retry_skipped=False,
                 fulfilled_targets = dict(previous.target_basket)
                 fulfilled_targets.update({sid: Fraction(qty) for sid, qty in
                     prior_basis.get("pending_share_targets", {}).items()})
+    if live_fractional and projection is None:
+        prior_basis = authority.get("held_share_targets") or {}
+        if prior_basis.get("schema") == LIVE_PENDING_SCHEMA:
+            fulfilled_targets = {**previous.target_basket, **{
+                sid: Fraction(qty) for sid, qty in prior_basis["pending_share_targets"].items()}}
     targets = carry_quantities(previous=previous, previous_state=prior_state,
         projection=projection, state=state, exposure=effective_exposure(state, rollout),
-        actions=actions, fulfilled_targets=fulfilled_targets)
+        actions=actions, fulfilled_targets=fulfilled_targets, allow_rational=live_fractional)
     if retry_skipped and binding.broker == "alpaca" and progress is None:
         retries = _retry_openings(previous, prior_state, projection, state, authority.get("held_share_targets"))
         if retries:
@@ -263,13 +274,16 @@ def build_basis(conn, *, previous, state, binding, rollout, retry_skipped=False,
         pending = {sid: str(qty) for sid, qty in sorted(targets.items()) if isinstance(qty, Fraction)}
         if pending:
             body["pending_share_targets"] = pending
+    if live_fractional:
+        pending = {sid: str(qty) for sid, qty in sorted(targets.items()) if isinstance(qty, Fraction)}
+        body.update(schema=LIVE_PENDING_SCHEMA, pending_share_targets=pending)
     return body
 
 
 def verify_basis(conn, *, basis, state, binding, rollout):
     from sentinel.execution import journal, target_reprojection
     if not isinstance(basis, dict) or basis.get("schema") not in {
-            SCHEMA, RETRY_SCHEMA, LEGACY_FRACTIONAL_SCHEMA, FRACTIONAL_SCHEMA}:
+            SCHEMA, RETRY_SCHEMA, LEGACY_FRACTIONAL_SCHEMA, FRACTIONAL_SCHEMA, LIVE_PENDING_SCHEMA}:
         raise TargetProjectionRefused("retained share target basis is absent or unsupported")
     previous_id = basis.get("previous_plan_id")
     previous = None if previous_id is None else journal.load_plan(conn, previous_id)
@@ -284,7 +298,8 @@ def verify_basis(conn, *, basis, state, binding, rollout):
     expected = build_basis(conn, previous=previous, state=state, binding=binding, rollout=rollout,
         retry_skipped=basis["schema"] == RETRY_SCHEMA,
         legacy_fractional=basis["schema"] == LEGACY_FRACTIONAL_SCHEMA,
-        carry_unprojected=basis["schema"] == FRACTIONAL_SCHEMA)
+        carry_unprojected=basis["schema"] == FRACTIONAL_SCHEMA,
+        live_fractional=basis["schema"] == LIVE_PENDING_SCHEMA)
     if expected != basis:
         raise TargetProjectionRefused("retained share targets do not re-derive from their predecessor")
     return {sid: Decimal(qty) for sid, qty in expected["targets"].items()}

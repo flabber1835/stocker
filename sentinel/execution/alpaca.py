@@ -1529,6 +1529,7 @@ def _activity_settle_date(value) -> date:
 _CONSIDERATION_LEGS = {
     ("MA", "CMA"): True, ("MA", "SCMA"): True, ("MA", "SMA"): False,
     ("REO", "REOC"): True, ("REO", "REOSC"): True, ("REO", "REOS"): False,
+    ("DIV", "SDIV"): False,
 }
 
 

@@ -531,6 +531,12 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
         or any(item.security_id == sid for item in plan.opening_intents)},
         after=plan.decision_session))
     restrictions.update(rec.restricted_securities)
+    live_pending = {}
+    if deployment.broker == ALPACA_LIVE_BROKER and target_projection is not None:
+        live_pending = protected_limits.share_restrictions(target_projection)
+        restrictions.update(live_pending)
+        deferred.extend(live_pending)
+        deferral_reasons.update(live_pending)
     if fractional:
         progress = fractional_progress.derive(conn, projection=target_projection, deployment=deployment)
         deferred.extend(progress.blocked)
@@ -888,6 +894,11 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
         deferred.extend(delta.security_id for delta in increases)
         increases = []
         settle_note = "market BUY awaits complete account-wide order reconciliation"
+    if (deployment.broker == ALPACA_LIVE_BROKER and increases
+            and (live_pending or rec.restricted_securities)):
+        deferred.extend(delta.security_id for delta in increases)
+        increases = []
+        settle_note = "LIVE increases await confirmed corporate-action disposition"
 
     if increases and prepare_increases is not None:
         await prepare_increases(increases, rec)

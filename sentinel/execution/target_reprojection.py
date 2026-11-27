@@ -478,10 +478,14 @@ def _decode(raw, *, plan_id: str, session) -> TargetProjection:
         "projection_fingerprint"}
     if isinstance(state, dict) and state.get("kind") == OPENING_KIND:
         expected.add("opening_sizing")
-        if (isinstance(state.get("opening_sizing"), dict)
-                and state["opening_sizing"].get("mode") == "FRACTIONAL_MARKET_DAY_V1"
-                and "pending_share_targets" in state):
-            expected.add("pending_share_targets")
+        if isinstance(state.get("opening_sizing"), dict) and "pending_share_targets" in state:
+            sizing = state["opening_sizing"]
+            from sentinel.execution.protected_limits import LIVE_FRACTIONAL_POLICY_SCHEMA, PROTECTED_MODE
+            policy = sizing.get("policy")
+            if (sizing.get("mode") == "FRACTIONAL_MARKET_DAY_V1"
+                    or (sizing.get("mode") == PROTECTED_MODE and isinstance(policy, dict)
+                        and policy.get("schema") == LIVE_FRACTIONAL_POLICY_SCHEMA)):
+                expected.add("pending_share_targets")
     if (not isinstance(state, dict) or set(state) != expected
             or state.get("kind") not in (KIND, OPENING_KIND) or state.get("plan_id") != plan_id
             or (state.get("kind") == OPENING_KIND and not isinstance(state.get("opening_sizing"), dict))):

@@ -169,10 +169,12 @@ def _preopen_active_security_ids(
         if blocks_overlapping(command.state) or command.is_recovered)
     if conn is not None:
         from sentinel.execution.market_buy_policy import MarketBuyPolicy
+        from sentinel.execution.identity import ALPACA_LIVE_BROKER
         policy = MarketBuyPolicy.from_env()
-        if policy is not None and policy.fractional:
+        if (policy is not None and policy.fractional) or plan.broker == ALPACA_LIVE_BROKER:
             from sentinel.execution import held_targets
-            identities.update(held_targets.plan_purchase_budgets(conn, plan.plan_id))
+            if policy is not None and policy.fractional:
+                identities.update(held_targets.plan_purchase_budgets(conn, plan.plan_id))
             identities.update(held_targets.plan_pending_share_targets(conn, plan.plan_id))
     return tuple(sorted(identities))
 
@@ -321,13 +323,19 @@ def _target_projection_or_refuse(
     target = shadow_target(state)
     opening_diagnostics.projection_phase("mutable_inputs")
     from sentinel.execution import market_buy_sizing, protected_limits
+    from sentinel.execution.identity import ALPACA_LIVE_BROKER
     from sentinel.execution.market_buy_policy import MarketBuyPolicy
     market_policy = MarketBuyPolicy.from_env()
     fractional = market_policy is not None and market_policy.fractional
+    policy = protected_limits.ProtectedLimitPolicy.from_env()
+    live_fractional = plan.broker == ALPACA_LIVE_BROKER and policy is not None and policy.fractional
     carried_budgets, pending_targets = {}, None
     if fractional:
         from sentinel.execution import fractional_progress, fractional_sizing, held_targets
         carried_budgets = held_targets.plan_purchase_budgets(conn, plan.plan_id)
+        pending_targets = held_targets.plan_pending_share_targets(conn, plan.plan_id)
+    elif live_fractional:
+        from sentinel.execution import held_targets
         pending_targets = held_targets.plan_pending_share_targets(conn, plan.plan_id)
     additional_ids = carried_budgets.keys() | (pending_targets or {}).keys()
     commands = journal.load_commands(conn, binding.identity)
@@ -392,7 +400,6 @@ def _target_projection_or_refuse(
                 broker.capabilities.minimum_quantity_increment),
             fractional_entitlements=pending_targets)
         opening_diagnostics.projection_phase("policy_resolution")
-        policy = protected_limits.ProtectedLimitPolicy.from_env()
         if fractional:
             retained, retries = held_targets.plan_sizing(conn, plan=plan, state=state)
             stored = target_reprojection.load_projection(conn, plan_id=plan.plan_id)
@@ -420,6 +427,9 @@ def _target_projection_or_refuse(
         elif policy is not None:
             from sentinel.execution import held_targets
             retained, retries = held_targets.plan_sizing(conn, plan=plan, state=state)
+            if live_fractional and retained:
+                deferred = pending_targets.keys() | projected.pending_share_targets.keys()
+                retained = {sid: qty for sid, qty in retained.items() if sid not in deferred}
             references = protected_limits.build_references(
                 conn, plan=plan, projection=projected, policy=policy)
             projected = protected_limits.resolve_protected(

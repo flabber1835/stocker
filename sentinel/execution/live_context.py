@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import datetime, timezone
+from decimal import Decimal
 import os
 
 from sentinel import binding as binding_module
@@ -93,7 +94,7 @@ def _native_funding_shape(facts):
             facts.account_snapshot_sha256, facts.amounts)
 
 
-def _check_observation(observation, *, commands, request, bound, actions):
+def _check_observation(conn, observation, *, commands, request, bound, actions):
     if type(observation) is not BrokerObservation or not observation.is_complete:
         raise LiveOrderDeferred("LIVE_CONTEXT_OBSERVATION_INCOMPLETE")
     if not bound.identity.matches_account(observation.account_identity):
@@ -113,7 +114,34 @@ def _check_observation(observation, *, commands, request, bound, actions):
     actual = {position.instrument.security_id: position.quantity
               for position in observation.positions if position.quantity != 0}
     if actual != expected:
-        raise LiveOrderDeferred("LIVE_CONTEXT_HELD_BOOK_RECONCILIATION_REQUIRED")
+        if (request.side is Side.BUY
+                or reconcile._position_identity_conflicts(observation, commands, actions=actions)
+                or not _only_other_pending_actions(
+                    conn, deployment=bound.identity, actions=actions, commands=commands,
+                    observation=observation, expected=expected, actual=actual,
+                    requested_security=request.security_id)):
+            raise LiveOrderDeferred("LIVE_CONTEXT_HELD_BOOK_RECONCILIATION_REQUIRED")
+
+
+def _only_other_pending_actions(conn, *, deployment, actions, commands, observation,
+                                expected, actual, requested_security):
+    from sentinel.execution.share_units import (
+        native_receipt_restrictions, pending_entitlements, scalar_position_restrictions)
+
+    prior = reconcile.expected_book_from_commands(commands)
+    increment = Decimal("0.000000001")
+    pending = pending_entitlements(expected, prior, increment, enforce_increment=True)
+    different = {sid for sid in expected.keys() | actual.keys()
+                 if expected.get(sid, 0) != actual.get(sid, 0)}
+    restricted, explained = scalar_position_restrictions(
+        actions=actions, commands=commands, expected=expected, prior=prior,
+        observed=actual, increment=increment, pending=pending, mismatches=different)
+    if unexplained := different - explained:
+        native = native_receipt_restrictions(conn, deployment=deployment, actions=actions,
+            commands=commands, expected=expected, observation=observation, eligible=unexplained)
+        restricted.update(native)
+        explained.update(native)
+    return requested_security not in restricted and different <= explained
 
 
 async def load_live_order_context(
@@ -164,7 +192,7 @@ async def load_live_order_context(
         raise LiveOrderDeferred("LIVE_CONTEXT_ACCOUNT_CHANGED_DURING_OBSERVATION")
     if _native_funding_shape(before.native_funding) != _native_funding_shape(after.native_funding):
         raise LiveOrderDeferred("LIVE_CONTEXT_FUNDING_CHANGED_DURING_OBSERVATION")
-    _check_observation(observation, commands=commands, request=request, bound=bound, actions=actions)
+    _check_observation(conn, observation, commands=commands, request=request, bound=bound, actions=actions)
     if (observation.started_at is None or observation.started_at < started
             or observation.observed_at > completed):
         raise LiveOrderDeferred("LIVE_CONTEXT_OBSERVATION_CLOCK_CHANGED")
@@ -177,6 +205,8 @@ async def load_live_order_context(
             raise LiveOrderRefused("LIVE_CONTEXT_PROTECTED_PROJECTION_REQUIRED")
         target_reprojection.assert_projection(conn, plan=plan, projection=projection,
                                              through_session=plan.effective_session)
+        if getattr(projection, "pending_share_targets", None):
+            raise LiveOrderDeferred("LIVE_CONTEXT_SHARE_ENTITLEMENT_PENDING")
         references, terms = protected_limits.submission_protection(conn, plan=plan, projection=projection)
         if terms.for_security(request.security_id) != request.order_terms:
             raise LiveOrderRefused("LIVE_CONTEXT_ORIGINAL_PROTECTED_TERMS_CHANGED")

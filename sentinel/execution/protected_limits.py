@@ -233,7 +233,13 @@ def _factor(projection, sid):
 def _wanted(plan, projection):
     from sentinel.core.decision import DEFENSIVE_SECURITY_ID
     return ({sid for sid, qty in projection.target_basket.items() if qty > 0}
+            | set(projection.pending_share_targets)
             | {item.security_id for item in plan.opening_intents} | {DEFENSIVE_SECURITY_ID})
+
+
+def share_restrictions(projection):
+    return {sid: f"CORPORATE_ACTION_PENDING: exact target entitlement {qty} shares"
+            for sid, qty in projection.pending_share_targets.items()}
 
 
 def build_references(conn, *, plan, projection, policy=None, additional_security_ids=()):
@@ -423,6 +429,8 @@ def resolve_protected(state, plan, projection, references, policy, *, retained_t
             or references.action_evidence_sha256 != _action_identity(projection)
             or dict(references.unit_factors) != {sid: str(_factor(projection, sid)) for sid in references.symbols}):
         raise TargetProjectionRefused("protected sizing differs from canonical plan/reference authority")
+    if projection.pending_share_targets and not policy.fractional:
+        raise TargetProjectionRefused("unrepresentable share targets require the LIVE fractional policy")
     if (not plan.target_exposure.is_finite() or not Decimal(0) <= plan.target_exposure <= Decimal(1)
             or not plan.account_nav.is_finite() or plan.account_nav < 0):
         raise TargetProjectionRefused("protected sizing requires long-only account scaling")
@@ -620,6 +628,8 @@ def _validated_projection(projection, *, require_current_policy=False, plan=None
     if not isinstance(evidence, dict) or evidence.get("mode") != PROTECTED_MODE:
         raise TargetProjectionRefused("protected BUY projection is absent")
     policy = ProtectedLimitPolicy.from_dict(evidence.get("policy"))
+    if projection.pending_share_targets and not policy.fractional:
+        raise TargetProjectionRefused("unrepresentable share targets require the LIVE fractional policy")
     references = PriorCloseReferences.from_dict(evidence.get("references"))
     if policy.debug_window is not None and policy.debug_window.effective_session != references.effective_session:
         raise TargetProjectionRefused("debug policy belongs to another effective session")

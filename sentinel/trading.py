@@ -6,6 +6,7 @@ No operation here creates or advances strategy state.
 """
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -17,7 +18,7 @@ from sentinel.authority.live_runtime import load_live_adapter_admission
 from sentinel.config import trading_endpoint
 from sentinel.core.decision import build_execution_plan
 from sentinel.execution import broker_cash, executor, feed_inputs, held_targets, journal
-from sentinel.execution import reconcile
+from sentinel.execution import reconcile, target_reprojection
 from sentinel.execution.authority_gate import build_fresh_execution_guard, build_fresh_execution_check
 from sentinel.execution.certification import require_certified_adapter
 from sentinel.execution.guarded import (
@@ -313,7 +314,7 @@ async def prepare_trading_plan(*, conn, broker, base_url, through,
             else:
                 marks, tickers = _load_marks_and_tickers(conn, shadow.state, str(through))
                 share_basis = held_targets.build_basis(conn, previous=previous,
-                    state=shadow.state, binding=bound, rollout=rollout)
+                    state=shadow.state, binding=bound, rollout=rollout, live_fractional=True)
                 plan = build_execution_plan(state=shadow.state, binding=bound,
                     publication=pinned, account_snapshot=account, observation=observation,
                     marks=marks, tickers=tickers, decision_session=through,
@@ -395,8 +396,21 @@ async def recover_trading_account(*, conn, broker, base_url, expected_account=No
             await _refresh_live_account_activity(
                 conn, broker=guarded, binding=bound, through=account.observed_at)
             actions = _action_lookup(conn, None, _clock().date())
-            return await reconcile.reconcile(broker=guarded, conn=conn,
+            result = await reconcile.reconcile(broker=guarded, conn=conn,
                 binding=None, deployment=bound.identity, actions=actions)
+            plan = journal.latest_plan(conn)
+            if result.transport_ready and plan is not None:
+                projection = target_reprojection.load_projection(conn, plan_id=plan.plan_id)
+                if projection is None:
+                    pending = held_targets.plan_pending_share_targets(conn, plan.plan_id)
+                else:
+                    pending = projection.pending_share_targets
+                if pending:
+                    return replace(result, restricted_securities={
+                        **{sid: f"CORPORATE_ACTION_PENDING: exact target entitlement {qty} shares"
+                           for sid, qty in pending.items()},
+                        **result.restricted_securities})
+            return result
 
 
 async def execute_trading_plan(*, conn, broker, base_url, confirm_account,
@@ -468,9 +482,11 @@ async def execute_trading_plan(*, conn, broker, base_url, confirm_account,
                 plan=plan, binding=bound, broker=guarded, through=today,
                 actions=actions, target_actions=target_actions, expected_projection=projected,
                 allow_restrictions=True)
+            from sentinel.execution.protected_limits import share_restrictions
+            restrictions = preflight.restricted_securities | share_restrictions(projected)
             instruments = await _instrument_map(conn, guarded, shadow.state, plan,
                 observation, target_basket=projected.target_basket,
-                restricted_security_ids=preflight.restricted_securities, reductions_only=True)
+                restricted_security_ids=restrictions, reductions_only=True)
             buy_deferrals: dict[str, str] = {}
 
             async def prepare_increases(candidates, fresh_reconciliation):
@@ -501,7 +517,7 @@ async def execute_trading_plan(*, conn, broker, base_url, confirm_account,
                 buy_deferrals=buy_deferrals, reductions_only=reductions_only,
                 market_buy_window_open=(buy_window_open
                     if isinstance(grant, AutomationExecutionGrant) else None),
-                security_restrictions=preflight.restricted_securities)
+                security_restrictions=restrictions)
             return TradingExecutionResult(plan=plan, preflight=preflight, session=session)
 
 

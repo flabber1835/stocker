@@ -108,6 +108,38 @@ def entitlement_matches_observation(entitlement, held, prior, increment):
     return Fraction(held) in {floor, floor + lot}
 
 
+def pending_entitlements(expected, prior, increment, *, enforce_increment):
+    """Keep exact action-adjusted ownership when native shares cannot express it."""
+    lot = Fraction(increment)
+    return {
+        sid: Fraction(qty) for sid, qty in expected.items()
+        if isinstance(qty, Fraction) or (enforce_increment and qty != prior.get(sid, 0)
+                                         and (Fraction(qty) / lot).denominator != 1)
+    }
+
+
+def scalar_position_restrictions(*, actions, commands, expected, prior, observed,
+                                 increment, pending, mismatches, existing=None):
+    """Return only fresh, quantity-specific split explanations and restrictions."""
+    restrictions = dict(existing or {})
+    explained = set()
+    for sid, raw in prior.items():
+        if raw > 0 and expected.get(sid, 0) != raw and observed.get(sid, 0) == raw:
+            restrictions[sid] = "CORPORATE_ACTION_PENDING: broker quantity is still in prior share units"
+            explained.add(sid)
+    for sid, entitlement in pending.items():
+        restrictions[sid] = f"CORPORATE_ACTION_PENDING: exact entitlement {entitlement} shares"
+        explained.discard(sid)
+        if entitlement_matches_observation(
+                entitlement, observed.get(sid, 0), prior.get(sid, 0), increment):
+            explained.add(sid)
+    for sid in mismatches - explained:
+        if matches_intermediate_split_units(actions, commands, sid, observed.get(sid, 0)):
+            restrictions.setdefault(sid, "CORPORATE_ACTION_PENDING: broker quantity is in intermediate share units")
+            explained.add(sid)
+    return restrictions, explained
+
+
 def matches_intermediate_split_units(actions, commands, security_id, observed) -> bool:
     """Recognize only an exact position produced by a dated scalar prefix."""
     from sentinel.execution.reconcile import CorpusActionLookup, expected_book_from_commands

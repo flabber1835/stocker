@@ -70,6 +70,20 @@ must still be current at the final transport check. Fractional support in a
 generated fixture does not grant LIVE account authority or prove vendor behavior.
 See [Alpaca fractional trading](https://docs.alpaca.markets/us/docs/fractional-trading).
 
+An authenticated split can create an exact share amount the broker cannot
+represent at its nine-decimal increment. Retain that amount as a rational
+entitlement with a blocked share target. Carry the original evidence across
+sessions and restarts. A broker quantity in prior split units or at an adjacent
+supported increment can explain the mismatch for quarantine purposes. It
+cannot authorize rounding, cash credit or a compensating order.
+
+The affected asset stays restricted until its disposition can be reconciled
+from real broker evidence. Unrelated reductions may proceed if fresh reads
+match the durable order journal and prove that every remaining quantity
+mismatch is confined to one of these identified share transitions. A changed
+native asset identity or any unexplained mismatch still refuses transport.
+Increases wait while a share target or a broker position remains restricted.
+
 The public funding file is selected explicitly by
 `SENTINEL_LIVE_FUNDING_CERTIFICATE_PATH`. Absence selects no funding authority;
 it does not select another trading environment. Its public issuer records and

@@ -65,7 +65,10 @@ def filled_share_units(command: "Command", *, actions, multiplier: Decimal) -> F
     """Exact owned shares using the same rational action evidence as targets."""
     import os
     factor = Fraction(multiplier)
-    if command.notional is not None or os.environ.get("SENTINEL_PAPER_BUY_POLICY", "").strip() == "FRACTIONAL_MARKET_DAY_V1":
+    from sentinel.execution.identity import ALPACA_LIVE_BROKER
+    if (command.identity.deployment.broker == ALPACA_LIVE_BROKER
+            or command.notional is not None
+            or os.environ.get("SENTINEL_PAPER_BUY_POLICY", "").strip() == "FRACTIONAL_MARKET_DAY_V1"):
         reader = getattr(actions, "scalar_evidence_for", None)
         since = command.created_at.date() if command.created_at is not None else getattr(actions, "start", None)
         evidence = tuple(event.to_dict() for event in reader((command.security_id,))

@@ -180,6 +180,109 @@ def test_live_plan_authority_rederives_fractional_core_and_bil_from_saved_policy
     assert proof["plan_fingerprint"] == plan.fingerprint()
 
 
+def test_live_protected_projection_preserves_unrepresentable_split_entitlement():
+    from tests.sentinel.test_fractional_continuity import split_event
+
+    state, original = case(entries=0, exposure="0.55")
+    sid, sleeve = "SEC-AAA", decision.DEFENSIVE_SECURITY_ID
+    plan = replace(original, broker="alpaca-live", target_basket={sid: D(1), sleeve: D(0)})
+    event = split_event(sid, "AAA", plan.effective_session, 1, 3)
+    initial = projections.project_target(plan, through_session=plan.effective_session,
+        action_multipliers={sid: event.canonical_multiplier}, action_evidence=(event.to_dict(),),
+        minimum_quantity_increment=D("0.000000001"), fractional_entitlements={})
+    assert initial.pending_share_targets == {sid: "1/3"}
+    assert initial.target_basket[sid] == 0
+    policy = limits.ProtectedLimitPolicy(100, fractional=True)
+    result = limits.resolve_protected(state, plan, initial, references(plan, initial), policy)
+    assert result.pending_share_targets == {sid: "1/3"}
+    assert limits.share_restrictions(result).keys() == {sid}
+    assert sid not in result.opening_sizing["limits"]
+    assert projections._decode(result.payload(), plan_id=plan.plan_id,
+                                session=plan.effective_session) == result
+    with pytest.raises(projections.TargetProjectionRefused, match="LIVE fractional policy"):
+        legacy = limits.resolve_protected(state, plan, initial, references(plan, initial),
+                                          limits.ProtectedLimitPolicy(100))
+        limits.validate_projection(legacy, plan=plan)
+
+
+def test_live_rational_share_target_survives_an_unexecuted_successor(monkeypatch):
+    from datetime import date
+    from sentinel import dual_plan_authority
+    from sentinel.authority import RolloutMode, RolloutState
+    from sentinel.execution import feed_actions, held_targets, journal, reconcile
+    from tests.sentinel.test_fractional_continuity import split_event
+
+    sid = "SEC-AAA"
+    before = _state(episodes=(_episode(0, sid, "AAA", 1),))
+    prior = date.fromisoformat(before.last_processed_session)
+    after, next_day = date(2026, 8, 12), date(2026, 8, 13)
+    binding = replace(_binding(), deployment_id="sentinel-live", broker="alpaca-live")
+    rollout = RolloutState(RolloutMode.CONTROLLER, 1, "a"*64)
+    original = decision.ExecutionPlan("prior", prior, after, D("0.55"),
+        deployment_id=binding.deployment_id, broker=binding.broker,
+        broker_account_id=binding.broker_account_id, takeover_epoch=binding.takeover_epoch,
+        shadow_snapshot_hash=before.state_hash, target_basket={sid: D(1)})
+    original_authority = {"plan_fingerprint": original.fingerprint(),
+                         "shadow_state": before.to_dict(), "authority_sha256": "b"*64}
+    plans = {original.plan_id: original}
+    records = {original.plan_id: original_authority}
+    monkeypatch.setattr(journal, "load_plan", lambda _conn, plan_id: plans[plan_id])
+    monkeypatch.setattr(journal, "load_commands", lambda *_args, **_kwargs: ())
+    monkeypatch.setattr(projections, "load_projection", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(dual_plan_authority, "load_authority",
+                        lambda *_args, plan_id: records[plan_id])
+    event = split_event(sid, "AAA", after, 1, 3)
+    def action_lookup(_conn, *, start, end):
+        applies = start < after <= end
+        return reconcile.CorpusActionLookup(start,
+            {sid: ((after, event.canonical_multiplier),)} if applies else {},
+            scalar_events=(event,) if applies else ())
+    monkeypatch.setattr(feed_actions, "action_lookup", action_lookup)
+
+    def state(day):
+        changed = _state(episodes=(_episode(0, sid, "AAA", 1),))
+        changed.last_processed_session = day.isoformat()
+        return changed
+
+    first = state(after)
+    common = dict(binding=binding, rollout=rollout)
+    saved = held_targets.build_basis(None, previous=original, state=first, live_fractional=True, **common)
+    assert saved["targets"] == {sid: "0"}
+    assert saved["pending_share_targets"] == {sid: "1/3"}
+    assert held_targets.verify_basis(None, basis=saved, state=first, **common) == {sid: D(0)}
+    successor = replace(original, plan_id="unexecuted", decision_session=after,
+        effective_session=next_day, shadow_snapshot_hash=first.state_hash, target_basket={sid: D(0)})
+    plans[successor.plan_id] = successor
+    records[successor.plan_id] = {"plan_fingerprint": successor.fingerprint(),
+        "shadow_state": first.to_dict(), "authority_sha256": "c"*64, "held_share_targets": saved}
+    second = state(next_day)
+    continued = held_targets.build_basis(None, previous=successor, state=second,
+                                        live_fractional=True, **common)
+    assert continued["pending_share_targets"] == {sid: "1/3"}
+    assert held_targets.verify_basis(None, basis=continued, state=second, **common) == {sid: D(0)}
+
+
+def test_live_recovery_actionable_work_excludes_pending_assets_and_buys(monkeypatch):
+    from sentinel import automation_runtime
+    from sentinel.execution.contract import BrokerInstrument, BrokerPosition
+    from sentinel.execution.plan import ExecutionPlan
+
+    state, original = case(entries=0)
+    pending, exit_sid, buy_sid = "SEC-SPLIT", "SEC-EXIT", "SEC-BUY"
+    plan: ExecutionPlan = replace(original, broker="alpaca-live",
+        target_basket={pending: D(0), exit_sid: D(0), buy_sid: D(1)})
+    projection = replace(base(state, plan), pending_share_targets={pending: "1/3"})
+    monkeypatch.setattr(projections, "load_projection", lambda *_args, **_kwargs: projection)
+    monkeypatch.setattr(projections, "assert_projection", lambda *_args, **_kwargs: None)
+    observation = _observation(positions=tuple(BrokerPosition(
+        BrokerInstrument(sid, sid, sid), qty) for sid, qty in
+        ((pending, D("0.333333333")), (exit_sid, D(1)))))
+    actionable = automation_runtime._actionable_projection_deltas(None, plan=plan,
+        effective_session=plan.effective_session, observation=observation,
+        minimum_quantity_increment=D("0.000000001"), restricted_security_ids=(pending,))
+    assert [delta.security_id for delta in actionable] == [exit_sid]
+
+
 def retry_case(*, held=True):
     _, predecessor = case(entries=1, exposure="0.55")
     intent, = predecessor.opening_intents

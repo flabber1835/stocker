@@ -52,17 +52,22 @@ def requires_initial_projection(conn, *, plan, deployment, active_security_ids=(
 
     sizes_core_openings = bool(plan.opening_intents) and plan.target_exposure > 0
     fractional_authority = fractional_plan_authority(conn, plan=plan)
-    if not sizes_core_openings and fractional_authority is None:
+    live_pending = False
+    from sentinel.execution.identity import ALPACA_LIVE_BROKER
+    if plan.broker == ALPACA_LIVE_BROKER:
+        from sentinel.execution import held_targets
+        live_pending = bool(held_targets.plan_pending_share_targets(conn, plan.plan_id))
+    if not sizes_core_openings and fractional_authority is None and not live_pending:
         return False
     projection = target_reprojection.load_projection(
         conn, plan_id=plan.plan_id)
     commands = journal.load_commands(conn, deployment, plan_id=plan.plan_id)
     if projection is None:
-        if any(fractional_authority is None or command.state not in {
+        if any((fractional_authority is None and not live_pending) or command.state not in {
                 CommandState.PLANNED, CommandState.SUPERSEDED} for command in commands):
             raise TargetProjectionRefused(
                 "opening projection is absent for a plan with durable commands")
-        if sizes_core_openings:
+        if sizes_core_openings or live_pending:
             return True
         from sentinel.execution.market_buy_policy import MARKET_BUY_HEADROOM
         basis = fractional_authority["held_share_targets"]

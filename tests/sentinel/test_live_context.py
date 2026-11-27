@@ -2,6 +2,7 @@
 from dataclasses import replace
 from datetime import timedelta
 from decimal import Decimal
+from fractions import Fraction
 import hashlib
 import inspect
 from types import SimpleNamespace
@@ -227,6 +228,54 @@ async def test_journal_bound_refuses_before_fetching_full_rows(monkeypatch):
     with pytest.raises(LiveOrderRefused, match="JOURNAL_BOUND"):
         await load(fixture)
     assert fixture.broker.calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("observed,requested,allowed", [
+    ("1", "OTHER", True),
+    ("0.333333333", "OTHER", True),
+    ("0.333333334", "OTHER", True),
+    ("0.333333332", "OTHER", False),
+    ("0.333333333", "SPLIT", False),
+    ("0.333333333", "BUY", False),
+    ("0.333333333", "WRONG_NATIVE_ID", False),
+])
+async def test_live_split_mismatch_only_permits_unrelated_reductions(
+        monkeypatch, observed, requested, allowed):
+    from sentinel.execution import reconcile
+    from sentinel.execution import share_units
+    from sentinel.execution.contract import Side
+    from tests.sentinel.test_fractional_continuity import split_event
+
+    fixture = setup(monkeypatch)
+    monkeypatch.setattr(share_units, "native_receipt_restrictions",
+                        lambda *_args, **_kwargs: {}, raising=False)
+    split = command(fixture, security="SPLIT", quantity=Decimal(1))
+    other = command(fixture, security="OTHER", quantity=Decimal(1))
+    owned = tuple(replace(row, identity=replace(row.identity, plan_id="prior-" + row.security_id),
+        state=CommandState.FILLED, filled_quantity=row.quantity,
+        filled_average_price=Decimal(10), created_at=NOW - timedelta(days=4))
+        for row in (split, other))
+    split_instrument = (replace(split.instrument, broker_id="unexpected")
+                        if requested == "WRONG_NATIVE_ID" else split.instrument)
+    fixture.broker.observation = replace(fixture.broker.observation, positions=(
+        BrokerPosition(split_instrument, Decimal(observed)),
+        BrokerPosition(other.instrument, Decimal(1)),
+    ))
+    if requested != "BUY":
+        sid = "SPLIT" if requested == "SPLIT" else "OTHER"
+        fixture.request = command(fixture, security=sid, side=Side.SELL, quantity=Decimal(1))
+    fixture.conn.commands = (*owned, fixture.request)
+    event = split_event(split.security_id, split.instrument.symbol, DAY, 1, 3)
+    actions = reconcile.CorpusActionLookup(NOW.date() - timedelta(days=7),
+        {split.security_id: ((DAY, event.canonical_multiplier),)}, scalar_events=(event,))
+    assert reconcile.expected_book_from_commands(owned, actions=actions)[split.security_id] == Fraction(1, 3)
+    if allowed:
+        loaded = await load(fixture, actions=actions)
+        assert loaded.request == fixture.request and loaded.funding is None
+    else:
+        with pytest.raises(LiveOrderDeferred, match="HELD_BOOK_RECONCILIATION_REQUIRED"):
+            await load(fixture, actions=actions)
 
 
 def test_cancel_loader_names_only_exact_owned_nonterminal_command(monkeypatch):
