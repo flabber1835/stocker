@@ -28,6 +28,25 @@ invalid dates, unexplained order outcomes, and independent current failures
 retain their existing operational meaning. Qualification exercises the same
 saved snapshot across the boundary and through its eventual removal.
 
+The lifetime rule applies to both `trading_run` and `completed_trading_run`.
+Classify a retained card once, in the shared health classifier, using its
+original New York session boundary and the evidence valid immediately before
+that boundary. Successful terminal runs, proved cash-activity retirements, and
+proved BUY-only opening cutoffs become history at that boundary. All required
+sales must be filled; no uncertain or working broker order can become harmless
+through a date change. A never-submitted planned BUY is allowed only when the
+cutoff proof explicitly records its unsubmitted remainder.
+
+This is display retirement, not an extension of financial authority or a new
+acknowledgement. Early expiry, mismatched identities or timestamps, missing
+proof, current required facts and independent failures remain actionable.
+Workflow rows already projected as non-required retirement history share this
+lifetime only when they still match the exact proved cash-retired run. A newer
+cycle, a required row, or an independently failed step cannot borrow that rule.
+Existing unacknowledged incidents remain latched after the card disappears.
+Qualification covers both cards, cached snapshots before/at/after midnight,
+their eventual removal, daylight-saving boundaries, and durable review state.
+
 ## Verified publication and bounded database reads
 
 Use one authenticated publication pin through same-connection preparation or
