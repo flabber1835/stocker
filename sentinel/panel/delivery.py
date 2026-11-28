@@ -56,7 +56,7 @@ def finish_display_handoff(panel, *, now, owner_expiry, snapshot_expiry, account
         return replace(panel, observation_display_current=False, observation_display_keys=account_keys)
     finished = replace(panel, now=now)
     keys = tuple(row.key for row in finished.rows
-                 if row.key in finished.observation_display_keys and row_current(finished, row))
+                 if row.key in finished.observation_display_keys and _source_current(finished, row))
     complete = all(row.key in keys or (
         row.key in _SHADOW_VALUATION and row.key in finished.observation_display_keys
         and 'SHADOW' not in finished.observation_changed_scopes
@@ -88,10 +88,15 @@ def opening_refresh_deadline(panel):
     state = cycle.operational_fact.state
     plan_row = panel.row('paper_plan')
     plan = plan_row.paper_plan if plan_row is not None else None
-    if (state == 'WAITING_OPEN' and plan is not None and plan_row.status == model.OK
-            and any(stamp is not None and generated < stamp <= panel.now
-                    for stamp in (plan.execution_open_at, plan.execute_at))):
-        return boundary
+    if state == 'WAITING_OPEN' and plan is not None and plan_row.status == model.OK:
+        bell = plan.execution_open_at
+        schedule = cycle.operational_fact.schedule
+        if schedule is not None:
+            if schedule.execution_start != plan.execute_at or bell not in (None, schedule.market_open):
+                return None
+            bell = schedule.market_open
+        if any(stamp is not None and generated < stamp <= panel.now for stamp in (bell, plan.execute_at)):
+            return boundary
     trading = panel.row('trading_run')
     run = trading.trading_run if trading is not None else None
     broker = panel.row('broker')
@@ -210,6 +215,18 @@ def closing_refresh_deadline(panel):
 
 
 def row_current(panel, row):
+    # An absent report is neither a dated worker observation nor a stop. Full
+    # display eligibility is decided from source scopes before this projection.
+    if (row.key == 'shadow_worker' and row.status == model.UNKNOWN and row.required_current
+            and row.operational_fact is not None and row.operational_fact.state == 'NOT_REPORTED'
+            and row.as_of is None and row.valid_until is None and row.recovery is None
+            and panel.local_paper_mode and not panel.is_live_trading
+            and not panel.observation_current and not display_current(panel)):
+        return False
+    return _source_current(panel, row)
+
+
+def _source_current(panel, row):
     if panel.observation_current:
         return True
     if row.key in panel.observation_display_keys and (

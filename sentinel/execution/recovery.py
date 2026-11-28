@@ -280,6 +280,10 @@ async def dispatch(broker: ExecutionBroker, command: Command) -> Command:
             detail=f"{type(exc).__name__}: {exc} — outcome undetermined")
 
     if getattr(outcome, "retry_after_seconds", None) is not None:
+        from sentinel.execution import submission_group
+        if submission_group.member(command.client_key):
+            submission_group.stop(command.client_key)
+            return command.transition(S.UNKNOWN, detail="rate-limited submission group requires exact-key recovery")
         if market_buy:
             return command.transition(
                 S.UNKNOWN, detail="rate-limited market BUY requires exact-key recovery")

@@ -45,7 +45,7 @@ from sentinel.execution.commands import Command
 from sentinel.execution.alpaca_trade_amendments import PREFIX as _TRADE_AMENDMENT_PREFIX
 from sentinel.execution.contract import (
     BrokerFill, BrokerInstrument, BrokerObservation, OrderTerms, Side)
-from sentinel.execution.identity import CommandIdentity, DeploymentIdentity
+from sentinel.execution.identity import ALPACA_PAPER_BROKER, CommandIdentity, DeploymentIdentity
 from sentinel.execution.plan import ExecutionPlan, OpeningIntent
 from sentinel.execution.states import CommandState, IN_FLIGHT
 from sentinel.execution.order_amount import optional_decimal_text
@@ -534,6 +534,33 @@ def _assert_economics_unchanged(cur, command: Command) -> None:
               "broker may already have acted on stays intact.")
 
 
+def reserve_planned_commands(conn, commands) -> None:
+    """Stage original PLANNED identities in the caller's funding transaction."""
+    if not commands:
+        raise ValueError("an empty order group cannot reserve cash")
+    first = commands[0].identity
+    keys = {command.client_key for command in commands}
+    securities = {command.security_id for command in commands}
+    if len(keys) != len(commands) or len(securities) != len(commands):
+        raise ValueError("a reservation requires distinct orders and securities")
+    existing = {row.client_key: row for row in load_commands(
+        conn, first.deployment, client_keys=tuple(keys))}
+    for command in commands:
+        if (command.identity.deployment != first.deployment or command.identity.plan_id != first.plan_id
+                or command.state is not CommandState.PLANNED or command.side is not Side.BUY
+                or command.notional is None):
+            raise ValueError("cash reservations require original planned purchases on one account and plan")
+        row = existing.get(command.client_key)
+        if row is None:
+            save_command(conn, command, commit=False)
+        elif (row.state is not CommandState.PLANNED or row.identity != command.identity
+              or row.broker_order_id is not None or row.filled_quantity):
+            raise ValueError("a reservation cannot reopen sent command history")
+        else:
+            with conn.cursor() as cur:
+                _assert_economics_unchanged(cur, command)
+
+
 def save_command(conn, command: Command, *, previous: Optional[CommandState] = None,
                  commit: bool = True
                  ) -> None:
@@ -546,6 +573,8 @@ def save_command(conn, command: Command, *, previous: Optional[CommandState] = N
     Refuses outright if the key already exists carrying different economics —
     see `_assert_economics_unchanged`.
     """
+    check_dispatch = (previous is CommandState.SEND_PENDING
+                      or (previous is CommandState.PLANNED and command.state is CommandState.SEND_PENDING))
     with conn.cursor() as cur:
         _assert_economics_unchanged(cur, command)
         cur.execute(
@@ -561,7 +590,9 @@ def save_command(conn, command: Command, *, previous: Optional[CommandState] = N
             " filled_quantity = EXCLUDED.filled_quantity,"
             " filled_average_price = CASE WHEN EXCLUDED.filled_quantity=0 THEN NULL ELSE COALESCE("
             "     EXCLUDED.filled_average_price, sentinel_commands.filled_average_price) END,"
-            " detail = EXCLUDED.detail, updated_at = NOW()",
+            " detail = EXCLUDED.detail, updated_at = NOW()"
+            + (" WHERE sentinel_commands.state = %s AND sentinel_commands.filled_quantity = 0"
+               if check_dispatch else ""),
             (command.client_key, command.identity.plan_id, command.security_id,
              command.identity.revision,
              command.identity.deployment.deployment_id,
@@ -575,7 +606,9 @@ def save_command(conn, command: Command, *, previous: Optional[CommandState] = N
              (str(command.filled_average_price)
               if command.filled_average_price is not None else None),
              command.detail, json.dumps(command.order_terms.to_dict(), sort_keys=True),
-             optional_decimal_text(command.notional)))
+             optional_decimal_text(command.notional)) + ((previous.value,) if check_dispatch else ()))
+        if check_dispatch and cur.rowcount != 1:
+            raise ValueError("dispatch checkpoint would overwrite newer order evidence")
         cur.execute(
             "INSERT INTO sentinel_command_events (client_key, from_state,"
             " to_state, filled_quantity, detail) VALUES (%s,%s,%s,%s,%s)",
@@ -583,6 +616,23 @@ def save_command(conn, command: Command, *, previous: Optional[CommandState] = N
              command.state.value, str(command.filled_quantity), command.detail))
     if commit:
         conn.commit()
+
+
+def commit_planned_sale(conn, planned: Command, pending: Command) -> None:
+    """Publish a single original sale at the native pre-POST boundary."""
+    if (planned.state is not CommandState.PLANNED or planned.side is not Side.SELL or planned.is_recovered
+            or planned.identity.deployment.broker != ALPACA_PAPER_BROKER
+            or planned.broker_order_id is not None or planned.filled_quantity != 0
+            or pending != planned.transition(CommandState.SEND_PENDING)):
+        raise ValueError("native sale requires its original unsent planned command")
+    with JournalUnitOfWork(conn):
+        row = conn.execute(
+            "SELECT plan_id,revision,state,broker_order_id,filled_quantity FROM sentinel_commands"
+            " WHERE client_key=%s FOR UPDATE", (planned.client_key,)).fetchone()
+        if row is None or tuple(row) != (
+                planned.identity.plan_id, planned.identity.revision, CommandState.PLANNED.value, None, Decimal(0)):
+            raise ValueError("original planned sale changed before native POST")
+        save_command(conn, pending, previous=planned.state, commit=False)
 
 
 def restore_proven_unsent(conn, command: Command, *, broker, refusal) -> None:

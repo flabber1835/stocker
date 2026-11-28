@@ -297,8 +297,10 @@ def test_missing_protected_proof_guard_falsifier(ongoing, monkeypatch):
         test_protected_day_recovery_uses_exact_original_proof(ongoing, monkeypatch, 'no_match')
 
 
-@pytest.mark.parametrize("fault", [None, "expired_wake", "missing_proof", "different_key",
-                                    "different_fill", "unknown_outcome", "negative_cash", "old_policy"])
+@pytest.mark.parametrize("fault", [None, "reserved_group", "stale_reserved_group", "expired_wake",
+                                    "sale_group", "sale_cash_gap", "sale_identity", "sale_stale", "sale_unknown",
+                                    "missing_proof", "different_key", "different_fill",
+                                    "unknown_outcome", "negative_cash", "old_policy"])
 def test_market_buy_retry_stays_pending_only_with_exact_current_native_evidence(ongoing, monkeypatch, fault):
     v = ongoing
     c = v["cycle"]
@@ -319,17 +321,45 @@ def test_market_buy_retry_stays_pending_only_with_exact_current_native_evidence(
     account = dict(broker="alpaca", account_id="paper-account", status="ACTIVE",
         equity=Decimal("10000"), cash=Decimal("2000"), buying_power=Decimal("1850"),
         multiplier=Decimal(1), flags={}, observed_at=NOW-timedelta(seconds=5))
-    proof = dict(order=dict(client_key="synthetic-key", broker_order_id="native-id",
+    proof = dict(orders=[dict(client_key="synthetic-key", broker_order_id="native-id",
         state=order.state, terms=order.order_terms, side="BUY", quantity="71",
-        filled_quantity="1", filled_average_price="55.21"), valid_until=c["execution_close_at"])
+        filled_quantity="1", filled_average_price="55.21")], valid_until=c["execution_close_at"])
+    sales = bool(fault and fault.startswith("sale_"))
+    if fault in {"reserved_group", "stale_reserved_group"} or sales:
+        keys = ["sntl-first", "sntl-second"]
+        if sales:
+            leg = run.intent.legs[0]
+            order = order.model_copy(update={"side": "SELL"})
+            account["buying_power"] = Decimal(1850) if fault == "sale_cash_gap" else account["cash"]
+        v["health"].broker_outcome_unresolved = len(keys)
+        observed = NOW - timedelta(seconds=61 if fault in {"stale_reserved_group", "sale_stale"} else 3)
+        c.update(failure_code=None, failure_detail=None, clean_reconciliation_id="42")
+        c["diagnostic"].update(plan_id=c["plan_id"], observation_id=42, observed_at=observed.isoformat(),
+                               working_order_keys=keys[::-1])
+        c["diagnostic"].pop("in_flight_commands")
+        orders = [order.model_copy(update={"client_key": key, "broker_order_id": key + "-native",
+                  "security_id": leg.security_id + str(i)}) for i, key in enumerate(keys)]
+        intent = run.intent.model_copy(update={"legs": [
+            leg.model_copy(update={"security_id": item.security_id}) for item in orders]})
+        v["row"] = replace(v["row"], trading_run=v["row"].trading_run.model_copy(update={
+            "orders": orders, "intent": intent}))
+        proof["orders"] = [dict(proof["orders"][0], client_key=item.client_key,
+                                broker_order_id=item.broker_order_id) for item in orders]
+        if sales:
+            for fact, item in zip(proof["orders"], orders):
+                fact.update(side="SELL", security_id=item.security_id, symbol=item.ticker)
+            if fault == "sale_identity":
+                proof["orders"][0]["security_id"] = "wrong"
+            if fault == "sale_unknown":
+                c["diagnostic"]["unresolved"] = ["unknown"]
     if fault == "expired_wake":
         c["next_wake_at"] = NOW
     elif fault == "missing_proof":
         proof = None
     elif fault == "different_key":
-        proof["order"]["client_key"] = "another"
+        proof["orders"][0]["client_key"] = "another"
     elif fault == "different_fill":
-        proof["order"]["filled_average_price"] = "55.20"
+        proof["orders"][0]["filled_average_price"] = "55.20"
     elif fault == "unknown_outcome":
         c["diagnostic"]["unresolved"] = ["UNKNOWN"]
     elif fault == "negative_cash":
@@ -350,11 +380,18 @@ def test_market_buy_retry_stays_pending_only_with_exact_current_native_evidence(
     monkeypatch.setattr(model, "alpaca_account_row", _ALPACA_ACCOUNT_ROW)
 
     row = observe(v)
-    if fault is None:
+    if fault in {None, "reserved_group", "sale_group"}:
         assert row.status == model.WARN
         assert row.value == "PAPER NOT VERIFIED · PENDING"
         assert row.valid_until == c["next_wake_at"]
         assert row.effective_status(row.valid_until + timedelta(microseconds=1)) == model.FAIL
+        if sales:
+            monkeypatch.setattr(sources, "_scheduled_preopen_mirror", lambda *_: None)
+            in_progress = sources._in_progress_paper_mirror
+            monkeypatch.setattr(sources, "_in_progress_paper_mirror", lambda *args: in_progress(*args, now=NOW))
+            display = sources._scheduled_paper_mirror(object(), c, v["publication"], "2026-10-30",
+                {"status": mirror.MISMATCH, "historical_mismatch_count": 1})
+            assert display.status == model.WARN and display.valid_until == c["next_wake_at"]
     else:
         assert row is None
 
@@ -369,3 +406,15 @@ def test_market_buy_pending_policy_guard_falsifier(ongoing, monkeypatch):
     with pytest.raises(AssertionError):
         test_market_buy_retry_stays_pending_only_with_exact_current_native_evidence(
             ongoing, monkeypatch, "old_policy")
+
+
+def test_sale_readiness_must_match_strategy_identifier_falsifier(ongoing, monkeypatch):
+    source = textwrap.dedent(inspect.getsource(sources._matched_market_order_wait))
+    guard = 'recorded.security_id != order.get("security_id")'
+    assert source.count(guard) == 1
+    scope = dict(vars(sources))
+    exec(source.replace(guard, "False"), scope)
+    monkeypatch.setattr(sources, "_matched_market_order_wait", scope["_matched_market_order_wait"])
+    with pytest.raises(AssertionError):
+        test_market_buy_retry_stays_pending_only_with_exact_current_native_evidence(
+            ongoing, monkeypatch, "sale_identity")

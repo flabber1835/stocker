@@ -87,6 +87,15 @@ def entry(monkeypatch):
     return config, connection, contacts, schemas
 
 
+def test_supervised_probe_reads_fresh_delivery_state_on_every_call(entry):
+    _, connection, _, schemas = entry
+    assert alert_liveness.observe(schema_check=lambda c: None)[0] == 0
+    connection.row = health_row(heartbeat_age=1000)
+    assert alert_liveness.observe(schema_check=lambda c: None)[0] == 1
+    assert len(connection.queries) == 2
+    assert schemas == []
+
+
 def test_missing_database_refuses_without_contact(entry, capsys):
     config, connection, contacts, schemas = entry
     config.database_url = ""

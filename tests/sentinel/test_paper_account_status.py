@@ -372,24 +372,27 @@ ASSET = "33333333-3333-4333-8333-333333333333"
 ORDER = "22222222-2222-4222-8222-222222222222"
 
 
-def resting(db, f, *, order_terms=None, filled=0):
+def resting(db, f, *, order_terms=None, filled=0, symbol="PANW", asset=ASSET, native_id=ORDER,
+            side=Side.BUY, quantity=D(3), security_id=None, notional=None):
     terms = order_terms or OrderTerms("limit", "day", D("346.91"))
     owner = binding.require(db)
-    command = Command(CommandIdentity(owner.identity, "plan", "SEC-PANW"),
-        BrokerInstrument("SEC-PANW", "PANW", ASSET), Side.BUY, D(3),
-        order_terms=terms)
+    security_id = security_id or "SEC-" + symbol
+    command = Command(CommandIdentity(owner.identity, "plan", security_id),
+        BrokerInstrument(security_id, symbol, asset), side, quantity,
+        order_terms=terms, notional=notional)
     journal.save_command(db, command)
     sent = command.transition(S.SEND_PENDING)
     journal.save_command(db, sent, previous=S.PLANNED)
-    ack = sent.transition(S.ACKNOWLEDGED, broker_order_id=ORDER)
+    ack = sent.transition(S.ACKNOWLEDGED, broker_order_id=native_id)
     journal.save_command(db, ack, previous=S.SEND_PENDING)
     if filled:
         ack = ack.transition(S.PARTIALLY_FILLED, filled_quantity=D(filled),
                              filled_average_price=D("346.88"))
         journal.save_command(db, ack, previous=S.ACKNOWLEDGED)
     db.commit()
-    f.orders.append(dict(id=ORDER, client_order_id=command.client_key, asset_id=ASSET,
-        symbol="PANW", side="buy", qty="3", filled_qty=str(filled),
+    f.orders.append(dict(id=native_id, client_order_id=command.client_key, asset_id=asset,
+        symbol=symbol, side=side.value.lower(), qty=None if quantity is None else str(quantity),
+        notional=None if notional is None else str(notional), filled_qty=str(filled),
         status="partially_filled" if filled else "new",
         filled_avg_price="346.88" if filled else None,
         submitted_at=NOW.isoformat(), type=terms.order_type, time_in_force="day",
@@ -484,7 +487,7 @@ def test_display_match_cannot_hide_invalid_account_economics_or_escape_session(d
 
 def test_native_identity_guard_falsifier_is_detected(db, monkeypatch):
     source = inspect.getsource(module._native_orders)
-    needle = "return native if native == commands else None"
+    needle = "return commands if native == expected else None"
     assert source.count(needle) == 1
     namespace = {}
     # Mutant substitutes journal intent for native proof even after a mismatch.
@@ -547,7 +550,7 @@ def test_market_order_displays_native_buying_power_without_limit_reservation(db,
     account = observed(db)
     assert account["flags"][module.RESERVATION_FLAG]["schema"] == module.MARKET_WORKING_SCHEMA
     proof = module.recorded_market_working(db, account=account, now=NOW, plan_id="plan")
-    assert proof["order"] == module._fact(command)
+    assert proof["orders"] == [module._fact(command)]
     assert "reserved_cash" not in proof
     assert module.recorded_reservation(db, account=account, now=NOW) is None
     assert module.recorded_market_working(db, account=account, now=NOW, plan_id="foreign") is None
@@ -594,6 +597,77 @@ def test_market_buy_evidence_requires_exact_owned_native_fills_and_stable_accoun
         monkeypatch.delenv("SENTINEL_PAPER_BUY_POLICY")
     assert module.recorded_market_working(db, account=account, now=NOW, plan_id="plan") is None
     assert account_row(account, None).effective_status(NOW) == model.FAIL
+
+
+def test_two_native_market_buys_require_a_complete_exact_match(db, monkeypatch):
+    f, first = market_order_fixture(db, monkeypatch, filled=1)
+    second = resting(db, f, order_terms=OrderTerms(), symbol="VIA",
+                     asset="44444444-4444-4444-8444-444444444444",
+                     native_id="55555555-5555-4555-8555-555555555555")
+    assert collect(db, f)
+    proof = module.recorded_market_working(db, account=observed(db), now=NOW, plan_id="plan")
+    assert proof["orders"] == sorted(map(module._fact, (first, second)), key=lambda f: f["client_key"])
+    f.orders.pop()
+    assert collect(db, f)
+    assert module.recorded_market_working(db, account=observed(db), now=NOW, plan_id="plan") is None
+
+
+@pytest.mark.parametrize("fault", [None, "missing_sale", "different_quantity", "different_side", "different_symbol"])
+def test_fractional_sales_match_every_native_order_before_explaining_working_exit(db, monkeypatch, fault):
+    f = fixture(db, monkeypatch)
+    f.account["buying_power"] = f.account["cash"]
+    one = resting(db, f, order_terms=OrderTerms(), side=Side.SELL, quantity=D("3.125"), filled=D("0.5"))
+    two = resting(db, f, order_terms=OrderTerms(), side=Side.SELL, symbol="VIA",
+                  asset="44444444-4444-4444-8444-444444444444", native_id="55555555-5555-4555-8555-555555555555")
+    if fault == "missing_sale":
+        f.orders.pop()
+    elif fault:
+        k,v = {"different_quantity": ("qty", "3"), "different_side": ("side", "buy"),
+               "different_symbol": ("symbol", "ALIEN")}[fault]
+        f.orders[0][k] = v
+    assert collect(db, f)
+    account = observed(db)
+    proof = module.recorded_market_working(db, account=account, now=NOW, plan_id="plan")
+    if fault:
+        assert proof is None
+    else:
+        assert proof["orders"] == sorted([{**module._fact(c), "security_id": c.security_id} for c in (one,two)],
+                                         key=lambda item: item["client_key"])
+    assert module.recorded_reservation(db, account=account, now=NOW) is None
+
+
+@pytest.mark.parametrize("fault", [None, "missing_basis", "wrong_bil_amount", "unrelated_sale", "excess_hold"])
+def test_staged_bil_and_working_sale_require_exact_reservation_and_buying_power(db, monkeypatch, fault):
+    from sentinel.core.decision import DEFENSIVE_SECURITY_ID
+    from sentinel.execution import market_buy_policy, market_reservation_record
+    from sentinel.paper.market_reservations import member
+    f = fixture(db, monkeypatch)
+    monkeypatch.setenv(local_paper.BACKUP_POLICY_ENV, local_paper.BACKUP_POLICY)
+    monkeypatch.setenv("SENTINEL_PAPER_BUY_POLICY", market_buy_policy.FRACTIONAL_MODE)
+    monkeypatch.setenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
+    f.account["buying_power"] = "9950" if fault == "excess_hold" else "9980"
+    sale = resting(db, f, order_terms=OrderTerms(), side=Side.SELL, quantity=D("3.125"), filled=D("0.5"))
+    bil = resting(db, f, order_terms=OrderTerms(), security_id=DEFENSIVE_SECURITY_ID, symbol="BIL",
+                  asset="44444444-4444-4444-8444-444444444444", native_id="55555555-5555-4555-8555-555555555555",
+                  quantity=None, notional=D("20"))
+    if fault != "missing_basis":
+        enrollment = member(bil)
+        if fault == "wrong_bil_amount":
+            enrollment["notional"] = "21"
+        key = "unrelated" if fault == "unrelated_sale" else sale.client_key
+        plan = SimpleNamespace(plan_id="plan", effective_session=NOW.date())
+        body = {"plan_id": plan.plan_id, "session": NOW.date().isoformat(), "deployment": sale.identity.deployment.to_dict(),
+                "members": {bil.client_key: enrollment}, "sales": {key: {"quantity": "0.5", "cash": "173.44"}}}
+        market_reservation_record.store(db, plan=plan, body=body)
+        db.commit()
+    assert collect(db, f)
+    account = observed(db)
+    proof = module.recorded_market_working(db, account=account, now=NOW, plan_id="plan")
+    if fault:
+        assert proof is None
+    else:
+        assert {o["client_key"] for o in proof["orders"]} == {sale.client_key, bil.client_key}
+    assert module.recorded_reservation(db, account=account, now=NOW) is None
 
 
 def test_market_fill_average_match_falsifier(db, monkeypatch):

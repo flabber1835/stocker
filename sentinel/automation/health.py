@@ -10,7 +10,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from sentinel.automation import store
+from sentinel.automation import health_control, store
 from sentinel.automation.model import AutomationRefused, MissingAutomationState, ProtectedDayWait
 from sentinel.execution import journal
 from sentinel.execution.identity import ALPACA_LIVE_BROKER
@@ -162,7 +162,7 @@ def read_health(conn, *, include_alert_counts=True) -> AutomationHealth:
             policy_state="NOT_INSTALLED",
             reason="automation control or lease table is not installed")
     try:
-        control = store.load_control(conn)
+        control = health_control.read(conn)
     except MissingAutomationState as exc:
         conn.rollback()
         return AutomationHealth(

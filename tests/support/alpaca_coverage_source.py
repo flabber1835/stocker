@@ -26,8 +26,29 @@ def _sha(raw):
 
 def predecessor(module, raw):
     """Undo only the exact successor to recover independently pinned Git bytes."""
+    raw = _before_sealed_read(module, raw)
     return _reverse(module, raw, path=_FIXTURE, fixture_sha=_FIXTURE_SHA,
                     kind='compiler', members=CHANGED_COMPILERS)
+
+
+def _before_sealed_read(module, raw):
+    if module == 'sentinel.feed.operational_snapshot' and b'checkpoint_lineage_access.has_lineage(conn)' in raw:
+        assert _sha(raw) == '67deeca19f7a0c1bede2698bcfc4312b26d0ce6edfa0a645f84381bdc241df2f'
+        raw = raw.replace(b'from sentinel import checkpoint_lineage_access, rolling_checkpoint\n',
+                          b'from sentinel import rolling_checkpoint\n', 1).replace(
+            b'not checkpoint_lineage_access.has_lineage(conn):\n', b'not rolling_checkpoint.lineage_names(conn):\n', 1)
+    pins = {
+        'sentinel.feed.operational_snapshot': ('a2006149cd4448ce456f39e499720564e08ac2c9c6e38d783bf12f99a9d638dc',
+            '758282bc0bab1bc0692283fda7b6069c51a0eb2affb614be650396927ac26ca9'),
+        'sentinel.feed.rolling_store': ('62eba292f30e06efdc58a9e9745c4bbbeaa3b490c3dae9718293947ed089de89',
+            '7dca4426c630fd0f8c124e3b1dc9d1457e0d96780e56e04888a45f70fdc0ccc1'),
+    }
+    if module in pins and b'@broker_read_material.sealed\n' in raw:
+        assert _sha(raw) == pins[module][0], 'unreviewed sealed source reader'
+        raw = raw.replace(b'from sentinel.feed import broker_read_material, ', b'from sentinel.feed import ', 1)
+        raw = raw.replace(b'@broker_read_material.sealed\n', b'', 1)
+        assert _sha(raw) == pins[module][1], 'sealed source predecessor differs'
+    return raw
 
 
 def paper_predecessor(module, raw):
@@ -55,4 +76,4 @@ def _reverse(module, raw, *, path, fixture_sha, kind, members):
 def predecessor_reader(read):
     """Keep historical architecture checks on their original exact compiler set."""
     previous = {name: predecessor(name, read(name)) for name in CHANGED_COMPILERS}
-    return lambda name: previous[name] if name in previous else read(name)
+    return lambda name: previous[name] if name in previous else _before_sealed_read(name, read(name))

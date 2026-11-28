@@ -10,8 +10,9 @@ from fractions import Fraction
 
 from sentinel import local_paper, operational_evidence
 from sentinel.execution import journal, native_activity
+from sentinel.execution.contract import Side
 from sentinel.execution.numeric import decimal_text, exact_decimal
-from sentinel.execution.states import IN_FLIGHT, CommandState
+from sentinel.execution.states import CommandState
 from sentinel.paper.inspection import _inspection_account_or_refuse
 
 POLL_SECONDS = 60
@@ -20,6 +21,7 @@ PUBLICATION_SECONDS = 10
 RESERVATION_RECHECK = 'RESERVATION_RECHECK'
 SAMPLE_SUPERSEDED = 'SAMPLE_SUPERSEDED'
 RESERVATION_RECHECK_SECONDS = 2
+_MOVING_FUNDED_BOOK = object()
 RESERVATION_SCHEMA = "sentinel.operator-account-reservation/1"
 MARKET_WORKING_SCHEMA = "sentinel.operator-market-order/1"
 RESERVATION_FLAG = "operator_order_reservation"
@@ -62,43 +64,64 @@ def _fact(order):
             if order.filled_average_price is not None else None)
     if order.notional is not None:
         fact["notional"] = decimal_text(order.notional)
+    if order.side is Side.SELL:
+        fact["symbol"] = order.instrument.symbol
     return fact
 
 
 def _commands(conn, bound, *, plan_id=None):
     from sentinel.execution.identity import DeploymentIdentity
-    commands = journal.load_commands(conn, DeploymentIdentity(*bound))
+    commands = journal.in_flight_commands(conn, DeploymentIdentity(*bound))
     facts = []
+    market_plans = set()
     for c in commands:
-        if c.state not in IN_FLIGHT:
-            continue
         t = c.order_terms
         if (c.state not in {CommandState.ACKNOWLEDGED, CommandState.PARTIALLY_FILLED}
-                or c.side.value != "BUY" or not c.broker_order_id
+                or not c.broker_order_id
                 or not c.instrument.broker_id
                 or (c.quantity is not None and (not c.remaining.is_finite() or c.remaining <= 0))
                 or t.time_in_force != "day" or t.order_class != "simple" or t.extended_hours
                 or (plan_id is not None and c.identity.plan_id != plan_id)):
             return None
         if t.order_type == "market":
+            market_plans.add(c.identity.plan_id)
             from sentinel.execution.market_buy_policy import MarketBuyPolicy
-            if (MarketBuyPolicy.from_env() is None
-                    or (c.quantity is not None and c.quantity != c.quantity.to_integral_value())
+            if ((c.side is Side.BUY and (MarketBuyPolicy.from_env() is None
+                         or (c.quantity is not None and c.quantity != c.quantity.to_integral_value())))
+                    or (c.side is Side.SELL and (c.quantity is None or c.notional is not None))
                     or (c.state is CommandState.ACKNOWLEDGED and c.filled_quantity != 0)
                     or (c.state is CommandState.PARTIALLY_FILLED
                         and (c.filled_quantity <= 0 or c.filled_average_price is None))):
                 return None
-        elif (t.order_type != "limit" or t.limit_price is None
+        elif (c.side is not Side.BUY or t.order_type != "limit" or t.limit_price is None
                 or not t.limit_price.is_finite() or t.limit_price <= 0):
             return None
-        facts.append(_fact(c))
-    if any(f["terms"]["order_type"] == "market" for f in facts) and len(facts) != 1:
+        fact = _fact(c)
+        if c.side is Side.SELL:
+            fact["security_id"] = c.security_id
+        facts.append(fact)
+    if market_plans and (len(market_plans) != 1 or not _market_working(facts)
+            or len({f["asset_id"] for f in facts}) != len(facts)
+            or len({f["broker_order_id"] for f in facts}) != len(facts)):
         return None
+    if {c.side for c in commands} == {Side.BUY, Side.SELL}:
+        from sentinel.core.decision import DEFENSIVE_SECURITY_ID
+        from sentinel.execution import market_reservation_record
+        from sentinel.paper.market_reservations import member
+        purchases = [c for c in commands if c.side is Side.BUY]
+        if (len(purchases) != 1 or purchases[0].security_id != DEFENSIVE_SECURITY_ID
+                or purchases[0].notional is None or len(market_plans) != 1):
+            return None
+        basis = market_reservation_record.read(conn, purchases[0].identity.plan_id)
+        if (not basis or basis["deployment"] != purchases[0].identity.deployment.to_dict()
+                or basis["members"] != {purchases[0].client_key: member(purchases[0])}
+                or not {c.client_key for c in commands if c.side is Side.SELL} <= set(basis["sales"])):
+            return None
     return sorted(facts, key=lambda f: f["client_key"])
 
 
 def _market_working(facts):
-    return bool(facts and len(facts) == 1 and facts[0]["terms"]["order_type"] == "market")
+    return bool(facts and all(f["terms"]["order_type"] == "market" for f in facts))
 
 
 def _reserved(facts):
@@ -115,7 +138,10 @@ async def _native_orders(reader, commands):
     if any(o.external_replacement for o in orders):
         return None
     native = sorted((_fact(o) for o in orders), key=lambda f: f["client_key"] or "")
-    return native if native == commands else None
+    # The display reader has no strategy identifier resolver. Native asset ID,
+    # ticker, client key and economics must match before retaining the journal ID.
+    expected = [{k: v for k, v in command.items() if k != "security_id"} for command in commands]
+    return commands if native == expected else None
 
 
 def _recorded_order_proof(conn, *, account, now, schema, plan_id=None):
@@ -155,7 +181,7 @@ def recorded_reservation(conn, *, account, now):
 
 
 def recorded_market_working(conn, *, account, now, plan_id):
-    """Match the current plan's working market order without valuing a cash hold."""
+    """Match the current plan's working market orders without valuing sale proceeds."""
     if not plan_id:
         return None
     proof = _recorded_order_proof(conn, account=account, now=now,
@@ -169,7 +195,19 @@ def recorded_market_working(conn, *, account, now, plan_id):
             or native.get("cash") != decimal_text(cash)
             or native.get("buying_power") != decimal_text(power)):
         return None
-    return {"order": commands[0], "valid_until": closed}
+    if cash - power > 1 and all(o["side"] == "BUY" and o.get("notional") for o in commands):
+        # A fixed-dollar basket can be valued exactly. Only the funded-basket
+        # receipt can attribute its hold; generic working orders cannot.
+        return None
+    if any(o["side"] == "SELL" for o in commands):
+        # A sale cannot explain a buying-power hold. In a mixed sleeve sweep
+        # only the BIL order's unfilled dollars can explain a discrepancy.
+        unfilled = sum((Fraction(o["notional"]) - Fraction(o["filled_quantity"])
+                        * Fraction(o["filled_average_price"] or "0")
+                        for o in commands if o["side"] == "BUY"), Fraction(0))
+        if Fraction(cash) - Fraction(power) > max(0, unfilled) + 1:
+            return None
+    return {"orders": commands, "valid_until": closed}
 
 
 def _healthy_cash_snapshot(snapshot):
@@ -180,6 +218,7 @@ def _healthy_cash_snapshot(snapshot):
 
 
 async def _observation(conn, *, reader, bound, commands, config):
+    from sentinel.execution import observed_dollar_hold
     conn.commit()  # Never retain a database transaction over provider I/O.
     snapshot = await reader.account_snapshot()
     _inspection_account_or_refuse(snapshot, bound[2])
@@ -188,8 +227,14 @@ async def _observation(conn, *, reader, bound, commands, config):
     if first.broker != bound[1] or first.raw.get("currency") != "USD":
         raise AccountStatusRefused("ACCOUNT_IDENTITY_OR_CURRENCY_CHANGED")
     native_orders = None
+    dollar_basket = dollar_proof = None
     market = _market_working(commands)
-    if (market and _healthy_cash_snapshot(snapshot)
+    if config is None and _healthy_cash_snapshot(snapshot) and snapshot.cash - snapshot.buying_power > 1:
+        dollar_basket = observed_dollar_hold.basket(conn, bound)
+        conn.commit()
+    if dollar_basket:
+        dollar_proof = await observed_dollar_hold.capture(reader, dollar_basket, snapshot)
+    elif (market and _healthy_cash_snapshot(snapshot)
             or commands and not market and snapshot.cash > snapshot.buying_power):
         native_orders = await _native_orders(reader, commands)
     last = await reader.account_snapshot()
@@ -204,8 +249,11 @@ async def _observation(conn, *, reader, bound, commands, config):
         raise AccountStatusRefused("DURABLE_BINDING_CHANGED")
     current_commands = _commands(conn, bound) if commands is not None else None
     proof = None
-    if (native_orders and commands == current_commands
-            and snapshot.cash == last.cash and snapshot.buying_power == last.buying_power):
+    balances_stable = snapshot.cash == last.cash and snapshot.buying_power == last.buying_power
+    if dollar_proof and balances_stable and _healthy_cash_snapshot(last):
+        if observed_dollar_hold.verify(conn, bound, dollar_proof, last.cash, last.buying_power, observed_at, observed_at):
+            proof = dollar_proof
+    elif native_orders and commands == current_commands and balances_stable:
         if market and _healthy_cash_snapshot(snapshot) and _healthy_cash_snapshot(last):
             proof = dict(schema=MARKET_WORKING_SCHEMA, binding=list(bound), native_orders=native_orders,
                          cash=decimal_text(last.cash), buying_power=decimal_text(last.buying_power))
@@ -219,6 +267,16 @@ async def _observation(conn, *, reader, bound, commands, config):
         and last.equity > 0 and last.buying_power >= 0
         and 1 < last.cash - last.buying_power <= _reserved(current_commands) + 1
     )
+    if (config is None and not balances_stable and _healthy_cash_snapshot(snapshot)
+            and _healthy_cash_snapshot(last) and last.cash - last.buying_power > 1):
+        first_gap = snapshot.cash - snapshot.buying_power
+        if first_gap <= 1 or dollar_proof is not None:
+            # A native buy may start only after the first account GET. Read
+            # currently eligible members again even when that GET had no hold.
+            if observed_dollar_hold.may_be_moving(observed_dollar_hold.basket(conn, bound), last, observed_at):
+                unsettled = _MOVING_FUNDED_BOOK
+        elif dollar_basket:
+            unsettled = True
     return last, proof, unsettled, current_commands, observed_at
 
 
@@ -243,7 +301,7 @@ async def _collect(conn, *, reader, bound, commands, config=None):
 async def _publish(conn, *, bound, config, sample, opening, report):
     from psycopg.errors import LockNotAvailable
     from sentinel import account_lock_observation
-    from sentinel.execution import opening_display
+    from sentinel.execution import observed_dollar_hold, opening_display
 
     last, proof, unsettled, commands, observed_at = sample
     clock = asyncio.get_running_loop().time
@@ -288,7 +346,10 @@ async def _publish(conn, *, bound, config, sample, opening, report):
         if current_bound != bound:
             conn.rollback()
             raise AccountStatusRefused('DURABLE_BINDING_CHANGED')
-        if ((proof and _commands(conn, bound) != commands)
+        dollar = proof and proof.get("schema") == observed_dollar_hold.SCHEMA
+        if ((dollar and not observed_dollar_hold.verify(conn, bound, proof, last.cash, last.buying_power,
+                                                        observed_at, observed_at))
+                or (proof and not dollar and _commands(conn, bound) != commands)
                 or (current_opening and opening_display.confirm(conn, bound, opening) != current_opening)):
             conn.rollback()
             raise AccountStatusRefused('ACCOUNT_EVIDENCE_ORDER_CONTEXT_CHANGED')
@@ -333,6 +394,11 @@ async def collect(conn, *, config, reader=None, report_reservation_recheck=False
     sample = await asyncio.wait_for(
         _collect(conn, reader=reader, bound=bound, commands=commands,
                  config=config if live else None), DEADLINE_SECONDS)
+    if sample[2] is _MOVING_FUNDED_BOOK:
+        # Two changing intervals (or an exhausted read budget) cannot update
+        # the last coherent observation or extend its deadline.
+        conn.rollback()
+        return RESERVATION_RECHECK if report_reservation_recheck else False
     result = await _publish(conn, bound=bound, config=config if live else None, sample=sample, opening=opening,
                             report=report_reservation_recheck)
     return result if report_reservation_recheck else result != SAMPLE_SUPERSEDED

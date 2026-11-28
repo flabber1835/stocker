@@ -125,6 +125,7 @@ function failRead(read) {
     await settled();
     assert.deepEqual(writes,['partial']);
     assert.equal(badge.className,initialHealth==='red'?'state fail':'state warn');
+    assert.equal(document.body.dataset.lastWarning, initialHealth);
     assert(badge.textContent.includes(input.generated.replace('+00:00','.000Z')),
       'a less complete projection must show when the prior warning was verified');
     assert.match(badge.textContent,/checking for an update/);
@@ -134,6 +135,7 @@ function failRead(read) {
     await settled();
     assert.deepEqual(writes,['partial','fresh']);
     assert.equal(badge.className,'state ok','new server proof can clear the local warning');
+    assert.equal(document.body.dataset.lastWarning, undefined);
     process.stdout.write('PASS\n');return;
   }
   if (input.wake === 'deadline-recovery' || input.wake === 'server-clock') {
@@ -386,6 +388,89 @@ function failRead(read) {
         assert.equal(reads.length,2,'one backoff read remains inside the original episode');
         await advanceTo(start+15001);
         assertFreshness('expired','transport retries cannot renew their first deadline');
+      } else if (input.wake === 'transport-suspend' || input.wake === 'transport-suspend-retry') {
+        const originalStarted=reads[0].started;
+        const originalProof=document.body.dataset.generatedAt;
+        let completeBody,retiredRetry;
+        if (config.oldOutcome==='body') {
+          reads[0].resolve({ok:true,status:200,headers:{get:()=> 'CURRENT'},
+            text:()=>new Promise(resolve=>{completeBody=resolve;})});
+          await settled();
+          assert.equal(typeof completeBody,'function','the retired body is pending before suspension');
+        } else if (input.wake==='transport-suspend-retry') {
+          reads[0].resolve({ok:false,status:503,headers:{get:()=> 'LAST_KNOWN'}});
+          await settled();
+          const scheduled=[...timers].filter(([,timer])=>timer.delay===5000);
+          assert.equal(scheduled.length,1,'the pre-suspension failure owns one scheduled retry');
+          retiredRetry=scheduled[0];
+        }
+        await advanceTo(start+1000);
+        if (config.trigger==='offline') {
+          context.navigator.onLine=false;listeners.offline();
+        } else if (config.trigger==='pagehide') {
+          listeners.pagehide();
+        } else {
+          document.visibilityState='hidden';listeners.visibilitychange();
+        }
+        if (retiredRetry) {
+          assert(!timers.has(retiredRetry[0]),'suspension must cancel its scheduled retry synchronously');
+        } else {
+          assert(reads[0].aborted,'suspension must abort the old request synchronously');
+        }
+        now=start+1100; // Do not drain old microtasks before a replacement is acquired.
+        if (config.trigger==='offline') {
+          context.navigator.onLine=true;listeners.online();
+        } else if (config.trigger==='pagehide') {
+          listeners.pageshow({persisted:true});
+        } else {
+          document.visibilityState='visible';listeners.visibilitychange();
+        }
+        const returned=now;
+        assert.equal(reads.length,2,'foreground return starts one new request immediately');
+        assert.equal(reads[1].started,returned,'new request owns the return instant');
+        listeners.focus();listeners.pageshow({persisted:true});
+        assert.equal(reads.length,2,'duplicate lifecycle events share the new request');
+        if (retiredRetry) { retiredRetry[1].fn(); }
+        if (completeBody) { completeBody('late'); }
+        else if (!retiredRetry) {
+          if (config.oldOutcome==='failure') { reads[0].reject(new Error('late network failure')); }
+          else { fresh(reads[0]); }
+        }
+        await settled();
+        listeners.focus();listeners.pageshow({persisted:true});
+        assert.equal(reads.length,2,'retired completion cannot release the replacement slot');
+        assert.deepEqual(writes,[],'retired response cannot install a document');
+        assert(![...timers.values()].some(timer=>timer.delay===5000),
+          'retired completion cannot schedule a retry');
+        assert.equal(document.body.dataset.generatedAt,originalProof,
+          'suspension and replacement cannot renew original evidence');
+        assert(!reads[1].aborted,'retired completion cannot cancel its replacement');
+        if (config.newOutcome==='stalled') {
+          await advanceTo(returned+14999);
+          assertFreshness('refreshing','duplicate wakes keep the original foreground budget');
+          listeners.focus();listeners.pageshow({persisted:true});
+          assert.equal(reads.length,2);
+          await advanceTo(returned+15001);
+          assertFreshness('expired','repeated wakes cannot extend the first return deadline');
+          assert(reads[1].aborted,'the current request has its own finite deadline');
+        } else if (config.newOutcome==='failure') {
+          await advanceTo(returned+1000);
+          reads[1].resolve({ok:false,status:503,headers:{get:()=> 'LAST_KNOWN'}});
+          await settled();
+          const retry=[...timers.values()].filter(timer=>timer.delay===5000);
+          assert.equal(retry.length,1,'new request failure keeps one five-second backoff');
+          await advanceTo(returned+5999);
+          assert.equal(reads.length,2,'new failure must not retry early');
+          await advanceTo(returned+6000);
+          assert.equal(reads.length,3,'new failure retries after five seconds');
+          fresh(reads[2]);await settled();
+          assert.deepEqual(writes,['fresh']);
+        } else {
+          await advanceTo(returned+1000);
+          fresh(reads[1]);await settled();
+          assert.deepEqual(writes,['fresh'],'only the new request may install');
+          assert.equal(reads[0].started,originalStarted);
+        }
       } else if (input.wake === 'transport-hidden') {
         await advanceTo(start+1000);hide(config.visibility!==false);
         if (config.kind==='busy') {
@@ -480,7 +565,9 @@ function failRead(read) {
       assertFreshness('refreshing');
       now += 2; fireDelay(1000);
       assertFreshness('expired', 'first-visible resume keeps its original 15-second deadline');
-      assert.equal(reads.length, previousReads + 1);
+      assert(reads[previousReads].aborted,'second suspension retires the first foreground request');
+      assert.equal(reads.length, previousReads + 2,
+        'second foreground return owns one replacement without renewing the episode');
       fireDelay(15000); await settled();
       now += 5000; fireDelay(5000);
     }

@@ -15,7 +15,7 @@ from pathlib import Path
 import re
 from functools import lru_cache
 
-MANIFEST_SHA256 = '8554db5ad31a9e8bb6f00a4aae262095ae3750bf2be55420eab5b78b894a5dfb'
+MANIFEST_SHA256 = '7c755f9bf1619fcd8c0b48235d626b38ec8a0c2e7578b2965ed377393bca7d00'
 MANIFEST = Path(__file__).with_name('economic-implementation-v2.json')
 PREDECESSOR = 'b2e308bb664718da373175f1a7d988d07b159ae2'
 PREDECESSOR_DATA_SEMANTICS_SHA256 = '38c750bd9bb244bc71600aaeba8c4aad22d2095747f4199e9ac4e0bd433425cb'
@@ -43,6 +43,36 @@ DAILY_SESSION_STORAGE = {
     'sentinel.feed.rolling_store': '1af0c19730e73345245a791d736ff98eef78bab2e48e088bcf0cd94a834d32cf',
     'sentinel.feed.normalized_layout': '5952fb94d212d55b9a8f52254c82f4589df34ed51254fbcdbf63f095f87d051a',
     'sentinel.feed.read_contract': 'ac6a4c2b407f9f437b837c394fa1e25fdc3b5dd0849edaed9c2c4ed460567c01',
+}
+
+
+OPENING_SESSION_STORAGE = {
+    **DAILY_SESSION_STORAGE,
+    'sentinel.feed.rolling_store': '7dca4426c630fd0f8c124e3b1dc9d1457e0d96780e56e04888a45f70fdc0ccc1',
+    'sentinel.feed.normalized_layout': 'c71243a8621e0c90a3cbe1f3fe658b304a0ab20adbc245395bec6af1b7090206',
+}
+
+CLOSE_ANCHOR_STORAGE = {
+    **OPENING_SESSION_STORAGE,
+    'sentinel.feed.normalized_layout': '1f1cf9d9921dcbf856157079e1c3c121f8415de73072a4838ce3bb640b6c1f5b',
+}
+
+# Two physical data readers acquire a scoped optimization. Recover the exact
+# predecessor source before applying its existing economic compiler contracts.
+_BROKER_READ_BASE = {
+    'sentinel.feed.rolling_store': ('manifest', CLOSE_ANCHOR_STORAGE['sentinel.feed.rolling_store']),
+    'sentinel.feed.operational_snapshot': ('_bound_and_manifest',
+        '758282bc0bab1bc0692283fda7b6069c51a0eb2affb614be650396927ac26ca9'),
+}
+_BROKER_READ_SOURCES = {
+    'sentinel.feed.broker_read_material': 'aece98164aff2daa9f8a77de76ce68f2ec8654621c909263e887b5eecd9c3a5b',
+    'sentinel.feed.shadow_readiness_memo': 'd72c1bd4dbc273ffc3f059459b241692d1f5d40e47f9a50f600cad3455eae003',
+    'sentinel.feed.readiness_scope': '5cc8b9d3e399c85b4fcbced003b6b413694ae56cd036ec0ee5051da49850ee1c',
+    'sentinel.feed.rolling_contract': 'afd3e3ead4b35d4d5ccb21857bb2e02cbec235a081978c0e627b6c9a398293a8',
+    'sentinel.prepared_opening_material': '60fb299baa0135d58882e98d1ab5d0df6dd8f7e610e434f1376b1e37e9bd2a75',
+    'sentinel.operational_ddl_epoch': 'cdf5e06bd5b98e651c72b64601db31d5ca05736cc74d17efd3dfe7781dab204a',
+    'sentinel.feed.normalized_layout': CLOSE_ANCHOR_STORAGE['sentinel.feed.normalized_layout'],
+    'sentinel.feed.read_contract': CLOSE_ANCHOR_STORAGE['sentinel.feed.read_contract'],
 }
 
 
@@ -265,6 +295,44 @@ def page_contribution(module, raw, profile=None):
             else witness['alpaca_page']['before'])
 
 
+def _before_broker_reads(compilers):
+    name = 'sentinel.feed.operational_snapshot'
+    source = compilers[name]
+    new_import = b'    from sentinel import checkpoint_lineage_access, rolling_checkpoint\n'
+    new_call = b'        if installed and not checkpoint_lineage_access.has_lineage(conn):\n'
+    if new_import in source or new_call in source:
+        if (_sha(_module_raw('sentinel.checkpoint_lineage_access')) !=
+                'f0999853e9ce9ca7ec718c4f4ed52d5bf1e0e027c20daad86fd3d7fbf1329517'):
+            raise EconomicManifestRefused('CLOSE_LINEAGE_SOURCE_CHANGED')
+        if source.count(new_import) != 1 or source.count(new_call) != 1:
+            raise EconomicManifestRefused('CLOSE_LINEAGE_PREDECESSOR_CHANGED')
+        prior = source.replace(new_import, b'    from sentinel import rolling_checkpoint\n', 1).replace(
+            new_call, b'        if installed and not rolling_checkpoint.lineage_names(conn):\n', 1)
+        edges = set(local_imports(prior, module_name=name)) | {'sentinel.checkpoint_lineage_access'}
+        if (_sha(prior) != 'a2006149cd4448ce456f39e499720564e08ac2c9c6e38d783bf12f99a9d638dc'
+                or local_imports(source, module_name=name) != sorted(edges)):
+            raise EconomicManifestRefused('CLOSE_LINEAGE_PREDECESSOR_CHANGED')
+        compilers = {**compilers, name: prior}
+    marker = b'@broker_read_material.sealed\n'
+    if not any(marker in compilers[name] for name in _BROKER_READ_BASE):
+        return compilers
+    if any(_sha(_module_raw(name)) != sha for name, sha in _BROKER_READ_SOURCES.items()):
+        raise EconomicManifestRefused('BROKER_READ_MATERIAL_SOURCE_CHANGED')
+    previous = dict(compilers)
+    addition = b'from sentinel.feed import broker_read_material, '
+    for name, (definition, sha) in _BROKER_READ_BASE.items():
+        raw = compilers[name]
+        declaration = b'def ' + definition.encode('ascii') + b'('
+        if raw.count(addition) != 1 or raw.count(marker + declaration) != 1:
+            raise EconomicManifestRefused('BROKER_READ_MATERIAL_CALLER_CHANGED:' + name)
+        old = raw.replace(addition, b'from sentinel.feed import ', 1).replace(marker + declaration, declaration, 1)
+        edges = set(local_imports(old, module_name=name)) | {'sentinel.feed.broker_read_material'}
+        if _sha(old) != sha or local_imports(raw, module_name=name) != sorted(edges):
+            raise EconomicManifestRefused('BROKER_READ_MATERIAL_PREDECESSOR_CHANGED:' + name)
+        previous[name] = old
+    return previous
+
+
 def identity(*, schema):
     from sentinel.physical_read_source_basis import contribution
     from sentinel import close_feed_source_basis, performance_source_basis, operation_read_source_basis
@@ -274,15 +342,16 @@ def identity(*, schema):
     profile = _retired_source_profile()
     retirement = profile['modules']
     port_digests = {name: _sha(_module_raw(name)) for name in profile['ports']}
-    close_compilers = {
+    close_compilers = _before_broker_reads({
         name: _module_raw(retirement.get(name, {}).get('module', name))
-        for name in CLOSE_READINESS_COMPILERS}
+        for name in CLOSE_READINESS_COMPILERS})
     exact_close_readiness = all(_sha(raw) == CLOSE_READINESS_COMPILERS[name]
                                 for name, raw in close_compilers.items())
     daily_compilers = {name: _module_raw(name) for name in DAILY_SESSION_COMPILERS}
     exact_daily_session_reads = (
         all(_sha(raw) == DAILY_SESSION_COMPILERS[name][0] for name, raw in daily_compilers.items())
-        and all(_sha(_module_raw(name)) == checksum for name, checksum in DAILY_SESSION_STORAGE.items()))
+        and {name: _sha(close_compilers.get(name) or _module_raw(name)) for name in DAILY_SESSION_STORAGE}
+        in (DAILY_SESSION_STORAGE, OPENING_SESSION_STORAGE, CLOSE_ANCHOR_STORAGE))
     for name in sorted(expected):
         transition = retirement.get(name)
         installed = transition['module'] if transition else name

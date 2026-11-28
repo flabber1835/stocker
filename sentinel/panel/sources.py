@@ -276,28 +276,19 @@ def _finite_float(value, *, label: str) -> float:
     return float(number)
 
 
-def _runtime_schema(conn) -> dict[str, set[str]]:
+def _visible_source_columns(conn, expected) -> dict[str, set[str]]:
+    # Same visibility rules as information_schema.columns. Only relation and
+    # column names are needed, so no type, default or collation lookups.
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT table_name, column_name FROM information_schema.columns"
-            " WHERE table_schema = ANY(current_schemas(false))"
-            " AND table_name = ANY(%s)",
-            (list(_RUNTIME_COLUMNS),))
-        rows = cur.fetchall()
-    found = {table: set() for table in _RUNTIME_COLUMNS}
-    for table, column in rows:
-        if str(table) in found:
-            found[str(table)].add(str(column))
-    return found
-
-
-def _automation_schema(conn) -> dict[str, set[str]]:
-    expected = {**_AUTOMATION_COLUMNS, **_AUTHORITY_COLUMNS, **_PUSH_COLUMNS}
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT table_name, column_name FROM information_schema.columns"
-            " WHERE table_schema = ANY(current_schemas(false))"
-            " AND table_name = ANY(%s)",
+            "SELECT c.relname,a.attname FROM pg_catalog.pg_class c"
+            " JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace"
+            " JOIN pg_catalog.pg_attribute a ON a.attrelid=c.oid"
+            " WHERE c.relname=ANY(%s::name[]) AND n.nspname=ANY(current_schemas(false))"
+            " AND c.relkind IN ('r','p','f','v') AND NOT pg_is_other_temp_schema(n.oid)"
+            " AND a.attnum>0 AND NOT a.attisdropped"
+            " AND (pg_has_role(c.relowner,'USAGE') OR"
+            " has_column_privilege(c.oid,a.attnum,'SELECT, INSERT, UPDATE, REFERENCES'))",
             (list(expected),))
         rows = cur.fetchall()
     found = {table: set() for table in expected}
@@ -305,6 +296,15 @@ def _automation_schema(conn) -> dict[str, set[str]]:
         if str(table) in found:
             found[str(table)].add(str(column))
     return found
+
+
+def _runtime_schema(conn) -> dict[str, set[str]]:
+    return _visible_source_columns(conn, _RUNTIME_COLUMNS)
+
+
+def _automation_schema(conn) -> dict[str, set[str]]:
+    expected = {**_AUTOMATION_COLUMNS, **_AUTHORITY_COLUMNS, **_PUSH_COLUMNS}
+    return _visible_source_columns(conn, expected)
 
 
 def _schema_error(found: Mapping[str, set[str]], table: str) -> str | None:
@@ -1975,13 +1975,16 @@ def _matched_market_order_wait(conn, *, account, cycle, now, trading_row=None, p
     if state not in {"EXECUTING", "RECONCILING", "RETRY_WAIT"} or any(
             cycle.get(key) for key in ("terminal_reason", "callback_failure", "exception_type")):
         return None
-    if state == "RETRY_WAIT" and (cycle.get("retry_phase") != "RECOVER"
-                                  or failure != "COMMANDS_IN_FLIGHT"):
+    if state == "RETRY_WAIT" and cycle.get("retry_phase") != "RECOVER":
         return None
     if failure not in {None, "COMMANDS_IN_FLIGHT"} or (failure is None and cycle.get("failure_detail")):
         return None
     diagnostic = cycle.get("diagnostic") or {}
     if state == "RETRY_WAIT":
+        from sentinel.execution.market_reservation_record import current_working_receipt
+        if failure is None and not current_working_receipt(diagnostic, plan_id=cycle.get("plan_id"),
+                observation_id=cycle.get("clean_reconciliation_id"), now=now):
+            return None
         if (diagnostic.get("clean") is not True or diagnostic.get("runtime_state") != "RUNNING"
                 or any(diagnostic.get(field) != [] for field in (
                     "unresolved", "foreign_orders", "foreign_positions"))):
@@ -1990,9 +1993,15 @@ def _matched_market_order_wait(conn, *, account, cycle, now, trading_row=None, p
         conn, account=account, now=now, plan_id=cycle.get("plan_id"))
     if proof is None:
         return None
-    order = proof["order"]
-    if state == "RETRY_WAIT" and diagnostic.get("in_flight_commands") != [order["client_key"]]:
+    orders = proof["orders"]
+    keys = {order["client_key"] for order in orders}
+    has_sales = any(order["side"] == "SELL" for order in orders)
+    if has_sales and (state != "RETRY_WAIT" or failure is not None):
         return None
+    if state == "RETRY_WAIT":
+        inflight = diagnostic.get("in_flight_commands" if failure else "working_order_keys")
+        if not isinstance(inflight, list) or len(inflight) != len(keys) or set(inflight) != keys:
+            return None
     current = trading_row if trading_row is not None else _current_trading_run(conn)
     run = current.trading_run if current is not None else None
     if (run is None or current.valid_until is None or not current.can_show_trading_run(now)
@@ -2002,16 +2011,22 @@ def _matched_market_order_wait(conn, *, account, cycle, now, trading_row=None, p
             or run.intent.plan_id != cycle.get("plan_id")
             or run.updated_at != cycle.get("updated_at")):
         return None
-    recorded = next((item for item in run.orders if item.client_key == order["client_key"]), None)
-    if (recorded is None or recorded.broker_order_id != order["broker_order_id"]
-            or recorded.state != order["state"] or recorded.order_terms != order["terms"]
-            or recorded.side != order["side"]
-            or recorded.quantity != (None if order["quantity"] is None else Decimal(order["quantity"]))
-            or recorded.notional != (None if order.get("notional") is None else Decimal(order["notional"]))
-            or recorded.filled_quantity != Decimal(order["filled_quantity"])
-            or recorded.filled_average_price != (
-                Decimal(order["filled_average_price"]) if order["filled_average_price"] else None)):
+    recorded_orders = {item.client_key: item for item in run.orders}
+    if len(recorded_orders) != len(run.orders):
         return None
+    for order in orders:
+        recorded = recorded_orders.get(order["client_key"])
+        if (recorded is None or recorded.broker_order_id != order["broker_order_id"]
+                or recorded.state != order["state"] or recorded.order_terms != order["terms"]
+                or recorded.side != order["side"]
+                or (recorded.side == "SELL" and (recorded.security_id != order.get("security_id")
+                                                 or recorded.ticker != order.get("symbol")))
+                or recorded.quantity != (None if order["quantity"] is None else Decimal(order["quantity"]))
+                or recorded.notional != (None if order.get("notional") is None else Decimal(order["notional"]))
+                or recorded.filled_quantity != Decimal(order["filled_quantity"])
+                or recorded.filled_average_price != (
+                    Decimal(order["filled_average_price"]) if order["filled_average_price"] else None)):
+            return None
     opened, closed = (cycle.get(key) for key in ("execute_at", "execution_close_at"))
     observed = account.get("observed_at")
     if (not all(isinstance(value, datetime) and value.utcoffset() is not None
@@ -2034,6 +2049,8 @@ def _matched_market_order_wait(conn, *, account, cycle, now, trading_row=None, p
         return None
     boundary = min(deadline, closed, proof["valid_until"], _account_valid_until(observed),
                    current.valid_until)
+    if has_sales:
+        boundary = min(boundary, datetime.fromisoformat(diagnostic["observed_at"]) + timedelta(seconds=60))
     if now >= boundary:
         return None
     if plan is None:
@@ -2045,7 +2062,9 @@ def _matched_market_order_wait(conn, *, account, cycle, now, trading_row=None, p
         require_current_display_policy(conn, plan=plan)
     except dual_plan_authority.DualPlanAuthorityRefused:
         return None
-    return model.RecoveryEvidence(phase=model.MARKET_BUY_OBSERVATION, automatic=True,
+    phase = (model.MARKET_BUY_OBSERVATION if any(o["side"] == "BUY" for o in orders)
+             else model.MARKET_SALE_OBSERVATION)
+    return model.RecoveryEvidence(phase=phase, automatic=True,
                                   deadline=boundary)
 
 
@@ -2171,9 +2190,15 @@ def _operator_evidence_rows(
 
         operator_reservation = market_working = None
         if local and reservation is None and reservation_error is None:
-            from sentinel.execution import account_status
+            from sentinel.execution import account_status, observed_dollar_hold
             proof = ((account or {}).get("flags") or {}).get(account_status.RESERVATION_FLAG)
-            if isinstance(proof, Mapping) and proof.get("schema") == account_status.MARKET_WORKING_SCHEMA:
+            if isinstance(proof, Mapping) and proof.get("schema") == observed_dollar_hold.SCHEMA:
+                if proof.get("plan_id") == (cycle or {}).get("plan_id") and account.get("account_id") == bound:
+                    operator_reservation, reservation_error = _read(
+                        conn, lambda c: observed_dollar_hold.verify(c, account_status._bound(c), proof,
+                            account["cash"], account["buying_power"], account["observed_at"], account_observed_at),
+                        STATEMENT_TIMEOUT_MS, default=None)
+            elif isinstance(proof, Mapping) and proof.get("schema") == account_status.MARKET_WORKING_SCHEMA:
                 market_working, reservation_error = _read(
                     conn, lambda c: _matched_market_order_wait(
                         c, account=account, cycle=cycle, now=account_observed_at),
@@ -2215,6 +2240,7 @@ def _operator_evidence_rows(
                 recovery=account_recovery,
                 matched_protected_reservation=reservation,
                 matched_operator_reservation=(operator_reservation or {}).get("reserved_cash"),
+                operator_reservation_terms=(operator_reservation or {}).get("terms", "LIMIT/DAY"),
                 market_working=market_working, **(account or {})))
         if account_row.status == model.OK or (
                 market_working is not None and account_row.recovery == market_working):
@@ -3036,7 +3062,8 @@ def _in_progress_paper_mirror(conn, cycle, active_publication, frontier, *, now=
                 return None
             account_row = model.alpaca_account_row(available=True, expected_account_id=_bound_account_id(conn),
                 market_working=market_working, **account)
-            if account_row.effective_status(now) != model.WARN:
+            expected = model.OK if market_working.phase == model.MARKET_SALE_OBSERVATION else model.WARN
+            if account_row.effective_status(now) != expected:
                 return None
             deadline = market_working.deadline
     elif isinstance(callback, Mapping):
@@ -3132,9 +3159,17 @@ def _partial_buy_only_cutoff_run(conn, cycle, *, now):
     return row if row.trading_run.required_sales_filled() else None
 
 
-def _cutoff_planned_buys_are_only_active_commands(conn, run, commands):
-    """Match the global active journal set to the no-transport BUY identities."""
+def _cutoff_planned_buys_are_only_active_commands(conn, run, commands, *, cycle, proof):
+    """Require the exact current journal set, including any proven retired stubs."""
     planned = {order.client_key for order in run.orders if order.state == 'PLANNED'}
+    retired = set(proof.get('retired_unsent_buy_keys', ()))
+    if retired:
+        from time import monotonic
+        from sentinel.execution.retired_unsent import retired_at_cutoff
+        if not retired_at_cutoff(conn, cycle, current_keys=planned, retired_keys=retired,
+                                 deadline=monotonic() + 4.0):
+            return False
+        planned |= retired
     if commands['counts'] != ({'PLANNED': len(planned)} if planned else {}):
         return False
     if not planned:
@@ -3237,7 +3272,7 @@ def _recoverable_superseded_wait(conn, cycle) -> MissedOpenUnattendedWait | None
     observation = _latest_observation(conn)
     active_clear = (not commands['counts'] if partial_run is None else
         _cutoff_planned_buys_are_only_active_commands(
-            conn, partial_run.trading_run, commands))
+            conn, partial_run.trading_run, commands, cycle=previous, proof=proof))
     if (not active_clear or observation is None
             or observation['completeness'] != 'COMPLETE'
             or observation['runtime_state'] != 'RUNNING'
@@ -3490,7 +3525,7 @@ def _execution_progress_fact(cycle, trading_row, broker, *, now):
             or any(cycle.get(key) for key in ('terminal_reason', 'callback_failure', 'exception_type'))
             or run.state == 'EXECUTING' and (cycle.get('failure_code') or cycle.get('failure_detail'))
             or run.state == 'RECONCILING' and not model.submitted_commands_progress(cycle)
-            or any(order.state not in {'ACKNOWLEDGED', 'PARTIALLY_FILLED', 'FILLED'} for order in run.orders)
+            or not run.callback_order_states_known()
             or broker.effective_status(now) not in {model.OK, model.WARN}
             or broker.recovery is None or broker.recovery.phase != 'BROKER_CALLBACK_REFRESH'):
         return None
@@ -4618,6 +4653,10 @@ def _shadow_worker_row(state_dir, database_url, *, observer=None, diagnostics=No
                 if value.get('worker_deadline') is not None else
                 value['observed_at']+timedelta(seconds=status.MAX_AGE_SECONDS)
                 if value.get('observed_at') is not None else None))
+    except status.WorkerStatusNotReported:
+        return model.Row('shadow_worker', 'Strategy worker', 'STATUS NOT REPORTED',
+            model.UNKNOWN, 'The strategy worker has not reported its status.', required_current=True,
+            operational_fact=model.OperationalFact(kind='SHADOW_WORKER', state='NOT_REPORTED'))
     except Exception as exc:
         stage = getattr(exc, 'probe_stage', None)
         if (isinstance(exc, TimeoutError) and isinstance(stage, str) and stage in {

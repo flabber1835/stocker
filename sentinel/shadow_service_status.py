@@ -183,6 +183,10 @@ def read(state_dir: Path, database_url: str) -> dict:
     return decode_probe(observe(state_dir), database_url)
 
 
+class WorkerStatusNotReported(FileNotFoundError):
+    """The observer found neither a worker report nor an unfinished attempt."""
+
+
 def decode_probe(snapshot, database_url):
     """Validate the finite snapshot with the unchanged producer contract."""
     if (not isinstance(snapshot, dict)
@@ -193,6 +197,8 @@ def decode_probe(snapshot, database_url):
         raise ValueError('worker snapshot is malformed')
     if snapshot['critical']:
         return {'state': 'FENCED', 'reason': 'CRITICAL_LATCH'}
+    if all(snapshot[key] is None for key in ('status', 'pending', 'latest_pending')):
+        raise WorkerStatusNotReported('strategy worker has not reported status')
     attempt = _decode_pending(snapshot['pending'])
     value = _decode_status(snapshot['status'])
     latest = _decode_pending(snapshot['latest_pending'])

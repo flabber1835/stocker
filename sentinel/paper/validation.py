@@ -262,9 +262,9 @@ def _validate_broker_grant(
         strategy_provider, dual_shadow_observation_id: str | None = None,
         dual_shadow_starting_cash: Decimal | str | None = None) -> None:
     """Fresh database-only grant proof run before and after every broker read."""
-    from sentinel.handover import assert_no_legacy_path
+    from sentinel.handover import require_owned_binding
 
-    binding = assert_no_legacy_path(conn)
+    binding = require_owned_binding(conn)
     reported = (result.identity if isinstance(result, BrokerAccountSnapshot)
                 else result if isinstance(result, BrokerAccountIdentity)
                 else None)
@@ -419,8 +419,8 @@ def _protected_allocation_or_refuse(conn, *, plan, state, shadow_equity=None, re
 def _market_buy_candidate_or_refuse(conn, *, plan, projection, deployment,
                                     observation, client_key, instrument,
                                     quantity, order_terms, estimate, session, notional=None,
-                                    cash_ceiling=None):
-    """Bind a market BUY to the exact quiescent book and pending command."""
+                                    cash_ceiling=None, reservation=None):
+    """Bind the exact pending command to its singleton or reserved funding proof."""
     from fractions import Fraction
     from sentinel.execution import commands, market_buy_sizing, target_reprojection
     from sentinel.execution.contract import OrderTerms, Side
@@ -446,12 +446,21 @@ def _market_buy_candidate_or_refuse(conn, *, plan, projection, deployment,
         projection, require_current_policy=True, plan=durable_plan)
     if (not observation.is_complete
             or not deployment.matches_account(observation.account_identity)
-            or any(order.is_working for order in observation.orders)):
+            or (reservation is None and any(order.is_working for order in observation.orders))):
         raise OrderEvidenceNotReady("market BUY requires a quiescent account observation")
     in_flight = journal.in_flight_commands(conn, deployment)
-    if len(in_flight) != 1 or in_flight[0].client_key != client_key:
+    if reservation is None and (len(in_flight) != 1 or in_flight[0].client_key != client_key):
         raise OrderEvidenceNotReady("market BUY requires its exact key as the only unresolved order")
-    candidate = in_flight[0]
+    candidate = next((c for c in in_flight if c.client_key == client_key), None)
+    if candidate is None:
+        raise OrderEvidenceNotReady("market BUY lacks its exact unresolved command")
+    if reservation is not None:
+        from .market_reservations import member
+        if (notional is None or reservation["members"].get(client_key) != member(candidate)
+                or reservation["plan"] != plan.fingerprint()
+                or reservation["projection"] != projection.fingerprint()
+                or reservation["deployment"] != deployment.to_dict()):
+            raise PaperActivationRefused("market BUY differs from the authoritative dollar reservation")
     if (candidate.state is not CommandState.SEND_PENDING
             or candidate.identity.deployment != deployment
             or candidate.identity.plan_id != plan.plan_id

@@ -31,6 +31,8 @@ header{display:block;padding:6px 0 0;margin:0 0 18px}
  letter-spacing:.045em;padding:12px 14px;margin-top:19px;line-height:1.4;overflow-wrap:anywhere}
 .state.ok{background:var(--okbg);color:var(--ok)}.state.warn{background:var(--warnbg);color:var(--warn)}
 .state.checking{background:#103149;color:#8dd2fb}
+.expired-status body[data-link="connection"] .state.checking{color:var(--muted)}
+.expired-status body[data-link="connection"] .brand img.unknown-sign{filter:grayscale(1)}
 .state.fail,.state.unknown{background:var(--failbg);color:var(--fail)}.state.pending{background:var(--pendingbg);color:var(--pending)}
 .heartbeat{display:block;margin:9px 2px 0;color:var(--muted);font-size:11px;
  font-variant-numeric:tabular-nums;letter-spacing:0;line-height:1.5}

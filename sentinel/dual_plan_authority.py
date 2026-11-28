@@ -593,7 +593,8 @@ def rederive_plan(
     def load():
         return _rederive_plan(conn, plan=plan, binding=binding,
             rollout_state=rollout_state, expected_shadow_result=expected)
-    if not structural_verification.active():
+    from sentinel import prepared_opening_material
+    if not structural_verification.active() and not prepared_opening_material.active():
         return load()
     expected_state = getattr(expected, 'state', None)
     if expected is not None and expected_state is None:
@@ -605,17 +606,17 @@ def rederive_plan(
     from sentinel.execution import held_targets
     key = (*key, held_targets.predecessor_version(conn, plan.plan_id))
     return structural_verification.material(conn, slot='dual-sizing', key=key,
-        load=load)
+        load=lambda: prepared_opening_material.sizing(conn, key, load))
 
 
 def _sizing_key(plan, binding, rollout_state, shadow_binding):
-    return plan.to_dict(), repr(binding), repr(rollout_state), shadow_binding
+    return plan.to_dict(), repr(binding), repr(rollout_state), shadow_binding, regenesis_flat_sizing_required()
 
 
 def _rederive_guard_plan(conn, *, plan, binding, rollout_state,
                         observation_id, starting_cash):
     """Acquire the private commitment ourselves; callers cannot supply one."""
-    from sentinel import dual_reconciliation, structural_verification
+    from sentinel import dual_reconciliation, structural_verification, prepared_opening_material
     intent = dual_reconciliation._verified_guard_intent(conn,
         decision_session=plan.decision_session, observation_id=observation_id,
         starting_cash=starting_cash)
@@ -631,10 +632,11 @@ def _rederive_guard_plan(conn, *, plan, binding, rollout_state,
             raise DualPlanAuthorityRefused('private guard state commitment changed')
         return proof
     from sentinel.execution import held_targets
-    proof = structural_verification.material(conn, slot='dual-sizing',
-        key=(*_sizing_key(plan, binding, rollout_state, (intent.state_sha256,
+    key = (*_sizing_key(plan, binding, rollout_state, (intent.state_sha256,
             intent.record_sha256, intent.runtime_authority_sha256)),
-            held_targets.predecessor_version(conn, plan.plan_id)), load=load)
+            held_targets.predecessor_version(conn, plan.plan_id))
+    proof = structural_verification.material(conn, slot='dual-sizing', key=key,
+        load=lambda: prepared_opening_material.sizing(conn, key, load))
     return intent, proof
 
 

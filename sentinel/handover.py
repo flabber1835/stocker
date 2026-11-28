@@ -218,25 +218,25 @@ async def _migrate_account_locked(*, broker: SentinelBroker, conn,
                            detail=result.detail)
 
 
-def assert_no_legacy_path(conn) -> binding_mod.AccountBinding:
-    """What ORDINARY startup calls instead of the migration.
-
-    The whole de-arming, in one function: a bound account has no legacy
-    classification available to it, and an unbound one refuses to trade rather
-    than deciding for itself what the positions it can see must be.
-    """
+def require_owned_binding(conn) -> binding_mod.AccountBinding:
+    """Read the current binding and require Sentinel ownership."""
     bound = binding_mod.require(conn)
-    if not bound.is_owned:                                    # pragma: no cover
+    if not bound.is_owned:
         raise MigrationRefused(
             f"binding exists but ownership_state is {bound.ownership_state!r}")
+    return bound
+
+
+def assert_no_legacy_path(conn) -> binding_mod.AccountBinding:
+    """Require the binding and audit its ownership history at gateway entry."""
+    bound = require_owned_binding(conn)
     if ownership_established(PostgresOwnershipStore(conn)) is False:
         # The binding is authoritative, so this is a consistency WARNING rather
         # than a refusal: a database restored from before the events table was
         # populated is still a bound account, and refusing here would strand a
         # correctly-owned appliance.
-        log.warning("sentinel: account is bound but the ownership event log is "
-                    "empty — binding is authoritative; the log is audit "
-                    "evidence and appears to have been restored separately")
+        log.warning("sentinel: the account is bound and its audit history "
+                    "has no event establishing Sentinel ownership")
     return bound
 
 

@@ -115,12 +115,15 @@ def test_collector_uses_separate_bounded_calls_and_never_needs_push_key(monkeypa
 
 def _account_job_near_publication_deadline(progress):
     """Exercise the spawned collector with deterministic dependency durations."""
+    from datetime import datetime, timezone
     from types import SimpleNamespace
     from unittest.mock import Mock, patch
     from sentinel.execution import account_status, opening_display
+    from sentinel.execution.contract import BrokerAccountSnapshot
     from sentinel.trading_environment import TradingEnvironment
 
     elapsed = 8  # Child imports, connection and binding checks.
+    sample = (Mock(spec=BrokerAccountSnapshot), None, False, [], datetime.now(timezone.utc))
 
     async def optional(*args, **kwargs):
         nonlocal elapsed
@@ -130,9 +133,10 @@ def _account_job_near_publication_deadline(progress):
     async def read(*args, **kwargs):
         nonlocal elapsed
         elapsed += account_status.DEADLINE_SECONDS - .5
-        return object()
+        return sample
 
     async def publish(*args, **kwargs):
+        assert kwargs['sample'] == sample
         progress.send(elapsed + account_status.PUBLICATION_SECONDS - .5)
         if not progress.poll(20):
             raise RuntimeError('test supervisor failed to release publication')
@@ -144,7 +148,7 @@ def _account_job_near_publication_deadline(progress):
     with (patch.object(account_status, '_bound', return_value=('deployment', 'broker', 'account', 1)),
           patch.object(account_status, '_commands', return_value=[]),
           patch.object(opening_display, 'collect', optional),
-          patch.object(account_status, '_collect', read),
+          patch.object(account_status, '_observation', read),
           patch.object(account_status, '_publish', publish)):
         return collector.collect_once('ACCOUNT', reader=Mock(), config=config, connection_factory=Mock())
 

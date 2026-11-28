@@ -36,6 +36,67 @@ function dashboardDeadline(controller, operation) {
 """
 
 CURRENT_DOCUMENT_SCRIPT = REQUEST_DEADLINE_SCRIPT + r"""
+function sameDashboardOrigin(response) {
+  return new URL(response.url || location.href, location.href).origin === location.origin;
+}
+
+function dashboardReadFailure(response, receivingBody) {
+  if (!navigator.onLine) { return {kind:'offline', label:'Device offline', retryable:true}; }
+  if (response && !sameDashboardOrigin(response)) {
+    return {kind:'unverified', label:'Dashboard response unverified', retryable:false};
+  }
+  if (!response || receivingBody) {
+    return {kind:'connection', label:'Connection delayed', retryable:true};
+  }
+  var busy = response.status === 503;
+  var progress = '';
+  if (busy) {
+    try { progress = decodeURIComponent(response.headers.get('X-Sentinel-Deployment-Progress') || ''); }
+    catch (_) { /* An unreadable optional header does not change connection status. */ }
+  }
+  return {kind:'connected', label:'Connected · waiting for current status', progress:progress,
+    retryable:busy || response.headers.get('X-Sentinel-Panel-Status') === 'LAST_KNOWN'};
+}
+
+function dashboardRequests() {
+  var active = null;
+  var retry = null;
+  function pending() { return active !== null || retry !== null; }
+  function clearRetry() {
+    clearTimeout(retry);
+    retry = null;
+  }
+  return {
+    pending: pending,
+    begin() {
+      if (pending()) { return null; }
+      active = new AbortController();
+      return active;
+    },
+    owns(request) { return active === request; },
+    finish(request) {
+      if (active !== request) { return false; }
+      active = null;
+      return true;
+    },
+    retryAfter(read, delay) {
+      var scheduled = setTimeout(function() {
+        if (retry !== scheduled) { return; }
+        retry = null;
+        read();
+      }, delay);
+      retry = scheduled;
+    },
+    clearRetry: clearRetry,
+    cancel() {
+      clearRetry();
+      var request = active;
+      active = null;
+      if (request) { request.abort(); }
+    }
+  };
+}
+
 function currentDocument(html, status, response, started) {
   if (typeof html !== "string" || html.length > 2097152) {
     throw new Error("Dashboard response exceeds its document bound");
@@ -75,7 +136,9 @@ LAUNCH_HTML = r"""<!doctype html>
 html,body{margin:0;min-height:100%;background:#16111f;color:#e5dfeb;font:18px/1.5 system-ui}
 body{padding:max(28px,env(safe-area-inset-top)) max(20px,env(safe-area-inset-right)) max(28px,env(safe-area-inset-bottom)) max(20px,env(safe-area-inset-left));box-sizing:border-box}
 main{max-width:38rem;margin:8vh auto}h1{color:#f7d78c;font-size:1.65rem}
-section{border:2px solid #756b7b;border-radius:16px;padding:22px}p{color:#c2b7c8}
+section{border:2px solid #54a8d8;border-radius:16px;padding:22px}#launch-status{color:#8dd2fb}p{color:#c2b7c8}
+body[data-link="offline"] section,body[data-link="connection"] section{border-color:#756b7b}
+body[data-link="offline"] #launch-status,body[data-link="connection"] #launch-status{color:#c2b7c8}
 button,a{color:#f7d78c}button{font:inherit;padding:10px 20px;border:1px solid #756b7b;border-radius:10px;background:transparent}
 button:disabled{opacity:.6}
 </style></head><body data-panel-launch="true"><main>
@@ -88,84 +151,85 @@ button:disabled{opacity:.6}
 (function(){
   "use strict";
   __CURRENT_DOCUMENT_SCRIPT__
-  var busy = false, controller = null, again = false, away = false, retryTimer = null;
+  var requests = dashboardRequests();
+  var away = false;
   var retryDelay = 5000;
   var status = document.getElementById("launch-status");
   var detail = document.getElementById("launch-detail");
   var retry = document.getElementById("launch-retry");
   function visible() { return !away && document.visibilityState === "visible"; }
   function offline() {
+    document.body.dataset.link = 'offline';
     status.textContent = "STATUS NOT CURRENT — OFFLINE";
     detail.textContent = "This device will check system health when it reconnects.";
   }
-  function sameOrigin(response) {
-    return new URL(response.url || location.href, location.href).origin === location.origin;
-  }
-  function deploymentProgress(response) {
-    if (!response || response.status !== 503 || !sameOrigin(response)) { return ""; }
-    try { return decodeURIComponent(response.headers.get("X-Sentinel-Deployment-Progress") || ""); }
-    catch (_) { return ""; }
-  }
   async function load() {
     if (document.body.dataset.panelLaunch !== "true" || !visible()) { return; }
-    clearTimeout(retryTimer);
-    if (busy) { again = true; return; }
     if (!navigator.onLine) { offline(); return; }
-    busy = true; retry.disabled = true;
-    controller = new AbortController();
-    var active = controller;
+    var active = requests.begin();
+    if (!active) { return; }
+    retry.disabled = true;
     var response;
+    var receivingBody = false;
     var started = performance.now();
     try {
       var html = await dashboardDeadline(active, async function() {
         response = await fetch(location.href, {cache:"no-store", credentials:"same-origin", headers:{"X-Sentinel-Refresh":"1"}, signal:active.signal});
         if (!response.ok || !["CURRENT", "PARTIAL"].includes(response.headers.get("X-Sentinel-Panel-Status")) ||
-            !sameOrigin(response)) { throw new Error("Current status is not available"); }
+            !sameDashboardOrigin(response)) { throw new Error("Current status is not available"); }
+        receivingBody = true;
         return response.text();
       });
+      receivingBody = false;
+      if (!requests.owns(active) || !visible()) { return; }
       var documentStatus = response.headers.get("X-Sentinel-Panel-Status");
       var next = currentDocument(html, documentStatus, response, started);
-      if (active.signal.aborted || !visible()) { throw new Error("Launch request interrupted"); }
       window.sentinelDashboardClock = next.sentinelClock;
       document.open(); document.write(html); document.close();
     } catch (_error) {
-      if (visible()) {
+      if (requests.owns(active) && visible()) {
         if (!navigator.onLine) { offline(); }
         else {
-          var progress = deploymentProgress(response);
+          var failure = dashboardReadFailure(response, receivingBody);
+          document.body.dataset.link = failure.kind;
+          var progress = failure.progress;
           var delay = progress ? 5000 : retryDelay;
           retryDelay = progress ? 5000 : Math.min(delay * 2, 30000);
-          status.textContent = progress || "STATUS NOT CURRENT — CONNECTION DELAYED";
+          status.textContent = progress || (failure.kind === 'connection' ? 'STATUS NOT CURRENT — CONNECTION DELAYED' : failure.label);
           detail.textContent = "Current health is unavailable. Checking again in " + delay / 1000 + " seconds.";
-          retryTimer = setTimeout(load, delay);
+          requests.retryAfter(load, delay);
         }
       }
     } finally {
-      busy = false; controller = null; retry.disabled = false;
-      if (again && visible()) { again = false; load(); }
+      if (requests.finish(active)) { retry.disabled = false; }
     }
   }
   function resume() {
-    retryDelay = 5000;
     if (status.textContent === "STATUS NOT CURRENT — OFFLINE" && navigator.onLine) {
+      delete document.body.dataset.link;
       status.textContent = "Connecting to current status…";
       detail.textContent = "Current system health has not been checked yet.";
     }
     load();
   }
   function pause() {
-    clearTimeout(retryTimer);
-    again = false;
-    if (controller) { controller.abort(); }
+    requests.cancel();
+    retryDelay = 5000;
+    retry.disabled = false;
   }
-  retry.addEventListener("click", resume);
+  function retryNow() {
+    requests.clearRetry();
+    retryDelay = 5000;
+    resume();
+  }
+  retry.addEventListener("click", retryNow);
   document.addEventListener("visibilitychange", function(){
     away = document.visibilityState !== "visible";
     if (away) { pause(); } else { resume(); }
   });
   window.addEventListener("pagehide", function(){ away = true; pause(); });
   window.addEventListener("pageshow", function(event){ if (event.persisted) { away = false; resume(); } });
-  window.addEventListener("online", resume);
+  window.addEventListener("online", retryNow);
   window.addEventListener("offline", function(){ pause(); offline(); });
   // Commit a painted neutral document before beginning the status round trip.
   requestAnimationFrame(function(){ requestAnimationFrame(load); });

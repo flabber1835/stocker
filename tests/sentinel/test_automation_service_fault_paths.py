@@ -1974,6 +1974,40 @@ def test_recovery_wait_exemption_requires_current_same_plan_day_evidence(monkeyp
         assert case.transitions == [module.CycleState.BLOCKED]
 
 
+@pytest.mark.parametrize("proof", ["current", "cutoff", "stale", "wrong_plan", "no_orders"])
+@pytest.mark.parametrize("broker", ["alpaca", "alpaca-live"])
+def test_scheduler_waits_for_proven_owned_market_work_without_exhausting_retries(monkeypatch, proof, broker):
+    from sentinel.automation.model import ExecuteResult, ExecuteDisposition
+    case = resting_recovery(monkeypatch, broker=broker)
+    if proof == "cutoff":
+        case.completed = case.cycle.execution_open_at + timedelta(minutes=10)
+    diagnostic = {"plan_id": case.cycle.plan_id, "clean": True, "observation_id": 12,
+                  "observed_at": case.completed.isoformat(),
+                  "working_order_keys": ["sntl-owned-market-order"]}
+    if proof == "stale":
+        diagnostic["observed_at"] = (case.completed - timedelta(seconds=61)).isoformat()
+    elif proof == "wrong_plan":
+        diagnostic["plan_id"] = "unrelated"
+    elif proof == "no_orders":
+        diagnostic["working_order_keys"] = []
+
+    async def recover(context):
+        context.require_active()
+        case.clock[0] = case.completed
+        disposition = ExecuteDisposition.READY_TO_EXECUTE if proof == "cutoff" else ExecuteDisposition.RECONCILE
+        code = "RESERVED_MARKET_READY" if proof == "cutoff" else "OWNED_MARKET_ORDERS_WORKING"
+        return ExecuteResult(disposition=disposition, last_clean_reconciliation_id="12",
+            transport_reconciliation_id="12", failure_code=code, diagnostic=diagnostic)
+
+    monkeypatch.setattr(case.service, "recover", recover)
+    result = run_resting_recovery(case)
+    if proof in {"current", "cutoff"}:
+        assert result.action is module.TickAction.WAITING
+        assert result.cycle.failure_code is None and result.cycle.diagnostic["retry_phase"] == "RECOVER"
+    else:
+        assert result.action is module.TickAction.BLOCKED
+
+
 def test_other_plan_wait_cannot_bypass_the_failure_budget_guard_falsifier(monkeypatch):
     import inspect
     import textwrap
@@ -1981,8 +2015,9 @@ def test_other_plan_wait_cannot_bypass_the_failure_budget_guard_falsifier(monkey
 
     case = resting_recovery(monkeypatch, proof='wrong_plan')
     source = textwrap.dedent(inspect.getsource(module.AutomationService._run_recover))
-    assert source.count('plan_id=cycle.plan_id,') == 1
-    changed = source.replace('plan_id=cycle.plan_id,', 'plan_id=None,')
+    guard = 'plan_id=cycle.plan_id,\n            effective_session=cycle.effective_session'
+    assert source.count(guard) == 1
+    changed = source.replace(guard, guard.replace('plan_id=cycle.plan_id', 'plan_id=None'))
     namespace = dict(vars(module))
     exec(compile(changed, '<private-wait-plan-guard-falsifier>', 'exec'), namespace)
     monkeypatch.setattr(case.service, '_run_recover', types.MethodType(namespace['_run_recover'], case.service))

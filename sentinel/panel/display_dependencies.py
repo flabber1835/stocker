@@ -91,7 +91,7 @@ def combined_subjects(basis):
 
 def capture(conn, database_url, *, facts=None, dashboard=True):
     """Constant-size indexed coordinates, owned by the caller's coherent snapshot."""
-    read_projection.schema.require_schema(conn)
+    read_projection._require_display_schema(conn)
     facts = read_projection._subject_facts(conn) if facts is None else facts
     revisions = {r[0]: list(r[1:]) for r in conn.execute(
         'SELECT scope,incarnation::text,revision,xmin::text '

@@ -301,7 +301,11 @@ def test_blocked_financial_observer_is_one_owned_job_and_requests_answer():
             assert rows[0].status == model.WARN
             assert rows[0].value == 'CHECK IN PROGRESS' and not errors
         assert len(calls) == 1
-        assert calls[0][2] == dict(timeout=reader.DEADLINE_SECONDS, start_method='spawn')
+        remaining = min(reader.DEADLINE_SECONDS,
+                        value.attempt_deadline_clock - value.work_clock,
+                        (value.attempt_deadline - value.work_started).total_seconds())
+        assert remaining > 0
+        assert calls[0][2] == dict(timeout=remaining, start_method='spawn')
     finally:
         release.set()
         complete(value)
@@ -336,7 +340,7 @@ def test_configuration_change_does_not_deliver_or_retain_old_positive_result(mon
     native = SimpleNamespace(execute=lambda *_: SimpleNamespace(
         fetchone=lambda: ('physical-fixture', 'fixture-database')))
     monkeypatch.setattr(operational_schema, 'installation', lambda *_, **__: None)
-    monkeypatch.setattr(operational_ddl_epoch, 'current', lambda _: 1)
+    monkeypatch.setattr(operational_ddl_epoch, 'current', lambda *args: 1)
     monkeypatch.setattr(read_projection, '_shadow_inventory', lambda _: [])
     def evidence(database, _):
         return read_projection._subject_for_revision(
@@ -449,10 +453,11 @@ def test_actual_spawned_observer_deadline_kills_and_reaps(tmp_path):
 
 def _threaded_fixture_runner(function, *args, **kwargs):
     assert function is verification_service.diagnosed_observe
-    assert kwargs == dict(timeout=reader.DEADLINE_SECONDS, start_method='spawn')
+    assert kwargs['start_method'] == 'spawn'
+    assert 0 < kwargs['timeout'] <= reader.DEADLINE_SECONDS
     # Real thread -> owned spawn -> bounded pipe -> parent validation. Only
     # the financial observation content is a named fixture, never authority.
-    return supervisor_io.run(result, timeout=10, start_method=kwargs['start_method'])
+    return supervisor_io.run(result, timeout=min(10, kwargs['timeout']), start_method=kwargs['start_method'])
 
 
 @pytest.mark.skipif(os.name != 'posix', reason='deployed observer uses Linux parent-death supervision')
@@ -483,9 +488,10 @@ def test_financial_observer_does_not_hide_current_control_rows(monkeypatch):
 
 def test_replaying_a_positive_observation_past_expiry_is_detected(monkeypatch):
     import inspect, textwrap
-    source = textwrap.dedent(inspect.getsource(reader.Reader.read)).replace(
-        'if timedelta(0) <= age <= timedelta(seconds=FRESH_SECONDS):',
-        'if True:')
+    source = textwrap.dedent(inspect.getsource(reader.Reader.read))
+    guard = 'if timedelta(0) <= age <= timedelta(seconds=FRESH_SECONDS) and '
+    assert source.count(guard) == 1
+    source = source.replace(guard, 'if ')
     namespace = {}
     exec(compile(source, 'replayed-positive-health', 'exec'), reader.__dict__, namespace)
     monkeypatch.setattr(reader.Reader, 'read', namespace['read'])

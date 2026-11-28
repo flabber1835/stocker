@@ -18,6 +18,7 @@ MAX_FINGERPRINT_BYTES = 32 * 1024
 Phase = Literal['BEFORE_OBSERVATION', 'OBSERVATION', 'AFTER_OBSERVATION',
                 'QUEUE', 'TRANSPORT', 'VALIDATION', 'SUPERSESSION']
 Code = Literal['SUBJECT_CHANGED', 'READ_TIMEOUT', 'READ_LOCK_UNAVAILABLE',
+               'FOREGROUND_BUSY', 'FOREGROUND_WAIT_EXHAUSTED',
                'CORPUS_LOCK_UNAVAILABLE', 'OBSERVATION_TIMEOUT',
                'VALIDATION_REFUSED', 'OBSERVER_EXCEPTION', 'TRANSPORT_TIMEOUT',
                'TRANSPORT_FAILED', 'INVALID_OUTCOME', 'SUPERSESSION_EXHAUSTED',
@@ -36,7 +37,7 @@ class ObservationSuperseded(ValueError):
 class Failure(BaseModel):
     model_config = ConfigDict(extra='forbid', frozen=True, strict=True)
     schema_version: Literal['sentinel.financial-observer-failure/1'] = Field(alias='schema')
-    outcome: Literal['FAILED', 'SUPERSEDED']
+    outcome: Literal['FAILED', 'SUPERSEDED', 'DEFERRED']
     code: Code
     phase: Phase
     exception_type: str | None = Field(default=None, pattern=r'^[A-Za-z_][A-Za-z0-9_]{0,79}$')
@@ -45,11 +46,14 @@ class Failure(BaseModel):
     @model_validator(mode='after')
     def coherent(self):
         allowed = ({'BEFORE_OBSERVATION', 'AFTER_OBSERVATION'} if self.code == 'SUBJECT_CHANGED'
+                   else {'QUEUE'} if self.code == 'FOREGROUND_WAIT_EXHAUSTED'
                    else {'TRANSPORT', 'QUEUE'} if self.code in {'TRANSPORT_TIMEOUT', 'TRANSPORT_FAILED'}
                    else {'VALIDATION'} if self.code in {'INVALID_OUTCOME', 'NEGATIVE_RESULT'}
                    else {'SUPERSESSION'} if self.code in {'SUPERSESSION_EXHAUSTED', 'CLOCK_REGRESSION'}
                    else {'OBSERVATION'})
         if ((self.outcome == 'SUPERSEDED') != (self.code == 'SUBJECT_CHANGED')
+                or (self.outcome == 'DEFERRED') != (self.code == 'FOREGROUND_BUSY')
+                or self.code == 'FOREGROUND_BUSY' and self.exception_type != 'DiscretionaryScanDeferred'
                 or self.phase not in allowed):
             raise ValueError('observer failure classification is contradictory')
         return self
@@ -65,7 +69,7 @@ class Attempt(BaseModel):
     schema_version: Literal['sentinel.financial-observer-attempt/1'] = Field(alias='schema')
     attempt_id: str = Field(pattern=r'^[a-f0-9]{32}$')
     subject_sha256: str = Field(pattern=r'^[a-f0-9]{64}$')
-    outcome: Literal['QUEUED', 'RUNNING', 'COMPLETED', 'VERIFIED', 'SUPERSEDED', 'FAILED']
+    outcome: Literal['QUEUED', 'RUNNING', 'COMPLETED', 'VERIFIED', 'SUPERSEDED', 'FAILED', 'DEFERRED']
     admitted_at: datetime
     deadline: datetime
     work_started_at: datetime | None = None
@@ -112,7 +116,7 @@ def failure(code: Code, phase: Phase, *, error: Exception | None = None,
     if material is not None:
         digest.update(b'\0'+material)
     return Failure.model_validate(dict(schema=SCHEMA,
-        outcome='SUPERSEDED' if code == 'SUBJECT_CHANGED' else 'FAILED',
+        outcome={'SUBJECT_CHANGED': 'SUPERSEDED', 'FOREGROUND_BUSY': 'DEFERRED'}.get(code, 'FAILED'),
         code=code, phase=phase, exception_type=kind, fingerprint=digest.hexdigest()))
 
 
@@ -125,7 +129,10 @@ def classify(error: Exception, *, transport=False,
         return failure('SUBJECT_CHANGED', error.phase, error=error)
     from psycopg.errors import LockNotAvailable, QueryCanceled
     from sentinel.feed.publication import CorpusLockUnavailable
-    if isinstance(error, QueryCanceled):
+    from sentinel.snapshot_scan_admission import DiscretionaryScanDeferred
+    if type(error) is DiscretionaryScanDeferred:
+        code = 'FOREGROUND_BUSY'
+    elif isinstance(error, QueryCanceled):
         code = 'READ_TIMEOUT'
     elif isinstance(error, LockNotAvailable):
         code = 'READ_LOCK_UNAVAILABLE'

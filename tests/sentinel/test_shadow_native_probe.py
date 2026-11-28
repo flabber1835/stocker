@@ -226,6 +226,18 @@ def test_critical_marker_and_canonical_authentication_still_win_actual_reads(sta
     assert (state/status.CRITICAL_NAME).read_text() == 'persistent integrity refusal'
 
 
+def test_only_a_cleanly_absent_status_can_be_reported_as_missing(state):
+    with probe.Observer(state) as observer:
+        row = sources._shadow_worker_row(state, DSN, observer=observer)
+        assert row.status == model.UNKNOWN and row.operational_fact.state == 'NOT_REPORTED'
+        (state/status.PENDING_NAME).write_text('unfinished')
+        row = sources._shadow_worker_row(state, DSN, observer=observer)
+        assert row.status == model.UNKNOWN and row.operational_fact is None
+        (state/status.CRITICAL_NAME).write_text('critical')
+        row = sources._shadow_worker_row(state, DSN, observer=observer)
+        assert row.status == model.FAIL and row.operational_fact is None
+
+
 def test_heavy_multiprocessing_main_is_not_imported_by_native_observer(state, tmp_path):
     current(state)
     script = tmp_path/'heavy-main.py'

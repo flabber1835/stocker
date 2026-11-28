@@ -41,7 +41,7 @@ def test_missing_or_malformed_eligibility_never_becomes_whole_fallback(flag):
     broker, _ = broker_for(AssetIdAlpacaExecutionBroker, routes={"/v2/assets/" + INSTRUMENT.broker_id: {
         "id": INSTRUMENT.broker_id, "symbol": INSTRUMENT.symbol,
         "status": "active", "tradable": True, "fractionable": flag}})
-    with pytest.raises(MalformedBrokerPayload, match="rules"):
+    with pytest.raises(MalformedBrokerPayload, match="^current fractional eligibility is absent or malformed$"):
         run(broker.asset_rules(instrument=INSTRUMENT))
 
 

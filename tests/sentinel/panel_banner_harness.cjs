@@ -18,7 +18,7 @@ function boot(cachedFailure=false){
  const motion={matches:false,addEventListener:(_name,fn)=>wake.motion=fn};
  window.matchMedia=()=>motion;
  if(request.browserState)classes.add(request.browserState);
- const document={body:{dataset:{health:request.health??'green',refreshPending:String(request.refreshPending===true)}},
+ const document={body:{dataset:{health:request.health??'green',refreshPending:String(request.refreshPending===true),lastWarning:request.lastWarning}},
   documentElement:{classList:{contains:name=>classes.has(name)}},
   querySelector:selector=>selector==='.brand img[data-banner-src]'?image:
   selector==='.brand-fallback'?fallback:null};
@@ -41,7 +41,7 @@ switch(request.case){
  case 'pending':
   first.wake.pageshow();assert.equal(first.image.complete,false);
   assert.equal(assignments.length,1,'pending image identity changed');
-  assert.equal(first.fallback.hidden,true);break;
+  assert.equal(first.fallback.hidden,false,'the brand must remain visible during decoding');break;
  case 'first-failure':
   first.fail();assert.equal(assignments.length,2);assert.match(first.src(),/\?banner-load=[a-z0-9-]+$/);
   first.load();assert.equal(first.image.hidden,false);assert.equal(first.fallback.hidden,true);break;
@@ -52,6 +52,9 @@ switch(request.case){
   assert.equal(window.__sentinelMarqueeResources[asset].failed,true,'second failure was not terminal');
   assert.equal(first.image.hidden,true);assert.equal(first.fallback.hidden,false);
   first.wake.pageshow();const second=boot();second.wake.pageshow();
+  // A replacement document can finish decoding its initial neutral still after
+  // the controller has already selected the text fallback for the failed sign.
+  second.load();assert.equal(second.image.hidden,true,'late neutral image revived failed sign');
   assert.equal(assignments.length,2,'consumed recovery budget was renewed');
   assert.equal(second.fallback.hidden,false);break;
  case 'replacement':

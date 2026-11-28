@@ -589,7 +589,7 @@ def snapshot_receipts(monkeypatch):
         return ('original-ddl-incarnation',5)
     monkeypatch.setattr(operational_schema,'installation',installation)
     monkeypatch.setattr(operational_ddl_epoch,'current',epoch)
-    monkeypatch.setattr(projection.schema,'require_schema',lambda *_:True)
+    monkeypatch.setattr(projection.schema,'require_schema',lambda *_,**kw:True)
     # This fixture isolates common-context reuse; real cursor inventory and
     # execution reprojection have their own PostgreSQL qualification.
     monkeypatch.setattr(projection,'_shadow_inventory',lambda _c:['bounded-shadow-inventory'])
@@ -663,6 +663,22 @@ def test_receipt_failure_site_is_finite_and_keeps_unknown_authority(monkeypatch,
     assert authority.status==model.UNKNOWN
     assert len(errors)==1 and site+': ValueError' in errors[0]
     assert secret not in errors[0] and secret not in authority.detail
+
+
+@pytest.mark.parametrize('scope', ['PAPER', 'SHADOW'])
+@pytest.mark.parametrize('authentic', [True, False])
+def test_changed_inputs_get_precise_unknown_only_after_authentication(scope, authentic, monkeypatch):
+    connection,_ = snapshot_receipts(monkeypatch)
+    if not authentic:
+        record = connection.receipts[scope]
+        connection.receipts[scope] = (*record[:-1], 'forged')
+    rows,_,_,errors = projection.read_owned(connection, 'fixture', now=NOW, only_scope=scope,
+                                             native_subjects={scope: 'f'*64})
+    key = 'shadow_verification' if scope == 'SHADOW' else 'paper_reconciliation'
+    row = next(item for item in rows if item.key == key)
+    assert row.status == model.UNKNOWN and row.recovery is None and errors
+    assert (row.value == 'Inputs changed · current verification unavailable') == authentic
+    assert ('RECEIPT_SUBJECT_STALE' in row.detail) == authentic
 
 
 def test_http_snapshot_reuses_common_subject_facts_without_changing_either_digest(monkeypatch):
@@ -783,6 +799,34 @@ def test_verifier_restart_reuses_current_completed_proof_with_original_expiry(mo
     assert result[0][0].effective_status(NOW+timedelta(seconds=100))==model.FAIL
 
 
+@pytest.mark.parametrize('elapsed', [599, 601])
+def test_restarting_an_unfinished_verification_cannot_renew_its_signed_wait(monkeypatch, elapsed):
+    from threading import Event
+    from sentinel.panel.verification_monitor import paper_unknown
+    value = resumed_reader(monkeypatch, instant=NOW+timedelta(seconds=elapsed), fault='pending')
+    reader = value.reader
+    reader.unknown = paper_unknown
+    assert reader.answer is None and reader.prior_check_until == NOW+timedelta(seconds=600)
+    started, release = Event(), Event()
+    original = reader.runner
+    def delayed(*args, **kwargs):
+        started.set()
+        assert release.wait(5)
+        return original(*args, **kwargs)
+    reader.runner = delayed
+    try:
+        rows = reader.read('fixture')[0]
+        assert started.wait(2) and reader.pending is not None
+        assert rows[0].status == (model.WARN if elapsed < 600 else model.UNKNOWN)
+        assert rows[0].valid_until == (reader.prior_check_until if elapsed < 600 else None)
+    finally:
+        release.set()
+        if reader.pending is not None:
+            reader.pending.join(2)
+    assert reader.read('fixture', allow_start=False)[0][0].status == model.OK
+    assert reader.prior_check_until is None
+
+
 def test_restored_negative_result_stays_failed_and_retries_ordinary_check(monkeypatch):
     value=resumed_reader(monkeypatch,state='MISMATCH')
     result=value.reader.read('fixture',allow_start=False)
@@ -855,12 +899,13 @@ def test_removing_first_read_subject_guard_has_a_falsifier(monkeypatch):
 
 
 def test_removing_restart_expiry_guard_has_a_falsifier(monkeypatch):
-    body=inspect.getsource(projection.decode)
-    needle='or not observed <= now <= expiry'
+    from sentinel.panel import verification_service
+    body=inspect.getsource(verification_service._restore_readers)
+    needle='if now > row[2] or row[2] !='
     assert body.count(needle)==1
-    namespace=dict(projection.__dict__)
-    exec(compile(body.replace(needle,'or False'),'removed restored expiry','exec'),namespace)
-    monkeypatch.setattr(projection,'decode',namespace['decode'])
+    namespace=dict(vars(verification_service))
+    exec(compile(body.replace(needle,'if row[2] !='),'removed restored expiry','exec'),namespace)
+    monkeypatch.setattr(verification_service,'_restore_readers',namespace['_restore_readers'])
     with pytest.raises(AssertionError):
         test_restart_never_reuses_changed_tampered_pending_or_expired_proof(
             monkeypatch,None,NOW+timedelta(seconds=601))

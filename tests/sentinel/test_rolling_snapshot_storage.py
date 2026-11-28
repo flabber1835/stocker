@@ -180,15 +180,15 @@ def test_complete_scan_admits_manifest_and_evidence_once(conn, window, monkeypat
         manifests.append(candidate_id)
         return manifest(connection, candidate_id)
 
-    def verified(connection, evidence_id):
-        evidence.append(evidence_id)
-        return verify_evidence(connection, evidence_id)
+    def verified(connection, *ids):
+        evidence.append(ids)
+        return verify_evidence(connection, *ids)
 
     monkeypatch.setattr(store, 'manifest', admitted)
     monkeypatch.setattr(store, 'verify_evidence', verified)
     assert store.verify_content(conn, candidate) == expected
     assert manifests == [candidate]
-    assert evidence == [expected.reference_sha256, expected.source_evidence_sha256]
+    assert evidence == [(expected.reference_sha256, expected.source_evidence_sha256)]
     # Standalone reads still own their separate admission, without borrowing a
     # previous operation's verification result.
     assert len(list(store.read_bars(conn, candidate))) == len(window.sessions)
@@ -221,7 +221,39 @@ def test_removed_complete_scan_retirement_guard_is_detected(conn, window, monkey
         test_complete_scan_refuses_retired_payload_even_when_rows_remain(conn, window, monkeypatch)
 
 
-@pytest.mark.parametrize('fault', ['checksum', 'both', 'missing', 'retired'])
+def test_related_evidence_uses_one_query_and_returns_bounded_text_proof(conn, monkeypatch):
+    from types import SimpleNamespace
+    legacy = {'nested': {'a': 'caf\u00e9', 'x': 1.25}}
+    source = store.put_evidence(conn, legacy)
+    monkeypatch.setattr(store, 'JSONB_EVIDENCE_BYTES', 1)
+    reference = store.put_evidence(conn, {'reference': 'x' * 100_000})
+    calls = []
+
+    def measure(query, params):
+        rows = conn.execute(query, params).fetchall()
+        calls.append((params, rows))
+        return SimpleNamespace(fetchall=lambda: rows)
+
+    store.verify_evidence(SimpleNamespace(execute=measure), reference, source, reference)
+    assert len(calls) == 1
+    params, rows = calls[0]
+    assert params[-1] == [reference, source]
+    assert {row[0] for row in rows} == {reference, source}
+    for row in rows:
+        if row[0] == reference:
+            assert len(repr(row)) < 256
+        else:
+            assert legacy in row
+
+
+def test_batched_verifier_falsifier_catches_skipped_companion(conn, monkeypatch):
+    verify = store.verify_evidence
+    monkeypatch.setattr(store, 'verify_evidence', lambda connection, key, *related: verify(connection, key))
+    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+        test_stored_byte_verifier_rejects_corrupt_or_unavailable_evidence(conn, 'missing')
+
+
+@pytest.mark.parametrize('fault', ['checksum', 'legacy_checksum', 'both', 'missing', 'retired'])
 def test_stored_byte_verifier_rejects_corrupt_or_unavailable_evidence(conn, fault):
     # Model restored corrupt storage; normal writer/SQL constraints reject it
     # earlier. The read-side verifier must independently detect the defect.
@@ -236,10 +268,13 @@ def test_stored_byte_verifier_rejects_corrupt_or_unavailable_evidence(conn, faul
     if fault != 'missing':
         conn.execute('INSERT INTO sentinel_snapshot_evidence '
             '(evidence_sha256,payload,canonical_payload) VALUES (%s,%s::jsonb,%s)',
-            (identity, '{}' if fault == 'both' else None,
-             None if fault == 'retired' else '{}'))
+            (identity, '{}' if fault in {'both', 'legacy_checksum'} else None,
+             None if fault in {'retired', 'legacy_checksum'} else '{}'))
+    valid = store.put_evidence(conn, {'other': 'valid'})
     with pytest.raises(store.SnapshotStorageRefused):
-        store.verify_evidence(conn, identity)
+        store.verify_evidence(conn, valid, identity)
+    with pytest.raises(store.SnapshotStorageRefused):
+        store.verify_evidence(conn, identity, valid)
 
 
 def test_stored_byte_verifier_checks_text_size(conn, monkeypatch):

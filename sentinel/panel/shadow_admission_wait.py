@@ -14,7 +14,7 @@ from sentinel.feed.rolling_contract import digest
 from sentinel.panel import authority_reader, model, read_projection
 
 
-MAX_PUBLICATION_WAIT = timedelta(seconds=180)
+MAX_PUBLICATION_WAIT = close_observation.MAX_PUBLICATION_WAIT
 
 
 @dataclass(frozen=True)

@@ -48,8 +48,10 @@ that evidence.
 
 ## Submission and recovery
 
-Under the existing account writer lock, submit at most one unresolved market
-buy at a time. Use positive, complete quiescent reconciliation and fresh
+Under the existing account writer lock, submit at most one unresolved
+share-denominated market buy at a time. Fixed-dollar PAPER purchases use the
+reserved basket described in `fractional-paper-execution.md`. Use positive,
+complete quiescent reconciliation and fresh
 settled account cash before another buy, including after restart. Retain the
 normal account, issuer, source, time, authority and long-only checks. At the
 final guarded submission compare the exact pending command, fresh ask plus
@@ -61,7 +63,8 @@ pre-transport refusal cannot establish the earlier attempt was unsent.
 
 Reuse the canonical journal, order identity and existing recovery callbacks.
 Acknowledge and track partial fills from positive broker evidence. An unresolved
-outcome blocks another buy across the account. A clean terminal reconciliation
+outcome outside a positively identified reserved basket blocks another buy
+across the account. A clean terminal reconciliation
 and actual fill accounting can resume actionable unsent work within the
 original window. Keep the existing terminal rejection and cancellation
 handling. The submission and verification paths may use no invented fill,

@@ -237,7 +237,7 @@ def test_executed_omission_controls_preserve_window_and_per_row_expiry(monkeypat
         monkeypatch.setattr(snapshots,'decode_display',scope['decode_display'])
         with pytest.raises(pytest.fail.Exception):test_display_decode_preserves_authentication_original_bounds_and_consumer_shape('exhausted')
     else:
-        source=textwrap.dedent(inspect.getsource(delivery.row_current));assert change in source
+        source=textwrap.dedent(inspect.getsource(delivery._source_current));assert change in source
         scope=dict(vars(delivery));exec(source.replace(change,'return True'),scope)
-        monkeypatch.setattr(delivery,'row_current',scope['row_current'])
+        monkeypatch.setattr(delivery,'_source_current',scope['_source_current'])
         with pytest.raises(AssertionError):test_expired_account_and_book_keep_dated_overview_only()

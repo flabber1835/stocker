@@ -661,6 +661,105 @@ def install_durable_projection(monkeypatch, current_plan, *, multiplier="1"):
 
 
 @async_test
+@pytest.mark.parametrize("broker_name", ["alpaca", "alpaca-live"])
+@pytest.mark.parametrize("after_execution,expected", [
+    ("unchanged", ExecuteDisposition.SUPERSEDED),
+    ("unknown", ExecuteDisposition.RECONCILE),
+    ("mixed-with-sale", ExecuteDisposition.READY_TO_EXECUTE),
+    ("sale-only", ExecuteDisposition.READY_TO_EXECUTE),
+    ("foreign-working", ExecuteDisposition.BLOCKED),
+    ("pending-units", ExecuteDisposition.READY_TO_EXECUTE),
+    ("anchor-present", ExecuteDisposition.READY_TO_EXECUTE),
+    ("other-upgrade-fence", ExecuteDisposition.READY_TO_EXECUTE),
+    ("stale-observation", ExecuteDisposition.READY_TO_EXECUTE),
+    ("wrong-observation-account", ExecuteDisposition.READY_TO_EXECUTE),
+    ("partial", ExecuteDisposition.RECONCILE),
+])
+async def test_database_anchor_disposition_requires_fresh_purchase_only_work(
+        monkeypatch, broker_name, after_execution, expected):
+    from sentinel import trading
+    from sentinel.execution import alpaca
+    from sentinel.execution.contract import BrokerAccountIdentity
+
+    cfg = config()
+    durable = replace(plan(), broker=broker_name)
+    durable = replace(durable, plan_id="sentinel-" + durable.fingerprint())
+    ctx = context(cfg, plan=durable)
+    ctx = ctx.model_copy(update={"cycle": ctx.cycle.model_copy(update={"broker": broker_name})})
+    runtime = production(cfg)
+    runtime._live_run_enabled = broker_name == "alpaca-live"
+    conn = FakeConnection()
+    broker = SimulatedBroker(account=BrokerAccountIdentity(broker_name, durable.broker_account_id), now=NOW)
+    install_runtime_seams(monkeypatch, runtime, conn, ctx, broker)
+    projection = install_durable_projection(monkeypatch, durable)
+    monkeypatch.setattr(journal, "latest_plan", lambda _: durable)
+    in_flight = []
+    monkeypatch.setattr(journal, "in_flight_commands", lambda *_: tuple(in_flight))
+    monkeypatch.setattr(journal, "load_commands", lambda *_, **_kwargs: ())
+    monkeypatch.setattr(automation_runtime.feed_inputs, "frontier", lambda _: DECISION)
+    monkeypatch.setattr(automation_runtime, "_now_utc", lambda: NOW)
+    missing = alpaca.UpgradeRestoreFence.PURCHASES_REQUIRE_DATABASE_ANCHOR
+    native_check = [missing]
+    monkeypatch.setattr(alpaca, "upgrade_restore_fence", lambda _: native_check[0])
+
+    async def observe(**kwargs):
+        rec = reconciliation(await kwargs["broker"].observe(), observation_id=12)
+        return replace(rec, foreign_orders=tuple(o for o in rec.observation.orders if not o.client_key),
+                       restricted_securities=(projection.pending_share_targets
+                                              if runtime._live_run_enabled else {}))
+
+    async def defer(**kwargs):
+        return paper.ExecutionResult(plan=durable, preflight=DictEvidence(),
+            session=SessionResult(runtime_state=RuntimeState.RUNNING,
+                reconciliation=await observe(**kwargs), deferred=(INSTRUMENT.security_id,)))
+
+    if runtime._live_run_enabled:
+        monkeypatch.setattr(trading, "execute_automated_trading_plan", defer)
+        monkeypatch.setattr(trading, "recover_trading_account", observe)
+    else:
+        monkeypatch.setattr(paper, "execute_automated_paper_plan", defer)
+        monkeypatch.setattr(paper, "recover_automated_paper_cycle", observe)
+    executed = await runtime.execute(ctx)
+    assert executed.disposition is ExecuteDisposition.RECONCILE
+    assert executed.failure_code == missing.name
+    assert executed.last_clean_reconciliation_id == "12"
+
+    if after_execution == "unknown":
+        in_flight.append(command(durable.plan_id, state=CommandState.UNKNOWN))
+    elif after_execution == "mixed-with-sale":
+        broker.seed_position(BrokerInstrument("OTHER", "BBB", "asset-b"), "2")
+    elif after_execution == "sale-only":
+        broker.seed_position(INSTRUMENT, "2")
+    elif after_execution == "foreign-working":
+        broker.seed_foreign_order(INSTRUMENT, side=Side.BUY, qty="0.1")
+    elif after_execution == "pending-units":
+        projection = replace(projection, pending_share_targets={"OTHER": "1/3"})
+        monkeypatch.setattr(target_reprojection, "load_projection", lambda *_, **_kwargs: projection)
+    elif after_execution == "anchor-present":
+        native_check[0] = None
+    elif after_execution == "other-upgrade-fence":
+        native_check[0] = alpaca.UpgradeRestoreFence.MISSING_ACCOUNT_BINDING
+    elif after_execution == "stale-observation":
+        broker.now -= timedelta(seconds=61)
+    elif after_execution == "wrong-observation-account":
+        broker.account = BrokerAccountIdentity(broker_name, "ANOTHER-ACCOUNT")
+    elif after_execution == "partial":
+        broker.schedule_observe(FaultKind.PARTIAL_OBSERVATION)
+    recovered = await runtime.recover(ctx)
+    if broker_name == "alpaca-live" and after_execution == "pending-units":
+        expected = ExecuteDisposition.RECONCILE
+        assert recovered.failure_code == "CORPORATE_ACTION_PENDING"
+    assert recovered.disposition is expected
+    if after_execution == "unchanged":
+        assert recovered.failure_code == missing.name
+        assert recovered.last_clean_reconciliation_id == recovered.transport_reconciliation_id == "12"
+        assert [d["side"] for d in recovered.diagnostic["unsent_actionable_deltas"]] == ["BUY"]
+    else:
+        assert recovered.failure_code != missing.name
+    assert not any(call.startswith(("submit:", "cancel:")) for call in broker.calls)
+
+
+@async_test
 @pytest.mark.parametrize('failure_at', ['resolver', 'execution'])
 @pytest.mark.parametrize('live', [False, True])
 async def test_operational_execute_pins_before_resolver_and_releases_on_failure(monkeypatch, failure_at, live):
@@ -2163,8 +2262,8 @@ def test_composition_requires_exact_signed_automation_authority(
     calls = []
     verdicts = []
 
-    monkeypatch.setattr(store, "require_leader", lambda _conn, permit: permit)
-    monkeypatch.setattr(store, "load_control", lambda _conn: control(cfg))
+    monkeypatch.setattr(store, "require_leader_with_control", lambda _conn, permit: (permit, control(cfg)))
+    monkeypatch.setattr(store, "load_control", lambda _conn: pytest.fail("replayed validated control"))
     monkeypatch.setattr(store, "load_cycle", lambda _conn, _id: ctx.cycle)
     monkeypatch.setattr(
         store, "record_authority_verdict",
@@ -2244,6 +2343,7 @@ def idle_attestation(monkeypatch):
     full_checks, lifecycle_checks, verdicts, blocked = [], [], [], []
     monkeypatch.setattr(automation_runtime, "_now_utc", lambda: state["now"])
     monkeypatch.setattr(store, "require_leader", lambda _c, permit: permit)
+    monkeypatch.setattr(store, "require_leader_with_control", lambda _c, permit: (permit, state["control"]))
     monkeypatch.setattr(store, "load_control", lambda _c: state["control"])
     monkeypatch.setattr(store, "load_cycle", lambda _c, _id: waiting)
     monkeypatch.setattr(store, "oldest_nonterminal_cycle", lambda _c: waiting)
@@ -2461,6 +2561,25 @@ async def test_idle_attestation_bounds_full_checks_without_refreshing_pass(idle_
     assert all(call == {"expected_sha256": CERTIFICATE}
                for call in item.lifecycle)
     assert item.runtime._idle_attestation[0] == NOW + timedelta(seconds=30)
+
+
+@async_test
+async def test_idle_cache_poll_uses_its_current_database_fence_once(idle_attestation, monkeypatch):
+    item = idle_attestation
+    await item.runtime.control_wake(item.conn)
+    item.conn.statements.clear()
+    item.state["now"] = NOW+timedelta(seconds=3)
+    checked = []
+    def control_read(conn):
+        checked.append(conn)
+        return item.state["control"]
+    monkeypatch.setattr(store, "load_control", control_read)
+    monkeypatch.setattr(store, "require_leader", lambda *_: pytest.fail("duplicated idle fence"))
+    await item.runtime.control_wake(item.conn)
+    assert checked == [item.conn] and len(item.full) == 1
+    assert any("c.generation=l.control_generation" in sql and "c.enabled" in sql
+        and "NOT c.kill_switch_engaged" in sql and "l.expires_at>clock_timestamp()" in sql
+        for sql, _ in item.conn.statements)
 
 
 @async_test

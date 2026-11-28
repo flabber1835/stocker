@@ -383,6 +383,24 @@ def test_atomic_publication_proof_wins_over_the_committed_jobs_old_lease():
     assert 'Preparing closing snapshot' not in _headline(panel)
 
 
+def test_observed_producer_phase_survives_general_publication_wait_until_its_lease_ends():
+    from sentinel.panel.presentation import dashboard_health, preparation_stage
+
+    active = preparing_panel(producer_phase={'phase': 'NORMALIZATION'})
+    deadline = NOW + timedelta(minutes=2)
+    page = replace(active, rows=[*active.rows,
+        model.Row('shadow_worker', 'Worker', 'RUNNING', model.OK, as_of=NOW,
+                  required_current=True, valid_until=deadline),
+        model.Row('feed', 'Feed', 'WAITING', model.WARN, as_of=NOW, required_current=True,
+                  valid_until=deadline, recovery=RecoveryEvidence(
+                      phase='SOURCE_PUBLICATION', automatic=True, deadline=deadline))])
+    assert preparation_stage(page) == 'Normalizing equity prices'
+    assert 'Normalizing equity prices' in overview.overview_html(page)
+    until = active.row('ingest').preparation.active_until
+    assert datetime.fromisoformat(dashboard_health(page)['valid_until']) <= until
+    assert preparation_stage(replace(page, now=until)) == 'Publishing closing data'
+
+
 @pytest.mark.parametrize('negative',[
     model.Row('automation_alerts','Alerts','CURRENT INCIDENT',model.FAIL),
     model.Row('shadow_nav','Metric','UNREADABLE',model.UNKNOWN),

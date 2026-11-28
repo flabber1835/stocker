@@ -79,3 +79,40 @@ document stays partial throughout. A document with no current regions, or
 with a refresh already pending, follows the ordinary cadence. Hidden tabs
 defer foreground refreshes until visible. Each region keeps its original
 evidence deadline even when the next response is also partial.
+
+## November 27 opening bell
+
+A five-second partial response at the bell showed a trading stop solely because
+the independent reader found no strategy supervisor report. The signed dashboard
+on both sides already recorded this absence as a warning. A missing report
+contributes no evidence of a new stop when the financial display crosses that
+clock boundary.
+
+While a saved PAPER plan is waiting for its original dispatch time, the human
+display may retain that warning only for the same independent reports already
+listed in its authenticated operator review. The saved plan, waiting run,
+cycle schedule, enabled policy, leader, account and strategy evidence must
+still match and meet their original deadlines. A changed review head withdraws
+that review. The lease and original display window bound this interpretation.
+A partial page reports that current status is being checked. The current health
+endpoint and acknowledgement keep their strict gates. A reported stop,
+unreadable worker evidence, or a new financial failure retains its own verdict.
+
+The 55% rehearsal exposed a second partial response after the pre-bell lease
+expired. The replacement snapshot had a collection time of 06:30:01.112 and
+was present at the 06:30:06.092 sample. The collector did not record its commit
+time or which snapshot the 06:30:05.186 HTTP read consumed.
+
+Whole-page availability and a reported stop have different evidence. On each
+incomplete PAPER page, a cleanly absent supervisor report has no current
+worker observation. Display that row as unavailable and retain its raw result.
+This applies to consecutive partial pages with any generation time. A complete
+page can again classify the report against its own signed facts. A halt,
+unfinished attempt or unreadable status is a separate observation and retains
+its own severity. Renewal of a lease cannot refresh an earlier page.
+
+Replaying the two captured snapshots across 18 incomplete views kept each
+original leader deadline. The private PostgreSQL regression reads successive
+signed frames on both sides of those deadlines, exhausts the 30-second display
+window, and then publishes a fresh full frame. Bypassing the row availability
+check reproduces the red verdict for the supervisor alone at 06:30:05.

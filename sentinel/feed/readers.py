@@ -34,12 +34,20 @@ def pinned(conn, *, commit=True, reuse_owned=False):
         if owned is not None:
             yield owned
             return
+    with pinned_binding(conn, commit=commit) as (pub, _):
+        yield pub
+
+
+@contextmanager
+def pinned_binding(conn, *, commit):
+    """Expose the canonical rolling binding and manifest while their publication is pinned."""
+    from sentinel.feed import readiness_scope
+
     with publication._core.pinned(conn, commit=commit) as pub:
         publication._validate_publication(conn, pub, allow_snapshot=True)
-        if is_rolling(pub):
-            snapshots._bound(conn, pub)
+        bound = snapshots._bound_and_manifest(conn, pub) if is_rolling(pub) else None
         with readiness_scope.pinned(conn, pub):
-            yield pub
+            yield pub, bound
 
 
 def frontier(conn, pub=None):

@@ -117,6 +117,129 @@ def test_clean_skip_is_green_without_rewriting_original_plan_or_claiming_success
     assert page==before
 
 
+@pytest.mark.parametrize('fixture', [healthy_history_panel, executing_panel])
+def test_absent_independent_reports_are_warnings_only_during_a_proved_opening(fixture):
+    page = fixture()
+    missing_backup = model.backup_restore_row(base_at=None, restore_at=None, now=page.now)
+    missing_worker = replace(page.row('shadow_worker'), status=model.UNKNOWN,
+        operational_fact=model.OperationalFact(kind='SHADOW_WORKER', state='NOT_REPORTED'))
+    absent = {r.key: r for r in (missing_backup, missing_worker)}
+    page = replace(page, rows=[absent.get(row.key, row) for row in page.rows])
+    health = presentation.dashboard_health(page)
+    assert health['color'] == 'amber'
+    assert set(absent).issubset(health['trading_continuity']['warning_keys'])
+    assert not health['trading_continuity']['blocking_keys']
+    for key in ('authority', 'shadow_verification', 'automation_leader'):
+        changed = replace(page, rows=[replace(row, status=model.FAIL) if row.key == key else row
+                                     for row in page.rows])
+        assert set(absent).issubset(presentation.health_facts(changed)['active'])
+    for changed in (replace(page, now=datetime.fromisoformat(health['valid_until'])),
+                    replace(page, observation_current=False, observation_display_current=True)):
+        assert presentation._opening_reporting_deadline(changed) is None
+
+
+@pytest.mark.parametrize('present', [None, 'base', 'restore'])
+def test_opening_distinguishes_missing_operator_reports_from_runtime_backup_failure(present):
+    from tests.sentinel.test_backup_renewal_projection import copying
+
+    page = executing_panel()
+    complete = copying()
+    expires = page.now + timedelta(seconds=10)
+    facts = dict(now=page.now, runtime_at=page.now, runtime_valid_until=expires,
+                 runtime_proof=complete['runtime_proof'], base_at=None, restore_at=None)
+    if present:
+        facts[present + '_at'] = page.now
+        facts[present + '_proof'] = complete[present + '_proof']
+
+    def dashboard(**changes):
+        report = model.backup_restore_row(**{**facts, **changes})
+        return replace(page, rows=[report if r.key == report.key else r for r in page.rows])
+
+    good = dashboard()
+    health = presentation.dashboard_health(good)
+    assert health['color'] == 'amber'
+    assert 'backup_restore' in health['trading_continuity']['warning_keys']
+    assert datetime.fromisoformat(health['valid_until']) <= expires
+    assert 'backup_restore' in presentation.health_facts(replace(good, now=expires))['active']
+    for changed in ({'runtime_proof': {**facts['runtime_proof'], 'enabled': False}},
+                    {'runtime_proof': {**facts['runtime_proof'], 'system_identifier': ''}},
+                    {'runtime_valid_until': page.now - timedelta(seconds=1)},
+                    {'runtime_at': None}, {'restore_proof': {'physical_only': True}}):
+        assert 'backup_restore' in presentation.health_facts(dashboard(**changed))['active']
+
+
+def test_signed_paper_reporting_allowance_does_not_substitute_for_live_backup_evidence():
+    page = executing_panel()
+    missing = model.backup_restore_row(base_at=None, restore_at=None, now=NOW)
+    environment = model.Row('trading_environment', 'Trading environment', 'LIVE · real money', model.OK)
+    page = replace(page, local_paper_mode=False,
+        rows=[missing if row.key == missing.key else row for row in page.rows] + [environment])
+    assert page.is_live_trading
+    assert presentation._opening_reporting_deadline(page) is None
+    assert missing.key in presentation.health_facts(page)['active']
+
+
+def test_paper_only_refresh_keeps_original_dispatch_deadline_and_report_warning():
+    from tests.sentinel.test_opening_progress_source import dispatch_order
+
+    page = executing_panel()
+    run_row = page.row('trading_run')
+    run = run_row.trading_run.model_copy(update={'orders': [dispatch_order('SEND_PENDING')]})
+    missing = model.backup_restore_row(base_at=None, restore_at=None, now=NOW)
+    updates = {missing.key: missing, run_row.key: replace(run_row, trading_run=run)}
+    until = NOW + timedelta(seconds=4)
+    page = replace(page, rows=[updates.get(row.key, row) for row in page.rows],
+        observation_current=False, observation_display_current=False, observation_changed_scopes=('PAPER',),
+        observation_generated_at=NOW-timedelta(seconds=1), observation_valid_until=until)
+    assert presentation._opening_reporting_deadline(page) == until
+    assert presentation.dashboard_health(page)['color'] != 'green'
+    for changed in (replace(page, now=until), replace(page, observation_changed_scopes=('SHADOW',)),
+                    replace(page, observation_changed_scopes=()), replace(page, operator_review=None)):
+        assert presentation._opening_reporting_deadline(changed) is None
+    unknown = run.model_copy(update={'orders': [dispatch_order('UNKNOWN')]})
+    page = replace(page, rows=[replace(row, trading_run=unknown) if row.key == run_row.key else row
+                              for row in page.rows])
+    assert presentation._opening_reporting_deadline(page) is None
+
+
+def test_writer_yield_requires_live_verification_and_the_exact_published_session():
+    page = executing_panel()
+    until = NOW + timedelta(seconds=3)
+    checking = replace(page.row('shadow_verification'), status=model.WARN, operational_fact=None,
+        valid_until=until, required_current=True, recovery=model.RecoveryEvidence(
+            phase='FINANCIAL_VERIFICATION', automatic=True, deadline=until))
+    current = replace(page, rows=[checking if row.key == checking.key else row for row in page.rows])
+    assert presentation._opening_reporting_deadline(current) == until
+    assert presentation._opening_reporting_deadline(replace(current, now=until)) is None
+    for row in (replace(checking, status=model.FAIL), replace(checking, recovery=None),
+                replace(checking, valid_until=until+timedelta(seconds=5)),
+                replace(current.row('feed'), operational_fact=model.OperationalFact(
+                    kind='MARKET_DATA', state='READY', session=date(2026, 11, 6), sessions_behind=0))):
+        changed = replace(current, rows=[row if item.key == row.key else item for item in current.rows])
+        assert presentation._opening_reporting_deadline(changed) is None
+
+
+@pytest.mark.parametrize('state,proved', [('ACKNOWLEDGED', True), ('SEND_PENDING', False),
+    ('PLANNED', False), ('UNKNOWN', False), (None, False)])
+def test_supervised_reconciliation_only_explains_previously_submitted_commands(state, proved):
+    from tests.sentinel.test_opening_progress_source import dispatch_order
+
+    page = executing_panel()
+    saved = page.row('trading_run')
+    run = saved.trading_run.model_copy(update={'state': 'RECONCILING',
+        'orders': [dispatch_order(state)] if state else []})
+    cycle, broker = page.row('automation_cycle'), page.row('broker')
+    bound = NOW + timedelta(seconds=2)
+    updates = {saved.key: replace(saved, trading_run=run), cycle.key: replace(cycle,
+        operational_fact=cycle.operational_fact.model_copy(update={'state': 'RECONCILING'}),
+        recovery=replace(cycle.recovery, phase='AUTOMATION_RECONCILING')),
+        broker.key: replace(broker, valid_until=bound,
+            operational_fact=broker.operational_fact.model_copy(update={'state': 'RECONCILING'}))}
+    page = replace(page, rows=[updates.get(row.key, row) for row in page.rows])
+    assert presentation._opening_reporting_deadline(page) == (bound if proved else None)
+    assert presentation._opening_reporting_deadline(replace(page, now=bound)) is None
+
+
 @pytest.mark.parametrize('stale',[False,True])
 def test_exact_execution_progress_is_ordinary_but_stale_broker_cannot_establish_green(stale):
     page=executing_panel(stale_broker=stale)

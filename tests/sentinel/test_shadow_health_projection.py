@@ -122,8 +122,9 @@ def test_unchanged_poll_uses_original_proof_deadline(monkeypatch, case):
     observed_at = lambda: started_at + timedelta(seconds=elapsed)
     monkeypatch.setattr(supervisor, 'time', SimpleNamespace(monotonic=lambda: elapsed))
     monkeypatch.setattr(supervisor.shadow_budget, 'now', observed_at)
-    before = ('same source', (10, started_at-timedelta(seconds=10), True))
-    measured = ('same source', (11, observed_at(), True))
+    healthy_until = started_at + timedelta(days=1)
+    before = ('same source', (10, started_at-timedelta(seconds=10), True), healthy_until)
+    measured = ('same source', (11, observed_at(), True), healthy_until)
     hint = supervisor._earned_schedule(before, measured, started=0., started_at=started_at)
     assert hint is not None
     assert supervisor._earned_schedule(before, before, started=0., started_at=started_at) is None
@@ -156,6 +157,57 @@ def test_unchanged_poll_uses_original_proof_deadline(monkeypatch, case):
     assert deadlines == expected
 
 
+@pytest.mark.parametrize(('case', 'expected_end'), [
+    ('unchanged', 988), ('changed', 660), ('missing', 600), ('health_expiry', 675),
+    ('acquisition_due', 680), ('restart', 340), ('holiday', 600), ('clock_reversal', 630),
+])
+def test_shadow_full_worker_at_november_open(monkeypatch, case, expected_end):
+    from types import SimpleNamespace
+    from sentinel import shadow_supervisor as supervisor
+
+    # The observed worker began at 06:23:32 Pacific on the Friday half session.
+    day = 26 if case == 'holiday' else 27
+    started_at = datetime(2026, 11, day, 14, 23, 32, tzinfo=timezone.utc)
+    elapsed = 40.
+    wall_offset = 0.
+    now = lambda: started_at + timedelta(seconds=elapsed + wall_offset)
+    monkeypatch.setattr(supervisor, 'time', SimpleNamespace(monotonic=lambda: elapsed))
+    monkeypatch.setattr(supervisor.shadow_budget, 'now', now)
+    healthy_until = started_at + timedelta(seconds=675 if case == 'health_expiry' else 12000)
+    acquisition_at = started_at + timedelta(seconds=680 if case == 'acquisition_due' else 13000)
+    before = ('source', (10, started_at, True), healthy_until)
+    measured = ('source', (11, now(), True), healthy_until)
+    hint = supervisor._earned_schedule(None if case == 'restart' else before, measured,
+                                       started=0., started_at=started_at)
+    observations = []
+
+    def wait(**poll):
+        nonlocal elapsed
+        if elapsed >= 600:
+            assert poll.get('idle_work') is None
+        elapsed = min(poll['deadline'], (poll['close_at'] - started_at).total_seconds())
+
+    def observe(*_):
+        nonlocal wall_offset
+        observations.append(elapsed)
+        if case == 'changed' and elapsed == 660:
+            return ('new publication', measured[1], healthy_until)
+        if case == 'missing' and elapsed == 600:
+            return None
+        if case == 'clock_reversal' and elapsed == 630:
+            wall_offset = -5
+        return measured
+
+    monkeypatch.setattr(supervisor, '_poll_after_worker', wait)
+    monkeypatch.setattr(supervisor, '_observe_schedule', observe)
+    supervisor._wait_for_next_attempt(dict(deadline=340., close_at=acquisition_at,
+        stopping=lambda: False, idle_work=object()), hint, SimpleNamespace(poll_seconds=300))
+    assert elapsed == expected_end
+    if case == 'unchanged':
+        assert observations == [340, *range(600, 988, 30)]
+        assert not hint.current()
+
+
 def test_unchanged_poll_subject_has_real_storage_binding(conn, provider, projection, monkeypatch):
     from sentinel import operational_ddl_epoch
     _prices, publish = provider
@@ -176,6 +228,7 @@ def test_unchanged_poll_subject_has_real_storage_binding(conn, provider, project
 
     observed = health.scheduling_subject(projection, health.path())
     assert observed is not None and observed[1][2]
+    assert observed[2] == datetime.fromisoformat(wrapped['projection']['current_until'])
     assert health.scheduling_subject(projection, health.path()) == observed
 
     conn.execute("CREATE TABLE public.shadow_unchanged_other_schema_subject(id int)")

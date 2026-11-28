@@ -196,7 +196,10 @@ def _cycle_events(conn, cycle_id, batch):
         cur.execute("SELECT seq,from_state,to_state,control_generation,fence_token,"
                     " detail FROM sentinel_automation_cycle_events"
                     " WHERE cycle_id=%s ORDER BY seq", (cycle_id,))
-        return cur.fetchall()
+        events = cur.fetchall()
+    if batch is not None:
+        batch[cycle_id] = events
+    return events
 
 
 def verify_restored_cycle_batch(conn, cycles: list[CycleRecord], validated: dict) -> None:
@@ -212,7 +215,7 @@ def verify_restored_cycle_batch(conn, cycles: list[CycleRecord], validated: dict
         validate_cycle_lineage(conn, cycle, _validated=validated, _events=events)
 
 
-def validate_cycle_lineage(conn, cycle: CycleRecord, *, _validated=None, _events=None) -> CycleRecord:
+def validate_cycle_lineage(conn, cycle: CycleRecord, *, _validated=None, _events=None, _scope=None) -> CycleRecord:
     """Require the materialized cycle to be explained by immutable events.
 
     Validation includes deterministic identity, genesis, legal/continuous edges,
@@ -221,6 +224,7 @@ def validate_cycle_lineage(conn, cycle: CycleRecord, *, _validated=None, _events
     the only allowed exception to ordinary same-generation edges.
     """
     validated = {} if _validated is None else _validated
+    histories = {} if _events is None else _events
     if validated.get(cycle.cycle_id) == cycle:
         return cycle
     spec = CycleSpec(
@@ -248,7 +252,7 @@ def validate_cycle_lineage(conn, cycle: CycleRecord, *, _validated=None, _events
             "automation cycle identity does not match its immutable schedule")
 
     try:
-        events = _cycle_events(conn, cycle.cycle_id, _events)
+        events = _cycle_events(conn, cycle.cycle_id, histories)
         conn.rollback()
     except BaseException:
         conn.rollback()
@@ -321,42 +325,25 @@ def validate_cycle_lineage(conn, cycle: CycleRecord, *, _validated=None, _events
                                or item == cycle.cycle_id for item in predecessors)
                         or predecessors != sorted(set(predecessors))):
                     raise AutomationRefused("prospective cycle genesis has invalid predecessors")
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT cycle_id,state,failure_code,historical_state_only "
-                        "FROM sentinel_automation_cycles WHERE "
-                        "deployment_id=%s AND broker=%s AND broker_account_id=%s "
-                        "AND takeover_epoch=%s AND decision_session=%s AND control_generation<%s "
-                        "ORDER BY cycle_id",
-                        (cycle.deployment_id,cycle.broker,cycle.broker_account_id,
-                         cycle.takeover_epoch,cycle.decision_session,cycle.control_generation))
-                    rows = cur.fetchall()
-                    known = [str(row[0]) for row in rows]
-                    if continuation:
-                        if not debug or recovered:
-                            raise AutomationRefused('local PAPER continuation requires its explicit window')
-                        from sentinel.automation import store, local_paper_continuation
-                        prior = [store.load_cycle(conn, cycle_id) for cycle_id in known]
-                        local_paper_continuation.require(conn, spec=spec, cycles=prior, config=debug_config)
-                    elif not recovered:
-                        from sentinel.automation import store
-                        prior = [store.load_cycle(conn, cycle_id) for cycle_id in known]
-                        for predecessor in prior:
-                            if _events is None:
-                                validate_cycle_lineage(conn, predecessor, _validated=validated)
-                            else:
-                                validate_cycle_lineage(conn, predecessor, _validated=validated, _events=_events)
-                        eligible = all(store._unsent_retirement(
-                            cycle, spec, debug=debug, recovered_preflight=True) for cycle in prior)
-                        if not eligible:
-                            raise AutomationRefused('prospective cycle predecessor is not an unsent retirement')
-                    from sentinel.automation import store
-                    prior = [store.load_cycle(conn, cycle_id) for cycle_id in known]
-                    if not continuation:
-                        reached = (predecessors_reached_transport(conn, prior) if _events is None
-                                   else predecessors_reached_transport(conn, prior, _events=_events))
-                        if reached:
-                            raise AutomationRefused('prospective cycle predecessor reached transport')
+                from sentinel.automation import store
+                if _scope is None:
+                    _scope = store._cycles_in_scope(conn, spec, predecessors_only=True)
+                prior = sorted((item for item in _scope if item.control_generation < cycle.control_generation),
+                               key=lambda item: item.cycle_id)
+                known = [item.cycle_id for item in prior]
+                if continuation:
+                    if not debug or recovered:
+                        raise AutomationRefused('local PAPER continuation requires its explicit window')
+                    from sentinel.automation import local_paper_continuation
+                    local_paper_continuation.require(conn, spec=spec, cycles=prior, config=debug_config)
+                elif not recovered:
+                    for predecessor in prior:
+                        validate_cycle_lineage(conn, predecessor, _validated=validated, _events=histories, _scope=_scope)
+                    if not all(store._unsent_retirement(item, spec, debug=debug, recovered_preflight=True)
+                               for item in prior):
+                        raise AutomationRefused('prospective cycle predecessor is not an unsent retirement')
+                if not continuation and predecessors_reached_transport(conn, prior, _events=histories):
+                    raise AutomationRefused('prospective cycle predecessor reached transport')
                 conn.rollback()
                 if known != predecessors:
                     raise AutomationRefused("prospective cycle predecessor identity changed")
@@ -365,8 +352,6 @@ def validate_cycle_lineage(conn, cycle: CycleRecord, *, _validated=None, _events
                     generation = detail['recovery_authorization_generation']
                     if type(generation) is not int or generation < 1:
                         raise AutomationRefused('recovery genesis generation is malformed')
-                    prior = store._cycles_in_scope(conn, spec)
-                    prior = [c for c in prior if c.control_generation < spec.control_generation]
                     recovery.require_predecessors(conn, prior, generation=spec.control_generation)
                     recovery.validate_authorization(conn, spec=spec, cycles=prior, generation=generation)
         else:

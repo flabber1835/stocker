@@ -1,4 +1,5 @@
 """Account quantities change for intent, not daily NAV/rounding noise."""
+from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import replace
 from datetime import date
@@ -333,7 +334,8 @@ def test_scope_reuses_small_basis_but_rechecks_changed_parent_projection(conn, m
         assert read()["retained_targets"][SID] == "72" and len(calls) == 2
 
 
-def test_unprojected_predecessor_unknown_in_writer_gap_refuses_warm_completion(conn):
+@contextmanager
+def resumed_sizing_after_predecessor_becomes_unknown(conn):
     before, after = state(), state(session='2026-08-12', exposure='0.65')
     previous = build(before, defensive='SENTINEL:BIL').plan
     save(conn, before, previous, project=False)
@@ -385,10 +387,8 @@ def test_unprojected_predecessor_unknown_in_writer_gap_refuses_warm_completion(c
 
             conn.execute('SELECT pg_advisory_lock(%s)', (writer_lock,))
             try:
-                with pytest.raises(authority.DualPlanAuthorityRefused,
-                                   match='executed predecessor is missing its immutable share projection'):
-                    with scope.resume(conn):
-                        verify()
+                with scope.resume(conn):
+                    yield verify
                 with pytest.raises(authority.DualPlanAuthorityRefused,
                                    match='executed predecessor is missing its immutable share projection'):
                     verify()  # Fresh cold-equivalent refusal outside the memo.
@@ -400,6 +400,13 @@ def test_unprojected_predecessor_unknown_in_writer_gap_refuses_warm_completion(c
         assert conn.execute('SELECT pg_advisory_unlock_shared(%s)',
                             (publication_lock,)).fetchone() == (True,)
         conn.commit()
+
+
+def test_unprojected_predecessor_unknown_in_writer_gap_refuses_warm_completion(conn):
+    with resumed_sizing_after_predecessor_becomes_unknown(conn) as verify:
+        with pytest.raises(authority.DualPlanAuthorityRefused,
+                           match='executed predecessor is missing its immutable share projection'):
+            verify()
 
 
 def test_unprojected_command_dependency_covers_ordinary_fractional_and_retry(conn):
@@ -435,11 +442,33 @@ def test_unprojected_command_dependency_covers_ordinary_fractional_and_retry(con
             conn, 'held-share-targets', ('plan', basis)) is True
 
 
-def test_unprojected_predecessor_command_dependency_has_a_falsifier(conn, monkeypatch):
-    monkeypatch.setattr(structural_verification, '_unprojected_command_started',
-                        lambda *_args: None)
-    with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
-        test_unprojected_predecessor_unknown_in_writer_gap_refuses_warm_completion(conn)
+@pytest.mark.parametrize('omit_started_predicate,omit_command_versions', [
+    (True, False), (False, True), (True, True)])
+def test_unprojected_predecessor_command_dependency_has_a_falsifier(
+        conn, monkeypatch, omit_started_predicate, omit_command_versions):
+    if omit_started_predicate:
+        monkeypatch.setattr(structural_verification, '_unprojected_command_started',
+                            lambda *_args: None)
+    if omit_command_versions:
+        original = held_targets.predecessor_version
+
+        def without_command_versions(conn, plan_id):
+            versions = original(conn, plan_id)
+            if versions is None:
+                return None
+            projection, _commands, fills = versions
+            return projection, [], fills
+
+        monkeypatch.setattr(held_targets, 'predecessor_version', without_command_versions)
+
+    with resumed_sizing_after_predecessor_becomes_unknown(conn) as verify:
+        if omit_started_predicate and omit_command_versions:
+            # The identical cold verifier still refuses at context exit.
+            assert verify()['verdict'] == 'MATCH'
+        else:
+            with pytest.raises(authority.DualPlanAuthorityRefused,
+                               match='executed predecessor is missing its immutable share projection'):
+                verify()
 
 
 def test_unsized_missing_reference_does_not_freeze_an_unbound_zero():

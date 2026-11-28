@@ -25,6 +25,7 @@ PREFIX = "protected-buy-funding:v1:"
 # The funding owner delegates this typed execution-metadata subtree. It never
 # contains a cash basis; every funding key must stay outside the entire branch.
 ISSUER_POLICY_BRANCH = "issuer-policy:"
+DOLLAR_RESERVATION_BRANCH = "dollar-reservations:"
 ISSUER_POLICY_PREFIX = PREFIX + ISSUER_POLICY_BRANCH + "v1:"
 HEADROOM = Decimal("1.00")
 
@@ -38,7 +39,7 @@ class ProtectedFundingNotReady(ProtectedFundingRefused):
 
 
 def _funding_key(plan_id: str) -> str:
-    if not isinstance(plan_id, str) or not plan_id or plan_id.startswith(ISSUER_POLICY_BRANCH):
+    if not isinstance(plan_id, str) or not plan_id or plan_id.startswith((ISSUER_POLICY_BRANCH, DOLLAR_RESERVATION_BRANCH)):
         raise ProtectedFundingRefused("funding plan id enters reserved issuer-policy namespace")
     return PREFIX + plan_id
 

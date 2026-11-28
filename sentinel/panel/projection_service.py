@@ -637,7 +637,7 @@ def read(database_url, *, display=False):
         if head_changed and not changed and not display:
             raise snapshots.SnapshotUnavailable('operational review head changed')
         retained = display and (now >= value.valid_until or head_changed)
-        panel = replace(value.panel, now=now, operator_review=current_review,
+        panel = replace(value.panel, now=now, operator_review=None if display and head_changed else current_review,
             observation_current=not changed and not retained,
             observation_changed_scopes=changed, observation_valid_until=value.valid_until)
         if display:

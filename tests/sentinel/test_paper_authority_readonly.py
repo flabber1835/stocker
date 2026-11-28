@@ -154,6 +154,35 @@ def test_readonly_check_still_refuses_a_fresh_kill(guarded_writer):
         check(grant, BrokerOperation.IDENTIFY_ACCOUNT, None)
 
 
+def test_scoped_execute_reads_keep_fresh_kill_account_and_mutation_checks(guarded_writer, monkeypatch):
+    from dataclasses import replace
+    from sentinel.feed import broker_read_material
+
+    conn, service_grant, arguments, _ = guarded_writer
+    conn.rollback()
+    permit = store.acquire_lease(conn, holder_id=service_grant.holder_id, lease_seconds=120)
+    grant = replace(service_grant, operation_scope='EXECUTE')
+    seen = []
+
+    def validate(fresh, current, operation, result, strategy):
+        assert current is grant
+        seen.append((operation, broker_read_material._active.get() is not None))
+        store.require_leader(fresh, permit)
+
+    monkeypatch.setattr(authority_gate.backup_runtime_authority, 'require', lambda *a, **kw: {})
+    check = authority_gate.build_fresh_execution_check(**dict(arguments, validate_grant=validate),
+        bind_strategy_to_grant=True, publish_operational_evidence=False)
+    check(grant, BrokerOperation.IDENTIFY_ACCOUNT, None)
+    with pytest.raises(AuthorityRefused, match='account does not match'):
+        check(grant, BrokerOperation.IDENTIFY_ACCOUNT, BrokerAccountIdentity('alpaca', 'OTHER'))
+    check(grant, BrokerOperation.SUBMIT, None)
+    store.engage_kill(conn, actor='fixture', reason='revoke scoped reads')
+    with pytest.raises(StaleLeaderRefused):
+        check(grant, BrokerOperation.IDENTIFY_ACCOUNT, None)
+    assert seen == [(BrokerOperation.IDENTIFY_ACCOUNT, True)] * 2 + [
+        (BrokerOperation.SUBMIT, False), (BrokerOperation.IDENTIFY_ACCOUNT, True)]
+
+
 def test_authority_connection_is_really_readonly_and_errors_are_not_permission(guarded_writer):
     _, grant, arguments, _ = guarded_writer
     def unexpected_write(fresh, **kwargs):

@@ -405,9 +405,13 @@ async def _execute_current_paper_plan(
                 if policy_selected(conn, binding.identity) else None)
             market_settled = None
             fractional_postings = dual_mode and market_policy is not None and market_policy.fractional
+            from . import market_reservations
+            reserved = market_reservations.load(conn, plan) if fractional_postings else None
+            terminal_receipts = {}
+            fill_cash = market_reservations.VerifiedFillCash()
 
             def check_execution_cash(result, account, activity, observed_at, *, fee_wait=False,
-                                     candidate_key=None):
+                                     candidate_key=None, owned_sales=()):
                 if fractional_postings and result.clean:
                     from .cash import fractional_posting_reserve
                     from .cash_postings import read_posting_status
@@ -416,7 +420,7 @@ async def _execute_current_paper_plan(
                     reserve = fractional_posting_reserve(
                         conn, plan=plan, deployment=binding.identity, account=account,
                         observation=result.observation, activity_state=activity,
-                        candidate_key=candidate_key)
+                        candidate_key=candidate_key, owned_sales=owned_sales)
                     if reserve is not None:
                         status = read_posting_status(conn, plan_id=plan.plan_id, account_id=plan.broker_account_id)
                         if not status["events"]:
@@ -430,9 +434,27 @@ async def _execute_current_paper_plan(
                 return None
 
             async def authorize_market_funding(*, account, **candidate):
+                if reserved and candidate["client_key"] in reserved["members"]:
+                    from sentinel.execution.protected_funding import ProtectedFundingRefused
+                    try:
+                        current = await market_reservations.current_book(
+                            conn, binding=binding, expected_account=confirmed_account, clock=clock, account=account,
+                            broker=broker, basis=reserved, plan=plan, projection=target_projection,
+                            candidate_key=candidate["client_key"], terminal_receipts=terminal_receipts, fill_cash=fill_cash,
+                            settled_observation=market_settled[0].observation if market_settled else None,
+                            sweep_due=lambda: bool(reserved["sales"] and defensive_cash_sweep_due()))
+                        _market_buy_candidate_or_refuse(conn, plan=plan, projection=target_projection,
+                            deployment=binding.identity, observation=current,
+                            cash_ceiling=Decimal(reserved["cash_limits"][candidate["client_key"]]),
+                            reservation=reserved, **candidate)
+                    except (ProtectedFundingRefused, PaperRetryableRefused) as exc:
+                        raise OrderEvidenceNotReady(str(exc)) from exc
+                    except PaperActivationRefused as exc:
+                        raise PreTransportAuthorityRefused(str(exc)) from exc
+                    return
                 if market_settled is None:
                     raise OrderEvidenceNotReady("market BUY lacks settled account evidence")
-                settled_reconciliation, settled_account, sizing_funds = market_settled
+                settled_reconciliation, settled_account, sizing_funds, _, _ = market_settled
                 settled_observation = settled_reconciliation.observation
                 if candidate["instrument"].security_id in settled_reconciliation.restricted_securities:
                     raise OrderEvidenceNotReady("market BUY is restricted by the settled reconciliation")
@@ -475,7 +497,7 @@ async def _execute_current_paper_plan(
             retained_cohort = (
                 protected_limits.ProtectedLimitPolicy.from_env() is not None
                 and protected_funding.load_basis(conn, plan_id=plan.plan_id) is not None)
-            if retained_cohort:
+            if retained_cohort or reserved:
                 # This read grants no cash authority. A current complete cohort
                 # proof is required below under the same financial writer lock.
                 _recovery_account_identity_or_refuse(account, binding, confirmed_account)
@@ -690,14 +712,26 @@ async def _execute_current_paper_plan(
                         if (fresh_reconciliation is None
                                 or fresh_reconciliation.observation is not fresh_observation):
                             raise PaperActivationRefused("market BUY requires the executor's exact reconciliation")
+                        def working_sales(observation):
+                            if not fractional_postings or not defensive_cash_sweep_due():
+                                return None
+                            return market_reservations.defensive_sells(conn, plan=plan, projection=target_projection,
+                                deployment=binding.identity, observation=observation)
+
                         confirmed, cash, activity, _, observed_at = await _settled_account_evidence_bracket(
                             conn=conn, broker=broker, binding=binding,
                             expected_account=confirmed_account, deployment=binding.identity,
                             initial_result=fresh_reconciliation, actions=actions,
                             dual_mode=dual_mode, clock=clock,
-                            allow_restrictions=market_policy.fractional)
-                        funds = check_execution_cash(confirmed, cash, activity, observed_at, fee_wait=True)
-                        market_settled = (confirmed, cash, funds)
+                            allow_restrictions=market_policy.fractional, owned_sales=working_sales)
+                        sales = working_sales(confirmed.observation) if any(
+                            o.is_working for o in confirmed.observation.orders) else ()
+                        funds = check_execution_cash(confirmed, cash, activity, observed_at,
+                                                     fee_wait=True, owned_sales=sales or ())
+                        market_settled = (confirmed, cash, funds, activity, sales or ())
+                        if fractional_postings and funds is None:
+                            from sentinel.execution.fractional_progress import PostingFunds
+                            return PostingFunds(cash.cash, cash.buying_power, Decimal(0), Decimal(0))
                         return funds
                     if not _account_evidence_is_quiescent(
                             conn, deployment=binding.identity,
@@ -752,7 +786,7 @@ async def _execute_current_paper_plan(
                     return await authorize_increases(
                         fresh_reconciliation.observation, fresh_reconciliation)
 
-                def market_buy_window_open():
+                def market_buy_window_open(*, sweep=False):
                     from sentinel.automation import schedule
                     from sentinel.automation_runtime import config_from_env
                     config = config_from_env()
@@ -764,9 +798,31 @@ async def _execute_current_paper_plan(
                         timing.execution_close_at,
                         timing.execution_open_at + _V5_OPENING_FRESHNESS,
                         timing.execute_at + timedelta(seconds=config.maximum_execution_lateness_seconds))
+                    now = clock()
                     return (plan.effective_session == timing.effective_session
                             and max(timing.execute_at, timing.execution_open_at + timedelta(minutes=1))
-                            <= clock() < cutoff)
+                            <= now < cutoff and (not sweep or cutoff - timedelta(minutes=1) <= now))
+
+                def defensive_cash_sweep_due():
+                    return market_buy_window_open(sweep=True)
+
+                def reserve_market_buys(commands, reconciliation, posting_funds):
+                    nonlocal reserved
+                    if market_settled is None or reconciliation.observation is None:
+                        raise OrderEvidenceNotReady("dollar reservations lack their current broker observation")
+                    confirmed, cash, funds, activity, sales = market_settled
+                    if (confirmed.expected != reconciliation.expected
+                            or confirmed.restricted_securities != reconciliation.restricted_securities
+                            or posting_funds is None or (funds is not None and funds != posting_funds)
+                            or (posting_funds.account_cash, posting_funds.buying_power) != (cash.cash, cash.buying_power)):
+                        raise OrderEvidenceNotReady("reservation evidence differs from the funded account and book")
+                    reserved = market_reservations.reserve(conn, commands, plan=plan, projection=target_projection,
+                        deployment=binding.identity, reconciliation=confirmed, funds=posting_funds,
+                        activity=activity, sells=sales)
+
+                def reserved_market_buy_keys(reconciliation):
+                    return market_reservations.remaining_keys(conn, basis=reserved, plan=plan,
+                        projection=target_projection, deployment=binding.identity, reconciliation=reconciliation)
 
                 session = await executor.execute_session(
                     broker=broker, conn=conn, deployment=binding.identity,
@@ -785,6 +841,11 @@ async def _execute_current_paper_plan(
                     prepare_increases=prepare_increases,
                     informational_current_book=dual_mode,
                     reductions_only=reductions_only,
+                    reserve_market_buys=reserve_market_buys if fractional_postings else None,
+                    reserved_market_buy_keys=reserved_market_buy_keys if fractional_postings else None,
+                    defensive_cash_sweep_due=defensive_cash_sweep_due if fractional_postings else None,
+                    defensive_sweep_attempted=(lambda: market_reservations.sweep_attempted(
+                        conn, basis=reserved, deployment=binding.identity, plan=plan)) if fractional_postings else None,
                     market_buy_window_open=(market_buy_window_open if dual_mode
                                             and market_policy is not None
                                             and market_policy.fractional else None))

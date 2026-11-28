@@ -49,6 +49,12 @@ database insertion with the existing acquisition resource-limit classification;
 this does not authorize truncation, partial publication or a larger memory cap.
 
 Readers decode TEXT in the Python process and verify the canonical content hash.
+Manifest admission verifies the reference and source together in one database
+statement. Each distinct identity is required. For canonical TEXT, PostgreSQL
+returns its byte length and SHA-256 without transferring the document. For
+JSONB-only rows the reader still verifies the original Python canonical
+encoding. A row containing both representations is corrupt and the verification
+result must reject it without returning either document to the client.
 The database never casts large TEXT back to JSONB, including restoration.
 Restoration verifies the TEXT bytes against the immutable evidence identity in
 the database. Existing JSONB restoration retains its exact-byte/hash check.

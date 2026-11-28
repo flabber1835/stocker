@@ -878,6 +878,84 @@ def test_late_control_change_is_not_bound_to_old_validated_lineage(conn, pg):
         read_health(_PulseReadConnection(conn, revoke))
 
 
+def test_ordinary_health_reuses_only_event_history_and_expires(conn, monkeypatch):
+    from sentinel.automation import control_integrity, health_control
+    enable(conn)
+    original = control_integrity._replay
+    calls = []
+    def replay(db):
+        calls.append(db)
+        return original(db)
+    clock = [20.]
+    monkeypatch.setattr(control_integrity, '_replay', replay)
+    monkeypatch.setattr(health_control, 'monotonic', lambda: clock[0])
+    monkeypatch.setattr(health_control, '_proof', None)
+    assert read_health(conn).control_generation == 3
+    assert read_health(conn).control_generation == 3
+    assert len(calls) == 1
+    # A privileged caller always performs its own validation.
+    assert store.load_control(conn, for_update=True).generation == 3
+    conn.rollback()
+    assert len(calls) == 2
+    clock[0] += 60
+    read_health(conn)
+    assert len(calls) == 3
+    conn.execute("CREATE SCHEMA private_health_reader")
+    conn.execute("SET search_path TO private_health_reader,public")
+    conn.commit()
+    read_health(conn)
+    assert len(calls) == 4
+    # Changing only the singleton must still be observed on a warm read.
+    conn.execute("UPDATE sentinel_automation_control SET generation=4 WHERE id=1")
+    conn.commit()
+    with pytest.raises(AutomationRefused, match='generation disagrees'):
+        read_health(conn)
+    assert len(calls) == 4
+
+
+def test_health_cold_read_uses_one_snapshot_then_detects_old_event_tamper(conn, pg, monkeypatch):
+    from sentinel.automation import control_integrity, health_control
+    enable(conn)
+    original = control_integrity._replay
+    calls = []
+    def interleave(db):
+        if not calls:
+            with feed_store.connect(pg.sync_dsn) as writer:
+                writer.execute("SET LOCAL session_replication_role=replica")
+                writer.execute("UPDATE sentinel_automation_events SET detail='{}' WHERE generation=2")
+        calls.append(db)
+        return original(db)
+    monkeypatch.setattr(health_control, '_proof', None)
+    monkeypatch.setattr(control_integrity, '_replay', interleave)
+    assert read_health(conn).control_generation == 3
+    with pytest.raises(AutomationRefused, match='malformed binding'):
+        read_health(conn)
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("reason", ["oversize", "nonphysical"])
+def test_health_replays_every_time_when_witness_is_unavailable(conn, monkeypatch, reason):
+    from sentinel.automation import control_integrity, health_control
+    enable(conn)
+    conn.rollback()  # The health entry point ends its table-presence transaction first.
+    if reason == "oversize":
+        monkeypatch.setattr(health_control, '_MAX_EVENTS', 1)
+    else:
+        conn.execute("CREATE TEMP VIEW sentinel_automation_events AS "
+                     "SELECT seq,generation,action,detail FROM public.sentinel_automation_events")
+        conn.commit()
+    monkeypatch.setattr(health_control, '_proof', None)
+    calls = []
+    replay = control_integrity._replay
+    def counted(db):
+        calls.append(db)
+        return replay(db)
+    monkeypatch.setattr(control_integrity, '_replay', counted)
+    for _ in range(2):
+        assert health_control.read(conn).generation == 3
+    assert len(calls) == 2 and health_control._proof is None
+
+
 def _pulse_pair(conn, holder):
     row = conn.execute('SELECT l.heartbeat_at,l.expires_at,i.heartbeat_at,i.state '
         'FROM sentinel_automation_lease l JOIN sentinel_automation_service_instances i '

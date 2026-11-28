@@ -22,7 +22,7 @@ test.describe('Banner resource recovery', () => {
     const {body:gif}=assets.get(assetPath);
     expect(crypto.createHash('sha256').update(gif).digest('hex')).toBe(assetSha256);
     expect([gif.readUInt16LE(6),gif.readUInt16LE(8)]).toEqual([1086,362]);
-    const requests=[],pending=new Set(),sockets=new Set(),timers=new Set();
+    const requests=[],stillRequests=[],pending=new Set(),sockets=new Set(),timers=new Set();
     let held=hold;
     function image(response,body) {
       if (response.destroyed) return;
@@ -50,7 +50,7 @@ test.describe('Banner resource recovery', () => {
           response.once('close',()=>{clearTimeout(timer);timers.delete(timer);});
         } else image(response,gif);
       } else if (assets.has(url.pathname)) {
-        if (url.pathname===stillPath) requests.push({path:url.pathname,query:url.search,url:request.url});
+        if (url.pathname===stillPath) stillRequests.push(request.url);
         servePanelAsset(response,assets.get(url.pathname));
       } else if (url.pathname==='/') {
         response.writeHead(200,{'Content-Type':'text/html; charset=utf-8',
@@ -65,7 +65,7 @@ test.describe('Banner resource recovery', () => {
     server.on('connection',socket=>{sockets.add(socket);socket.once('close',()=>sockets.delete(socket));});
     await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
     const url=`http://127.0.0.1:${server.address().port}/`;
-    return {html,url,requests,
+    return {html,url,requests,stillRequests,
       async open(){await page.goto(url,{waitUntil:'domcontentloaded'});},
       async replace(){await page.evaluate(body=>{document.open();document.write(body);document.close();},html);},
       release(){held=false;for (const response of pending) image(response,gif);pending.clear();},
@@ -111,20 +111,20 @@ test.describe('Banner resource recovery', () => {
     let fixture;
     try {
       fixture=await bannerFixture(page);await fixture.open();
-      const original=page.locator('.brand noscript img');
+      const original=page.locator('.brand img[data-banner-src]');
       await expect.poll(()=>original.evaluate(image=>({complete:image.complete,
         width:image.naturalWidth,height:image.naturalHeight})))
         .toEqual({complete:true,width:1086,height:362});
       await expect(original).toBeVisible();
-      await expect(page.locator('.brand img[data-banner-src]')).toBeHidden();
+      await expect(original).toHaveCSS('filter','grayscale(1) sepia(0.75)');
       await expect(page.locator('.brand-fallback')).toBeHidden();
       await expect(page.locator('.brand img:visible')).toHaveCount(1);
       const box=await page.locator('.brand').boundingBox(),image=await original.boundingBox();
       await expect(page.locator('.brand')).toHaveCSS('border-top-width','0px');
       expect(box.height).toBeCloseTo(image.height,0);
       expect(box.width/box.height).toBeCloseTo(3,1);
-      expect(fixture.requests).toHaveLength(1);
-      expect(fixture.requests[0].url).toBe(stillPath);
+      expect(fixture.requests).toHaveLength(0);
+      expect(fixture.stillRequests).toEqual([stillPath]);
     } finally {
       if (fixture) await fixture.close();
       await context.close();
@@ -184,7 +184,7 @@ test.describe('Banner resource recovery', () => {
       await expect.poll(()=>fixture.requests.length).toBeGreaterThan(0);
       for (let replacement=0;replacement<2;replacement++) {
         expect(await page.locator('.brand img[data-banner-src]').evaluate(image=>image.complete)).toBe(false);
-        await expect(page.locator('.brand-fallback')).toBeHidden();
+        await expect(page.locator('.brand-fallback')).toBeVisible();
         await paintedFrames(page);
         expect(fixture.requests.every(request=>request.query==='')).toBe(true);
         await fixture.replace();
@@ -247,7 +247,7 @@ test.describe('App resume presentation', () => {
   // offline navigation are qualified separately by the PWA tests below.
   test.use({serviceWorkers:'block'});
 
-  async function shortProofDisplay(page) {
+  async function shortProofDisplay(page, {holdFirstAfterAbort = false, initialWarning = null} = {}) {
     // CI's financial rows remain unconfigured. The real controller derives
     // its five-second refresh cadence from the fixture's nine-second proof.
     const response = await page.request.get('/?document=1');
@@ -258,6 +258,22 @@ test.describe('App resume presentation', () => {
     await page.clock.install({time:base});
     await page.clock.pauseAt(new Date(base.getTime() + 60000));
     const initialNow = await page.evaluate(() => Date.now());
+    if (holdFirstAfterAbort) {
+      await page.addInitScript(() => {
+        const fetch = window.fetch.bind(window);
+        const witness = {signals: [], firstBodyRead: false};
+        window.refreshWitness = witness;
+        window.fetch = async (url, options) => {
+          if (options?.headers?.['X-Sentinel-Refresh'] !== '1') return fetch(url, options);
+          witness.signals.push(options.signal);
+          if (witness.signals.length !== 1) return fetch(url, options);
+          const response = await fetch(url, {...options, signal: undefined});
+          await response.clone().text();
+          witness.firstBodyRead = true;
+          return response;
+        };
+      });
+    }
 
     function documentAt(now, positive) {
       let body = source.replace(/data-generated-at="[^"]+"/,
@@ -281,9 +297,12 @@ test.describe('App resume presentation', () => {
         return;
       }
       if (route.request().isNavigationRequest()) {
+        let first=documentAt(initialNow, true);
+        if(initialWarning)first=first.replace('data-health="green"',`data-health="${initialWarning}"`)
+          .replace('id="operational-state" class="state ok"',`id="operational-state" class="state ${initialWarning==='red'?'fail':'warn'}"`);
         await route.fulfill({status:200, headers:{'Content-Type':'text/html',
           'Cache-Control':'no-store', 'X-Sentinel-Panel-Status':'CURRENT'},
-          body:documentAt(initialNow, true)});
+          body:first});
         return;
       }
       let decide, complete;
@@ -295,6 +314,9 @@ test.describe('App resume presentation', () => {
         const kind = await choice;
         if (kind === 'abort') {
           await route.abort('aborted');
+        } else if (kind === 'busy') {
+          await route.fulfill({status:503, headers:{'Cache-Control':'no-store',
+            'X-Sentinel-Deployment-Progress':'Waiting for current status'}});
         } else {
           const now = await page.evaluate(() => Date.now());
           await route.fulfill({status:200, headers:{'Content-Type':'text/html',
@@ -307,7 +329,7 @@ test.describe('App resume presentation', () => {
       } finally { complete(); }
     });
     await page.goto('/', {waitUntil:'domcontentloaded'});
-    await expect(page.locator('#operational-state')).toHaveClass('state ok');
+    await expect(page.locator('#operational-state')).toHaveClass('state '+(initialWarning==='red'?'fail':initialWarning==='amber'?'warn':'ok'));
     return {
       requests,
       async release(index, kind = 'positive') {
@@ -323,6 +345,24 @@ test.describe('App resume presentation', () => {
         await Promise.all(requests.map(request => request.done));
       }
     };
+  }
+
+  for(const warning of ['amber','red']) {
+    test(`connected status delay preserves dated ${warning} on the loaded dashboard`,async({page})=>{
+      const fixture=await shortProofDisplay(page,{initialWarning:warning});
+      try {
+        const stamp=await page.locator('body').getAttribute('data-generated-at');
+        await page.clock.runFor(5000);
+        await expect.poll(()=>fixture.requests.length).toBe(1);
+        await fixture.release(0,'busy');
+        await expect(page.locator('body')).toHaveAttribute('data-link','connected');
+        await expect(page.locator('#dashboard-heartbeat')).toContainText('Connected · waiting for current status');
+        await page.clock.runFor(5001);
+        await expect(page.locator('#operational-state')).toContainText(warning==='red'?'LAST KNOWN TRADING STOP':'LAST VERIFIED STATUS AMBER');
+        await expect(page.locator('body')).toHaveAttribute('data-generated-at',stamp);
+        await expect(page.locator('html')).not.toHaveClass(/not-current/);
+      } finally {await fixture.close();}
+    });
   }
 
   test('expired original proof stays in checking during two healthy foreground refreshes', async ({page}) => {
@@ -445,6 +485,61 @@ test.describe('App resume presentation', () => {
       await expect(page.locator('#operational-state')).toHaveClass('state checking');
       await expect(page.locator('html')).toHaveClass('checking-status expired-status');
       expect(await page.locator('body').getAttribute('data-generated-at')).toBe(original);
+    } finally { await fixture.close(); }
+  });
+
+  test('foreground refresh replaces a stalled request and ignores its late response', async ({page}) => {
+    const fixture = await shortProofDisplay(page, {holdFirstAfterAbort:true});
+    try {
+      const original = await page.locator('body').getAttribute('data-generated-at');
+      await page.clock.runFor(5000);
+      await expect.poll(() => fixture.requests.length).toBe(1);
+      await page.clock.runFor(5001);
+      await page.evaluate(() => {
+        Object.defineProperty(document, 'visibilityState', {configurable:true, get:()=> 'hidden'});
+        document.dispatchEvent(new Event('visibilitychange'));
+        window.dispatchEvent(new PageTransitionEvent('pagehide', {persisted:true}));
+        Object.defineProperty(document, 'visibilityState', {configurable:true, get:()=> 'visible'});
+        window.dispatchEvent(new PageTransitionEvent('pageshow', {persisted:true}));
+        document.dispatchEvent(new Event('visibilitychange'));
+        window.dispatchEvent(new Event('focus'));
+      });
+      await expect.poll(() => fixture.requests.length).toBe(2);
+      expect(await page.evaluate(() => window.refreshWitness.signals.map(signal => signal.aborted)))
+        .toEqual([true, false]);
+      await expect(page.locator('#operational-state')).toContainText('REFRESHING STATUS');
+
+      await fixture.release(0, 'negative');
+      await expect.poll(() => page.evaluate(() => window.refreshWitness.firstBodyRead)).toBe(true);
+      await page.clock.runFor(5001);
+      expect(fixture.requests).toHaveLength(2);
+      expect(await page.locator('body').getAttribute('data-generated-at')).toBe(original);
+      await expect(page.locator('#operational-state')).toContainText('REFRESHING STATUS');
+
+      await fixture.release(1);
+      await expect(page.locator('#operational-state')).toHaveText('CLIENT PRESENTATION FIXTURE');
+      expect(await page.locator('body').getAttribute('data-generated-at')).not.toBe(original);
+    } finally { await fixture.close(); }
+  });
+
+  test('foreground refresh starts immediately when a previous retry is pending', async ({page}) => {
+    const fixture = await shortProofDisplay(page);
+    try {
+      await page.clock.runFor(5000);
+      await expect.poll(() => fixture.requests.length).toBe(1);
+      await page.clock.runFor(5001);
+      await fixture.release(0, 'busy');
+      await expect(page.locator('#deployment-progress')).toHaveText('Waiting for current status');
+      await page.evaluate(() => {
+        window.dispatchEvent(new PageTransitionEvent('pagehide', {persisted:true}));
+        window.dispatchEvent(new PageTransitionEvent('pageshow', {persisted:true}));
+        window.dispatchEvent(new Event('focus'));
+      });
+      await expect.poll(() => fixture.requests.length).toBe(2);
+      await page.clock.runFor(5001);
+      expect(fixture.requests).toHaveLength(2);
+      await fixture.release(1);
+      await expect(page.locator('#operational-state')).toHaveText('CLIENT PRESENTATION FIXTURE');
     } finally { await fixture.close(); }
   });
 

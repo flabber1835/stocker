@@ -14,10 +14,24 @@ from zoneinfo import ZoneInfo
 
 from sentinel.panel.model import FAIL, MARKET_BUY_OBSERVATION, OK, UNKNOWN, Panel, PaperOrderOutcome, ShadowSlot
 from sentinel.panel.presentation import describe, opening_wait_label, preparation_stage, visible_preparation
+from sentinel.panel.run_progress import confirmed_sent, order_summary
 
 
 def _esc(value) -> str:
     return escape(str(value), quote=True)
+
+
+def _account_mode(panel: Panel) -> str:
+    if panel.is_live_trading:
+        return 'LIVE'
+    row = panel.row('trading_environment')
+    if row is None or (row.status == OK and row.value == 'PAPER · simulation'):
+        return 'PAPER'
+    return 'UNCONFIRMED'
+
+
+def _budget_label(panel: Panel) -> str:
+    return {'LIVE': 'live account budget', 'PAPER': 'paper budget'}.get(_account_mode(panel), 'account budget')
 
 
 def _quantity(value: Decimal | None) -> str:
@@ -124,7 +138,7 @@ def _leg_html(leg, outcomes, *, budget_label='paper budget') -> str:
 def _plan_html(panel: Panel, *, current: bool = True) -> str:
     row = panel.row('paper_plan')
     plan = row.paper_plan if row is not None else None
-    budget_label = 'live account budget' if panel.is_live_trading else 'paper budget'
+    budget_label = _budget_label(panel)
     # The saved plan expires at the same boundary as its original row. Neither
     # the overview nor a retained response can promote an expired plan.
     admitted = row is not None and row.can_show_paper_plan(panel.now)
@@ -174,7 +188,7 @@ def _plan_html(panel: Panel, *, current: bool = True) -> str:
         '<section class="overview-card next-plan" aria-labelledby="next-plan-title">'
         '<div class="overview-heading"><div>'
         '<h2 id="next-plan-title">Next trading plan</h2></div>'
-        '<span class="overview-tag">PAPER</span></div>'
+        f'<span class="overview-tag">{_account_mode(panel)}</span></div>'
         '<div class="plan-schedule"><strong id="market-open-countdown" data-market-open-at="'
         +_esc(opened.isoformat() if opened is not None else '')+'">'+_esc(countdown)+'</strong></div>'
         +('' if current else '<p class="overview-retained">Last known saved plan · status refreshing.</p>')
@@ -209,7 +223,7 @@ def _preparation_html(panel: Panel, *, refresh_pending: bool = False) -> str:
         '<section class="overview-card next-plan" aria-labelledby="preparation-title">'
         '<div class="overview-heading"><div>'
         '<h2 id="preparation-title">Next trading plan · preparing</h2></div>'
-        '<span class="overview-tag">PAPER</span></div>'
+        f'<span class="overview-tag">{_account_mode(panel)}</span></div>'
         '<div class="plan-schedule"><strong>'+_esc(date)+'</strong>'
         '<span>Plan not ready yet</span></div>'
         '<p id="preparation-stage" class="overview-note">'+_esc(stage)+'</p>'
@@ -233,6 +247,7 @@ def _run_html(panel: Panel, *, last_known=False) -> str:
                else 'Today’s run · partially completed' if run.unsent_at_cutoff
                     and any(order.filled_quantity > 0 for order in run.orders)
                else 'Today’s run · opening window closed' if run.unsent_at_cutoff
+               else 'Today’s run · superseded' if run.state == 'SUPERSEDED'
                else 'Today’s trading plan')
     stage = {'EXECUTING':'Trading in progress','RECONCILING':'Reconciling fills',
              'RETRY_WAIT':'Waiting for the next check','SUCCEEDED':'Run completed',
@@ -252,9 +267,10 @@ def _run_html(panel: Panel, *, last_known=False) -> str:
         if action == 'HOLD':
             continue
         orders = [item for item in run.orders if item.security_id == leg.security_id]
+        sent = [item for item in orders if confirmed_sent(item)]
         filled = sum((item.filled_quantity for item in orders),Decimal(0))
-        submitted = sum((item.quantity for item in orders if item.quantity is not None),Decimal(0))
-        submitted_dollars = sum((item.notional for item in orders if item.notional is not None),Decimal(0))
+        submitted = sum((item.quantity for item in sent if item.quantity is not None),Decimal(0))
+        submitted_dollars = sum((item.notional for item in sent if item.notional is not None),Decimal(0))
         value = sum((item.filled_quantity*(item.filled_average_price or Decimal(0))
                      for item in orders),Decimal(0))
         states = {item.state for item in orders}
@@ -267,14 +283,15 @@ def _run_html(panel: Panel, *, last_known=False) -> str:
                  else 'Ended unfilled' if states and states<={'CANCELLED','REJECTED','SUPERSEDED'}
                  else 'Working' if states & {'ACKNOWLEDGED','PARTIALLY_FILLED'}
                  else 'Unsent · opening window closed' if unsent is not None
+                 else 'Planned · no confirmed submission' if states == {'PLANNED'}
                  else 'Awaiting submission' if run.state in {
                      'PLAN_READY','WAITING_OPEN','EXECUTING','RECONCILING','RETRY_WAIT'}
                  else 'No order recorded')
-        amount = (f'${skipped.account_budget:,.2f} paper budget' if skipped is not None else
+        amount = (f'${skipped.account_budget:,.2f} {_budget_label(panel)}' if skipped is not None else
                   f'${leg.opening_dollars:,.2f} strategy intent' if leg.opening_dollars is not None
                   else _quantity(abs(leg.change_quantity) if leg.change_quantity is not None else None)+' shares')
         progress = (state+' · '+_quantity(filled)+'/'+_quantity(submitted)+' submitted shares filled'
-                    if orders else state)
+                    if submitted else state)
         if submitted_dollars:
             progress = state+f' · ${submitted_dollars:,.2f} requested · '+_quantity(filled)+' shares filled'
         if allocation is not None:
@@ -319,11 +336,18 @@ def _run_html(panel: Panel, *, last_known=False) -> str:
                      else ' The next trading plan is pending.')
         recorded_note = '<p class="overview-note">'+(
             'Recorded opening result.' if run.unsent_at_cutoff else 'Recorded completed run.')+next_note+'</p>'
+    summary = order_summary(run)
+    if summary:
+        summary = '<p class="run-order-counts">'+_esc(summary)+'</p>'
+    if any(order.state in {'UNKNOWN', 'SEND_PENDING', 'CANCEL_PENDING'} for order in run.orders):
+        summary += '<p class="overview-note">Broker reconciliation must confirm the outstanding orders before a retry.</p>'
+    elif run.unsent_at_cutoff:
+        summary += '<p class="overview-note">The opening window has closed for the remaining trades.</p>'
     return ('<section class="overview-card current-trades" aria-labelledby="current-trades-title">'
         '<div class="overview-heading"><h2 id="current-trades-title">'+_esc(heading)+'</h2>'
-        '<span class="overview-tag">PAPER</span></div><div class="plan-schedule"><strong>'
+        f'<span class="overview-tag">{_account_mode(panel)}</span></div><div class="plan-schedule"><strong>'
         +_esc(run.intent.effective_session.strftime('%A, %b %d'))+'</strong><span>'+_esc(stage)
-        +'</span></div><ul class="plan-legs">'+(''.join(rows) or '<li>No share changes in this plan.</li>')
+        +'</span></div>'+summary+'<ul class="plan-legs">'+(''.join(rows) or '<li>No share changes in this plan.</li>')
         +'</ul><p class="overview-note">Original saved plan; progress comes from recorded orders. '
         'Post-close account verification is separate.</p>'
         +recorded_note
@@ -333,7 +357,8 @@ def _run_html(panel: Panel, *, last_known=False) -> str:
 def _account_html(panel: Panel) -> str:
     row = panel.row('alpaca_account')
     account = row.paper_account if row is not None and row.can_show_paper_account(panel.now) else None
-    label = 'Recorded live account' if panel.is_live_trading else 'Recorded paper account'
+    mode = _account_mode(panel)
+    label = 'Recorded account · mode unconfirmed' if mode == 'UNCONFIRMED' else f'Recorded {mode.lower()} account'
     if account is None:
         return ('<section class="overview-card account-overview" aria-labelledby="account-overview-title">'
                 f'<h2 id="account-overview-title">{label}</h2>'
@@ -374,7 +399,7 @@ def _slot_html(slot: ShadowSlot) -> str:
                   'This slot retains cash while cooling down.')
     elif slot.state == 'RESERVED':
         main, state = _esc(slot.ticker), 'Entry pending'
-        detail = 'Reserved for a pending strategy entry. This is not a filled model or paper holding.'
+        detail = 'The strategy reserved this slot for a pending entry.'
     else:
         main, state = 'Ready', 'Awaiting signal'
         detail = 'Cooldown complete. Available for a qualifying strategy entry; no purchase is promised.'

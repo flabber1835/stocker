@@ -51,7 +51,8 @@ async def choose_live_sale(broker, *, delta, instrument):
 async def choose(broker, *, conn, deployment, projection, delta, instrument):
     """Return the concrete amount and any explicit unsellable share residual."""
     try:
-        rules = await broker.asset_rules(instrument=instrument)
+        sizing_rules = getattr(broker, "sizing_asset_rules", None)
+        rules = await sizing_rules(instrument) if sizing_rules is not None else await broker.asset_rules(instrument=instrument)
         if not isinstance(rules, BrokerAssetRules) or rules.instrument != instrument:
             raise ValueError("asset rules do not describe the selected native instrument")
     except Exception as exc:

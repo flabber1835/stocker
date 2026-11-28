@@ -264,6 +264,7 @@ def _callback_child(
                 if type(exc) is ClosingDataPending else None),
             "worker_deadline_at": (exc.worker_deadline_at
                 if type(exc) is ClosingDataPending else None),
+            "recheck_at": exc.recheck_at if type(exc) is ClosingDataPending else None,
         }
     try:
         channel.send_bytes(json.dumps(
@@ -310,7 +311,7 @@ def _decode_child_callback(payload: bytes):
     if bool(envelope.get("reviewed")) and trusted is not None:
         if trusted is ClosingDataPending:
             deadlines = {}
-            for field in ('publisher_deadline_at', 'worker_deadline_at'):
+            for field in ('publisher_deadline_at', 'worker_deadline_at', 'recheck_at'):
                 raw_deadline = envelope.get(field)
                 try:
                     if raw_deadline is not None and not isinstance(raw_deadline, str):
@@ -806,7 +807,7 @@ class AutomationService:
             terminal, classified = self._failure_diagnostic(
                 cycle=cycle, phase=phase, exc=exc, now=now)
             if phase == "EXECUTE" and not explicit_result:
-                # Only the exact gateway entry refusal proves this callback
+                # Only the exact backup admission refusal proves this callback
                 # could not transport. A prior unresolved command still wins.
                 terminal = False
                 if (self._unattended_recovery
@@ -846,6 +847,8 @@ class AutomationService:
                                  exc.worker_deadline_at)
                     if all(deadline is None or check_at < deadline for deadline in deadlines):
                         retry_at = max(retry_at, check_at)
+                if phase == 'REFRESH' and type(exc) is ClosingDataPending and exc.recheck_at is not None:
+                    retry_at = min(retry_at, max(now, exc.recheck_at))
             diagnostic = {
                 **(result_diagnostic or {}), **classified,
                 "next_retry_at": retry_at.isoformat() if retry_at else None,
@@ -1376,6 +1379,7 @@ class AutomationService:
             if sampled_now is not None:
                 now = sampled_now
 
+        fenced_control = None
         try:
             # run() already recorded visible progress immediately before this
             # tick. Re-prove the database-time fence without writing it again
@@ -1384,7 +1388,7 @@ class AutomationService:
             if (_idle_pulse is not None and now < _idle_pulse[1]
                     and 0 <= time.monotonic() - _idle_pulse[2] < self.config.heartbeat_seconds):
                 try:
-                    permit = store.require_leader(conn, _idle_pulse[0])
+                    permit, fenced_control = store.require_leader_with_control(conn, _idle_pulse[0])
                 except StaleLeaderRefused:
                     conn.rollback()
                     return TickResult(action=TickAction.WAITING,
@@ -1404,7 +1408,7 @@ class AutomationService:
             return TickResult(
                 action=TickAction.WAITING,
                 reason="canonical writer lock is busy; leadership was not acquired")
-        control = store.load_control(conn)
+        control = fenced_control if fenced_control is not None else store.load_control(conn)
         obligation = self._schedule(now)
 
         inherited = store.oldest_nonterminal_other_generation_cycle(
@@ -1426,20 +1430,23 @@ class AutomationService:
                     "the current activation generation has a blocked cycle; "
                     "an explicit operator deactivate/reactivate boundary is "
                     "required before a later session can proceed"))
-        waiting_subject = None
+        idle_subject = None
         if (_idle_pulse is not None and now < _idle_pulse[1]
                 and control.broker in (ALPACA_PAPER_BROKER, ALPACA_LIVE_BROKER)):
-            waiting_spec = self._spec(control, obligation)
-            if self.config.debug_window_for(waiting_spec) is None:
-                witness = store.waiting_open_witness(conn, waiting_spec.cycle_id)
+            idle_spec = self._spec(control, obligation)
+            if self.config.debug_window_for(idle_spec) is None:
+                witness = store.idle_cycle_witness(conn, idle_spec)
                 if witness is not None:
-                    waiting_subject = (waiting_spec, permit.holder_id, permit.fence_token, witness)
-                    parked = getattr(self, '_waiting_open_proof', None)
-                    if parked is not None and parked[0] == waiting_subject:
+                    idle_subject = (idle_spec, permit.holder_id, permit.fence_token, witness)
+                    parked = getattr(self, '_idle_cycle_proof', None)
+                    if (parked is not None and parked[0] == idle_subject
+                            and (parked[1].state.terminal or now < parked[1].execute_at)):
                         conn.rollback()
-                        return TickResult(action=TickAction.WAITING, cycle=parked[1].model_copy(deep=True),
-                            permit=permit, reason="effective-session execution wake has not arrived")
-        self._waiting_open_proof = None
+                        cycle = parked[1].model_copy(deep=True)
+                        return TickResult(action=TickAction.WAITING, cycle=cycle, permit=permit,
+                            reason=(f"cycle is {cycle.state.value}" if cycle.state.terminal
+                                    else "effective-session execution wake has not arrived"))
+        self._idle_cycle_proof = None
         prior = store.latest_cycle(conn)
         conn.rollback()
         if prior is not None:
@@ -1542,6 +1549,10 @@ class AutomationService:
             return TickResult(action=TickAction.WAITING, permit=permit,
                               reason=str(exc))
         validate_lineage(cycle)
+        if (idle_subject is not None and cycle.cycle_id == witness[0]
+                and (cycle.state.terminal or (cycle.state is CycleState.WAITING_OPEN and now < cycle.execute_at))
+                and store.idle_cycle_witness(conn, idle_spec) == witness):
+            self._idle_cycle_proof = (idle_subject, cycle.model_copy(deep=True))
         if cycle.state.terminal:
             return TickResult(
                 action=TickAction.WAITING, cycle=cycle, permit=permit,
@@ -1632,9 +1643,6 @@ class AutomationService:
 
         if cycle.state is CycleState.WAITING_OPEN:
             if now < cycle.execute_at:
-                if (waiting_subject is not None and cycle.cycle_id == waiting_spec.cycle_id
-                        and store.waiting_open_witness(conn, cycle.cycle_id) == witness):
-                    self._waiting_open_proof = (waiting_subject, cycle.model_copy(deep=True))
                 return TickResult(
                     action=TickAction.WAITING, cycle=cycle, permit=permit,
                     reason="effective-session execution wake has not arrived")
@@ -1941,6 +1949,26 @@ class AutomationService:
             and result.failure_code == "PROTECTED_COHORT_READY"
             and cycle.control_generation == permit.control_generation
             and self._purchase_window_expired(now=now, cycle=cycle))
+        from sentinel.execution.market_reservation_record import current_working_receipt
+        if (result.failure_code in {"OWNED_MARKET_ORDERS_WORKING", "RESERVED_MARKET_READY"}
+                and cycle.control_generation == permit.control_generation
+                and result.last_clean_reconciliation_id == result.transport_reconciliation_id
+                and cycle.broker in {"alpaca", "alpaca-live"} and current_working_receipt(result.diagnostic, plan_id=cycle.plan_id,
+                    observation_id=result.last_clean_reconciliation_id, now=now)
+                and now < cycle.execution_close_at + timedelta(minutes=10)
+                and (result.disposition is ExecuteDisposition.RECONCILE or (
+                    result.disposition is ExecuteDisposition.READY_TO_EXECUTE and
+                    self._purchase_window_expired(now=now, cycle=cycle)))):
+            deadline = min(self._latest_new_execution_at(cycle), cycle.execution_open_at + timedelta(minutes=10))
+            wake = now + timedelta(seconds=self.config.control_poll_seconds)
+            if now < deadline - timedelta(minutes=1):
+                wake = min(wake, deadline - timedelta(minutes=1))
+            cycle = self._recover_transition(conn, permit=permit, cycle=cycle, to_state=CycleState.RETRY_WAIT,
+                next_wake_at=min(wake, cycle.execution_close_at + timedelta(minutes=10)),
+                last_clean_reconciliation_id=result.last_clean_reconciliation_id,
+                failure_code=None, failure_detail=None, diagnostic={**result.diagnostic, "retry_phase": "RECOVER"})
+            return TickResult(action=TickAction.WAITING, cycle=cycle, permit=permit,
+                              reason="owned market orders await settlement")
         if result.failure_code == "PROTECTED_DAY_ORDERS_WORKING" or crossing_cohort_ready:
             wait = protected_day_wait(
                 result.diagnostic.get("protected_day_wait"), now=now,
@@ -2008,8 +2036,8 @@ class AutomationService:
                 next_wake_at=max(now, cycle.execute_at),
                 last_clean_reconciliation_id=
                     result.last_clean_reconciliation_id,
-                failure_code=(None if result.failure_code == "PROTECTED_COHORT_READY" else result.failure_code),
-                failure_detail=(None if result.failure_code == "PROTECTED_COHORT_READY" else result.failure_detail),
+                failure_code=(None if result.failure_code in {"PROTECTED_COHORT_READY", "RESERVED_MARKET_READY"} else result.failure_code),
+                failure_detail=(None if result.failure_code in {"PROTECTED_COHORT_READY", "RESERVED_MARKET_READY"} else result.failure_detail),
                 diagnostic={**ready_diagnostic,
                             "original_execution_deadline_at": self._latest_new_execution_at(cycle).isoformat(),
                             **({"continuation_reason": {"code": result.failure_code,
@@ -2209,7 +2237,7 @@ class AutomationService:
         """Persistent bounded-loop primitive with restart-safe wake recompute."""
         ticks = 0
         idle_permit: LeaderPermit | None = None
-        waiting_execute_at: datetime | None = None
+        idle_until: datetime | None = None
         handled_terminal = None
         while not stop.is_set() and (max_ticks is None or ticks < max_ticks):
             try:
@@ -2231,8 +2259,8 @@ class AutomationService:
                         next_wake_at=now + timedelta(seconds=min(
                             self.config.heartbeat_seconds,
                             self.config.control_poll_seconds)))
-                    idle_pulse = ((idle_permit, waiting_execute_at, progress_started)
-                        if idle_permit is not None and waiting_execute_at is not None else None)
+                    idle_pulse = ((idle_permit, idle_until, progress_started)
+                        if idle_permit is not None and idle_until is not None else None)
                     result = await self.tick(
                         conn, now=now, heartbeat_conn_factory=conn_factory,
                         clock=clock, _idle_pulse=idle_pulse)
@@ -2246,9 +2274,12 @@ class AutomationService:
                     raise
                 if result.permit is not None:
                     idle_permit = result.permit
-                waiting_execute_at = (result.cycle.execute_at if result.action is TickAction.WAITING
-                    and result.cycle is not None and result.cycle.state is CycleState.WAITING_OPEN
-                    else None)
+                idle_until = None
+                if result.action is TickAction.WAITING and result.cycle is not None:
+                    if result.cycle.state is CycleState.WAITING_OPEN:
+                        idle_until = result.cycle.execute_at
+                    elif result.cycle.state.terminal:
+                        idle_until = result.cycle.execution_close_at
                 ticks += 1
                 if (self.terminal is not None and result.cycle is not None
                         and result.cycle.state in {

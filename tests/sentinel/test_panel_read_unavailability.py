@@ -152,6 +152,16 @@ def test_mixed_typed_refusals_share_first_window_and_original_work_budget(cost, 
     assert clock.now == expected
 
 
+def test_background_yield_releases_child_without_repeating_the_proof():
+    from sentinel.snapshot_scan_admission import DiscretionaryScanDeferred
+    clock = Clock()
+    def attempt():
+        raise DiscretionaryScanDeferred('foreground work')
+    with pytest.raises(DiscretionaryScanDeferred):
+        reader.retry_observation_read(attempt, clock=clock, sleep=clock.sleep)
+    assert not clock.waits
+
+
 def test_admitted_full_read_may_finish_after_retry_window_but_not_work_deadline():
     for cost in (91, 300):
         clock = Clock()

@@ -92,7 +92,7 @@ def test_148_preparation_guard_rechecks_boundary_without_full_readiness(monkeypa
     fake_binding = SimpleNamespace(
         broker_account_id="paper-account-1", takeover_epoch=1,
         identity=SimpleNamespace(matches_account=lambda _value: True))
-    monkeypatch.setattr("sentinel.handover.assert_no_legacy_path",
+    monkeypatch.setattr("sentinel.handover.require_owned_binding",
                         lambda _conn: fake_binding)
     monkeypatch.setattr(paper_validation, "load_rollout_state", lambda _conn: object())
     monkeypatch.setattr(paper_validation.feed_inputs, "require_current",

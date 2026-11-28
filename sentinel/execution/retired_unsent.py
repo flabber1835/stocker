@@ -37,9 +37,38 @@ def only_retired_unsent_buys(conn, cycle, observation, counts, *, now):
             or observation['runtime_state'] != 'RUNNING'):
         return False
 
-    rows = conn.execute("""
+    return _retired_evidence(conn, cycle['cycle_id'], cycle.get('plan_id'), planned_count,
+        current_keys=(), required_keys=None, waiting=(cycle.get('next_wake_at'), now,
+        observation['sequence'], observation['observed_at']))
+
+
+def retired_at_cutoff(conn, cycle, *, current_keys, retired_keys, deadline):
+    """Exclude only identified, never-transported commands from a superseded plan."""
+    if not retired_keys or len(current_keys | retired_keys) > 100 or current_keys & retired_keys:
+        return False
+    if conn.execute("SELECT 1 FROM sentinel_fills WHERE client_key=ANY(%s) LIMIT 1",
+                    (sorted(retired_keys),)).fetchone():
+        return False
+    return _retired_evidence(conn, cycle.cycle_id, cycle.plan_id, len(retired_keys),
+                             current_keys=current_keys, required_keys=retired_keys, deadline=deadline)
+
+
+def _retired_evidence(conn, cycle_id, plan_id, retired_count, *, current_keys,
+                      required_keys, waiting=None, deadline=None):
+    # A pre-open display must still be anchored to the exact scheduled wake.
+    # At cutoff the caller separately verifies both its saved and latest observations.
+    if waiting is None:
+        phase = "waiting.state IN ('EXECUTING','RECONCILING','RETRY_WAIT','SUPERSEDED')"
+        phase_args = ()
+    else:
+        phase = """waiting.state='WAITING_OPEN' AND waiting.failure_code IS NULL
+              AND waiting.next_wake_at=waiting.execute_at AND waiting.next_wake_at=%s
+              AND %s<waiting.execute_at AND newest.seq=%s AND newest.observed_at=%s
+              AND newest.seq::text=waiting.last_clean_reconciliation_id"""
+        phase_args = waiting
+    rows = conn.execute(f"""
         SELECT cmd.client_key, old.execute_at, old.completed_at, prior.seq,
-               waiting.broker, waiting.broker_account_id
+               waiting.broker, waiting.broker_account_id, newest.seq
         FROM sentinel_automation_cycles waiting
         JOIN sentinel_automation_control control ON control.id=1
           AND waiting.control_generation=control.generation
@@ -71,25 +100,23 @@ def only_retired_unsent_buys(conn, cycle, observation, counts, *, now):
           AND (old.deployment_id,old.broker,old.broker_account_id,old.takeover_epoch)
              =(waiting.deployment_id,waiting.broker,waiting.broker_account_id,waiting.takeover_epoch)
         JOIN sentinel_observations newest ON newest.seq=(SELECT max(seq) FROM sentinel_observations)
-          AND newest.seq::text=waiting.last_clean_reconciliation_id
+
         JOIN sentinel_observations prior ON prior.seq::text=old.last_clean_reconciliation_id
           AND prior.seq<newest.seq AND prior.observed_at BETWEEN old.execute_at AND old.completed_at
-        WHERE waiting.cycle_id=%s AND waiting.plan_id=%s AND waiting.state='WAITING_OPEN'
+        WHERE waiting.cycle_id=%s AND waiting.plan_id=%s AND ({phase})
           AND control.enabled AND NOT control.kill_switch_engaged
           AND control.authority_verdict='PASS'
           AND NOT waiting.historical_state_only AND NOT old.historical_state_only
-          AND waiting.failure_code IS NULL AND waiting.next_wake_at=waiting.execute_at
-          AND waiting.next_wake_at=%s
-          AND %s<waiting.execute_at
+          AND NOT (cmd.client_key=ANY(%s::text[]))
           AND old.state='SUPERSEDED' AND old.failure_code=%s
           AND old.completed_at<=newest.observed_at
           AND old.diagnostic->'clean'='true'::jsonb AND old.diagnostic->>'terminal_reason' IS NULL
           AND old.diagnostic->'unresolved'='[]'::jsonb
           AND old.diagnostic->'foreign_orders'='[]'::jsonb
           AND old.diagnostic->'foreign_positions'='[]'::jsonb
-          AND old.diagnostic->'restricted_securities'='{}'::jsonb
+          AND old.diagnostic->'restricted_securities'='{{}}'::jsonb
           AND old.diagnostic->'expected'=old.diagnostic->'observed'
-          AND newest.seq=%s AND newest.observed_at=%s
+
           AND newest.completeness='COMPLETE' AND newest.runtime_state='RUNNING'
           AND prior.completeness='COMPLETE' AND prior.runtime_state='RUNNING'
           AND cmd.side='BUY' AND cmd.filled_quantity=0 AND cmd.broker_order_id IS NULL
@@ -110,21 +137,21 @@ def only_retired_unsent_buys(conn, cycle, observation, counts, *, now):
                 SELECT 1 FROM successors WHERE plan_id=current.plan_id
             )
         LIMIT 101
-        """, (cycle['cycle_id'], cycle.get('plan_id'), cycle.get('next_wake_at'), now,
-              'MAX_EXECUTION_LATENESS_EXCEEDED', observation['sequence'], observation['observed_at'],
-              _ACTIVE, planned_count)).fetchall()
+        """, (cycle_id, plan_id, *phase_args, sorted(current_keys),
+              'MAX_EXECUTION_LATENESS_EXCEEDED', _ACTIVE, retired_count + len(current_keys))).fetchall()
     keys = {row[0] for row in rows}
-    anchor = {(row[3], row[4], row[5]) for row in rows}
-    if len(rows) != planned_count or len(keys) != planned_count or len(anchor) != 1:
+    anchor = {tuple(row[3:]) for row in rows}
+    if (len(rows) != retired_count or len(keys) != retired_count or len(anchor) != 1
+            or (required_keys is not None and keys != required_keys)):
         return False
-    prior, broker, account = anchor.pop()
+    prior, broker, account, newest = anchor.pop()
     from sentinel.automation.missed_buy_alert import no_transport_chain
-    if not all(no_transport_chain(conn, key, execute_at=opened, as_of=completed)
+    if not all(no_transport_chain(conn, key, execute_at=opened, as_of=completed, deadline=deadline)
                for key, opened, completed, *_ in rows):
         return False
 
     terminal = {state.value for state in TERMINAL}
-    for sequence in (prior, observation['sequence']):
+    for sequence in (prior, newest):
         payload = journal.load_observation_payload(conn, sequence)
         if (payload.get('completeness') != 'COMPLETE'
                 or (payload.get('broker'), payload.get('account_id')) != (broker, account)

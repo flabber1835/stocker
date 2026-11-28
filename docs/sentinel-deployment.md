@@ -1,5 +1,7 @@
 # Sentinel current operating contract
 
+The opening scheduler reuses verified history only until the next due action. Its backup admission retry requires proof that transport could not have started. [Opening scheduler contract](nov27-opening-scheduler.md)
+
 [Dashboard browser recovery and marquee](dashboard-browser-recovery.md) covers
 browser deadlines, compact refreshes, and the status sign.
 

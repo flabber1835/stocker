@@ -129,6 +129,16 @@ def require_schema(conn, *, allow_absent=False):
     return installation(conn, required=not allow_absent) is not None
 
 
+def has_lineage(conn):
+    """A canonical origin already makes the full lineage-name predicate true."""
+    from sentinel import rolling_checkpoint
+    has_origin = conn.execute('SELECT EXISTS(SELECT 1 FROM sentinel_processed_sessions '
+        'WHERE cursor_name=%s)', (rolling_checkpoint.CURSOR,)).fetchone()[0]
+    if has_origin:
+        return True
+    return bool(rolling_checkpoint.lineage_names(conn))
+
+
 def find_foreign(conn, *, allowed_names, session_pattern, input_pattern, authority_pattern):
     """One statement snapshot; indexed negative discovery after exact validation."""
     if require_schema(conn, allow_absent=True):

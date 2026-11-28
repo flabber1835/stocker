@@ -52,6 +52,55 @@ def test_acquisition_axis_uses_actual_exchange_close(instant, expected):
     assert op.source_final_session(datetime.fromisoformat(instant)) == expected
 
 
+def test_existing_origin_selects_daily_window_without_reading_every_lineage(conn, monkeypatch):
+    from sentinel import checkpoint_lineage_access as lineage, rolling_checkpoint, strategy
+    from sentinel.core import window_policy
+    from sentinel.feed.rolling_contract import CurrentFormationWindow, PriceWindow
+    selected = {'market_input_policy':window_policy.POLICY, 'startup_policy':window_policy.FORMATION}
+    monkeypatch.setattr(strategy, 'production_strategy', lambda: (None, selected))
+    monkeypatch.setattr(op, 'source_final_session', lambda: '2026-11-27')
+    conn.execute('CREATE TEMP TABLE sentinel_processed_sessions(cursor_name text PRIMARY KEY, state jsonb)')
+    conn.execute("INSERT INTO sentinel_processed_sessions VALUES (%s,'{}')", (rolling_checkpoint.CURSOR,))
+    read_all = rolling_checkpoint.lineage_names
+    full_scans = []
+    def measured(connection):
+        full_scans.append(1)
+        return read_all(connection)
+    monkeypatch.setattr(rolling_checkpoint, 'lineage_names', measured)
+
+    def established():
+        result = op.acquisition_window(conn, digest(selected))
+        assert type(result) is PriceWindow and not full_scans, 'scanned an established lineage'
+    established()
+    with monkeypatch.context() as removed:
+        method = inspect.getsource(lineage.has_lineage)
+        guard = 'if has_origin:'
+        assert method.count(guard) == 1
+        namespace = dict(vars(lineage))
+        exec(compile(method.replace(guard,'if False:'), '<missing origin probe>','exec'),namespace)
+        removed.setattr(lineage,'has_lineage',namespace['has_lineage'])
+        with pytest.raises(AssertionError, match='scanned an established lineage'):
+            established()
+    with conn.transaction(force_rollback=True):
+        conn.execute('DELETE FROM sentinel_processed_sessions')
+        assert not lineage.has_lineage(conn)
+    full_scans.clear()
+    established()
+    conn.execute('DELETE FROM sentinel_processed_sessions')
+    for name, state in [('shadow-legacy','{}'), ('rolling-other','{}'), ('catchup','{}'),
+                        ('unrecognized','{"strategy_identity":null}'), ('other','{"wealth_core":false}')]:
+        with conn.transaction(force_rollback=True):
+            conn.execute('INSERT INTO sentinel_processed_sessions VALUES (%s,%s::jsonb)', (name,state))
+            full_scans.clear()
+            assert type(op.acquisition_window(conn, digest(selected))) is PriceWindow and full_scans
+    for table in ('sentinel_execution_plans','sentinel_commands','sentinel_fills','sentinel_trial_strategy_evidence'):
+        conn.execute('CREATE TEMP TABLE ' + table + '(id integer)')
+    assert type(op.acquisition_window(conn, digest(selected))) is CurrentFormationWindow
+    conn.execute('INSERT INTO sentinel_commands VALUES (1)')
+    with pytest.raises(rolling_checkpoint.RollingColdStartRefused, match='EXISTING_EXECUTION_HISTORY'):
+        op.acquisition_window(conn, digest(selected))
+
+
 def test_cold_publication_uses_real_version_and_receipt_without_legacy_corpus(conn, operational_source):
     job = enqueue(conn)
     result = op.prepare(conn, job)

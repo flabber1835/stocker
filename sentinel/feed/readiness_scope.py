@@ -121,7 +121,11 @@ def material(conn, pub, load):
     if scope.material is None:
         from sentinel.feed.shadow_readiness_memo import current_memo
         memo = current_memo.get()
-        value = load() if memo is None else memo.measure(conn, pub, load)
+        if memo is None:
+            from sentinel import prepared_opening_material
+            value = prepared_opening_material.readiness(conn, pub, load)
+        else:
+            value = memo.measure(conn, pub, load)
         _require_pin(conn, scope)
         scope.material = deepcopy(value)
     value = deepcopy(scope.material)
@@ -160,7 +164,8 @@ def verified_snapshot(conn, candidate_id, load, *, summary_only=False):
     if cached is None:
         if load is None:
             return None
-        completed = load()
+        from sentinel import prepared_opening_material
+        completed = prepared_opening_material.verified_snapshot(conn, pub, load)
         _require_pin(conn, scope)
         publication._validate_publication(conn, pub, allow_snapshot=True)
         if (not isinstance(completed, rolling_store.VerifiedSnapshot)

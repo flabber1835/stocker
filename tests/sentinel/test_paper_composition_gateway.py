@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,7 +14,7 @@ from sentinel.execution import certification, journal
 from sentinel.execution.contract import BrokerInstrument, Side
 from sentinel.execution.guarded import (
     AutomationExecutionGrant, BrokerAuthorityRefused, ExecutionBrokerGuard,
-    GuardedExecutionBroker, PaperPreparationGrant,
+    GuardedExecutionBroker, ManualExecutionGrant, PaperPreparationGrant,
 )
 from sentinel.paper import execution, inspection, preparation, recovery, validation
 from tests.sentinel.test_issue_183_alpaca_hardening import Httpx, Response
@@ -152,8 +152,31 @@ def test_composition_refuses_a_constructor_that_returns_the_bare_transport(monke
 # broker HTTP parsing below are production implementations.
 from tests.sentinel.test_paper_activation import (  # noqa: E402,F401
     pg, conn, simulator_is_certified, DECISION, PRIOR, _publish, _persist_state,
-    _state, _ready, _advance_stub, _prepare,
+    _state, _ready, _advance_stub, _plan, _prepare,
 )
+
+
+def test_native_paper_submit_refuses_after_owned_account_binding_changes(conn, monkeypatch):
+    bound = binding.bind(conn, deployment_id="paper-submit", broker="alpaca", broker_account_id="SIM-PAPER")
+    publication = _publish(conn)
+    state = _state(session=DECISION, data_version=publication.version)
+    _persist_state(conn, state)
+    plan = journal.adopt_current_plan(conn, _plan(state, publication, bound))
+    _ready(monkeypatch)
+    raw, http = transport()
+    wrapped = validation._guard_broker(conn=conn, broker=raw, base_url=config.DEFAULT_BASE_URL,
+        grant=ManualExecutionGrant(bound.broker_account_id, plan.plan_id, plan.effective_session, True),
+        now_provider=lambda: datetime(2026, 8, 12, 13, 31, tzinfo=timezone.utc),
+        strategy_provider=lambda: state.strategy_identity)
+    assert asyncio.run(wrapped.identify_account()).account_id == bound.broker_account_id
+    # Inject an out-of-band restore, beyond the official writer lock. The
+    # wrapper established against the previous account must refuse at submit.
+    conn.execute("UPDATE sentinel_account_binding SET broker_account_id='foreign-paper' WHERE id=1")
+    conn.commit()
+    with pytest.raises(BrokerAuthorityRefused, match="manual execution grant no longer names current authority"):
+        asyncio.run(wrapped.submit(client_key="original-paper", side=Side.SELL,
+            instrument=BrokerInstrument("SEC-AAA", "AAA", "asset-aaa"), quantity=Decimal(1)))
+    assert [call[:2] for call in http.calls] == [("GET", "/v2/account")]
 
 
 def test_strict_postgres_preparation_retains_unaccepted_history_refusal(conn, monkeypatch):

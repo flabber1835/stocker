@@ -281,7 +281,8 @@ async def _confirm(conn, *, broker, binding, plan, rec, actions, clock, provisio
     return rec, account, activity, reserve
 
 
-def evaluate(conn, *, plan, deployment, account, observation, activity_state, candidate_key=None):
+def evaluate(conn, *, plan, deployment, account, observation, activity_state, candidate_key=None,
+             owned_sales=()):
     """Return a debit reserve only when the current native posting evidence qualifies."""
     from sentinel.dual_plan_authority import require_current_buy_policy
     from sentinel.execution.market_buy_policy import MarketBuyPolicy
@@ -327,15 +328,19 @@ def evaluate(conn, *, plan, deployment, account, observation, activity_state, ca
         return None
     if (observation is None or not observation.is_complete
             or not deployment.matches_account(observation.account_identity)
-            or any(order.is_working for order in observation.orders)
+            or any(order.is_working and order.client_key not in owned_sales for order in observation.orders)
             or observation.observed_at > activity_state.processed_through
             or account.multiplier != 1 or account.buying_power is None
             or account.status.upper() != "ACTIVE" or account.account_blocked
             or account.trading_blocked or account.trade_suspended_by_user):
         raise PaperActivationRefused("cash postings require a current clean owned PAPER account")
     unresolved = journal.in_flight_commands(conn, deployment)
-    if any(c.client_key != candidate_key or c.identity.plan_id != plan.plan_id
-           or c.state != CommandState.SEND_PENDING for c in unresolved):
+    if any(not (
+            (c.client_key == candidate_key and c.state is CommandState.SEND_PENDING)
+            or (c.client_key in owned_sales and c.side.value == "SELL"
+                and c.state in {CommandState.ACKNOWLEDGED, CommandState.PARTIALLY_FILLED}))
+            or c.identity.plan_id != plan.plan_id
+            for c in unresolved):
         raise PaperActivationRefused("cash posting admission found an unresolved order")
     commands, fill_rows = _plan_fill_rows(conn, plan=plan, deployment=deployment)
     expected = (_plan_fill_cash(conn, plan=plan, deployment=deployment, commands=commands, posted_rows=fill_rows)

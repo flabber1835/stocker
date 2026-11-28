@@ -119,12 +119,36 @@ test.describe('First document before current evidence',()=>{
       });
       await page.goto(f.url,{waitUntil:'domcontentloaded'});
       await expect(page.locator('#launch-status')).toContainText('CONNECTION DELAYED');
+      await expect(page.locator('body')).toHaveAttribute('data-link','connection');
       expect(interrupted).toBe(true);
       await expect(page.locator('#operational-state')).toHaveCount(0);
       f.release();
       await expect(page.locator('#operational-state')).toBeVisible({timeout:12000});
     } finally {await page.goto('about:blank');await f.close();}
   });
+  for(const kind of ['busy','deployment','invalid document']) {
+    test(`connected launch explains ${kind} and recovers on retry`, async({page,request})=>{
+      const f=await fixture(request);
+      let failed=false;
+      try {
+        await page.route(f.url, async route=>{
+          if(route.request().isNavigationRequest()||failed)return route.continue();
+          failed=true;
+          const headers={'Content-Type':'text/html'};
+          if(kind==='deployment')headers['X-Sentinel-Deployment-Progress']='Verifying%20installation';
+          if(kind==='invalid document')headers['X-Sentinel-Panel-Status']='CURRENT';
+          return route.fulfill({status:kind==='invalid document'?200:503,headers,body:'<html>Waiting</html>'});
+        });
+        await page.goto(f.url,{waitUntil:'domcontentloaded'});
+        await expect(page.locator('body')).toHaveAttribute('data-link','connected');
+        await expect(page.locator('#launch-status')).toHaveText(kind==='deployment'?'Verifying installation':'Connected · waiting for current status');
+        await expect(page.locator('#launch-status')).toHaveCSS('color','rgb(141, 210, 251)');
+        f.release();
+        await page.locator('#launch-retry').click();
+        await expect(page.locator('#operational-state')).toBeVisible();
+      } finally {f.release();await page.goto('about:blank');await f.close();}
+    });
+  }
   test('a fresh partial response installs with explicit non-current observation metadata',async({page,request})=>{
     const f=await fixture(request,{partial:true});
     try {

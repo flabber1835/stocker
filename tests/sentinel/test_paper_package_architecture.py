@@ -16,6 +16,7 @@ import pytest
 
 import sentinel.paper as paper
 from tests.support import alpaca_coverage_source as alpaca_coverage
+from tests.support.opening_predecessor import predecessor
 
 TEST_ROOT = Path(__file__).resolve().parents[2]
 ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT", TEST_ROOT)).resolve()
@@ -175,6 +176,18 @@ def test_submodule_import_order_does_not_change_behavior():
         list(reversed(MODULES)))
 
 
+def _opening_predecessor(module, raw):
+    return predecessor(f"paper/{module}.py", raw)
+
+
+@pytest.mark.parametrize("module", ["cash", "cash_postings", "execution", "reconciliation_evidence", "validation"])
+def test_opening_source_refuses_unreviewed_owner(module):
+    raw = (PACKAGE / f"{module}.py").read_bytes()
+    assert _opening_predecessor(module, raw) != raw
+    with pytest.raises(AssertionError, match="unreviewed opening source"):
+        _opening_predecessor(module, raw + b"\n")
+
+
 def test_equivalence_manifest_covers_every_canonical_definition():
     manifest = json.loads(
         (ROOT / "docs" / "paper-lifecycle-equivalence.json").read_text(
@@ -191,7 +204,7 @@ def test_equivalence_manifest_covers_every_canonical_definition():
     actual = set()
     unreviewed = []
     for module_name in MODULES:
-        raw = (PACKAGE / f"{module_name}.py").read_bytes()
+        raw = _opening_predecessor(module_name, (PACKAGE / f"{module_name}.py").read_bytes())
         if module_name in alpaca_coverage.PAPER_OWNERS:
             before = alpaca_coverage.paper_predecessor(module_name, raw)
             alpaca_definitions.update(_paper_definition_changes(module_name, before, raw))
@@ -349,7 +362,7 @@ def test_opening_projection_equivalence_witness_rejects_other_deltas(defect):
                     if defect == 'changed_scope' else
                     ('targets', '_target_projection_or_refuse'))
     source = (PACKAGE / f'{module}.py').read_bytes()
-    tree = ast.parse(alpaca_coverage.paper_predecessor(module, source))
+    tree = ast.parse(alpaca_coverage.paper_predecessor(module, _opening_predecessor(module, source)))
     node = next(item for item in tree.body
                 if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
                 and item.name == name)
@@ -377,6 +390,7 @@ def test_opening_projection_equivalence_witness_rejects_other_deltas(defect):
 ])
 def test_current_alpaca_paper_witness_refuses_changed_guard_or_projection(module, reviewed, unreviewed):
     source = (PACKAGE / f'{module}.py').read_bytes()
+    source = _opening_predecessor(module, source)
     assert source.count(reviewed) == 1
     with pytest.raises(AssertionError, match='not the reviewed Alpaca successor'):
         alpaca_coverage.paper_predecessor(module, source.replace(reviewed, unreviewed, 1))

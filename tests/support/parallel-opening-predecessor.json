@@ -1,0 +1,412 @@
+{
+  "modules": {
+    "feed/normalized_layout.py": {
+      "after": "1f1cf9d9921dcbf856157079e1c3c121f8415de73072a4838ce3bb640b6c1f5b",
+      "before": "5952fb94d212d55b9a8f52254c82f4589df34ed51254fbcdbf63f095f87d051a",
+      "edits": [
+        [
+          176,
+          200,
+          ""
+        ],
+        [
+          283,
+          285,
+          ""
+        ],
+        [
+          391,
+          405,
+          ""
+        ],
+        [
+          406,
+          407,
+          "    refs = conn.execute('SELECT kind,session,block_sha256 FROM sentinel_candidate_blocks '\n        'WHERE candidate_id=%s ORDER BY kind,session', (candidate_id,)).fetchall()\n"
+        ],
+        [
+          409,
+          410,
+          "    _require_references(conn, refs, manifest)\n    references = [dict(kind=kind,session=str(day),block_sha256=sha) for kind,day,sha in refs]\n"
+        ],
+        [
+          420,
+          421,
+          "    refs = conn.execute('SELECT kind,session,block_sha256 FROM sentinel_candidate_blocks WHERE candidate_id=%s ORDER BY kind,session', (candidate_id,)).fetchall()\n"
+        ],
+        [
+          424,
+          424,
+          "    _require_references(conn, refs, manifest)\n"
+        ],
+        [
+          425,
+          426,
+          "        references=[dict(kind=kind,session=str(day),block_sha256=sha) for kind,day,sha in refs])\n"
+        ],
+        [
+          430,
+          433,
+          "def _require_references(conn, refs, manifest):\n    expected = [(kind,str(day)) for kind in ('BARS','BENCHMARKS') for day in manifest.window.sessions]\n    if [(kind,str(day)) for kind,day,_sha in refs] != expected:\n"
+        ],
+        [
+          434,
+          438,
+          "    blocks = conn.execute('SELECT block_sha256,kind,session,normalization_version,calendar_version '\n        'FROM sentinel_normalized_blocks WHERE block_sha256=ANY(%s)',\n        ([sha for _kind,_day,sha in refs],)).fetchall()\n    headers = {sha:(kind,str(day),normalization,calendar) for sha,kind,day,normalization,calendar in blocks}\n    for kind,day,sha in refs:\n        if headers.get(sha) != (kind,str(day),manifest.normalization_version,manifest.calendar_version):\n"
+        ],
+        [
+          439,
+          441,
+          ""
+        ]
+      ]
+    },
+    "feed/rolling_store.py": {
+      "after": "62eba292f30e06efdc58a9e9745c4bbbeaa3b490c3dae9718293947ed089de89",
+      "before": "1af0c19730e73345245a791d736ff98eef78bab2e48e088bcf0cd94a834d32cf",
+      "edits": [
+        [
+          16,
+          17,
+          "from sentinel.feed import calendar, rolling_work\n"
+        ],
+        [
+          146,
+          148,
+          "def verify_evidence(conn, identity: str) -> None:\n    \"\"\"Verify stored bytes without decoding another full reference object tree.\n"
+        ],
+        [
+          153,
+          174,
+          "    row = conn.execute(\n        \"SELECT payload,octet_length(canonical_payload),\"\n        \"CASE WHEN octet_length(canonical_payload)<=%s THEN \"\n        \"encode(sha256(convert_to(canonical_payload,'UTF8')),'hex') END \"\n        \"FROM sentinel_snapshot_evidence WHERE evidence_sha256=%s\",\n        (MAX_EVIDENCE_BYTES, identity)).fetchone()\n    if row is None:\n        raise SnapshotStorageRefused(\"missing snapshot evidence: \" + identity)\n    payload, size, observed = row\n    if size is not None:\n        from sentinel.feed.acquisition_limits import check\n        check(\"SNAPSHOT_EVIDENCE_BYTES\", size, MAX_EVIDENCE_BYTES)\n        valid = payload is None and observed == identity\n    else:\n        valid = isinstance(payload, dict) and digest(payload) == identity\n    if not valid:\n        raise SnapshotStorageRefused(\"missing or corrupt snapshot evidence: \" + identity)\n"
+        ],
+        [
+          324,
+          325,
+          "    verify_evidence(conn, reference)\n    verify_evidence(conn, source)\n"
+        ],
+        [
+          381,
+          382,
+          ""
+        ],
+        [
+          383,
+          384,
+          ""
+        ],
+        [
+          385,
+          387,
+          "        cur.execute(\"SELECT snapshot_id,manifest FROM sentinel_price_candidates \"\n                    \"WHERE candidate_id=%s\", (candidate_id,))\n"
+        ],
+        [
+          390,
+          393,
+          "    value = SnapshotManifest.model_validate(row[1])\n    if value.snapshot_id != row[0]:\n"
+        ],
+        [
+          394,
+          394,
+          "    axis, reference, source, _ = _parent(conn, candidate_id)\n"
+        ],
+        [
+          401,
+          402,
+          "        verify_evidence(conn, value.reference_sha256)\n        verify_evidence(conn, value.source_evidence_sha256)\n"
+        ]
+      ]
+    },
+    "operational_catalog.py": {
+      "after": "f5c212fc4245dd2e4fd9f8d921dff4bff12548ea515842e39d8da60a24bdfad2",
+      "before": "c03cd68902be5ca18126c8c57d9b7aafefcb4c7b244d65a20fd3889c96cd763a",
+      "edits": [
+        [
+          58,
+          62,
+          "    names = sorted(tables)\n    relations = conn.execute(\n        'SELECT c.relname,c.relkind,c.relpersistence,c.relispartition,c.relrowsecurity,'\n"
+        ],
+        [
+          64,
+          70,
+          "        'WHERE n.nspname=\\'public\\' AND c.relname=ANY(%s) ORDER BY c.relname', (names,)).fetchall()\n"
+        ],
+        [
+          73,
+          74,
+          "        'FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace '\n        'JOIN pg_attribute a ON a.attrelid=c.oid '\n"
+        ],
+        [
+          75,
+          77,
+          "        'WHERE n.nspname=\\'public\\' AND c.relname=ANY(%s) AND a.attnum>0 AND NOT a.attisdropped '\n        'ORDER BY c.relname,a.attnum', (names,)).fetchall()\n"
+        ],
+        [
+          81,
+          83,
+          "        'JOIN pg_namespace n ON n.oid=c.relnamespace '\n        'WHERE n.nspname=\\'public\\' AND c.relname=ANY(%s) '\n        'ORDER BY c.relname,k.conname', (names,)).fetchall()\n"
+        ],
+        [
+          87,
+          90,
+          "        'JOIN pg_class t ON t.oid=x.indrelid JOIN pg_namespace n ON n.oid=t.relnamespace '\n        'WHERE n.nspname=\\'public\\' AND (t.relname=ANY(%s) OR i.relname=ANY(%s)) '\n        'ORDER BY t.relname,i.relname',\n        (names, sorted({name for _, name in index_pairs}))).fetchall()\n"
+        ],
+        [
+          93,
+          95,
+          "        'JOIN pg_namespace n ON n.oid=c.relnamespace '\n        'WHERE n.nspname=\\'public\\' AND NOT t.tgisinternal '\n        'AND (c.relname=ANY(%s) OR t.tgname=ANY(%s)) '\n        'ORDER BY c.relname,t.tgname', (names, sorted({name for _, name in pairs}))).fetchall()\n"
+        ],
+        [
+          103,
+          104,
+          "        (functions,)).fetchall()\n"
+        ],
+        [
+          110,
+          111,
+          "        'WHERE e.evtname=ANY(%s) ORDER BY e.evtname', (event_names,)).fetchall()\n"
+        ]
+      ]
+    },
+    "operational_ddl_epoch.py": {
+      "after": "cdf5e06bd5b98e651c72b64601db31d5ca05736cc74d17efd3dfe7781dab204a",
+      "before": "b13648c84d2a677963343500320e973071668734ac5460c32dc90ddf1696abb9",
+      "edits": [
+        [
+          84,
+          85,
+          "def current(conn):\n"
+        ],
+        [
+          86,
+          90,
+          "    require_schema(conn)\n"
+        ]
+      ]
+    },
+    "operational_schema.py": {
+      "after": "4c33193fbdc67cb8872fdedbddd4ebf791669a835a70d61448aabb956427c1c3",
+      "before": "6ce042b67be8d26456e8459b154d6698c148cd87196a40d4e49cd6bdcba1f423",
+      "edits": [
+        [
+          108,
+          109,
+          "def _function_contract(conn):\n"
+        ],
+        [
+          112,
+          113,
+          "    require_extension(conn, __name__)\n"
+        ],
+        [
+          115,
+          116,
+          "def installation(conn, *, required=False):\n"
+        ],
+        [
+          154,
+          155,
+          "    _function_contract(conn)\n"
+        ]
+      ]
+    },
+    "panel/operational_schema.py": {
+      "after": "fe869e3cd4b9e58cf9d000d6f889de175a7869dbf432b877b2eb2d198c42f8a8",
+      "before": "04e1ad2e9173111c4ad71389d033bd683d16f3cf3288b92a4d071ff0b7d4e66a",
+      "edits": [
+        [
+          174,
+          175,
+          "def require_schema(conn, *, allow_absent=False):\n"
+        ],
+        [
+          177,
+          178,
+          "    active = require_extension(conn, __name__, allow_absent=allow_absent)\n"
+        ]
+      ]
+    },
+    "paper/cash.py": {
+      "after": "6b899b68ef67c2b8156bc5727b653482ba98e36e40f8baa0ef3ab00b1fd9c2a7",
+      "before": "f7531d58325ff7c542eb9a8e0420ad6cc25e1ba26a281dedfb1ed549a398f326",
+      "edits": [
+        [
+          234,
+          235,
+          "                               activity_state, candidate_key=None):\n"
+        ],
+        [
+          239,
+          241,
+          "                        observation=observation, activity_state=activity_state, candidate_key=candidate_key)\n"
+        ]
+      ]
+    },
+    "paper/cash_postings.py": {
+      "after": "743f83ac53ed0f3cd1e5ff03df88e7406ffabf7b7ba7284a17560a84e0df2226",
+      "before": "780f0096bbfda57538ecf809c51510743183b530ef73cda39a316ae742d1047b",
+      "edits": [
+        [
+          283,
+          285,
+          "def evaluate(conn, *, plan, deployment, account, observation, activity_state, candidate_key=None):\n"
+        ],
+        [
+          330,
+          331,
+          "            or any(order.is_working for order in observation.orders)\n"
+        ],
+        [
+          337,
+          343,
+          "    if any(c.client_key != candidate_key or c.identity.plan_id != plan.plan_id\n           or c.state != CommandState.SEND_PENDING for c in unresolved):\n"
+        ]
+      ]
+    },
+    "paper/execution.py": {
+      "after": "cf81eded47bc7190e3ae3b3d2fd876005209a76cdfb79deba8ab494cfee57540",
+      "before": "fa04225bb4e3537915f71671e4c59ef939a22ad0b6e9c765b25a413fa3779830",
+      "edits": [
+        [
+          407,
+          411,
+          ""
+        ],
+        [
+          413,
+          414,
+          "                                     candidate_key=None):\n"
+        ],
+        [
+          422,
+          423,
+          "                        candidate_key=candidate_key)\n"
+        ],
+        [
+          436,
+          454,
+          ""
+        ],
+        [
+          456,
+          457,
+          "                settled_reconciliation, settled_account, sizing_funds = market_settled\n"
+        ],
+        [
+          499,
+          500,
+          "            if retained_cohort:\n"
+        ],
+        [
+          714,
+          720,
+          ""
+        ],
+        [
+          725,
+          734,
+          "                            allow_restrictions=market_policy.fractional)\n                        funds = check_execution_cash(confirmed, cash, activity, observed_at, fee_wait=True)\n                        market_settled = (confirmed, cash, funds)\n"
+        ],
+        [
+          788,
+          789,
+          "                def market_buy_window_open():\n"
+        ],
+        [
+          800,
+          801,
+          ""
+        ],
+        [
+          803,
+          825,
+          "                            <= clock() < cutoff)\n"
+        ],
+        [
+          843,
+          848,
+          ""
+        ]
+      ]
+    },
+    "paper/reconciliation_evidence.py": {
+      "after": "da842170a296c5357bfed8b4719bbeb06d98a46e1b75915ccc4386ba5908ada2",
+      "before": "4bdcf04792441389d49b8a29ef8617279b2296ae6f9d0bf6252389eb56b0f04e",
+      "edits": [
+        [
+          81,
+          82,
+          "        allow_restrictions: bool = False):\n"
+        ],
+        [
+          88,
+          90,
+          "            conn, deployment=deployment, observation=initial_observation):\n"
+        ],
+        [
+          109,
+          110,
+          "            observation=confirmed_observation):\n"
+        ]
+      ]
+    },
+    "paper/targets.py": {
+      "after": "b3b8984021a480b52fdfe486ff969a4946430c635fa6724e0aa0c600ce6c8575",
+      "before": "c9cc815255be25de322f8e76a71013e0705902e7f5ccdc44ccb86fc905e22376",
+      "edits": [
+        [
+          577,
+          578,
+          ""
+        ],
+        [
+          606,
+          612,
+          ""
+        ],
+        [
+          614,
+          620,
+          "            resolved = await broker.resolve_instrument(\n                security_id=security_id, symbol=str(symbol))\n"
+        ]
+      ]
+    },
+    "paper/validation.py": {
+      "after": "abdc32bb5a0c9817f8e70d98d61cc159364157dde91e3bead91332f07ebd488e",
+      "before": "9f5ba046236fd01bb91d7c73cca2ade4442ba878037d5cf7dcf1af85eb8f0cef",
+      "edits": [
+        [
+          264,
+          265,
+          "    from sentinel.handover import assert_no_legacy_path\n"
+        ],
+        [
+          266,
+          267,
+          "    binding = assert_no_legacy_path(conn)\n"
+        ],
+        [
+          421,
+          423,
+          "                                    cash_ceiling=None):\n    \"\"\"Bind a market BUY to the exact quiescent book and pending command.\"\"\"\n"
+        ],
+        [
+          448,
+          449,
+          "            or any(order.is_working for order in observation.orders)):\n"
+        ],
+        [
+          451,
+          452,
+          "    if len(in_flight) != 1 or in_flight[0].client_key != client_key:\n"
+        ],
+        [
+          453,
+          463,
+          "    candidate = in_flight[0]\n"
+        ]
+      ]
+    }
+  },
+  "predecessor": "43c9691fc4a8ae5c414c590a8f374f56c108abf8"
+}

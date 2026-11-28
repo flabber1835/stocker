@@ -575,6 +575,7 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
         needed = {d.security_id for d in deltas if d.classification is not execution_commands.DeltaClass.NONE
                   and d.security_id not in restricted_security_ids}
     unresolved = []
+    requested = {}
     for security_id in sorted(needed):
         current = instruments.get(security_id)
         increasing = security_id in dollar_increases or (desired.get(security_id, Decimal(0))
@@ -603,10 +604,20 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
         if not symbol:
             unresolved.append(security_id)
             continue
+        requested[security_id] = (str(symbol), increasing, current)
+
+    batch = {}
+    if fractional_projection is not None and getattr(broker, "supports_sizing_asset_batch", False) is True:
+        batch = await broker.resolve_sizing_instruments({sid: row[0] for sid, row in requested.items()})
+    for security_id, (symbol, increasing, current) in requested.items():
         unavailable = None
         try:
-            resolved = await broker.resolve_instrument(
-                security_id=security_id, symbol=str(symbol))
+            if security_id in batch:
+                resolved = batch[security_id]
+                if isinstance(resolved, BaseException):
+                    raise resolved
+            else:
+                resolved = await broker.resolve_instrument(security_id=security_id, symbol=symbol)
         except BrokerAuthorityRefused:
             raise
         except BrokerInstrumentUnavailable as exc:

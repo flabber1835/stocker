@@ -79,6 +79,11 @@ def _closure(conn, context, *, status_only=False, cached_only=False):
 
 
 def _status_closure(conn, context):
+    from sentinel import prepared_opening_material
+    return prepared_opening_material.shadow(conn, context, lambda: _canonical_status_closure(conn, context))
+
+
+def _canonical_status_closure(conn, context):
     checkpoint, _, result, attested, previous = _load_closure(conn, context, status_only=True)
     # Historical input has already been authenticated. Fresh status checks need
     # only these bindings; copying its entire origin input per broker guard is
@@ -218,9 +223,11 @@ def classify(conn, *, observation_id, starting_cash, structural_only=False, cloc
 def _classify_owned(conn, *, observation_id, starting_cash, structural_only=False, clock=None,
                     unchanged_through=None, cached_only=False, historical_frontier=False,
                     observe_handoff=None):
+    from sentinel.snapshot_scan_admission import yield_if_contended
     try:
         inputs.require_schemas(conn)
         context = initial._context(observation_id, starting_cash)
+        yield_if_contended(conn)
         with inputs.pinned(conn) as pub:
             if not inputs.is_rolling(pub):
                 raise Refused("ROLLING_PUBLICATION_REQUIRED")
@@ -232,6 +239,7 @@ def _classify_owned(conn, *, observation_id, starting_cash, structural_only=Fals
                 return {"status": "NOT_STARTED"}
             checkpoint, _, result, attested, previous = _closure(
                 conn, context, status_only=True, cached_only=cached_only)
+            yield_if_contended(conn)
             if (observe_handoff is not None and historical_frontier and not structural_only
                     and (checkpoint.publication != pub.to_dict() or attested is None)):
                 wait = observe_handoff(conn, pub, checkpoint, result, attested, previous)

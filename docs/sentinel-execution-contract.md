@@ -1,5 +1,7 @@
 # Sentinel — the execution and recovery contract
 
+[Parallel opening dispatch](parallel-opening-dispatch.md) defines the funded order group, per-order broker boundary and restart behavior. [Opening status and reference validation](nov27-opening-evidence.md) defines the evidence required to report working orders and missed purchases.
+
 [Unconfirmed cash postings](paper-unconfirmed-native-postings.md) defines the
 account evidence and fee reservations required for backed fractional PAPER
 execution while a dividend or fee awaits confirmation in the cash balance.
@@ -486,6 +488,19 @@ checkpoint restoration described in
 single-use proof from the canonical membrane, bound to the exact unsent command,
 can restore its pending checkpoint to `PLANNED`. Ordinary command transitions,
 negative broker lookups and any `UNKNOWN` outcome cannot do this.
+
+For an independent PAPER sale on the native asset-ID adapter, the writer
+commits the original `PLANNED` row before preparing the order. The request
+stays in that state while it waits for its turn or checks the instrument.
+Once the native HTTP client is ready, the guarded writer checks the current
+mutation grant, exact sale, serialized broker asset ID, eligibility and exchange window. It commits
+`SEND_PENDING` for that same row immediately before permitting POST.
+A worker death before that boundary leaves a planned sale that must pass
+fresh checks on restart. A death after the commit requires positive broker
+evidence under the original key, including when the wire outcome is unknown.
+An older pending or unknown row provides no evidence of which boundary it
+crossed. Reserved purchases and LIVE retain their original pending-command
+requirement for funding and signed order permission.
 At the Alpaca create-order boundary this is an endpoint-specific allowlist, not
 the generic HTTP class: the documented `403` buying-power/share refusal and a
 documented `422` input refusal prove non-acceptance, except that any duplicate
@@ -1978,6 +1993,15 @@ So:
    issuer authority, and submit the authorized increases
 ```
 
+For the reviewed fractional PAPER policy an independent group of fixed-dollar
+buys can share one reconciled funding basis. The cash ledger reserves each
+original client key and fee allowance before any order is sent. Following a
+full exit, BIL alone may use already evidenced cash once in the final minute
+while other exact owned sales are working. The remaining sale proceeds stay
+in cash for the next plan. Execution still requires a complete account book,
+current buying power, and the original opening cutoff. See
+[fractional PAPER cash and order scheduling](fractional-paper-execution.md#cash-and-order-scheduling).
+
 Steps 4-7 are skipped when there is nothing to settle for: a pure-buy session
 has no proceeds to wait on, and an unconditional extra round trip is latency for
 nothing.
@@ -2424,10 +2448,11 @@ Numbered from 15 to continue `sentinel-architecture.md` §12.
     UNEXPLAINED NAV permit reductions and refuse increases; an unobserved NAV
     permits nothing. Partial authorisation emits NO plan rather than a reduced
     one.
-46  An increase is sized against an observation taken AFTER the reductions
-    settled. Submitted is not settled.
+46  Only positively evidenced, available cash can fund an increase. An open
+    reduction promises no proceeds.
 47  Settled means no reduction is still WORKING and the read that established
-    it was COMPLETE. An unsettled reduction defers every increase.
+    it was COMPLETE. Unsettled reductions defer increases except for the
+    single partially funded, final-minute defensive PAPER purchase in §13.
 48  Refused and deferred are different answers. An increase that can never be
     authorised on this evidence is refused with its own reason, before any
     settle is spent on it.

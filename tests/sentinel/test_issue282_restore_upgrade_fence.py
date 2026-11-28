@@ -9,7 +9,7 @@ from tests.support.postgres import _EphemeralPostgres, drop_public_tables
 
 from sentinel import binding as B, schema
 from sentinel.execution import executor
-from sentinel.execution.alpaca import upgrade_restore_reason
+from sentinel.execution.alpaca import UpgradeRestoreFence, upgrade_restore_fence, upgrade_restore_reason
 from sentinel.feed import store as feed_store
 
 
@@ -63,7 +63,22 @@ def test_legacy_backup_history_is_fenced_before_anchor_initialization(conn):
 
     reason = upgrade_restore_reason(conn)
 
+    assert upgrade_restore_fence(conn) is UpgradeRestoreFence.PURCHASES_REQUIRE_DATABASE_ANCHOR
     assert "adopt-restored-account" in reason
+    assert _incarnation_anchor(conn) is None
+
+
+@pytest.mark.parametrize("state", ["no-history", "no-marker-table", "next-epoch", "unbound"])
+def test_only_legacy_backup_history_requires_operator_purchase_repair(conn, state):
+    sql = {
+        "no-history": "DELETE FROM sentinel_backup_recovery_markers",
+        "no-marker-table": "DROP TABLE sentinel_backup_recovery_markers",
+        "next-epoch": "UPDATE sentinel_account_binding SET takeover_epoch=2 WHERE id=1",
+        "unbound": "DELETE FROM sentinel_account_binding WHERE id=1",
+    }
+    conn.execute(sql[state])
+    expected = UpgradeRestoreFence.MISSING_ACCOUNT_BINDING if state == "unbound" else None
+    assert upgrade_restore_fence(conn) is expected
     assert _incarnation_anchor(conn) is None
 
 

@@ -17,6 +17,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timezone
 from decimal import Decimal, InvalidOperation
+from enum import Enum
 from typing import Optional, Sequence
 from urllib.parse import quote
 
@@ -28,14 +29,22 @@ from sentinel.execution.contract import (
     BrokerInstrumentUnavailable,
     BrokerObservation, BrokerOrder, BrokerPosition, CommandOutcome, Completeness, ExecutionBroker,
     MalformedBrokerEvidence, OrderTerms, Side)
-from sentinel.execution.guarded import BrokerAuthorityRefused, require_paper_reduction_window
-from sentinel.execution import activity_stream, broker_cash, contract, journal
+from sentinel.execution.guarded import BrokerAuthorityRefused, PreTransportAuthorityRefused, require_paper_submit_window
+from sentinel.execution import activity_stream, broker_cash, contract, journal, submission_group
 from sentinel.execution.identity import is_sentinel_key
 from sentinel.execution.numeric import decimal_text
 from sentinel.execution.states import CommandState, CommandState as S, TERMINAL
 from sentinel.feed import calendar
 
 log = logging.getLogger(__name__)
+
+
+def require_order_transport_versions():
+    """The pre-header callback is a contract with the reviewed, pinned HTTP stack."""
+    import httpcore
+    import httpx
+    if (httpx.__version__, httpcore.__version__) != ("0.28.1", "1.0.9"):
+        raise PreTransportAuthorityRefused("order transport versions lack qualified pre-header deadline checks")
 
 PAGE_SIZE = 500
 MAX_PAGES = 20
@@ -518,7 +527,7 @@ class AlpacaExecutionBroker(ExecutionBroker):
 
     def _require_transport_authority(
             self, *, operation="READ", command_key=None, terms=None,
-            instrument=None, side=None, quantity=None, broker_order_id=None):
+            instrument=None, side=None, quantity=None, notional=None, broker_order_id=None):
         """Revalidate the selected origin and current LIVE admission per request."""
         from sentinel.config import trading_endpoint
         from sentinel.trading_environment import TradingEnvironment
@@ -528,8 +537,9 @@ class AlpacaExecutionBroker(ExecutionBroker):
         if endpoint.environment is TradingEnvironment.PAPER:
             if self._live_admission is not None:
                 raise BrokerAuthorityRefused("LIVE admission entered PAPER transport")
-            if operation == "SUBMIT" and side is Side.SELL:
-                require_paper_reduction_window(self, client_key=command_key)
+            if operation == "SUBMIT":
+                require_paper_submit_window(self, client_key=command_key, side=side, instrument=instrument,
+                                            quantity=quantity, terms=terms, notional=notional)
             return None
         from sentinel.authority.live import require_live_adapter_admission
         try:
@@ -849,6 +859,12 @@ class AlpacaExecutionBroker(ExecutionBroker):
 
     async def resolve_instrument(self, *, security_id: str,
                                  symbol: str) -> BrokerInstrument:
+        instrument, _ = await self.resolve_instrument_and_rules(security_id=security_id, symbol=symbol)
+        return instrument
+
+    async def resolve_instrument_and_rules(self, *, security_id: str, symbol: str):
+        from sentinel.execution.contract import BrokerAssetRules
+
         broker_symbol = self._to_symbol(symbol)
         payload = await self._get(
             f"/v2/assets/{quote(broker_symbol, safe='')}")
@@ -875,7 +891,9 @@ class AlpacaExecutionBroker(ExecutionBroker):
                     and type(tradable) is bool):
                 raise BrokerInstrumentUnavailable(instrument, detail)
             raise MalformedBrokerPayload(detail)
-        return instrument
+        eligible = payload.get("fractionable")
+        rules = BrokerAssetRules(instrument, self._now(), eligible) if type(eligible) is bool else None
+        return instrument, rules
 
     async def market_clock(self) -> AlpacaMarketClock:
         payload = await self._get("/v2/clock")
@@ -896,13 +914,18 @@ class AlpacaExecutionBroker(ExecutionBroker):
         if not instrument.broker_id:
             raise MalformedBrokerPayload("asset rules require a native asset id")
         payload = await self._get(f"/v2/assets/{quote(instrument.broker_id, safe='')}")
-        if (not isinstance(payload, dict) or payload.get("id") != instrument.broker_id
-                or payload.get("tradable") is not True or payload.get("status") != "active"
-                or type(payload.get("fractionable")) is not bool):
+        if not isinstance(payload, dict) or payload.get("id") != instrument.broker_id:
             raise MalformedBrokerPayload("current asset trading rules are absent or malformed")
         current = self._instrument(str(payload.get("symbol") or ""), payload["id"])
         if current != instrument:
             raise MalformedBrokerPayload("asset rules changed native or permanent identity")
+        if payload.get("tradable") is not True or payload.get("status") != "active":
+            if (self.broker_namespace == "alpaca" and payload.get("status") in {"active", "inactive"}
+                    and type(payload.get("tradable")) is bool):
+                raise BrokerInstrumentUnavailable(current, "asset is inactive or not tradable")
+            raise MalformedBrokerPayload("current asset trading rules are absent or malformed")
+        if type(payload.get("fractionable")) is not bool:
+            raise MalformedBrokerPayload("current fractional eligibility is absent or malformed")
         return BrokerAssetRules(current, self._now(), payload["fractionable"])
 
     async def account_cash_activities(
@@ -1383,23 +1406,49 @@ class AlpacaExecutionBroker(ExecutionBroker):
                             notional: Decimal | None = None) -> CommandOutcome:
         """Submit once using the adapter's already validated address."""
         from sentinel.trading_environment import TradingEnvironment
+        require_order_transport_versions()
         body = _submit_body(symbol=symbol, client_key=client_key, side=side, quantity=quantity,
             order_terms=order_terms, capabilities=self.capabilities, notional=notional,
             fractional_limit=self.environment is TradingEnvironment.LIVE)
+        async def attach_wire_check(request):
+            async def before_headers(event, info):
+                if (event in {"http11.send_request_headers.started", "http2.send_request_headers.started"}
+                        and info["request"].method == b"POST"):
+                    if self.environment is TradingEnvironment.LIVE:
+                        from sentinel.execution.live_transport import recheck_live_before_headers
+                        recheck_live_before_headers(self, client_key=client_key)
+                    else:
+                        from sentinel.execution.guarded import recheck_paper_before_headers
+                        recheck_paper_before_headers(self, client_key=client_key)
+            request.extensions["trace"] = before_headers
+
         try:
-            async with self._httpx.AsyncClient(timeout=20.0) as client:
-                self._require_transport_authority(
-                    operation="SUBMIT", command_key=client_key, terms=order_terms,
-                    instrument=instrument, side=side, quantity=quantity)
-                resp = await client.post(
-                    f"{self.base_url}/v2/orders",
-                    headers=self._headers(), json=body)
-        except BrokerAuthorityRefused:
+            async with self._httpx.AsyncClient(timeout=20.0, event_hooks={"request": [attach_wire_check]}) as client:
+                try:
+                    if self.environment is TradingEnvironment.PAPER and submission_group.sale_group() is not None:
+                        from sentinel.execution.guarded import admit_planned_paper_sale
+                        await admit_planned_paper_sale(self, asset_id=body["symbol"], client_key=client_key, side=side, instrument=instrument,
+                                                      quantity=quantity, terms=order_terms, notional=notional)
+                    self._require_transport_authority(
+                        operation="SUBMIT", command_key=client_key, terms=order_terms,
+                        instrument=instrument, side=side, quantity=quantity, notional=notional)
+                    resp = await client.post(f"{self.base_url}/v2/orders", headers=self._headers(), json=body)
+                    outcome = self._read_submit_response(resp, client_key=client_key, instrument=instrument,
+                        side=side, quantity=quantity, order_terms=order_terms, notional=notional)
+                except BaseException:
+                    submission_group.stop(client_key)
+                    raise
+                if outcome.state is not S.ACKNOWLEDGED:
+                    submission_group.stop(client_key)
+                return outcome
+        except (BrokerAuthorityRefused, MalformedBrokerPayload):
             raise
         except Exception as exc:  # noqa: BLE001
+            submission_group.stop(client_key)
             return CommandOutcome(
                 state=S.UNKNOWN, detail=f"{type(exc).__name__}: {exc}")
 
+    def _read_submit_response(self, resp, *, client_key, instrument, side, quantity, order_terms, notional):
         if resp.status_code in (200, 201):
             try:
                 payload = resp.json()
@@ -2333,7 +2382,7 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
                 if retained_history.get(event["event_id"]) != event:
                     raise MalformedBrokerPayload(
                         "Alpaca trade history disagrees with the bounded publication", raw_event=event)
-        return broker_cash.BrokerCashActivityBatch(
+        batch = broker_cash.BrokerCashActivityBatch(
             activities=tuple(activities),
             processed_through=upper,
             completeness=contract.Completeness.COMPLETE,
@@ -2347,6 +2396,9 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
             cash_revisions=revisions,
             security_transfers=tuple(security_transfers),
         )
+        from sentinel.execution import trade_activity_window
+        trade_activity_window.observe(batch=batch, after=since_event_id, events=events, decode=self._activity_execution_fill)
+        return batch
 
     async def account_fill_interval_evidence(
             self, *, session: date,
@@ -2708,11 +2760,21 @@ def _base_restore_increase_fence_reason(conn, deployment, today: date) -> str:
             "executable even if Alpaca open-order enumeration omitted one")
     return ""
 
-def upgrade_restore_reason(conn) -> str:
+class UpgradeRestoreFence(Enum):
+    MISSING_ACCOUNT_BINDING = "restore-grade recovery has no durable account binding"
+    PURCHASES_REQUIRE_DATABASE_ANCHOR = (
+        "backup-capable behavioral database predates the physical "
+        "incarnation anchor. One explicit adopt-restored-account "
+        "takeover is required before exposure increases; this prevents "
+        "an already-restored database from silently self-certifying")
+
+
+def upgrade_restore_fence(conn) -> UpgradeRestoreFence | None:
+    """Observe the operator repair prerequisite without initializing an anchor."""
     from sentinel import local_paper
     from sentinel.backup_runtime_authority import _live_origin_selected
     if not _live_origin_selected() and local_paper.backups_suspended_for_account(conn):
-        return ""
+        return None
     with conn.cursor() as cur:
         cur.execute(
             "SELECT state FROM sentinel_processed_sessions"
@@ -2723,22 +2785,23 @@ def upgrade_restore_reason(conn) -> str:
         cur.execute(
             "SELECT takeover_epoch FROM sentinel_account_binding WHERE id=1")
         bound = cur.fetchone()
+        if bound is None:
+            return UpgradeRestoreFence.MISSING_ACCOUNT_BINDING
+        if anchor is not None or int(bound[0]) > 1:
+            return None
         cur.execute(
             "SELECT to_regclass('public.sentinel_backup_recovery_markers')")
         marker_relation = cur.fetchone()[0]
-        marker_count = 0
         if marker_relation is not None:
-            cur.execute("SELECT COUNT(*) FROM sentinel_backup_recovery_markers")
-            marker_count = int(cur.fetchone()[0])
-    if bound is None:
-        return "restore-grade recovery has no durable account binding"
-    if anchor is None and marker_count > 0 and int(bound[0]) <= 1:
-        return (
-            "backup-capable behavioral database predates the physical "
-            "incarnation anchor. One explicit adopt-restored-account "
-            "takeover is required before exposure increases; this prevents "
-            "an already-restored database from silently self-certifying")
-    return ""
+            cur.execute("SELECT EXISTS(SELECT 1 FROM sentinel_backup_recovery_markers)")
+            if cur.fetchone()[0]:
+                return UpgradeRestoreFence.PURCHASES_REQUIRE_DATABASE_ANCHOR
+    return None
+
+
+def upgrade_restore_reason(conn) -> str:
+    fence = upgrade_restore_fence(conn)
+    return fence.value if fence is not None else ""
 
 def postmaster_day_order_fence_reason(
         conn, today, *, recovery_generation=None) -> str:

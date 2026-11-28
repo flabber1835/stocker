@@ -191,11 +191,12 @@ def test_service_persists_positive_classification_only_for_reviewed_refresh_wait
 def test_closing_exception_and_original_job_deadline_survive_actual_child_codec(monkeypatch, has_deadlines):
     deadline = datetime(2026, 10, 27, 22, 2, 40, tzinfo=timezone.utc) if has_deadlines else None
     worker_deadline = deadline-timedelta(minutes=1) if deadline is not None else None
+    recheck = deadline-timedelta(minutes=5) if deadline is not None else None
 
     async def callback(_context):
         raise ClosingDataPending('publication has the source pin',
             retry_after_seconds=17, publisher_deadline_at=deadline,
-            worker_deadline_at=worker_deadline)
+            worker_deadline_at=worker_deadline, recheck_at=recheck)
 
     channel = child(monkeypatch, callback)
     envelope = json.loads(channel.payloads[0])
@@ -206,7 +207,27 @@ def test_closing_exception_and_original_job_deadline_survive_actual_child_codec(
     assert type(failure.value) is ClosingDataPending
     assert failure.value.publisher_deadline_at == deadline
     assert failure.value.worker_deadline_at == worker_deadline
+    assert failure.value.recheck_at == recheck
     assert failure.value.retry_after_seconds == 17
+
+
+@pytest.mark.parametrize('seconds', [12, -1])
+def test_short_publication_hint_caps_accumulated_retry_backoff(monkeypatch, seconds):
+    cfg, cycle, permit = closing_cycle()
+    now = cycle.decision_close_at + timedelta(minutes=2)
+    changes = []
+    def transition(conn, **kwargs):
+        changes.append(kwargs)
+        return cycle.model_copy(update={'state': kwargs['to_state'], 'diagnostic': kwargs['diagnostic']})
+    monkeypatch.setattr(service.store, 'transition_cycle', transition)
+    worker = service.AutomationService(config=cfg, holder_id='quiet-test', refresh=None,
+        prepare=None, execute=None, recover=None)
+    monkeypatch.setattr(worker, '_retry_at', lambda *_: now+timedelta(minutes=15))
+    expiry = now+timedelta(seconds=seconds)
+    worker._handle_callback_failure(object(), now=now, cycle=cycle, permit=permit, phase='REFRESH',
+        exc=ClosingDataPending('just published', publisher_deadline_at=now+timedelta(hours=1),
+            worker_deadline_at=now+timedelta(minutes=10), recheck_at=expiry))
+    assert changes[0]['next_wake_at'] == max(now, expiry)
 
 
 def test_unreviewed_closing_exception_subclass_cannot_acquire_quiet_type_through_child(monkeypatch):
@@ -397,9 +418,8 @@ def test_real_early_authority_wrapper_keeps_the_closing_cycle(monkeypatch, proof
     monkeypatch.setattr(runtime, 'require_execution_schemas', lambda _c: None)
     monkeypatch.setattr(runtime.schema, 'require_runtime_schema', lambda _c: None)
     monkeypatch.setattr(runtime, 'require_observation_integrity', lambda _c: None)
-    monkeypatch.setattr(runtime.store, 'require_leader', lambda *_a: permit)
-    monkeypatch.setattr(runtime.store, 'load_control', lambda _c: SimpleNamespace(
-        binding=object(), generation=permit.control_generation, config_sha256=cfg.fingerprint))
+    checked = SimpleNamespace(binding=object(), generation=permit.control_generation, config_sha256=cfg.fingerprint)
+    monkeypatch.setattr(runtime.store, 'require_leader_with_control', lambda *_a: (permit, checked))
     monkeypatch.setattr(runtime, 'load_rollout_state', lambda _c: object())
     native = CorpusLockUnavailable('snapshot reader cannot pin during publication or retirement')
     def busy(_c):

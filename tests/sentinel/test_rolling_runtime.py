@@ -245,6 +245,64 @@ def test_adjacent_service_uses_one_verified_advance_pin_and_refuses_stale_prepar
     assert status(conn).record_sha256 == result.record_sha256
 
 
+def test_close_preacquisition_authenticates_each_required_payload_once(
+        conn, published, operational_source, monkeypatch):
+    from collections import Counter
+    from sentinel import committed_read
+
+    advance(conn)
+    next_session = refresh(conn, operational_source, monkeypatch, publish=False)
+    prior = runtime.service_advance(conn, through=next_session, observation_id=OBS,
+                                   starting_cash=100_000)
+    target = refresh(conn, operational_source, monkeypatch, publish=False)
+    work = Counter()
+
+    def measure(module, attribute, label):
+        original = getattr(module, attribute)
+        def counted(*args, **kwargs):
+            work[label] += 1
+            return original(*args, **kwargs)
+        monkeypatch.setattr(module, attribute, counted)
+
+    measure(origin, '_read', 'origin')
+    measure(daily_cp, '_read', 'daily')
+    measure(daily_cp, '_archived_input', 'archived_input')
+    measure(origin, '_signature', 'origin_hmac')
+    measure(daily_cp, 'signature', 'daily_hmac')
+    admitted = set()
+    checkpoint = committed_read.checkpoint
+
+    def count_admission(connection, *, cursor, read):
+        result = checkpoint(connection, cursor=cursor, read=read)
+        admitted.update(committed_read._checkpoint_owner.get().values)
+        return result
+
+    class AcquisitionReached(Exception):
+        pass
+
+    def stop_at_acquisition(connection, *, previous, through, **kwargs):
+        assert previous == prior.session and through == target
+        raise AcquisitionReached
+
+    monkeypatch.setattr(runtime, 'prepare_adjacent', stop_at_acquisition)
+    monkeypatch.setattr(committed_read, 'checkpoint', count_admission)
+
+    def preflight():
+        work.clear()
+        with pytest.raises(AcquisitionReached):
+            runtime.service_advance(conn, through=target, observation_id=OBS,
+                                    starting_cash=100_000)
+        return work.copy()
+
+    expected = dict(origin=1, daily=1, archived_input=1, origin_hmac=1, daily_hmac=1)
+    assert preflight() == expected
+    assert admitted == {origin.CURSOR, daily_cp.CURSOR}
+    monkeypatch.setattr(committed_read, 'checkpoint', lambda c, *, cursor, read: read(c))
+    repeated = preflight()
+    assert repeated['origin'] > expected['origin']
+    assert repeated['origin_hmac'] == repeated['origin']
+
+
 @pytest.mark.parametrize('defect', ['missing_source_session', 'corrupt_content'])
 def test_failed_same_session_verification_cannot_renew_feed_pass(conn, published, monkeypatch, defect):
     from sentinel.feed import readers, readiness, rolling_store

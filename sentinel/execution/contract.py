@@ -500,6 +500,10 @@ class BrokerInstrumentUnavailable(RuntimeError):
         self.instrument = instrument
 
 
+class BrokerAssetRulesExpired(ValueError):
+    """The identified instrument's positive eligibility observation has aged out."""
+
+
 @dataclass(frozen=True)
 class BrokerAssetRules:
     """Current trading eligibility, separate from permanent asset identity."""
@@ -518,8 +522,13 @@ class BrokerAssetRules:
 
     def require_current(self, instrument, now):
         from datetime import timedelta
-        if self.instrument != instrument or not timedelta(0) <= now - self.observed_at <= timedelta(seconds=30):
-            raise ValueError("asset trading rules are stale or name another instrument")
+        if self.instrument != instrument:
+            raise ValueError("asset trading rules name another instrument")
+        age = now - self.observed_at
+        if age < timedelta(0):
+            raise ValueError("asset trading rules observation is future dated")
+        if age > timedelta(seconds=30):
+            raise BrokerAssetRulesExpired("asset trading rules are stale")
 
 
 @dataclass(frozen=True)

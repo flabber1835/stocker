@@ -3,6 +3,8 @@ from datetime import datetime, timedelta, timezone
 
 from sentinel.feed import rolling_jobs
 
+MAX_PUBLICATION_WAIT = timedelta(seconds=180)
+
 
 def instant(value):
     value = datetime.fromisoformat(value) if isinstance(value, str) else value

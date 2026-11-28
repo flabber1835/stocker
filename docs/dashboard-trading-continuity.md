@@ -1,5 +1,48 @@
 # Dashboard trading continuity and panic status
 
+### Opening and closing evidence, November 27
+
+A saved, current PAPER plan and a current execution callback can outlive the
+strategy publisher that prepared them. During a positively proved opening,
+missing independent reporting about the publisher or backup is an operator
+warning. Keep the underlying rows visible and require review. A reported
+integrity fence, pending publisher attempt without status, invalid backup,
+lost authority or a blocked execution path still takes precedence. Treat
+absent reporting as a distinct source fact. Retain the original plan,
+callback and evidence deadlines. Once that opening proof expires, evaluate
+the next action on its own evidence.
+
+When the runtime has verified the current base and its WAL chain, a missing
+operator backup or restore-drill report is also a reporting warning during
+that proved opening. Validate every report that is present and stop using the
+runtime evidence at its original expiry. A failed, stale or conflicting
+restore chain still prevents this classification.
+
+This opening allowance belongs to the locally authorized PAPER account.
+LIVE retains its independently verified backup and funding requirements.
+
+An opening can have planned orders, orders being sent and acknowledged
+siblings at the same time. Describe that dispatch as active only while the
+supervisor reports a current callback for the exact plan, cycle and original
+window. During reconciliation the same allowance requires identified, already
+submitted orders and a supervised reconciliation attempt. An order with an
+unknown outcome, a failed callback or an expired window cannot establish
+dispatch in progress.
+
+A PAPER refresh can briefly withdraw the current display while orders change.
+Keep the time of the last signed observation and its original expiry. While its
+exact callback is still running, missing independent reports can retain their
+warning status. A change to the strategy evidence ends that allowance. A
+financial verifier that has explicitly yielded to the active writer can show
+verification in progress until its original deadline. These states cannot
+establish a fresh broker balance or confirm a fill.
+
+At the close, the active producer's observed phase takes precedence over a
+general publication wait for that session. When its lease expires or the job
+finishes, use the independent publication or strategy evidence. During a
+partial dashboard refresh, distinguish an unavailable current verdict from
+a confirmed trading stop and keep dated warnings visible.
+
 Decision, 2026-11-24, before implementation. The owner defines a red dashboard
 as a panic signal: unattended trading cannot continue at the next eligible
 opportunity without intervention. This decision supersedes the older rule that

@@ -35,3 +35,17 @@ Qualification covers original evidence through publication, late scope changes,
 expired display, a current failure, review and acknowledgement, superseded
 observations, and close readiness handoff. Use private PostgreSQL and execute
 guard-removal falsifiers for same-fence callback and matching publication.
+
+The dashboard may reuse a successful structural comparison for up to 30 seconds
+from its original start. In a repeatable read it checks the native database,
+server, role, search path, DDL epoch and independent catalog tuple versions of
+the exact component, including its event trigger and handler. A different token
+requires the canonical pinned comparison. A missing or disabled DDL witness,
+an unsupported session, and an already-writing transaction take the canonical
+path. Mutable revisions, the installation signature, receipts, lease and clocks
+are always read in the caller's transaction. Only the dashboard read path uses
+this optimization. It grants no authority to trade or extend a receipt.
+
+Column discovery for dashboard sources reads PostgreSQL attributes by the named
+relations. Preserve the column visibility, relation kinds and active schema
+rules of the previous information-schema projection, including column grants.

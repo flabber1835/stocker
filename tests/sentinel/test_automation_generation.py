@@ -88,7 +88,7 @@ async def test_upgrade_prepares_fresh_next_session_and_keeps_old_identity(conn):
         (old.cycle_id,)).fetchall() == old_events
 
 
-def test_repeated_upgrade_preserves_all_origins_and_uses_another_fresh_identity(conn):
+def test_repeated_upgrade_preserves_all_origins_and_uses_another_fresh_identity(conn, monkeypatch):
     _, old, spec, permit, now = retained(conn)
     first = store.create_cycle(conn, permit=permit, spec=spec, now=now)
     store.engage_kill(conn, actor='test', reason='another reviewed upgrade')
@@ -100,7 +100,23 @@ def test_repeated_upgrade_preserves_all_origins_and_uses_another_fresh_identity(
         failure_code='CONTROL_GENERATION_SUPERSEDED')
     spec = spec.model_copy(update={'control_generation': permit.control_generation})
     second = store.create_cycle(conn, permit=permit, spec=spec, now=now)
+    event_reads, scope_reads = [], []
+    read_events, read_scope = integrity._cycle_events, store._cycles_in_scope
+
+    def events(connection, cycle_id, batch):
+        if batch is None or cycle_id not in batch:
+            event_reads.append(cycle_id)
+        return read_events(connection, cycle_id, batch)
+
+    def scope(connection, spec, **kwargs):
+        scope_reads.append(spec.control_generation)
+        return read_scope(connection, spec, **kwargs)
+
+    monkeypatch.setattr(integrity, '_cycle_events', events)
+    monkeypatch.setattr(store, '_cycles_in_scope', scope)
     integrity.validate_cycle_lineage(conn, second)
+    assert sorted(event_reads) == sorted((old.cycle_id, first.cycle_id, second.cycle_id))
+    assert scope_reads == [second.control_generation]
     assert len({old.cycle_id, first.cycle_id, second.cycle_id}) == 3
     genesis = conn.execute('SELECT detail FROM sentinel_automation_cycle_events WHERE cycle_id=%s AND from_state IS NULL',
         (second.cycle_id,)).fetchone()[0]
@@ -446,10 +462,10 @@ def test_removing_debug_negative_command_proof_breaks_its_falsifier(conn, monkey
 def test_removing_debug_predecessor_reconstruction_breaks_its_falsifier(conn, monkeypatch):
     import inspect
     source = inspect.getsource(integrity.validate_cycle_lineage)
-    needle = "                            validate_cycle_lineage(conn, predecessor, _validated=validated)"
+    needle = "                        validate_cycle_lineage(conn, predecessor, _validated=validated, _events=histories, _scope=_scope)"
     assert source.count(needle) == 1
     local = {}
-    exec(compile(source.replace(needle, "                            pass"), "<removed-debug-predecessor-proof>", "exec"), vars(integrity), local)
+    exec(compile(source.replace(needle, "                        pass"), "<removed-debug-predecessor-proof>", "exec"), vars(integrity), local)
     monkeypatch.setattr(integrity, "validate_cycle_lineage", local["validate_cycle_lineage"])
     with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
         test_debug_successor_reconstructs_predecessor_terminal_events(conn)
@@ -675,7 +691,7 @@ def test_recovered_preflight_successor_independently_rechecks_predecessor_histor
 
 
 def test_removing_recovered_preflight_history_proof_is_detected(conn, monkeypatch):
-    monkeypatch.setattr(integrity, 'predecessors_reached_transport', lambda *_args: False)
+    monkeypatch.setattr(integrity, 'predecessors_reached_transport', lambda *_args, **_kwargs: False)
     with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
         test_recovered_preflight_replacement_refuses_incomplete_or_unsafe_history(conn, 'ordinary_recovery')
 

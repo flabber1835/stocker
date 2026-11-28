@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from fractions import Fraction
 
 from sentinel import backup_runtime_authority, identity
-from sentinel.feed import calendar, publication, rolling_jobs as jobs, rolling_store, store
+from sentinel.feed import broker_read_material, calendar, publication, rolling_jobs as jobs, rolling_store, store
 from sentinel.feed.rolling_contract import FormationWindow, PriceWindow, digest
 from sentinel.feed.observation_timing import latest_acquirable_session
 
@@ -82,7 +82,7 @@ def enqueue(conn, *, strategy_sha256, dependencies_sha256, budget_seconds=3600,
 
 
 def acquisition_window(conn, strategy_sha256):
-    from sentinel import rolling_checkpoint
+    from sentinel import checkpoint_lineage_access, rolling_checkpoint
     from sentinel.strategy import production_strategy
     _, strategy = production_strategy()
     if strategy_sha256 == digest(strategy):
@@ -92,7 +92,7 @@ def acquisition_window(conn, strategy_sha256):
         with conn.cursor() as cur:
             cur.execute("SELECT to_regclass('sentinel_processed_sessions')")
             installed = cur.fetchone()[0]
-        if installed and not rolling_checkpoint.lineage_names(conn):
+        if installed and not checkpoint_lineage_access.has_lineage(conn):
             rolling_checkpoint.require_fresh(conn)
             from sentinel.feed.rolling_contract import CurrentFormationWindow
             cls = CurrentFormationWindow if formed(strategy) else FormationWindow
@@ -181,6 +181,7 @@ def validate(conn, lease, request):
             raise OperationalSnapshotRefused("OPERATIONAL_VALIDATION_CHANGED")
 
 
+@broker_read_material.sealed
 def _bound_and_manifest(conn, pub):
     binding = pub.evidence.get("rolling_snapshot")
     if not isinstance(binding, dict) or binding.get("schema") != SCHEMA:

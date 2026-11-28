@@ -29,6 +29,7 @@ from sentinel.panel.presentation import (
     dashboard_health, describe,
 )
 from sentinel.panel.overview import overview_html
+from sentinel.panel.run_progress import current_execution_refusal, order_summary
 from sentinel.panel.styles import CSS
 from sentinel.panel.banner import BANNER_SCRIPT
 from sentinel.panel.dom_refresh import SCRIPT as DOM_REFRESH_SCRIPT
@@ -212,11 +213,19 @@ STATIC_ASSETS = {
 }
 
 
+def _display_value(row: Row, value: str) -> str:
+    if row.key == 'broker' and row.as_of is not None and ' positions' in row.value:
+        observed = row.as_of.astimezone(ZoneInfo('America/Los_Angeles')).strftime('%b %d, %I:%M:%S %p Pacific')
+        return f'{value} in the {observed} broker snapshot'
+    return value
+
+
 def _row_html(r: Row, now: datetime, *, refresh_pending: bool = False, current: bool = True,
               activation_pending: bool = False, historical_warning: bool = False,
               live: bool = False) -> str:
     st = r.effective_status(now)
     label, value, explanation = describe(r, st, now=now if current and not refresh_pending else None, live=live)
+    value = _display_value(r, value)
     # Retained HTML is presentation only. Mutating an OK required-current row
     # to WARN would make the authority classifier invent a failure.
     display_status = ('neutral' if not current or refresh_pending and st not in {FAIL, UNKNOWN, PENDING}
@@ -228,6 +237,8 @@ def _row_html(r: Row, now: datetime, *, refresh_pending: bool = False, current: 
         display_status = WARN
     if activation_pending:
         value = 'Awaiting PAPER activation'
+    if r.key == 'broker':
+        explanation += ' See the trading run for submitted orders and fills.'
     detail = r.detail
     if refresh_pending or not current:
         value = 'LAST KNOWN · ' + value.removeprefix('LAST KNOWN · ')
@@ -558,12 +569,23 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     review_html = render_review(panel.operator_review,
         current=panel.observation_current and not refresh_pending)
     reasons = []
-    for row in rendered_rows:
+    refusal = None if refresh_pending else current_execution_refusal(panel)
+    reason_rows = (sorted(rendered_rows, key=lambda row: row.key != 'automation_cycle')
+                   if refusal else rendered_rows)
+    for row in reason_rows:
         status = delivery.row_status(panel, row)
-        if (status in {FAIL, UNKNOWN} and delivery.row_current(panel, row)
-                and not activation_wait_history(panel, row)):
+        primary = row.key == 'automation_cycle' and refusal is not None
+        if primary or (status in {FAIL, UNKNOWN} and delivery.row_current(panel, row)
+                       and not activation_wait_history(panel, row)):
             label, value, _ = describe(row, status, live=panel.is_live_trading)
-            kind = ' class="review-warning"' if row.key in historical_warning_keys else ''
+            value = refusal if primary else _display_value(row, value)
+            if row.key == 'trading_run' and not refresh_pending:
+                counts = (order_summary(row.trading_run) if row.can_show_trading_run(now)
+                          else 'Order counts unavailable.')
+                if counts:
+                    value += ' · ' + counts
+            kind = (' class="review-warning"'
+                    if row.key in historical_warning_keys or primary and status == WARN else '')
             reasons.append(f'<li{kind}><a href="#status-{_esc(row.key)}" '
                            'onclick="document.getElementById(\'system-details\').open=true">'
                            f'{_esc(label)}: {_esc(value)}</a></li>')
@@ -601,7 +623,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
              data-max-age-seconds="{document_age}">
 <div class="wrap">
 <header>
-  <div class="brand"><img data-banner-src="/static/caesars-status-green.gif" width="1086" height="362" alt="{_esc(page_name)}" hidden><noscript><img class="unknown-sign" src="/static/caesars-status-green-still.gif" width="1086" height="362" alt="{_esc(page_name)}"></noscript><span class="brand-fallback" hidden>{_esc(page_name)}</span></div>
+  <div class="brand"><img data-banner-src="/static/caesars-status-green.gif" class="unknown-sign" src="/static/caesars-status-green-still.gif" width="1086" height="362" alt="{_esc(page_name)}"><span class="brand-fallback" hidden>{_esc(page_name)}</span></div>
   <span id="operational-state" class="state {headline_status}" title="{_esc(operational_headline)}">{_esc(compact_headline)}</span>
   {reason_html}
   <span id="dashboard-heartbeat" class="heartbeat" role="status"
@@ -680,13 +702,13 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   var pageAway = !hasBeenVisible;
   var wentToBackground = false;
   var wentOffline = !navigator.onLine;
-  var refreshing = false;
+  var requests = dashboardRequests();
   var refreshDeferred = false;
   var refreshDelayed = document.body.dataset.refreshPending === "true";
+  var readFailure = null;
   // Server health and browser freshness are separate. A server-side incident
   // never turns a sleeping phone into twenty new model-slot failures.
   var hardFailure = false;
-  var retryTimer = null;
   var ordinaryStarted = null;
   var ordinaryEligible = false;
   var ordinaryTimer = null;
@@ -743,12 +765,14 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     refreshTimer = setTimeout(function(){{ checkAge(); refreshDocument(); }}, refreshDelayMs);
   }}
   async function refreshDocument(){{
-    if (refreshing || retryTimer !== null || !navigator.onLine){{ return; }}
+    if (!navigator.onLine){{ return; }}
     if (document.visibilityState !== "visible" || pageAway){{
       refreshDeferred = true;
       return;
     }}
     if (ordinaryStarted === null && resumeStarted === null && !hardFailure && performance.now() < ordinaryDue){{ return; }}
+    var active = requests.begin();
+    if (!active){{ return; }}
     refreshDeferred = false;
     if (ordinaryStarted === null){{
       ordinaryStarted = performance.now();
@@ -764,32 +788,26 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
         if (resumeStarted === null && !originalCurrent()){{ invalidate(false); }}
       }}, 15000);
     }}
-    refreshing = true;
-    var controller = new AbortController();
     var started = performance.now();
     var response;
     var responseStatus;
-    var responseAllowed = false;
-    var sameOrigin = false;
-    var transportDelay = true;
+    var receivingBody = false;
     try {{
-      var html = await dashboardDeadline(controller, async function(){{
+      var html = await dashboardDeadline(active, async function(){{
         response = await fetch(location.href, {{cache:"no-store", headers:{{
           "X-Sentinel-Refresh":"1",
           "X-Sentinel-Panel-Fragment":window.sentinelDashboardControllerVersion
-        }}, signal:controller.signal}});
-        sameOrigin = new URL(response.url || location.href, location.href).origin === location.origin;
+        }}, signal:active.signal}});
         responseStatus = response.headers.get("X-Sentinel-Panel-Status");
-        responseAllowed = sameOrigin && response.ok && ["CURRENT", "PARTIAL"].includes(responseStatus);
-        if (!responseAllowed){{
+        if (!sameDashboardOrigin(response) || !response.ok || !["CURRENT", "PARTIAL"].includes(responseStatus)){{
           throw new Error("Current dashboard is not ready");
         }}
+        receivingBody = true;
         return response.text();
       }});
-      transportDelay = false;
+      receivingBody = false;
+      if (!requests.owns(active) || document.visibilityState !== "visible" || pageAway){{ return; }}
       var next = currentDocument(html, responseStatus, response, started);
-      // Keep the foreground lifecycle and original clocks while the tab is hidden.
-      if (document.visibilityState !== "visible" || pageAway){{ return; }}
       clearTimeout(refreshTimer);
       clearTimeout(resumeTimer);
       clearTimeout(ordinaryTimer);
@@ -803,6 +821,8 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
         return;
       }}
       reconcileDocument(next);
+      readFailure = null;
+      delete document.body.dataset.link;
       badge = document.getElementById('operational-state');
       heartbeat = document.getElementById('dashboard-heartbeat');
       preparation = document.getElementById('preparation-stage');
@@ -823,28 +843,23 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
       checkAge();
       armHeartbeat();
     }} catch (_error) {{
-      var progress = "";
-      if (response){{
-        if (sameOrigin && response.status === 503 && !pageAway && navigator.onLine){{
-          try {{ progress = decodeURIComponent(response.headers.get("X-Sentinel-Deployment-Progress") || ""); }}
-          catch (_malformedProgress) {{}}
-        }}
-        if (!sameOrigin || (!responseAllowed && response.status !== 503 &&
-            responseStatus !== "LAST_KNOWN")){{ transportDelay = false; }}
-      }}
-      setDeploymentProgress(progress);
+      if (!requests.owns(active)){{ return; }}
       if (document.visibilityState !== "visible" || pageAway){{ refreshDeferred = true; return; }}
+      readFailure = dashboardReadFailure(response, receivingBody);
+      document.body.dataset.link = readFailure.kind;
+      var transportDelay = readFailure.retryable;
+      setDeploymentProgress(readFailure.progress || "");
       if (transportDelay && !invalidated && continuityCurrent()){{
         showResume();
       }} else if (transportDelay && !invalidated && originalCurrent()){{
         pendingRefresh();
       }} else {{
         invalidate(false, !transportDelay);
-        heartbeat.textContent = "Refreshing status · showing last known values";
+        heartbeat.textContent = readFailure.label + " · showing last known values";
       }}
-      retryTimer = setTimeout(function(){{ retryTimer = null; refreshDocument(); }}, 5000);
+      requests.retryAfter(refreshDocument, 5000);
     }} finally {{
-      refreshing = false;
+      requests.finish(active);
     }}
   }}
   function originalCurrent(){{
@@ -860,7 +875,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   function pendingRefresh(){{
     withdrawPreparation();
     refreshDelayed = true;
-    heartbeat.textContent = "Refreshing status · last known observation " +
+    heartbeat.textContent = (readFailure ? readFailure.label : "Refreshing status") + " · last known observation " +
       new Date(generated).toISOString();
   }}
   function resumeCurrent(){{
@@ -872,7 +887,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   function continuityCurrent(){{
     var elapsed = performance.now() - ordinaryStarted;
     return !hardFailure && navigator.onLine &&
-      (refreshing || retryTimer !== null) &&
+      requests.pending() &&
       (resumeStarted !== null ? resumeCurrent() :
         ordinaryEligible && ordinaryStarted !== null && elapsed >= 0 && elapsed < 15000);
   }}
@@ -883,7 +898,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     refreshDelayed = true;
     document.documentElement.classList.add("checking-status");
     showLastVerifiedStatus("checking for an update", "REFRESHING STATUS — LAST KNOWN VALUES");
-    heartbeat.textContent = "Refreshing status · checking connection · last known observation " +
+    heartbeat.textContent = (readFailure ? readFailure.label : "Refreshing status") + " · last known observation " +
       new Date(generated).toISOString();
   }}
   function resumeDocument(){{
@@ -936,6 +951,11 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     if (color === "green"){{ verifiedWarning = null; }}
     if ((color === "red" || color === "amber") && Number.isFinite(generated)){{
       verifiedWarning = {{color:color, stamp:new Date(generated).toISOString()}};
+    }}
+    if (color === "blue" && verifiedWarning){{
+      document.body.dataset.lastWarning = verifiedWarning.color;
+    }} else {{
+      delete document.body.dataset.lastWarning;
     }}
   }}
   function withdrawPreparation(){{
@@ -995,12 +1015,14 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
     else {{ checkAge(); }}
     hasBeenVisible = true;
   }});
-  window.addEventListener("pagehide", function(){{
+  function suspendDocument(){{
     wentToBackground = true;
     pageAway = true;
+    requests.cancel();
     setDeploymentProgress("");
     if (Number.isFinite(generated)){{ showResume(); }}
-  }});
+  }}
+  window.addEventListener("pagehide", suspendDocument);
   window.addEventListener("focus", function(){{
     if (document.visibilityState === "visible"){{
       pageAway = false;
@@ -1014,9 +1036,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   document.addEventListener("visibilitychange", function(){{
     pageAway = document.visibilityState !== "visible";
     if (document.visibilityState === "hidden" && hasBeenVisible){{
-      setDeploymentProgress("");
-      wentToBackground = true;
-      if (Number.isFinite(generated)){{ showResume(); }}
+      suspendDocument();
     }} else if (document.visibilityState === "visible"){{
       if (wentToBackground || !originalCurrent()){{ resumeDocument(); }}
       else if (refreshDeferred){{ refreshDocument(); }}
@@ -1028,6 +1048,7 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS,
   }});
   window.addEventListener("offline", function(){{
     wentOffline = true;
+    requests.cancel();
     setDeploymentProgress("");
     invalidate(false, true);
   }});

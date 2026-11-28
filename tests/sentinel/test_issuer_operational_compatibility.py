@@ -9,6 +9,7 @@ import textwrap
 import pytest
 
 from sentinel import operational_catalog, operational_ddl_epoch, operational_schema
+from tests.support.opening_predecessor import predecessor
 from sentinel import retained_input_namespaces
 from sentinel.execution import issuer_admission, journal
 from sentinel.feed.issuer_reference import IssuerReferenceSnapshot
@@ -315,7 +316,8 @@ def _predecessor_bytes(name, raw):
 def assert_predecessor_contracts():
     root = Path(operational_schema.__file__).resolve().parent
     for name, expected in PREDECESSOR_SOURCE_SHA256.items():
-        assert hashlib.sha256(_predecessor_bytes(name, (root/name).read_bytes())).hexdigest() == expected, (PREDECESSOR, name)
+        raw = predecessor(name, (root/name).read_bytes())
+        assert hashlib.sha256(_predecessor_bytes(name, raw)).hexdigest() == expected, (PREDECESSOR, name)
     assert operational_schema.contracts() == PREDECESSOR_CONTRACTS
     assert operational_catalog.CATALOG_SHA256 == hashlib.sha256(
         (root/'operational-catalog-v1.json').read_bytes()).hexdigest()
@@ -328,7 +330,7 @@ def assert_predecessor_contracts():
 ])
 def test_presentation_overlay_cannot_hide_predecessor_contract_edits(name, old, new):
     root = Path(operational_schema.__file__).resolve().parent
-    raw = (root/name).read_bytes()
+    raw = predecessor(name, (root/name).read_bytes())
     assert old in raw
     if name == 'operational_catalog.py':
         with pytest.raises(AssertionError, match='access-path overlay changed'):
@@ -349,7 +351,7 @@ def test_presentation_overlay_cannot_hide_predecessor_contract_edits(name, old, 
 ])
 def test_access_path_overlay_cannot_hide_changed_ownership_or_install_guards(name, old, new):
     root = Path(operational_schema.__file__).resolve().parent
-    raw = (root/name).read_bytes()
+    raw = predecessor(name, (root/name).read_bytes())
     assert old in raw
     with pytest.raises(AssertionError, match='(access-path|notification) overlay changed'):
         _predecessor_bytes(name, raw.replace(old, new))

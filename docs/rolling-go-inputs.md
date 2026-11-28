@@ -17,6 +17,15 @@ existing request coalescing, worker fences and publication CAS. No implicit
 seed/reseed, multi-year recovery or second daily pass follows success.
 
 Schema installation remains explicit in the existing certified preparation.
+Each rolling runtime schema check reads the PostgreSQL catalog once. It takes
+the feed migration lock in shared mode and checks both the feed contract and
+the behavioral contract against that catalog, including their existing rules
+for installations that predate the operational extensions. The check uses the
+calling role, the public schema and a bounded lock wait. Its transaction or
+savepoint restores the caller's settings on success or refusal. Every new
+check reads the catalog again, so later DDL is visible. A held migration lock
+or damage to either schema refuses admission.
+
 Acquisition may run outside the next-open window, but that cannot pass the
 separate prospective trading deadline. Preparation issues only DATA_ONLY
 publication evidence; it creates no portfolio, shadow authority or broker work.

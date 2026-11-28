@@ -70,6 +70,16 @@ must still be current at the final transport check. Fractional support in a
 generated fixture does not grant LIVE account authority or prove vendor behavior.
 See [Alpaca fractional trading](https://docs.alpaca.markets/us/docs/fractional-trading).
 
+During a full LIVE exit, the protected BIL purchase waits for every required
+sale to fill. The PAPER rule for a single partial BIL purchase does not select
+LIVE quantity or funding authority. A working, positively matched LIVE DAY
+sale can fill after the buy deadline. Recovery continues observing its exact
+key without spending an infrastructure retry on normal broker settlement.
+Proceeds arriving after the deadline stay in the account for a future plan.
+A restart may route a positively proven remaining sale on a different security
+back to the regular-session reduction-only executor. Each LIVE sale still
+requires its own fresh signed order permit.
+
 If an asset is active and tradeable but its current rules explicitly prohibit
 fractional orders, the executor may send the whole-share portion of an otherwise
 authorized sale. Read fresh rules for the exact native asset before creating its

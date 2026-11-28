@@ -941,6 +941,7 @@ def opening_wait_label(now, opened, scheduled):
 
 
 def preparation_stage(panel) -> str | None:
+    """Describe the admitted cycle and the current producer's observed work."""
     if _retired_check_work_normal(panel):
         return 'Checking paper account · recorded plan skipped'
     if _clean_skip_work_normal(panel):
@@ -948,7 +949,6 @@ def preparation_stage(panel) -> str | None:
     if _execution_work_normal(panel):
         return ('Executing paper plan' if _current_health_fact(panel, 'broker')
                 else 'Refreshing recorded broker evidence')
-    """Describe admitted work, never infer a live stage from a retry string."""
     if _scheduled_work_normal(panel):
         plan = panel.row('paper_plan').paper_plan
         return opening_wait_label(panel.now, plan.execution_open_at, plan.execute_at)
@@ -968,7 +968,13 @@ def preparation_stage(panel) -> str | None:
         if cycle.recovery.phase == 'AUTOMATION_PREFLIGHT_RECOVER_AVAILABILITY':
             return 'Waiting to read published market data'
         return 'Checking the recorded broker account'
-    if _closing_source_proof(panel):
+    closing = _closing_source_proof(panel)
+    work = visible_preparation(panel)
+    if closing:
+        if work is not None and work.producer_phase is not None and work.active_at(panel.now):
+            from sentinel.feed import calendar
+            if str(work.decision_session) == calendar.latest_closed_session(panel.now):
+                return work.producer_phase.label
         phases = {row.recovery.phase for row in panel.rows
                   if is_closing_data_preparation(row, row.effective_status(panel.now))
                   and row.recovery.active(panel.now)}
@@ -979,7 +985,6 @@ def preparation_stage(panel) -> str | None:
     saved_plan = panel.row('paper_plan')
     if saved_plan is not None and saved_plan.awaiting_plan_adoption(panel.now):
         return 'Plan saved · awaiting verification for scheduled execution'
-    work = visible_preparation(panel)
     if work is not None:
         if work.active_at(panel.now):
             if work.producer_phase is not None:
@@ -996,7 +1001,7 @@ def preparation_stage(panel) -> str | None:
         if work.state in {'WAIT_SOURCE', 'RETRY_WAIT'}:
             return 'Waiting to retry data acquisition'
         return 'Data preparation awaiting a worker'
-    if _closing_source_proof(panel):
+    if closing:
         return 'Waiting for closing data'
     if any(row.key == 'paper_reconciliation' and row.recovery is not None
            and row.recovery.phase == 'FINANCIAL_VERIFICATION'
@@ -1301,14 +1306,119 @@ def _missed_buy_history_warning(panel, row: Row, paper: Row) -> bool:
                 'automation_cycle', 'automation_step_complete'} else True))
 
 
+def _opening_reporting_deadline(panel):
+    """A current saved opening can proceed while independent reporting is absent."""
+    from sentinel.panel.delivery import opening_refresh_deadline
+
+    cycle = panel.row('automation_cycle')
+    if (not panel.local_paper_mode or panel.source_errors
+            or len({row.key for row in panel.rows}) != len(panel.rows)
+            or cycle is None or cycle.operational_fact is None
+            or cycle.operational_fact.kind != 'AUTOMATION_CYCLE'
+            or not cycle.required_current or cycle.effective_status(panel.now) != 'warn'
+            or not _aware(cycle.as_of) or cycle.is_future(panel.now) or cycle.is_stale(panel.now)
+            or cycle.recovery is None or not cycle.recovery.active(panel.now)
+            or not _enabled_policy(panel.row('automation'))):
+        return None
+    state = cycle.operational_fact.state
+    if state not in {'WAITING_OPEN', 'EXECUTING', 'RECONCILING'} or cycle.recovery.phase != 'AUTOMATION_'+state:
+        return None
+    refresh = None
+    if not panel.observation_current:
+        if state != 'WAITING_OPEN' and set(panel.observation_changed_scopes) != {'PAPER'}:
+            return None
+        refresh = opening_refresh_deadline(panel)
+        if refresh is None:
+            return None
+    if state == 'WAITING_OPEN':
+        saved = panel.row('paper_plan')
+        schedule = cycle.operational_fact.schedule
+        if (saved is None or not saved.can_show_paper_plan(panel.now) or schedule is None
+                or any(leg.action == 'UNAVAILABLE' for leg in saved.paper_plan.legs)
+                or schedule.execution_start != saved.paper_plan.execute_at):
+            return None
+        plan, deadline = saved.paper_plan, saved.paper_plan.execute_at
+        if not panel.observation_current:
+            review = panel.operator_review
+            trading = panel.row('trading_run')
+            run = trading.trading_run if trading is not None else None
+            environment = panel.row('trading_environment')
+            if (not panel.observation_retained
+                    or environment is not None and (
+                        environment.status != 'ok' or environment.value != 'PAPER · simulation')
+                    or review is None or review.status != 'REVIEW' or review.active
+                    or any(r.key not in review.warnings for r in panel.rows if r.operational_fact
+                           and r.operational_fact.state == 'NOT_REPORTED')
+                    or run is None or run.state != state or run.orders or not trading.can_show_trading_run(panel.now)
+                    or (run.intent.cycle_id, run.intent.plan_id, run.intent.effective_session, run.intent.execute_at)
+                        != (plan.cycle_id, plan.plan_id, plan.effective_session, plan.execute_at)):
+                return None
+    else:
+        saved, broker = panel.row('trading_run'), panel.row('broker')
+        if saved is None or not saved.can_show_trading_run(panel.now) or broker is None:
+            return None
+        run, fact = saved.trading_run, broker.operational_fact
+        if (broker.is_stale(panel.now) or broker.is_future(panel.now)
+                or broker.effective_status(panel.now) not in {'ok', 'warn'}
+                or broker.recovery is None or broker.recovery.phase != 'BROKER_CALLBACK_REFRESH'
+                or not _aware(broker.recovery.deadline) or not broker.recovery.active(panel.now)
+                or not run.callback_order_states_known()
+                or state == 'RECONCILING' and not run.orders
+                or run.state != state or fact is None or fact.kind != 'EXECUTION_PROGRESS'
+                or fact.state != state or fact.opening is None or run.updated_at != cycle.as_of
+                or (fact.opening.cycle_id, fact.opening.plan_id) != (run.intent.cycle_id, run.intent.plan_id)
+                or not run.intent.execute_at <= run.updated_at <= fact.opening.started_at <= panel.now):
+            return None
+        plan = run.intent
+        deadline = min(fact.opening.deadline, _row_boundary(broker))
+    keys = ('automation', 'automation_leader', 'authority', 'runtime_identity', 'feed')
+    account = panel.row('alpaca_account')
+    shadow = panel.row('shadow_verification')
+    source = panel.row('feed')
+    verified = (_current_health_fact(panel, 'shadow_verification')
+                and _current_input_session(panel, str(plan.decision_session)))
+    checking = (state != 'WAITING_OPEN' and not verified and shadow is not None
+                and shadow.effective_status(panel.now) == 'warn' and shadow.required_current
+                and not shadow.is_future(panel.now) and not shadow.is_stale(panel.now)
+                and shadow.recovery is not None and shadow.recovery.phase == 'FINANCIAL_VERIFICATION'
+                and shadow.recovery.active(panel.now) and shadow.valid_until == shadow.recovery.deadline
+                and source is not None and source.operational_fact is not None
+                and (source.operational_fact.kind, source.operational_fact.state) == ('MARKET_DATA', 'READY')
+                and source.operational_fact.sessions_behind == 0
+                and source.operational_fact.session == plan.decision_session)
+    if (not all(_current_health_fact(panel, key) for key in keys)
+            or not _fresh_worker(panel, 'automation_leader')
+            or account is None or not account.can_show_paper_account(panel.now)
+            or not (verified or checking)):
+        return None
+    limits = [deadline, refresh, cycle.recovery.deadline, panel.observation_valid_until, _row_boundary(account),
+              _row_boundary(shadow), _row_boundary(saved),
+              *(_row_boundary(panel.row(key)) for key in keys)]
+    earliest = min(limit for limit in limits if limit is not None)
+    return earliest if panel.now < earliest else None
+
+
 def _health_facts(panel, classifications, *, boundaries) -> dict:
     active = ['backend_sources'] if panel.source_errors else []
     warnings = []
     missed_open = _missed_open_witness(panel)
     missed_buy = (missed_open is not None
                   and missed_open.paper_alignment == 'MISSED_OPEN_BUY_ONLY')
+    reporting_deadline = None
+    if any(row.operational_fact is not None and row.operational_fact.state == 'NOT_REPORTED'
+           for row in panel.rows):
+        reporting_deadline = _opening_reporting_deadline(panel)
+        if reporting_deadline is not None and boundaries is not None:
+            boundaries.append(reporting_deadline)
     for row, status, current, normal_warning in classifications:
         if not current:
+            continue
+        if (reporting_deadline is not None and row.operational_fact is not None
+                and row.operational_fact.state == 'NOT_REPORTED'
+                and (row.valid_until is None or panel.now < row.valid_until)):
+            if boundaries is not None and row.valid_until is not None:
+                boundaries.append(row.valid_until)
+            warnings.append(row.key)
             continue
         if (missed_buy and status == 'warn'
                 and _missed_buy_history_warning(panel, row, missed_open)):
@@ -1566,6 +1676,7 @@ def dashboard_health(panel) -> dict:
         from sentinel.panel.delivery import closing_refresh_deadline, opening_refresh_deadline
         opening = opening_refresh_deadline(panel)
         if opening is not None:
+            opening = min(opening, boundary) if boundary is not None else opening
             return _with_trading_continuity(panel, dict(status='pending', color='blue', label='Checking opening status · last verified values dated',
                         valid_until=opening.isoformat(), plan_readiness='unavailable',
                         active_conditions=facts['active'], review_conditions=facts['warnings'],

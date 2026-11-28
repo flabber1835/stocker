@@ -58,6 +58,7 @@ def test_changed_manifest_and_partial_scan_install_no_reusable_proof(conn,publis
         monkeypatch.setattr(rolling_store,'_verify_content_uncached',lambda *a: (_ for _ in ()).throw(TimeoutError('scan cancelled')))
         with pytest.raises(TimeoutError):rolling_store.verify_content(conn,candidate)
         assert not readiness_scope._current.get().verified_snapshots
+        assert rolling_store.readiness_facts(conn, candidate) is None
         monkeypatch.setattr(rolling_store,'_verify_content_uncached',original)
         first=rolling_store.verify_content(conn,candidate)
         saved=rolling_store.manifest
@@ -95,6 +96,25 @@ def test_unscoped_and_new_scope_reverify_actual_corrupted_rows(conn,published):
 
 @pytest.mark.parametrize('guard',['pin','manifest','detach','failure'])
 def test_removed_snapshot_reuse_guards_are_detected(conn,published,monkeypatch,guard):
+    if guard == 'failure':
+        from sentinel import prepared_opening_material
+
+        complete = prepared_opening_material.verified_snapshot
+        swallowed = []
+
+        def accept_cancelled(connection, pub, load):
+            try:
+                return complete(connection, pub, load)
+            except TimeoutError:
+                candidate = pub.evidence['rolling_snapshot']['candidate_id']
+                swallowed.append(candidate)
+                return rolling_store.VerifiedSnapshot(rolling_store.manifest(connection, candidate), None)
+
+        monkeypatch.setattr(prepared_opening_material, 'verified_snapshot', accept_cancelled)
+        with pytest.raises(pytest.fail.Exception, match='DID NOT RAISE'):
+            test_changed_manifest_and_partial_scan_install_no_reusable_proof(conn, published, monkeypatch)
+        assert swallowed == [published['candidate_id']]
+        return
     if guard=='pin':
         monkeypatch.setattr(readiness_scope,'_require_pin',lambda *a:None)
         check=lambda:test_released_original_pin_cannot_reacquire_and_reuse_proof(conn,published,monkeypatch)
@@ -103,7 +123,7 @@ def test_removed_snapshot_reuse_guards_are_detected(conn,published,monkeypatch,g
         if guard=='manifest':
             source=source.replace("if current.snapshot_id != binding['snapshot_id']:",'if False:').replace('if not isinstance(cached, rolling_store.VerifiedSnapshot) or cached.manifest != current:','if False:')
             check=lambda:test_changed_manifest_and_partial_scan_install_no_reusable_proof(conn,published,monkeypatch)
-        elif guard=='detach':
+        else:
             # A caller must not be able to poison the stored proof.
             source=source.replace('return deepcopy(completed.readiness if summary_only else completed.manifest)',
                                   'return completed.readiness if summary_only else completed.manifest')
@@ -115,9 +135,6 @@ def test_removed_snapshot_reuse_guards_are_detected(conn,published,monkeypatch,g
                     one=rolling_store.verify_content(conn,candidate)
                     object.__setattr__(one,'bar_count',one.bar_count+1)
                     assert rolling_store.verify_content(conn,candidate).bar_count==expected
-        else:
-            source=source.replace('completed = load()',"completed = rolling_store.VerifiedSnapshot(current, None)\n        try: load()\n        except TimeoutError: pass")
-            check=lambda:test_changed_manifest_and_partial_scan_install_no_reusable_proof(conn,published,monkeypatch)
         namespace={};exec(compile(source,'snapshot-reuse-falsifier','exec'),readiness_scope.__dict__,namespace)
         monkeypatch.setattr(readiness_scope,'verified_snapshot',namespace['verified_snapshot'])
     with pytest.raises((AssertionError,pytest.fail.Exception,publication.CorpusIncoherent)):

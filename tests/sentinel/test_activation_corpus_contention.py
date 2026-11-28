@@ -365,7 +365,7 @@ publication.require_current=current
 facade._validate_publication=lambda *a,**k:None
 readers.is_rolling=lambda pub:True
 readers.frontier=lambda conn,pub:pub.window_end
-operational_snapshot._bound=lambda *a,**k:{}
+operational_snapshot._bound_and_manifest=lambda *a,**k:({}, None)
 operational_snapshot.require_alpaca_openfigi=lambda *a,**k:None
 if os.environ.get('PROBE_CLEANUP_FAILURE'):
     real_connect=store.connect

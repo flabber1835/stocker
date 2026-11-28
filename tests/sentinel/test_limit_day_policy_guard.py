@@ -215,7 +215,7 @@ def grant_case(monkeypatch):
     calls = {"readiness": [], "window": [], "authorities": [], "allocation": [], "frontier": []}
     projection = SimpleNamespace(opening_sizing={
         "shadow_equity": str(_shadow_equity(state)), "references": {}})
-    monkeypatch.setattr("sentinel.handover.assert_no_legacy_path", lambda _conn: binding)
+    monkeypatch.setattr("sentinel.handover.require_owned_binding", lambda _conn: binding)
     monkeypatch.setattr(validation, "load_rollout_state", lambda _conn: rollout)
     monkeypatch.setattr(validation.feed_inputs, "require_current", lambda _conn: current)
     def frontier(_conn, publication):

@@ -531,6 +531,31 @@ def _actionable_delta_evidence(delta: execution_commands.Delta) -> dict:
             "remaining_notional": str(delta.notional) if delta.notional is not None else None}
 
 
+def _remaining_purchase_fence(conn, plan, reconciliation, actionable):
+    """Identify a plan-specific operator wait only after proving purchase-only work."""
+    from sentinel.execution import alpaca, fractional_progress, protected_limits
+    if (plan.broker not in {"alpaca", "alpaca-live"} or not actionable
+            or not reconciliation.clean or not all(delta.is_increase for delta in actionable)):
+        return None
+    observation = reconciliation.observation
+    deployment = DeploymentIdentity(plan.deployment_id, plan.broker, plan.broker_account_id, plan.takeover_epoch)
+    if (not deployment.matches_account(observation.account_identity)
+            or not timedelta(0) <= _now_utc() - observation.observed_at <= timedelta(seconds=60)
+            or any(order.is_working for order in observation.orders)):
+        return None
+    fence = alpaca.upgrade_restore_fence(conn)
+    if fence is not alpaca.UpgradeRestoreFence.PURCHASES_REQUIRE_DATABASE_ANCHOR:
+        return None
+    # Some projections intentionally omit a target whose share conversion is
+    # pending. Do not retire a cycle while that target could still become a sale.
+    projection = target_reprojection.load_projection(conn, plan_id=plan.plan_id)
+    if (projection is None or projection.pending_share_targets
+            or fractional_progress.share_restrictions(projection)
+            or protected_limits.unavailable_opening_intents(projection)):
+        return None
+    return fence
+
+
 def _all_target_deltas(
         target_basket, observation, *, minimum_quantity_increment) -> tuple:
     security_ids = set(target_basket)
@@ -896,8 +921,7 @@ class ProductionAutomation:
         """Check the original authority scope without publishing a verdict."""
         if progress is not None:
             progress(2)
-        store.require_leader(conn, permit)
-        control = store.load_control(conn)
+        _, control = store.require_leader_with_control(conn, permit)
         bound = control.binding
         if (bound is None or control.generation != permit.control_generation
                 or control.config_sha256 != self.automation_config.fingerprint):
@@ -1040,7 +1064,6 @@ class ProductionAutomation:
             # Compare current mutable state to the exact previously signed
             # bytes. The full proof owns trust-root and signature validation.
             # A skip retains the full check's original checked-at timestamp.
-            store.require_leader(conn, permit)
             certificate = self._idle_certificate_identity(
                 conn, expected_sha256=control.binding.certificate_sha256)
             rollout = load_rollout_state(conn)
@@ -1353,6 +1376,8 @@ class ProductionAutomation:
 
     def _stop_idle_authority_observer(self):
         """Reap the read-only observer before a financial callback can fork."""
+        from sentinel import opening_prewarm
+        opening_prewarm.stop(self)
         active = getattr(self, "_idle_authority_flight", None)
         observer = getattr(self, "_idle_authority_observer", None)
         if active is not None:
@@ -1458,6 +1483,11 @@ class ProductionAutomation:
             operational_snapshot.require_alpaca_openfigi(conn, current)
         except operational_snapshot.OperationalSnapshotRefused as exc:
             raise NonRetryableCallbackRefused(str(exc)) from exc
+
+    def _prepared_opening_material(self, scope, cycle):
+        if self._dual_run_enabled or getattr(self, '_live_run_enabled', False):
+            from sentinel import prepared_opening_material
+            scope.enter_context(prepared_opening_material.cycle(cycle))
 
     def _paper_opening_material(self, scope):
         if (getattr(self, '_operational_source_only', False)
@@ -1596,14 +1626,15 @@ class ProductionAutomation:
                 observation_id=self._shadow_observation_id,
                 starting_cash=self._shadow_starting_cash,
                 state_dir=self.sentinel_config.state_dir,
-                database_url=self.sentinel_config.database_url)
+                database_url=self.sentinel_config.database_url, scheduling_only=True)
             if preparation is not None:
                 detail = ('the current closing-data publication is '
                           'awaiting its certified shadow attestation')
                 if preparation.quiet_eligible is True:
                     return ClosingDataPending(detail,
                         publisher_deadline_at=preparation.publisher_deadline,
-                        worker_deadline_at=preparation.worker_deadline)
+                        worker_deadline_at=preparation.worker_deadline,
+                        recheck_at=preparation.recheck_at)
                 return SourceDataPending(detail)
         return None
 
@@ -1734,6 +1765,7 @@ class ProductionAutomation:
             if getattr(self, '_operational_source_only', False):
                 pinned = input_scope.enter_context(feed_inputs.pinned(conn, commit=False))
                 self._require_operational_inputs(conn, current=pinned)
+                self._prepared_opening_material(input_scope, cycle)
             missed = ()
             if not self._dual_run_enabled and not getattr(self, "_live_run_enabled", False):
                 # Reviewed dual mode adopts the exact current shadow-produced
@@ -1963,6 +1995,17 @@ class ProductionAutomation:
                         "RUNNING reconciliation"),
                     diagnostic=result_diagnostic)
             if in_flight:
+                if ((self._dual_run_enabled and deployment.broker == "alpaca")
+                        or (getattr(self, "_live_run_enabled", False) and deployment.broker == "alpaca-live")):
+                    from sentinel.paper.market_reservations import recovery_route
+                    routed = recovery_route(conn, cycle=cycle, deployment=deployment, reconciliation=result,
+                        config=self.automation_config, now=_now_utc(), in_flight=in_flight,
+                        actionable_deltas=lambda plan: self._actionable_current_plan_deltas(
+                            conn, plan=plan, effective_session=cycle.effective_session,
+                            observation=result.observation, reconciliation=result,
+                            minimum_quantity_increment=broker.capabilities.minimum_quantity_increment))
+                    if routed is not None:
+                        return routed.model_copy(update={"diagnostic": {**result_diagnostic, **routed.diagnostic}})
                 from sentinel.execution.protected_funding import ProtectedCohortContinuation
                 cohort = getattr(result, "protected_cohort", None)
                 if (isinstance(cohort, ProtectedCohortContinuation)
@@ -2114,9 +2157,8 @@ class ProductionAutomation:
                             states=(CommandState.CANCELLED,
                                     CommandState.REJECTED))
                         from sentinel.execution.fractional_progress import is_fractional
-                        fractional_projection = is_fractional(target_reprojection.load_projection(
-                            conn, plan_id=cycle.plan_id))
-                        if terminal_refusals and fractional_projection:
+                        if terminal_refusals and is_fractional(target_reprojection.load_projection(
+                                conn, plan_id=cycle.plan_id)):
                             pending_reductions = {delta.security_id for delta in actionable
                                                   if delta.side is Side.SELL}
                             terminal_refusals = tuple(c for c in terminal_refusals
@@ -2168,6 +2210,13 @@ class ProductionAutomation:
                                     "delta after the execution close; the plan "
                                     "will never be late-submitted"),
                                 diagnostic=result_diagnostic)
+                        fence = _remaining_purchase_fence(conn, plan, result, actionable)
+                        if fence is not None:
+                            return ExecuteResult(
+                                disposition=ExecuteDisposition.SUPERSEDED, **evidence,
+                                failure_code=fence.name, failure_detail=fence.value,
+                                diagnostic={**result_diagnostic, "unsent_actionable_deltas": [
+                                    _actionable_delta_evidence(delta) for delta in actionable]})
                         return ExecuteResult(
                             disposition=ExecuteDisposition.READY_TO_EXECUTE,
                             **evidence,
@@ -2256,6 +2305,7 @@ class ProductionAutomation:
                 if source_only:
                     pinned = input_scope.enter_context(feed_inputs.pinned(conn, commit=False))
                     self._require_operational_inputs(conn, current=pinned)
+                    self._prepared_opening_material(input_scope, cycle)
                 else:
                     self._require_operational_inputs(conn)
             with opening_stage_log.preflight("plan_pin"):
@@ -2349,6 +2399,7 @@ class ProductionAutomation:
                     CommandState.REJECTED, CommandState.CANCELLED})
             actionable = ()
             posting_deadline = None
+            purchase_fence = None
             completion_proof_ms = None
             # An executor result carries the last reconciliation it needed to
             # authorize transport; for a pure BUY that observation predates
@@ -2443,6 +2494,11 @@ class ProductionAutomation:
                                    cycle.execute_at + timedelta(seconds=self.automation_config.maximum_execution_lateness_seconds))
                     if cycle.execute_at <= _now_utc() < deadline:
                         posting_deadline = deadline.isoformat()
+                if (reconciliation_id is not None and result.session.deferred
+                        and not result.session.deferral_reasons and not posting_wait
+                        and not result.session.settlement_deferred):
+                    purchase_fence = _remaining_purchase_fence(
+                        conn, result.plan, final_reconciliation, actionable)
             return ExecuteResult(
                 disposition=disposition,
                 last_clean_reconciliation_id=reconciliation_id,
@@ -2453,11 +2509,13 @@ class ProductionAutomation:
                               else "COMMANDS_IN_FLIGHT"
                               if in_flight else "CASH_POSTING_WAIT"
                               if posting_deadline else "CORPORATE_ACTION_PENDING"
-                              if result.session.restricted_securities else "ACTIONABLE_DELTA_REMAINS"
+                              if result.session.restricted_securities else purchase_fence.name
+                              if purchase_fence is not None else "ACTIONABLE_DELTA_REMAINS"
                               if actionable else "MISSING_RECONCILIATION_ID"
                               if reconciliation_id is None
                               else "EXECUTION_INCOMPLETE"),
                 failure_detail=(None if disposition is ExecuteDisposition.SUCCEEDED
+                                else purchase_fence.value if purchase_fence is not None
                                 else result.session.detail
                                 or "paper execution requires re-observation"),
                 diagnostic={**result.to_dict(),
@@ -2716,8 +2774,11 @@ class ProductionAutomation:
         try:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT holder_id,fence_token,control_generation,acquired_at,"
-                    " expires_at FROM sentinel_automation_lease WHERE id=1")
+                    "SELECT l.holder_id,l.fence_token,l.control_generation,l.acquired_at,"
+                    " l.expires_at FROM sentinel_automation_lease l"
+                    " JOIN sentinel_automation_control c ON c.id=l.id AND c.generation=l.control_generation"
+                    " WHERE l.id=1 AND c.enabled AND NOT c.kill_switch_engaged"
+                    " AND l.expires_at>clock_timestamp()")
                 row = cur.fetchone()
             self._require_idle_foreground_budget()
         except Exception:
@@ -2738,6 +2799,8 @@ class ProductionAutomation:
         terminal_cycle = None
         try:
             observed_at = _now_utc()
+            from sentinel import opening_prewarm
+            opening_prewarm.start(self, observed_at)
             if self._idle_attestation_current(
                     conn, control, permit, observed_at):
                 self._require_idle_foreground_budget()

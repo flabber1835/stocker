@@ -1,8 +1,9 @@
-"""Private-only full production callbacks with a local Alpaca HTTP simulator.
+"""Time production callbacks with a private Alpaca HTTP simulator.
 
-The simulator is a software timing fixture, never native exchange evidence.
-Every financial verifier and fresh broker guard runs unchanged. No transport
-has a network fallback and no provider credentials are read from the process.
+The callback path runs its broker checks with an unsigned certificate fixture
+and a supplied session window. Its times describe this simulated gateway.
+The result lists the substitutions alongside the measurements. The simulator
+has no network fallback and reads no provider credentials.
 """
 from __future__ import annotations
 

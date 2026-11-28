@@ -319,12 +319,19 @@ def prove(conn, cycle, control, *, diagnostic, clean_id) -> dict | None:
         "SELECT client_key,state FROM sentinel_commands "
         "WHERE state=ANY(%s) ORDER BY client_key LIMIT 101",
         (list(_ACTIVE),)).fetchall()
-    if (monotonic() >= deadline or len(active) != len(planned_keys)
-            or {key for key, state in active if state == "PLANNED"} != planned_keys):
+    active_keys = {key for key, state in active if state == "PLANNED"}
+    if (monotonic() >= deadline or len(active) > 100 or len(active) != len(active_keys)
+            or not planned_keys <= active_keys):
         return None
+    retired = active_keys - planned_keys
+    if retired:
+        from sentinel.execution.retired_unsent import retired_at_cutoff
+        if not retired_at_cutoff(conn, cycle, current_keys=planned_keys,
+                                 retired_keys=retired, deadline=deadline):
+            return None
     saved_id = int(clean_id)
     saved_at = _observation(conn, saved_id, cycle=cycle, expected=expected,
-                            as_of=as_of, planned_keys=planned_keys,
+                            as_of=as_of, planned_keys=active_keys,
                             current_plan_keys={c.client_key for c in commands},
                             no_command_buy_ids=no_command_buy_ids,
                             deadline=deadline)
@@ -336,7 +343,7 @@ def prove(conn, cycle, control, *, diagnostic, clean_id) -> dict | None:
         return None
     if (latest[0] != saved_id
             and _observation(conn, latest[0], cycle=cycle, expected=expected,
-                             as_of=as_of, planned_keys=planned_keys,
+                             as_of=as_of, planned_keys=active_keys,
                              current_plan_keys={c.client_key for c in commands},
                              no_command_buy_ids=no_command_buy_ids,
                              deadline=deadline) is None):
@@ -344,7 +351,8 @@ def prove(conn, cycle, control, *, diagnostic, clean_id) -> dict | None:
     if monotonic() >= deadline:
         return None
     return {
-        "schema": "sentinel.missed-window-buy-only/1",
+        "schema": "sentinel.missed-window-buy-only/2" if retired else "sentinel.missed-window-buy-only/1",
+        **({"retired_unsent_buy_keys": sorted(retired)} if retired else {}),
         "cycle_id": cycle.cycle_id,
         "plan_id": plan.plan_id,
         "plan_fingerprint": cycle.plan_fingerprint,
@@ -388,10 +396,14 @@ def saved_terminal_proof(conn, cycle, control):
             or str(detail.get("last_clean_reconciliation_id"))
                 != str(cycle.last_clean_reconciliation_id)):
         return None
-    if "missed_window_buy_only" not in detail:
-        # Older terminal events recorded the original evidence but no summary.
-        return prove(conn, cycle.model_copy(update={"state": CycleState(source)}), control,
-                     diagnostic=cycle.diagnostic, clean_id=cycle.last_clean_reconciliation_id)
+    if detail.get("missed_window_buy_only") is None:
+        # Before v2 a proven prior-cycle stub made the producer save a null
+        # summary. Reconstruct its exact evidence without changing the event.
+        proof = prove(conn, cycle.model_copy(update={"state": CycleState(source)}), control,
+                      diagnostic=cycle.diagnostic, clean_id=cycle.last_clean_reconciliation_id)
+        if "missed_window_buy_only" not in detail or (proof and proof.get("retired_unsent_buy_keys")):
+            return proof
+        return None
     if not validates_terminal_proof(detail, state=target, cycle_id=cycle.cycle_id):
         return None
     proof = detail["missed_window_buy_only"]
@@ -410,7 +422,8 @@ def current_observation_matches(conn, cycle, proof, *, sequence, reconciled_at,
         return False
     observed = _observation(
         conn, sequence, cycle=cycle, expected=expected, as_of=as_of,
-        planned_keys=set(proof["unsent_buy_keys"]), current_plan_keys=current_plan_keys,
+        planned_keys=set(proof["unsent_buy_keys"]) | set(proof.get("retired_unsent_buy_keys", ())),
+        current_plan_keys=current_plan_keys,
         no_command_buy_ids=set(proof["remaining_buy_security_ids"]) - planned_buy_ids,
         deadline=monotonic() + 4.0)
     return observed is not None and observed >= reconciled_at
@@ -423,12 +436,16 @@ def validates_terminal_proof(detail: Mapping[str, Any], *,
             or detail.get('failure_code') != 'MAX_EXECUTION_LATENESS_EXCEEDED'):
         return False
     proof = detail.get('missed_window_buy_only')
-    if (not isinstance(proof, Mapping) or set(proof) != {
+    if not isinstance(proof, Mapping):
+        return False
+    version = proof.get('schema')
+    retired_fields = {'retired_unsent_buy_keys'} if version == 'sentinel.missed-window-buy-only/2' else set()
+    if (set(proof) != retired_fields | {
             'schema', 'cycle_id', 'plan_id', 'plan_fingerprint',
             'from_state', 'attempt_count', 'observation_id',
             'latest_observation_id', 'remaining_buy_security_ids',
             'unsent_buy_keys', 'filled_sell_keys', 'journal'}
-            or proof.get('schema') != 'sentinel.missed-window-buy-only/1'
+            or version not in ('sentinel.missed-window-buy-only/1', 'sentinel.missed-window-buy-only/2')
             or proof.get('cycle_id') != str(cycle_id)
             or not isinstance(proof.get('plan_id'), str)
             or not proof['plan_id']
@@ -458,6 +475,13 @@ def validates_terminal_proof(detail: Mapping[str, Any], *,
             or any(group != sorted(set(group)) for group in (
                 remaining, planned, sold))):
         return False
+    if retired_fields:
+        retired = proof['retired_unsent_buy_keys']
+        if (not isinstance(retired, list) or not 0 < len(retired) <= 100 - len(planned)
+                or any(not isinstance(key, str) or not key for key in retired)
+                or retired != sorted(set(retired))
+                or set(retired) & (set(planned) | set(sold))):
+            return False
     diagnostic = detail.get('diagnostic')
     if not isinstance(diagnostic, Mapping):
         return False

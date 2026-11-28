@@ -232,12 +232,13 @@ async def _broker_cash_state_or_refuse(
     return state
 
 def fractional_posting_reserve(conn, *, plan, deployment, account, observation,
-                               activity_state, candidate_key=None):
+                               activity_state, candidate_key=None, owned_sales=()):
     """The fractional funding owner must reserve every unconfirmed native debit."""
     from .cash_postings import evaluate
     try:
         return evaluate(conn, plan=plan, deployment=deployment, account=account,
-                        observation=observation, activity_state=activity_state, candidate_key=candidate_key)
+                        observation=observation, activity_state=activity_state, candidate_key=candidate_key,
+                        owned_sales=owned_sales)
     except broker_cash.BrokerCashAuthorityRefused as exc:
         raise PaperActivationRefused(f"invalid native cash posting evidence: {exc}") from exc
 
