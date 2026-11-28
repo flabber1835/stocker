@@ -311,8 +311,12 @@ def _green_eligible(panel) -> bool:
 
 def _historical_skip_record(panel) -> bool:
     """A proved old outcome is not positive current financial evidence."""
-    from sentinel.panel.delivery import row_current
     row = panel.row('trading_run')
+    return _historical_skip_row(panel, row)
+
+
+def _historical_skip_row(panel, row: Row | None) -> bool:
+    from sentinel.panel.delivery import row_current
     fact = row.operational_fact if row is not None else None
     run = row.trading_run if row is not None else None
     return (fact is not None and fact.kind == 'EXECUTION_HISTORY' and fact.state == 'SUPERSEDED'
@@ -329,14 +333,49 @@ def _historical_skip_record(panel) -> bool:
 
 
 def _retired_trading_day(panel, row: Row) -> bool:
-    if row.key != 'trading_run' or row.trading_run is None or row.valid_until is None:
+    """A proved terminal display record cannot expire into a fresh incident."""
+    from sentinel.panel.delivery import row_current
+
+    if row.key in {'automation_cycle', 'automation_step_transport',
+                   'automation_step_reconcile', 'automation_step_complete'}:
+        current = panel.row('trading_run')
+        return (current is not None and _retired_trading_day(panel, current)
+                and _retired_workflow_history(
+                    replace(panel, now=current.valid_until-timedelta(microseconds=1)), row))
+    run = row.trading_run
+    if (row.key not in {'trading_run', 'completed_trading_run'} or run is None
+            or row.valid_until is None or row.as_of is None or row.required_current
+            or row.status not in {'ok', 'warn'} or row.recovery is not None):
         return False
-    day = row.trading_run.intent.effective_session
+    day = run.intent.effective_session
     midnight = datetime.combine(day + timedelta(days=1), datetime.min.time(),
                                 tzinfo=ZoneInfo('America/New_York'))
     boundary = midnight - timedelta(microseconds=1)
-    return (row.valid_until == boundary and panel.now >= midnight
-            and _historical_skip_record(replace(panel, now=boundary - timedelta(microseconds=1))))
+    if row.valid_until != boundary or panel.now < boundary:
+        return False
+    before = boundary - timedelta(microseconds=1)
+    original = replace(panel, now=before)
+    if (not run.intent.execute_at <= run.updated_at <= row.as_of <= before
+            or not run.required_sales_filled() or not row_current(original, row)
+            or any(value is not None and value > before for value in (
+                run.completed_at, run.intent.created_at, run.intent.observation_at))
+            or any(order.observed_at > before for order in run.orders)):
+        return False
+    fact = row.operational_fact
+    if fact is not None and (fact.opening is None or fact.opening.deadline != boundary
+                             or fact.opening.observation_id is None):
+        return False
+    cutoff = (row.status == 'warn' and row.has_opening_cutoff(before)
+              and all(delta.side == 'BUY' for delta in run.unsent_at_cutoff.values()))
+    settled = {'FILLED', 'CANCELLED', 'REJECTED', 'SUPERSEDED'}
+    if any(order.state not in settled and not (
+            cutoff and order.state == 'PLANNED' and order.side == 'BUY'
+            and order.security_id in run.unsent_at_cutoff and order.broker_order_id is None
+            and order.filled_quantity == 0) for order in run.orders):
+        return False
+    return (cutoff or _historical_skip_row(original, row)
+            or run.state == 'SUCCEEDED' and row.status == 'ok'
+            and row.operational_fact is None and row.can_show_trading_run(before))
 
 
 def _opening_capabilities(panel, *, broker=True, maintenance=False) -> bool:
@@ -813,7 +852,7 @@ def _normal_warning(panel, row: Row) -> bool:
             and row.valid_until == row.recovery.deadline
             and not row.is_future(panel.now)):
         return True
-    if row.key == 'trading_run' and _historical_skip_record(panel):
+    if row.key in {'trading_run', 'completed_trading_run'} and _historical_skip_row(panel, row):
         return True
     if row.has_opening_cutoff(panel.now):
         return True
