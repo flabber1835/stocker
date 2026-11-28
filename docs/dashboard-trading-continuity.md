@@ -1,5 +1,23 @@
 # Dashboard trading continuity and panic status
 
+### Retired orders across trading sessions
+
+Decision, 2026-11-27. A cleanly retired, never-submitted purchase can precede
+the next plan by several sessions and software activations. Its immutable
+supersession chain must reach the exact current plan. Each successor keeps
+the bound deployment, account and takeover epoch, and its decision and
+execution sessions cannot move backward or beyond the current plan.
+The recursive read visits each immutable plan once and retains the reader's
+statement timeout, so repeated activations do not impose a fixed history limit.
+
+The existing retirement proof continues to require the original clean cutoff,
+the no-transport command history, the original and latest complete native
+observations, and the exact current scheduled cycle and control generation.
+Unknown outcomes, sales, native matches, fills and unrelated commands retain
+their current handling. A proved old purchase remains visible in history
+without imposing a ten-minute broker-observation expiry during a clean wait
+for the next opening. The next execution still obtains fresh broker evidence.
+
 ### Opening and closing evidence, November 27
 
 A saved, current PAPER plan and a current execution callback can outlive the

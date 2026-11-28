@@ -181,11 +181,12 @@ class Schedule:
                             own_publication=value['outcome'] == 'SUCCESS')
             now = self.clock()
             if value['outcome'] == 'SUCCESS' or self.publication_at != previous: return
-            if (value['outcome'] in {'RETRYABLE','STANDBY'} and self.deadline is not None
+            media_wait = value['outcome'] == 'RETRYABLE' and value['failure']['stage'] == 'HOST_MEDIA'
+            if media_wait or (value['outcome'] in {'RETRYABLE','STANDBY'} and self.deadline is not None
                     and now < self.deadline):
                 delay = BACKOFF[min(self.retries,len(BACKOFF)-1)]
                 self.retries += 1
-                self.due = min(now+delay,self.deadline)
+                self.due = now+delay if media_wait else min(now+delay,self.deadline)
             else:
                 # Ordinary future passes may establish new evidence, but no
                 # rapid retry borrows an expired or unknown proof lifetime.

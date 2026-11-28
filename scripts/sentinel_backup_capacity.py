@@ -23,7 +23,7 @@ def lock_root():
             or (root.exists() and not root.is_dir())
             or root.resolve(strict=False) != root or root in (Path('/'), Path.home(), repo)
             or repo in root.parents or str(root).startswith('/var/lib/docker/')):
-        raise RuntimeError('continuity maintenance lock root is invalid')
+        raise RuntimeError('maintenance lock root is invalid')
     return str(root)
 
 
@@ -116,7 +116,8 @@ def checkpoint(chain, runner=run):
 
 
 def main():
-    if sys.argv[1:] == ['lock-root'] and continuity.selected():
+    if sys.argv[1:] == ['lock-root']:
+        continuity.selected()  # Validate an explicit policy before naming its lock.
         print(lock_root())
     elif sys.argv[1:] == ['transport-root']:
         transport_root()

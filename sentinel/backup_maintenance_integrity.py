@@ -71,7 +71,7 @@ class MaintenanceFailure(BaseModel):
                   'TRANSPORT_FAILURE', 'PROTOCOL_FAILURE', 'INTERNAL_FAILURE']
     retryable: bool
     stage: Literal['CONNECT', 'ADMISSION', 'OWNER_WAIT', 'PROOF', 'RESULT', 'LOCK_RELEASE',
-                   'HOST_POLICY', 'HOST_IMAGE', 'HOST_POSTGRES', 'HOST_WORKER',
+                   'HOST_POLICY', 'HOST_MEDIA', 'HOST_IMAGE', 'HOST_POSTGRES', 'HOST_WORKER',
                    'HOST_VALIDATE', 'HOST_CLEANUP']
     cause_type: Literal['BackupIntegrityBusy', 'BackupIntegrityProofExpired', 'BackupIntegritySelectionMoved', 'BackupRuntimeUnavailable',
                         'BackupRuntimeRefused', 'BackupHorizonExceeded', 'PsycopgError', 'OSError',
@@ -113,6 +113,13 @@ class MaintenanceFailure(BaseModel):
         retry = (self.code in {'BUSY', 'PROOF_WINDOW_EXPIRED', 'SELECTION_MOVED'}
             and cleanup.proof_lock in {'NOT_ACQUIRED', 'RELEASED'}
             and (self.origin == 'WORKER' or cleanup.worker_container == 'REMOVED'))
+        if self.stage == 'HOST_MEDIA':
+            first = self.exception_chain[0]
+            retry = (self.origin == 'HOST' and self.code == 'PHYSICAL_UNAVAILABLE'
+                and self.cause_type == 'OSError' and first.type == 'OSError'
+                and first.errno == 2 and first.sqlstate is None
+                and cleanup.proof_lock == 'NOT_ACQUIRED' and cleanup.worker_container == 'NOT_STARTED'
+                and self.owner_wait_seconds == self.proof_seconds == 0)
         if self.code == 'DATABASE_CONNECTION_LOST':
             first = self.exception_chain[0]
             if (self.stage != 'PROOF' or self.cause_type != 'PsycopgError'

@@ -271,6 +271,8 @@ class Boundary:
     def __call__(self, command, **kwargs):
         self.calls.append(command)
         joined = " ".join(command)
+        if len(command) == 5 and command[3] == 'sentinel-maintenance-media':
+            return command[4]
         if self.fail and self.fail in joined:
             raise coordinator.Refused("injected boundary failure")
         if command == ["git", "rev-parse", "HEAD"]:

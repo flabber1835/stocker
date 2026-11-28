@@ -19,13 +19,13 @@ finally:
     sys.path[:] = _import_path
 
 
-def test_missing_backup_directory_keeps_only_explicit_continuity_lock_namespace(tmp_path):
+@pytest.mark.parametrize('policy', ['', continuity.POLICY])
+def test_missing_backup_directory_keeps_lock_namespace_without_creating_target(tmp_path, policy):
     root=tmp_path/'external'/'backup'
-    env={locks.LOCK_ROOT_ENV:str(root)}
-    assert locks._lock_path(env) is None
-    env[continuity.POLICY_ENV]=continuity.POLICY
+    env={locks.LOCK_ROOT_ENV:str(root), continuity.POLICY_ENV:policy}
     absent=locks._lock_path(env)
     assert absent is not None
+    assert not root.exists()
     root.mkdir(parents=True)
     assert locks._lock_path(env)==absent
 
@@ -34,6 +34,24 @@ def test_lock_namespace_never_licenses_a_symlink(tmp_path):
     target=tmp_path/'real';target.mkdir()
     link=tmp_path/'alias';link.symlink_to(target,target_is_directory=True)
     assert locks._lock_path({locks.LOCK_ROOT_ENV:str(link),continuity.POLICY_ENV:continuity.POLICY}) is None
+
+
+def test_lock_root_cli_accepts_strict_policy_without_creating_media(tmp_path,monkeypatch,capsys):
+    root = tmp_path/'missing'/'backup'
+    monkeypatch.setenv('SENTINEL_BACKUP_DIR',str(root))
+    monkeypatch.delenv(continuity.POLICY_ENV,raising=False)
+    monkeypatch.setattr(sys,'argv',['capacity','lock-root'])
+    capacity.main()
+    assert capsys.readouterr().out.strip() == str(root)
+    assert not root.exists()
+
+
+def test_lock_root_cli_keeps_unknown_policy_refusal(tmp_path,monkeypatch):
+    monkeypatch.setenv('SENTINEL_BACKUP_DIR',str(tmp_path/'missing'))
+    monkeypatch.setenv(continuity.POLICY_ENV,'UNKNOWN')
+    monkeypatch.setattr(sys,'argv',['capacity','lock-root'])
+    with pytest.raises(continuity.BackupConfigurationRefused,match='unsupported'):
+        capacity.main()
 
 
 def test_transport_availability_checks_no_broker_or_media_writer(monkeypatch):

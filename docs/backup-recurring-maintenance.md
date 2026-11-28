@@ -69,6 +69,29 @@ authorize current-cluster retention.
 
 ## Renewal and recovery
 
+### Recovery when backup media arrives after boot
+
+Decision, 2026-11-27. The supervisor and each tick identify their existing
+local lock from the canonical configured target path, including while that
+target is absent. Lock naming creates no directory on the backup disk and
+grants no media admission. The bounded tick owns the existing complete
+physical target validation before selection, verification or retention.
+
+A missing target discovered during that preflight produces a typed host
+`PHYSICAL_UNAVAILABLE` failure at `HOST_MEDIA`, with `ENOENT` and no worker
+or proof lock started. The same supervisor retries that observation after
+1, 2, 5, 10, 20 and then 30 seconds. This scheduling continues when a prior
+proof has expired or no proof exists. Its original publication and expiry
+remain unchanged until a real successful verification publishes new evidence.
+
+Malformed paths, symlinks, an unexpected mounted target, failed cleanup and
+integrity errors retain their ordinary refusal and scheduling rules. The
+maintenance loop keeps its single owner and finite tick/process limits.
+Media arrival must recover through the normal target, archive, database,
+image and restore-chain checks before the dashboard can report readiness.
+Release delivery selects these host helpers through the existing qualified
+maintenance-reader handover and keeps the single native service and its locks.
+
 Use the cluster-bound runtime selection record; never discover a different
 generation after a malformed selection. Read its bounded, nonaliased metadata.
 The October 15 owner-approved policy renews daily in 09:00-12:00 UTC after a

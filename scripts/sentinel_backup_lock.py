@@ -34,14 +34,12 @@ def _lock_path(env: Mapping[str, str]) -> Optional[Path]:
         return None
     try:
         root = Path(raw)
-        absent_continuity = (not root.exists()
-            and env.get('SENTINEL_BACKUP_OUTAGE_POLICY') == 'BOUNDED_30H_V1')
-        if root.is_symlink() or (not root.is_dir() and not absent_continuity):
+        if root.is_symlink() or (root.exists() and not root.is_dir()):
             return None
         # This names a local flock only. Media admission is still performed by
         # the backup writer before any external IO. USB absence cannot change
         # the existing maintenance supervisor's stable lock namespace.
-        canonical = root.resolve(strict=not absent_continuity)
+        canonical = root.resolve(strict=False)
     except OSError:
         return None
     if str(canonical) != raw.rstrip("/"):
