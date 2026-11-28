@@ -136,6 +136,66 @@ def replace_waiting_plan_on_activation(conn):
     """)
 
 
+def advance_waiting_plan_across_sessions(retired_buy, revisions):
+    conn, cycle, observation, accounts, _ = retired_buy
+    observed = datetime(2026, 11, 28, 1, 35, tzinfo=timezone.utc)
+    opened = datetime(2026, 11, 30, 14, 30, tzinfo=timezone.utc)
+    cycle['next_wake_at'] = opened + timedelta(minutes=1)
+    observation['observed_at'] = observed
+    conn.execute("UPDATE sentinel_observations SET observed_at=%s WHERE seq=644", (observed,))
+    conn.execute("UPDATE sentinel_execution_plans SET decision_session='2026-11-27',"
+                 "effective_session='2026-11-30',created_at=%s WHERE plan_id='new-plan'", (observed,))
+    conn.execute("UPDATE sentinel_automation_cycles SET decision_session='2026-11-27',"
+                 "effective_session='2026-11-30',execute_at=%s,next_wake_at=%s,execution_open_at=%s "
+                 "WHERE cycle_id='new-cycle'", (cycle['next_wake_at'], cycle['next_wake_at'], opened))
+    for index in range(revisions):
+        next_plan = 'new-plan' if index == revisions-1 else f'revision-{index+1}'
+        decision, effective = ('2026-11-27','2026-11-30') if index == revisions-1 else (
+            '2026-11-25','2026-11-27')
+        conn.execute("INSERT INTO sentinel_execution_plans VALUES "
+            "(%s,%s,%s,%s,'{}','alpaca','paper','deployment',1,%s)",
+            (f'revision-{index}', observed-timedelta(minutes=revisions-index), decision, effective, next_plan))
+    conn.execute("UPDATE sentinel_execution_plans SET superseded_by='revision-0' WHERE plan_id='old-plan'")
+    return conn, cycle, observation, accounts, opened
+
+
+@pytest.mark.parametrize('revisions', [1, 6, 40])
+def test_retired_buy_survives_holiday_and_repeated_activations(retired_buy, revisions):
+    conn, cycle, observation, _, _ = advance_waiting_plan_across_sessions(retired_buy, revisions)
+    now = observation['observed_at'] + timedelta(hours=1)
+    assert sources._only_retired_unsent_buys(conn, cycle, observation, {'PLANNED':1}, now=now)
+    boundary = sources._runtime_valid_until(cycle, observation['observed_at'], broker_fact=True)
+    row = model.broker_row(available=True, positions=16, completeness='COMPLETE', runtime_state='RUNNING',
+        working_orders=0, active_commands=0, uncertain_commands=0, command_counts={'PLANNED':1},
+        as_of=observation['observed_at'], valid_until=boundary)
+    assert boundary == cycle['next_wake_at']
+    assert row.effective_status(now) == model.OK
+    assert not row.is_stale(now) and row.is_stale(boundary+timedelta(microseconds=1))
+    assert not sources._only_retired_unsent_buys(conn, cycle, observation, {'PLANNED':1}, now=boundary)
+
+
+@pytest.mark.parametrize('fault', ['backward-decision','backward-execution','future-decision',
+    'future-execution','foreign-account','broken-link','cycle','native-order','uncertain'])
+def test_multisession_retirement_keeps_each_lineage_and_transport_guard(retired_buy, fault):
+    conn, cycle, observation, accounts, _ = advance_waiting_plan_across_sessions(retired_buy, 6)
+    changes = {
+        'backward-decision': "UPDATE sentinel_execution_plans SET decision_session='2026-11-24' WHERE plan_id='revision-1'",
+        'backward-execution': "UPDATE sentinel_execution_plans SET effective_session='2026-11-26' WHERE plan_id='revision-1'",
+        'future-decision': "UPDATE sentinel_execution_plans SET decision_session='2026-11-28' WHERE plan_id='revision-1'",
+        'future-execution': "UPDATE sentinel_execution_plans SET effective_session='2026-12-01' WHERE plan_id='revision-1'",
+        'foreign-account': "UPDATE sentinel_execution_plans SET broker_account_id='foreign' WHERE plan_id='revision-1'",
+        'broken-link': "DELETE FROM sentinel_execution_plans WHERE plan_id='revision-1'",
+        'cycle': "UPDATE sentinel_execution_plans SET superseded_by='revision-0' WHERE plan_id='revision-1'",
+        'uncertain': "INSERT INTO sentinel_commands(client_key,state) VALUES ('uncertain','UNKNOWN')",
+    }
+    if fault in changes:
+        conn.execute(changes[fault])
+    else:
+        accounts[644]['exact_evidence'] = [dict(client_key='buy',order=dict(client_key='buy',state='FILLED'))]
+    assert not sources._only_retired_unsent_buys(
+        conn, cycle, observation, {'PLANNED':1}, now=observation['observed_at']+timedelta(hours=1))
+
+
 @pytest.mark.parametrize('activated', [False, True], ids=['first-plan', 'after-activation'])
 @pytest.mark.parametrize('fault', [None, 'current-plan', 'wrong-successor', 'killed', 'wrong-epoch',
     'no-restore', 'native-prior', 'native-newest', 'foreign-account', 'sell', 'unknown',

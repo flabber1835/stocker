@@ -11,7 +11,7 @@ sentinel_load_environment --profile maintenance
 if ! "$PYTHON" scripts/sentinel_backup_capacity.py; then
   echo 'SENTINEL_BACKUP_CONTINUITY_CAPACITY=UNAVAILABLE' >&2
 fi
-. scripts/sentinel-backup-lib.sh
-export SENTINEL_BASE_BACKUP_LOCK_ROOT="$(sentinel_backup_root)"
+SENTINEL_BASE_BACKUP_LOCK_ROOT="$("$PYTHON" scripts/sentinel_backup_capacity.py lock-root)"
+export SENTINEL_BASE_BACKUP_LOCK_ROOT
 exec "$PYTHON" scripts/sentinel_backup_lock.py hold --standby-if-busy \
   "$PYTHON" scripts/sentinel_backup_maintenance.py "$@"

@@ -45,6 +45,30 @@ class BasePublicationPending(Refused):
     """The exact original producer still owns an unpublished successor."""
 
 
+def admit_media(root, runner):
+    """Validate the target inside the bounded tick and retain a genuine absence."""
+    started = time.monotonic()
+    command = ['bash', '-c', '. scripts/sentinel-backup-lib.sh; '
+        'SENTINEL_BACKUP_DIR="$1" sentinel_backup_root', 'sentinel-maintenance-media', root]
+    try:
+        actual = runner(command, timeout=60)
+    except Refused:
+        target = Path(root)
+        if target.is_symlink() or target.resolve(strict=False) != target:
+            raise
+        try:
+            target.stat()
+        except FileNotFoundError as exc:
+            failure = failure_record(origin='HOST', code='PHYSICAL_UNAVAILABLE', stage='HOST_MEDIA',
+                cause_type='OSError', elapsed_seconds=time.monotonic()-started,
+                proof_lock='NOT_ACQUIRED', worker_container='NOT_STARTED',
+                exception_chain=[dict(type='OSError', sqlstate=None, errno=exc.errno)])
+            raise Refused('backup media is absent', failure=failure) from exc
+        raise
+    if actual != root:
+        raise Refused('physical backup target differs from its locked configuration')
+
+
 def run(command, *, timeout=120, stdin=None, on_wait=None):
     options = dict(timeout=timeout,stdin=stdin,private_group=False)
     if on_wait is not None: options['on_wait'] = on_wait
@@ -619,6 +643,7 @@ def _chain(root,image,selected,observation,runner,state,*,shared_mode):
 def _fresh_tick(root,runner,state):
     if os.environ.get('SENTINEL_BACKUP_SHARED_INTEGRITY') != 'REQUIRED_V1':
         raise Refused('freshness requires selected shared integrity')
+    admit_media(root, runner)
     image = runtime_image(runner)
     state['phase'] = 'OBSERVE'
     observation = observe_primary(runner)
@@ -667,6 +692,7 @@ def _tick(root, runner, progress, started,state):
     shared_mode = os.environ.get('SENTINEL_BACKUP_SHARED_INTEGRITY', '')
     if shared_mode not in ('', 'REQUIRED_V1'):
         raise Refused('unsupported maintenance shared integrity policy')
+    admit_media(root, runner)
     image = runtime_image(runner)
     state['phase'] = 'OBSERVE'
     observation = observe_primary(runner, with_byte_timing=True) if shared_mode else observe_primary(runner)

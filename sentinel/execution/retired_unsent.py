@@ -90,7 +90,7 @@ def _retired_evidence(conn, cycle_id, plan_id, retired_count, *, current_keys,
             AND (cmd.deployment_id,cmd.broker,cmd.broker_account_id,cmd.takeover_epoch)
                =(waiting.deployment_id,waiting.broker,waiting.broker_account_id,waiting.takeover_epoch)
           JOIN sentinel_execution_plans expired ON expired.plan_id=cmd.plan_id
-            AND expired.effective_session=current.decision_session
+            AND expired.effective_session<=current.decision_session
           AND (expired.deployment_id,expired.broker,expired.broker_account_id,expired.takeover_epoch)
              =(waiting.deployment_id,waiting.broker,waiting.broker_account_id,waiting.takeover_epoch)
         JOIN sentinel_automation_cycles old ON old.plan_id=expired.plan_id
@@ -122,15 +122,18 @@ def _retired_evidence(conn, cycle_id, plan_id, retired_count, *, current_keys,
           AND cmd.side='BUY' AND cmd.filled_quantity=0 AND cmd.broker_order_id IS NULL
           AND (SELECT count(*) FROM sentinel_commands WHERE state=ANY(%s))=%s
             AND EXISTS (
-                WITH RECURSIVE successors(plan_id,superseded_by,hops) AS (
-                    SELECT expired.plan_id,expired.superseded_by,0
-                    UNION ALL
-                    SELECT next_plan.plan_id,next_plan.superseded_by,successors.hops+1
+                WITH RECURSIVE successors(plan_id,superseded_by,decision_session,effective_session) AS (
+                    SELECT expired.plan_id,expired.superseded_by,
+                           expired.decision_session,expired.effective_session
+                    UNION
+                    SELECT next_plan.plan_id,next_plan.superseded_by,
+                           next_plan.decision_session,next_plan.effective_session
                     FROM successors
                     JOIN sentinel_execution_plans next_plan ON next_plan.plan_id=successors.superseded_by
-                    WHERE successors.hops<32
-                      AND (next_plan.decision_session,next_plan.effective_session)
-                         =(current.decision_session,current.effective_session)
+                    WHERE next_plan.decision_session>=successors.decision_session
+                      AND next_plan.effective_session>=successors.effective_session
+                      AND next_plan.decision_session<=current.decision_session
+                      AND next_plan.effective_session<=current.effective_session
                       AND (next_plan.deployment_id,next_plan.broker,next_plan.broker_account_id,next_plan.takeover_epoch)
                          =(current.deployment_id,current.broker,current.broker_account_id,current.takeover_epoch)
                 )

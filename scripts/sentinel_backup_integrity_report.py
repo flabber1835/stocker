@@ -30,7 +30,7 @@ FAILURE_CODES = frozenset(('BUSY PROOF_WINDOW_EXPIRED SELECTION_MOVED POLICY_REF
     'INTEGRITY_REFUSED DATABASE_FAILURE DATABASE_CONNECTION_LOST DEADLINE_EXCEEDED TRANSPORT_FAILURE '
     'PROTOCOL_FAILURE INTERNAL_FAILURE').split())
 FAILURE_STAGES = frozenset(('CONNECT ADMISSION OWNER_WAIT PROOF RESULT LOCK_RELEASE '
-    'HOST_POLICY HOST_IMAGE HOST_POSTGRES HOST_WORKER HOST_VALIDATE HOST_CLEANUP').split())
+    'HOST_POLICY HOST_MEDIA HOST_IMAGE HOST_POSTGRES HOST_WORKER HOST_VALIDATE HOST_CLEANUP').split())
 FAILURE_CAUSES = frozenset(('BackupIntegrityBusy BackupIntegrityProofExpired BackupIntegritySelectionMoved BackupRuntimeUnavailable '
     'BackupRuntimeRefused BackupHorizonExceeded PsycopgError OSError ValueError RuntimeError '
     'TimeoutError Refused PROTOCOL UNCLASSIFIED').split())
@@ -115,6 +115,12 @@ def validate_failure(value):
 def retryable_failure(value):
     cleanup = value['cleanup']
     removed = cleanup['worker_container'] == 'REMOVED'
+    if value['stage'] == 'HOST_MEDIA':
+        return (value['origin'] == 'HOST' and value['code'] == 'PHYSICAL_UNAVAILABLE'
+            and value['cause_type'] == 'OSError'
+            and value['exception_chain'][0] == {'type':'OSError','sqlstate':None,'errno':2}
+            and cleanup == {'proof_lock':'NOT_ACQUIRED','worker_container':'NOT_STARTED'}
+            and value['owner_wait_seconds'] == value['proof_seconds'] == 0)
     if value['code'] == 'DATABASE_CONNECTION_LOST':
         return value['origin'] == 'HOST' and removed
     return (value['code'] in {'BUSY', 'PROOF_WINDOW_EXPIRED', 'SELECTION_MOVED'}
