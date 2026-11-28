@@ -135,6 +135,35 @@ proceeds stay in cash for the next plan.
 
 ## Measuring the opening window
 
+### Exposure-increase simulation coverage
+
+Qualification of 55% to 100%, 0% to 100% and 0% to 55% starts from
+an independently valued account containing the defensive sleeve and, where
+applicable, its existing equity holdings. Each case uses twenty canonical
+strategy holdings. The normal allocation, signed scheduler, journal, guarded
+dispatch, reservation and recovery paths must sell only the required sleeve
+shares and fund the purchases from confirmed proceeds. Exercise all-fractional,
+all-whole-share and mixed eligibility, delayed and partial fills, and loss of a
+worker after broker acceptance, including during partial fills. Confirmed
+cancellations before and after a partial fill must leave only the true remainder
+eligible for a replacement command. An accepted-but-ignored cancellation must
+not create a replacement. A purchase that remains working beyond the cutoff
+must remain pending without a duplicate or new increase. Match actual cash and positions to the venue's
+fill ledger and preserve the starting strategy state.
+
+These prepared-strategy regression cases measure execution and recovery, not
+the full opening preparation time. Their short fixture delays cannot establish
+a market fill-time promise. Separate boundary tests cover cancelled partials,
+cancel acknowledgements without confirmation, unknown submissions, rejects,
+incomplete account observations, eligibility changes and the original cutoff.
+Whole-share fallback may leave cash below the requested exposure; qualification
+must retain that residual rather than invent fractional fills or declare it spent.
+Its current funding admission requires a quiescent account and the candidate as
+the sole unresolved order. Consequently whole-share fallback purchases wait for
+earlier purchases to settle; mixed-eligibility baskets are not fully parallel.
+The simulations retain that restriction and report it as a limitation, without
+granting a dollar reservation to an uncapped whole-share market order.
+
 The dispatch and restart test uses a prepared strategy and supplies purchase
 admission. Its elapsed time measures that fixture. A full opening measurement
 uses the exact candidate and its installed strategy files, the normal scheduler,
