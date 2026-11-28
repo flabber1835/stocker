@@ -112,15 +112,24 @@ def test_original_exchange_boundary_handles_dst_weekend_and_early_close(card, da
 
 @pytest.mark.parametrize('bad', ['early_expiry', 'late_expiry', 'required', 'failed',
     'missing_run', 'future_run', 'future_order', 'unknown_order', 'working_order',
-    'cancel_pending', 'unfilled_sale', 'unproved', 'wrong_plan', 'wrong_terminal_time',
-    'wrong_deadline', 'unsent_sale', 'native_planned_buy'])
+    'cancel_pending', 'unfilled_sale'])
 def test_expiry_never_hides_unproved_or_unresolved_work(card, bad):
+    assert_unproved_or_unresolved_work(card, bad)
+
+
+@pytest.mark.parametrize('key', ['trading_run', 'completed_trading_run'])
+@pytest.mark.parametrize(('outcome', 'bad'), [
+    (outcome, bad) for outcome in ('cash', 'cutoff')
+    for bad in ('unproved', 'wrong_plan', 'wrong_terminal_time', 'wrong_deadline')
+] + [('cutoff', bad) for bad in ('unsent_sale', 'native_planned_buy')])
+def test_retirement_specific_proof_cannot_hide_unproved_work(terminal, key, outcome, bad):
+    card = replace(history_row(outcome, terminal), key=key)
+    assert_unproved_or_unresolved_work(card, bad)
+
+
+def assert_unproved_or_unresolved_work(card, bad):
     run, fact = card.trading_run, card.operational_fact
     changes = {}
-    if bad in {'unproved', 'wrong_plan', 'wrong_terminal_time', 'wrong_deadline'} and fact is None:
-        pytest.skip('successful terminal history has no retirement proof')
-    if bad in {'unsent_sale', 'native_planned_buy'} and not run.unsent_at_cutoff:
-        pytest.skip('only cutoff history has unsubmitted remainder')
     if bad == 'early_expiry':
         changes['valid_until'] = card.valid_until-timedelta(minutes=1)
     elif bad == 'late_expiry':
