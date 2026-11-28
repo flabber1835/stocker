@@ -75,7 +75,7 @@ def test_both_cards_share_retirement_without_clearing_other_warnings(history, re
     page = page_at(history, history.valid_until+TICK)
     other = replace(history, key='completed_trading_run')
     warning = model.Row('shadow_worker', 'Independent warning', 'ATTENTION', model.WARN,
-                        as_of=page.now, required_current=True)
+                        as_of=page.now, valid_until=page.now+timedelta(minutes=1))
     page = replace(page, rows=[*page.rows, other, warning])
     if retained:
         page = replace(page, observation_current=False, observation_retained=True,
