@@ -647,6 +647,13 @@ class EnvHarness(unittest.TestCase):
             shutil.copyfile(ROOT / "scripts" / name, self.root / "scripts" / name)
         (self.root / "scripts/sentinel-backup-lib.sh").write_text(
             'sentinel_backup_root() { echo backup >> effects; printf "%s\\n" "$SENTINEL_BACKUP_DIR"; }\n')
+        # Keep the capacity/lock-name boundary synthetic, like the physical
+        # media and coordinator below. This suite checks literal environment
+        # ingestion through the real launcher, without mounting backup media.
+        (self.root / "scripts/sentinel_backup_capacity.py").write_text(
+            "import os,sys\n"
+            "if sys.argv[1:] == ['lock-root']:\n"
+            " print(os.environ['SENTINEL_BACKUP_DIR'])\n")
         (self.root / "scripts/sentinel_backup_lock.py").write_text(
             "import os,sys\n"
             "LOCK_FD_ENV='SENTINEL_BASE_BACKUP_LOCK_FD'\n"
